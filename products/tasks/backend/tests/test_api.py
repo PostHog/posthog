@@ -9345,6 +9345,17 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertEqual(task.created_by_id, self.user.id)
 
+    def test_handoff_rejects_unbound_legacy_sandbox_oauth(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        client = self._sandbox_oauth_client(task.id, bound=False, internal_scope=True)
+
+        response = client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
     def test_handoff_rejects_task_bound_sandbox_agent_from_another_task(self):
         recipient = self.create_organization_user("recipient")
         bound_task = self.create_task(created_by=self.user)
