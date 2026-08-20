@@ -1,9 +1,12 @@
-use chrono::{DateTime, SecondsFormat, Utc};
+use std::ops::Range;
+
+use chrono::{DateTime, Datelike, SecondsFormat, Utc};
 use serde::Serialize;
 use thiserror::Error;
 use usage_ingestion_proto::usage_ingestion::v1::{UsageMode, UsageRecord};
 use uuid::Uuid;
 
+const CLICKHOUSE_DATETIME64_YEARS: Range<i32> = 1900..2300;
 const MAX_IDENTIFIER_LENGTH: usize = 200;
 const MAX_DIMENSIONS: usize = 50;
 const MAX_DIMENSION_LENGTH: usize = 500;
@@ -22,7 +25,9 @@ pub enum ValidationError {
     InvalidDeltaQuantity,
     #[error("version must be positive")]
     InvalidVersion,
-    #[error("event_timestamp_ms must be a valid timestamp")]
+    #[error(
+        "event_timestamp_ms must be milliseconds since the epoch, between years 1900 and 2300"
+    )]
     InvalidTimestamp,
     #[error("mode must be delta or snapshot")]
     InvalidMode,
@@ -94,7 +99,10 @@ impl KafkaUsageRecord {
         if let Some(value) = record.organization_id.as_deref() {
             Uuid::parse_str(value).map_err(|_| ValidationError::InvalidOrganizationId)?;
         }
+        // Outside DateTime64's range the Kafka engine table cannot parse the row, and
+        // with no kafka_skip_broken_messages that stalls every record behind it.
         let event_timestamp = DateTime::from_timestamp_millis(record.event_timestamp_ms)
+            .filter(|value| CLICKHOUSE_DATETIME64_YEARS.contains(&value.year()))
             .ok_or(ValidationError::InvalidTimestamp)?;
 
         Ok(Self {

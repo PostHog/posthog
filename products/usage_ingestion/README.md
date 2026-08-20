@@ -7,8 +7,11 @@ the usage-ingestion service. Each team has one mapping at:
 posthog:1:cache/teams/<team_id>/usage_ingestion/organization_id.json
 ```
 
-Set `USAGE_INGESTION_REDIS_URL` to the dedicated Redis connection before
-running the publisher. In local Docker development it uses Redis database 2.
+`USAGE_INGESTION_REDIS_URL` gates the whole publisher: unset, the signal
+receiver and both periodic tasks return immediately. No compose stack sets it,
+so nothing writes until you opt in. Point it at the same store the
+usage-ingestion service reads, which is `redis://redis7:6379/2` in the local
+stack and a dedicated Valkey cluster in cloud.
 
 Warm existing mappings after enabling the cache:
 

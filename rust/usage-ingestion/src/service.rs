@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -14,8 +15,6 @@ use uuid::Uuid;
 
 use crate::record::KafkaUsageRecord;
 use crate::resolver::{OrganizationResolver, ResolveError};
-
-pub const USAGE_RECORDS_TOPIC: &str = "clickhouse_usage_records";
 
 pub struct UsageIngestionService {
     producer: FutureProducer<KafkaContext>,
@@ -39,7 +38,11 @@ impl UsageIngestionService {
         }
     }
 
-    async fn prepare(&self, record: UsageRecord) -> Result<KafkaUsageRecord, Status> {
+    async fn prepare(
+        &self,
+        record: UsageRecord,
+        resolved: &mut HashMap<i64, Uuid>,
+    ) -> Result<KafkaUsageRecord, Status> {
         if record.team_id <= 0 || record.team_id > i64::from(i32::MAX) {
             return Err(Status::invalid_argument(
                 "team_id must be a positive 32-bit integer",
@@ -53,11 +56,18 @@ impl UsageIngestionService {
             .map_err(|_| Status::invalid_argument("organization_id must be a UUID"))?;
         let organization_id = match provided_organization {
             Some(value) => value,
-            None => self
-                .resolver
-                .resolve(record.team_id)
-                .await
-                .map_err(resolve_status)?,
+            None => match resolved.get(&record.team_id) {
+                Some(value) => *value,
+                None => {
+                    let value = self
+                        .resolver
+                        .resolve(record.team_id)
+                        .await
+                        .map_err(resolve_status)?;
+                    resolved.insert(record.team_id, value);
+                    value
+                }
+            },
         };
 
         KafkaUsageRecord::from_proto(record, organization_id, Utc::now())
@@ -81,9 +91,12 @@ impl UsageIngestion for UsageIngestionService {
             ));
         }
 
+        // One resolver call per distinct team, not per record: a full batch from one
+        // team would otherwise be 500 Redis reads and 500 queries on a cold cache.
+        let mut resolved = HashMap::new();
         let mut prepared = Vec::with_capacity(records.len());
         for record in records {
-            prepared.push(self.prepare(record).await?);
+            prepared.push(self.prepare(record, &mut resolved).await?);
         }
         let accepted_record_ids = prepared
             .iter()
