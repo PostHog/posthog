@@ -5,7 +5,7 @@ import {
 } from "@posthog/core/inbox/dailyReportLimit";
 import { Button, Input, Text } from "@posthog/quill";
 import type { SignalTeamConfig } from "@posthog/shared/types";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 interface DailyReportLimitSettingsProps {
   config: SignalTeamConfig | null | undefined;
@@ -28,16 +28,19 @@ export function DailyReportLimitSettings({
 }: DailyReportLimitSettingsProps) {
   const savedValue = dailyReportLimitFieldValue(config);
   const [draft, setDraft] = useState(savedValue);
+  const [syncedValue, setSyncedValue] = useState(savedValue);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Re-sync the field when the server value changes and no edit is in flight, so
-  // a refresh or another surface's save shows through instead of being masked.
-  useEffect(() => {
-    if (!isSaving) {
-      setDraft(savedValue);
-    }
-  }, [savedValue, isSaving]);
+  // Re-sync the field when the server value actually changes (a refresh, a
+  // successful save, or another surface's save) so it shows through instead of
+  // being masked. Deriving during render — rather than an effect keyed on
+  // isSaving — leaves a failed save's typed draft in place, since a failure
+  // does not change the server value.
+  if (savedValue !== syncedValue && !isSaving) {
+    setSyncedValue(savedValue);
+    setDraft(savedValue);
+  }
 
   const status = describeDailyReportLimit(config);
   const isDirty = draft.trim() !== savedValue;
