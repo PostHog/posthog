@@ -174,6 +174,7 @@ Fetch the **full** log and let the script reassemble each call (it groups by `to
 **Whether a run wrote anything is a first-class field: `emitted_report_ids` / `edited_report_ids`.** A non-empty `emitted_report_ids` lists the reports the run authored via `emit_report`, in order; `edited_report_ids` lists the reports it mutated via `edit_report` (which can target any inbox report, not just ones a scout authored).
 A productive run typically has one id there and a summary like `Report authored: <id>`; resolve any id via `inbox-reports-retrieve` to read the report itself.
 Don't parse the prose `summary` for output — a phrase like "already reported P1 … did not re-file" describes a _prior_ run, so substring-matching the summary is unreliable; the id columns are the authoritative tally.
+One scout shape breaks the equivalence between "no report ids" and "wrote nothing": a **measurement scout** files no report on a normal run because its output is the record stream, so check `metadata.derived.has_structured_output` (and the events themselves) before calling such a run empty.
 
 **Legacy runs: `emitted_count` / `emitted_finding_ids`.** Runs from the deprecated signal-emitting channel (a scout without the `allowed_tools` opt-in — an old custom scout, or a canonical scout not yet ported) tally their output as `emitted_count` weak findings instead; each `finding_id` maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`.
 For those runs only, `scout-runs-emission-reports` (pass the `run_id`) maps each emitted finding to the inbox report its signal grouped into (or `null` if it never surfaced).
@@ -264,6 +265,7 @@ The full playbook, including how to read each signal and the common failure mode
 - **Report rate** — what fraction of runs wrote or edited a report vs. closed out empty.
   Read it straight off `emitted_report_ids` / `edited_report_ids` per run (or split the window with `runs-list?emitted=true` / `?emitted=false`, remembering edit-only runs read as not-emitted).
   Near-zero over a long window on a live surface can mean the discriminator is too strict (or the surface really is quiet); near-100% usually means it's too noisy.
+  Don't score a **measurement scout** on this at all — a near-zero report rate is its designed behavior, so read its record stream instead.
   Most healthy scouts write rarely.
 - **Signal-to-noise** — of what it wrote, how much surfaced as actionable inbox reports vs. got suppressed or dismissed?
   Resolve each run's `emitted_report_ids` via `inbox-reports-retrieve` and read the report statuses — across a window, the share of authored reports that are live and non-suppressed is the scout's hit rate.

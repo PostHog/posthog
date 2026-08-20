@@ -216,7 +216,7 @@ Keep the two in sync when the scout config / run / scratchpad surfaces change.
 ## Quality bar for a v1 scout
 
 - A named, cheap **signal-vs-noise discriminator** anchored near the top (on a measurement scout, the rubric and sampling recipe take this slot).
-- A **quick close-out** so a quiet run is cheap (don't pay for deep exploration when the watched surface is at baseline or absent).
+- A **quick close-out** so a quiet run is cheap (don't pay for deep exploration when the watched surface is at baseline or absent) — except on a measurement scout, which exits early only when the window held no eligible items, since its ordinary judgments are the denominator.
 - 2–4 concrete **explore patterns** with the actual queries/tools to run — starting points, not a rigid checklist.
 - **Disqualifiers** listing this project's known noise (single-user quirks, dev-env bursts, allowlisted entities).
 - A **Decide** section calibrated against the report contract — author 1:1 only for a finding the scout would own end-to-end, set `suggested_reviewers`, and write memory instead when a candidate is below the bar.
