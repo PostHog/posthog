@@ -56,6 +56,7 @@ function buildSkillColumns(
     duplicateSkill: (name: string, newName: string) => void,
     deleteSkill: (name: string) => void,
     downloadSkillZip: (name: string) => void,
+    publishToCommunity: (skill: LLMSkillListApi) => void,
     options?: { showScoutOrigin?: boolean }
 ): LemonTableColumns<LLMSkillListApi> {
     return [
@@ -178,6 +179,19 @@ function buildSkillColumns(
                                         fullWidth
                                     >
                                         Duplicate
+                                    </LemonButton>
+                                </AccessControlAction>
+
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmSkill}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        onClick={() => publishToCommunity(skill)}
+                                        data-attr="llma-skill-dropdown-publish-community"
+                                        fullWidth
+                                    >
+                                        Publish to community
                                     </LemonButton>
                                 </AccessControlAction>
 
@@ -421,8 +435,15 @@ function ConnectToClaudeCodeModal(): JSX.Element {
 }
 
 export function LLMSkillsScene(): JSX.Element {
-    const { setFilters, deleteSkill, duplicateSkill, downloadSkillZip, importSkill, setConnectModalOpen } =
-        useActions(llmSkillsLogic)
+    const {
+        setFilters,
+        deleteSkill,
+        duplicateSkill,
+        downloadSkillZip,
+        importSkill,
+        setConnectModalOpen,
+        publishToCommunity,
+    } = useActions(llmSkillsLogic)
     const {
         skills,
         skillsLoading,
@@ -435,6 +456,7 @@ export function LLMSkillsScene(): JSX.Element {
         activeTabKey,
         activeCategory,
         activeTabDescription,
+        githubLogin,
     } = useValues(llmSkillsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
@@ -446,12 +468,54 @@ export function LLMSkillsScene(): JSX.Element {
     // Discovery CTA: when a project has no skills of its own yet, point first-timers at the community catalog.
     const showCommunityDiscovery = communitySkillsEnabled && !skillsLoading && skills.count === 0 && !filters.search
 
+    const openPublishDialog = (skill: LLMSkillListApi): void => {
+        LemonDialog.openForm({
+            title: 'Publish to community',
+            description:
+                "Publishing commits the skill's instructions and every bundled file to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
+            initialValues: {
+                display_name: skill.name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+                tags: '',
+                // Prefill with the user's resolved GitHub handle when we have one; the field stays
+                // editable so users without a linked GitHub identity can still type one (free-text fallback).
+                author_handle: githubLogin ?? '',
+            },
+            content: (
+                <div className="flex flex-col gap-2">
+                    <LemonField name="display_name" label="Display name">
+                        <LemonInput data-attr="llma-publish-display-name" autoFocus />
+                    </LemonField>
+                    <LemonField name="tags" label="Tags (comma-separated)">
+                        <LemonInput data-attr="llma-publish-tags" placeholder="web-analytics, triage" />
+                    </LemonField>
+                    <LemonField name="author_handle" label="Your GitHub handle (optional)">
+                        <LemonInput data-attr="llma-publish-author-handle" placeholder="octocat" />
+                    </LemonField>
+                </div>
+            ),
+            onSubmit: ({ display_name, tags, author_handle }) =>
+                publishToCommunity(skill.name, {
+                    display_name: display_name?.trim() || undefined,
+                    tags: tags
+                        ? tags
+                              .split(',')
+                              .map((t: string) => t.trim())
+                              .filter(Boolean)
+                        : undefined,
+                    author_handle: author_handle?.trim() || undefined,
+                }),
+        })
+    }
+
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
     const columns = useMemo(
-        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, { showScoutOrigin }),
+        () =>
+            buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, openPublishDialog, {
+                showScoutOrigin,
+            }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, showScoutOrigin]
+        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, publishToCommunity, githubLogin, showScoutOrigin]
     )
 
     const showGroupedView = filters.group_by_prefix && groupedSkills && !skillsLoading

@@ -146,6 +146,9 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
           channelName={channelName}
           channelId={channelId}
           channelContextId={channelId}
+          allowNoRepo
+          channelRepositories={channel?.repositories}
+          channelGithubIntegration={channel?.github_integration}
           // So a prompt handed to openTaskInput survives routing into a channel.
           initialPrompt={view.initialPrompt}
           initialPromptKey={view.taskInputRequestId}

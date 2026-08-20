@@ -137,3 +137,72 @@ the job still red = a different failure holds the job red — don't attribute it
 The `created_at_raw` floor lets the warehouse scan prune — the parsed `created_at` filter alone hits
 a computed column and forces a full jobs scan. It's coarse (a whole-day, string floor a day below the
 7-day window), so keep the precise `created_at` bound too.
+
+## 7. Job failure rate (for failures with no test rows)
+
+A job that failed _before_ its tests ran (docker setup, a runner port collision, a dependency
+install) writes no `FAILED` line, so `ci_failures` and the span-derived tools are blind to it. Job
+conclusions are the only place it shows up, and they record greens too, so this is the one rate here
+with an honest denominator.
+
+```sql
+SELECT
+    countIf(conclusion = 'success') AS ok,
+    countIf(conclusion IN ('failure', 'timed_out')) AS fail,
+    round(100.0 * fail / nullIf(ok + fail, 0), 2) AS fail_pct
+FROM engineering_analytics_ci_job_history
+WHERE repo_name = '<repo>'
+  AND workflow_name = '<failing workflow name>'
+  AND job_name = '<failing job name>'
+  AND created_at >= now() - INTERVAL 7 DAY
+  AND created_at_raw >= '<8 days ago, YYYY-MM-DD>'
+```
+
+Scope by repository and workflow as well as job: the view unions every connected repository, and job
+names repeat across workflows (`Desktop Tests Pass` fails under two), so a job-only filter pools
+unrelated attempts into the denominator.
+
+`timed_out` counts as a failure, the same set every other rate in this product uses. `cancelled` and
+`skipped` are absent from `ok + fail` on purpose: neither reached a verdict, and both are common
+enough here (superseded pushes, path filters) to halve the rate if counted.
+
+A percentage alone can't tell an old flake from a live outage. Break the same window down by hour:
+
+```sql
+SELECT
+    toStartOfHour(created_at) AS hour,
+    countIf(conclusion = 'success') AS ok,
+    countIf(conclusion IN ('failure', 'timed_out')) AS fail
+FROM engineering_analytics_ci_job_history
+WHERE repo_name = '<repo>'
+  AND workflow_name = '<failing workflow name>'
+  AND job_name = '<failing job name>'
+  AND created_at >= now() - INTERVAL 12 HOUR
+  AND created_at_raw >= '<yesterday, YYYY-MM-DD>'
+GROUP BY hour
+ORDER BY hour DESC
+```
+
+Reading: a low percentage with recent hours mostly green = transient, so recommend a retry rather
+than a code change. Recent hours entirely red = an outage; stop advising retries. Steady across days
+= a standing defect that looks like noise one run at a time.
+
+Both queries keep the `created_at_raw` string floor for the same pruning reason as query 6.
+
+## 8. What the merge queue ran for a PR
+
+The `trunk-merge/pr-<n>/<uuid>` branch is ephemeral, but the jobs it ran stay in `ci_job_history`
+under that `head_branch`. One row per job attempt, failures first:
+
+```sql
+SELECT head_branch, run_id, workflow_name, job_name, conclusion, created_at
+FROM engineering_analytics_ci_job_history
+WHERE startsWith(head_branch, 'trunk-merge/pr-<n>/')
+  AND created_at >= now() - INTERVAL 7 DAY
+  AND created_at_raw >= '<8 days ago, YYYY-MM-DD>'
+ORDER BY conclusion IN ('failure', 'timed_out') DESC, created_at DESC
+```
+
+Each `<uuid>` is one queue attempt; a PR kicked twice has two. The failing `job_name` feeds query 7.
+The PRs the branch carried are readable off its head: `gh api repos/<owner>/<repo>/compare/master...<head_sha>`
+lists merge commits titled `Merging <sha> into trunk-temp/pr-<m>/…`, one `<m>` per queue-mate.

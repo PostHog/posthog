@@ -1095,6 +1095,9 @@ toast.dismiss(id)
 toast({ title: 'Item archived', action: { label: 'Undo', onClick: () => restore() } })
 ```
 
+The title and description are selectable, so a user can copy an error message out of a toast, while the rest of the card is not, so a drag across it still reads as swipe-to-dismiss.
+Custom content you put inside a `ToastCard` needs `data-base-ui-swipe-ignore` for the same treatment, or Base UI takes a drag on it as a swipe and suppresses the selection.
+
 `anchoredToast` positions a toast next to an element instead of stacking it in the corner. It takes the same
 options plus an anchor. An anchored toast with an action also gets a close button, so give it `timeout: 0`
 when the user needs time to decide:
