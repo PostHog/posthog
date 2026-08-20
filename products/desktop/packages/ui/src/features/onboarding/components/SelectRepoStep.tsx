@@ -159,11 +159,19 @@ export function SelectRepoStep({
                     {showSourceSwitch && (
                       <button
                         type="button"
-                        onClick={() =>
-                          setChosenSource(
-                            repoSource === "github" ? "local" : "github",
-                          )
-                        }
+                        onClick={() => {
+                          const nextSource =
+                            repoSource === "github" ? "local" : "github";
+                          // Clear the source being left so a later Skip cannot
+                          // silently assign or persist a repo the user
+                          // navigated away from.
+                          if (nextSource === "local") {
+                            onCloudRepoChange(null);
+                          } else {
+                            onDirectoryChange("");
+                          }
+                          setChosenSource(nextSource);
+                        }}
                         className="cursor-pointer self-start border-0 bg-transparent p-0 text-(--gray-10) text-[13px] underline hover:text-(--gray-11)"
                       >
                         {repoSource === "github"
