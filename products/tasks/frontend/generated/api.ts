@@ -108,6 +108,8 @@ import type {
     TaskRunPeerMessageRequestApi,
     TaskRunPeerMessageResponseApi,
     TaskRunPeersResponseApi,
+    TaskRunPostHogReferencesRequestApi,
+    TaskRunPostHogReferencesResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
@@ -1803,6 +1805,32 @@ export const tasksRunsArtifactsPresignCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunArtifactPresignRequestApi),
     })
+}
+
+export const getTasksRunsArtifactsReferencesCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/references/`
+}
+
+/**
+ * Attach live PostHog object references to the run artifact manifest without uploading files.
+ * @summary Register PostHog object references for a task run
+ */
+export const tasksRunsArtifactsReferencesCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunPostHogReferencesRequestApi: TaskRunPostHogReferencesRequestApi,
+    options?: RequestInit
+): Promise<TaskRunPostHogReferencesResponseApi> => {
+    return apiMutator<TaskRunPostHogReferencesResponseApi>(
+        getTasksRunsArtifactsReferencesCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunPostHogReferencesRequestApi),
+        }
+    )
 }
 
 export const getTasksRunsCancelCreateUrl = (projectId: string, taskId: string, id: string) => {
