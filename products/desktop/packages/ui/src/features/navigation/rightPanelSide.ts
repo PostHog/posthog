@@ -1,3 +1,10 @@
+import {
+  ChatCircleIcon,
+  GitDiffIcon,
+  type Icon,
+  PackageIcon,
+  PulseIcon,
+} from "@phosphor-icons/react";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import {
   DEFAULT_RIGHT_PANEL_SIDE,
@@ -7,10 +14,8 @@ import {
 } from "@posthog/ui/features/navigation/rightPanelStore";
 
 /**
- * Put a session's right panel on a side, or close it with `null`. Changes rides
- * the review store so the command menu, PR links, and diff toggles that already
- * open review all land on the same panel, and so that picking another panel
- * closes what they opened.
+ * Changes rides the review store, so every entry point into a review lands on
+ * the same panel and picking another panel closes what they opened.
  */
 export function openRightPanelSide(
   side: RightPanelSide | null,
@@ -41,13 +46,13 @@ export function toggleRightPanel(taskId: string): void {
 }
 
 /**
- * How much of the content row's right edge the panel's switcher is sitting on.
- * Chrome that pins itself to that edge (the panel tree's tab strip and its
- * split and close controls) reads this and stops short, so the switcher can
- * float over the content pane without taking a column of its own or swallowing
- * the clicks meant for what is under it.
+ * How much of the row's right edge the switcher sits on. Chrome pinned to that
+ * edge reads this and stops short, so the switcher can float over the pane.
  */
 export const CONTENT_CHROME_RIGHT_VAR = "--content-chrome-right";
+
+/** Room for one button per side at icon-sm, kept clear by pane and header alike. */
+export const SWITCHER_WIDTH_PX = 112;
 
 /** Whether this session's panel is open, for chrome that has to make room. */
 export function useRightPanelOpen(taskId: string | undefined): boolean {
@@ -67,3 +72,18 @@ export function useRightPanelOpen(taskId: string | undefined): boolean {
     }) != null
   );
 }
+
+/** The panels the right column can show, in the order the switcher lists them. */
+export const SIDES: Record<RightPanelSide, { label: string; Icon: Icon }> = {
+  timeline: { label: "Timeline", Icon: PulseIcon },
+  artifacts: { label: "Artifacts", Icon: PackageIcon },
+  comments: { label: "Comments", Icon: ChatCircleIcon },
+  changes: { label: "Changes", Icon: GitDiffIcon },
+};
+
+export const SIDE_ORDER: readonly RightPanelSide[] = [
+  "timeline",
+  "artifacts",
+  "comments",
+  "changes",
+];
