@@ -1,3 +1,4 @@
+import type { TaskNotificationParams } from "@posthog/core/sessions/schemas";
 import {
   type INotifications,
   NOTIFICATIONS_SERVICE,
@@ -55,8 +56,12 @@ export interface NotificationDescriptor {
 export interface TaskActivitySignal {
   taskId: string;
   taskTitle: string;
-  activityKind: Extract<TaskActivityKind, "awaiting_input" | "completed">;
+  activityKind: Extract<
+    TaskActivityKind,
+    "awaiting_input" | "completed" | "message"
+  >;
   activityAt: string;
+  snippet?: string;
 }
 
 // The single channel every app notification flows through. Reads focus + the
@@ -161,6 +166,45 @@ export class NotificationBus {
     this.emitTaskActivity(taskId, taskTitle, "awaiting_input");
   }
 
+  notifyTaskNotification(
+    taskTitle: string,
+    notification: TaskNotificationParams,
+    taskId?: string,
+  ): void {
+    const title = `Background task ${notification.status}`;
+    const error =
+      notification.status === "failed"
+        ? (notification.payload ?? notification)
+        : undefined;
+    this.notify({
+      title,
+      body:
+        notification.summary || `Update for "${this.truncateTitle(taskTitle)}"`,
+      target: taskId ? { kind: "task", taskId } : undefined,
+      toast: {
+        level:
+          notification.status === "completed"
+            ? "success"
+            : notification.status === "failed"
+              ? "error"
+              : "warning",
+        description: notification.summary || undefined,
+      },
+      error,
+    });
+    this.emitTaskActivity(taskId, taskTitle, "message", notification.summary);
+  }
+
+  notifyTaskError(taskTitle: string, error: unknown, taskId?: string): void {
+    const summary = summarizeError(error);
+    this.notifyError(
+      `"${this.truncateTitle(taskTitle)}" failed`,
+      error,
+      taskId ? { kind: "task", taskId } : undefined,
+    );
+    this.emitTaskActivity(taskId, taskTitle, "message", summary);
+  }
+
   // Error entry point: the toast carries a one-line summary; the raw payload
   // rides along on `error` and stays inspectable behind the Details action.
   notifyError(
@@ -218,6 +262,7 @@ export class NotificationBus {
     taskId: string | undefined,
     taskTitle: string,
     activityKind: TaskActivitySignal["activityKind"],
+    snippet?: string,
   ): void {
     if (!taskId) return;
     const signal: TaskActivitySignal = {
@@ -225,6 +270,7 @@ export class NotificationBus {
       taskTitle,
       activityKind,
       activityAt: new Date().toISOString(),
+      snippet,
     };
     for (const listener of this.taskActivityListeners) {
       try {

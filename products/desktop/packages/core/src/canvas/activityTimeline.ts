@@ -36,6 +36,23 @@ export interface UserMessageLike {
   timestamp: number;
 }
 
+export type ActivityNotificationLike =
+  | {
+      kind: "task_notification";
+      id: string;
+      timestamp: number;
+      status: "completed" | "failed" | "stopped";
+      summary: string;
+      payload?: Record<string, unknown>;
+    }
+  | {
+      kind: "error";
+      id: string;
+      timestamp: number;
+      message: string;
+      payload?: Record<string, unknown>;
+    };
+
 export type ActivityRow<
   TMessage extends ThreadMessageLike = ThreadMessageLike,
   TComment extends CommentThreadLike = CommentThreadLike,
@@ -53,6 +70,12 @@ export type ActivityRow<
     }
   | { kind: "human_message"; key: string; ts: number; message: TMessage }
   | { kind: "user_message"; key: string; ts: number; item: UserMessageLike }
+  | {
+      kind: "notification";
+      key: string;
+      ts: number;
+      item: ActivityNotificationLike;
+    }
   | { kind: "comment"; key: string; ts: number; thread: TComment }
   | {
       kind: "comment_state";
@@ -71,6 +94,7 @@ const KIND_RANK: Record<ActivityRow["kind"], number> = {
   event: 1,
   human_message: 1,
   user_message: 1,
+  notification: 1,
   comment: 1,
   comment_state: 2,
   run_output_pr: 2,
@@ -90,11 +114,13 @@ export function buildActivityTimeline<
   messages,
   commentThreads,
   userMessages = [],
+  notifications = [],
 }: {
   task: ActivityTaskLike;
   messages: TMessage[];
   commentThreads: TComment[];
   userMessages?: UserMessageLike[];
+  notifications?: ActivityNotificationLike[];
 }): ActivityRow<TMessage, TComment>[] {
   const rows: ActivityRow<TMessage, TComment>[] = [
     {
@@ -153,6 +179,15 @@ export function buildActivityTimeline<
     rows.push({
       kind: "user_message",
       key: `user-message-${item.id}`,
+      ts: item.timestamp,
+      item,
+    });
+  }
+
+  for (const item of notifications) {
+    rows.push({
+      kind: "notification",
+      key: `notification-${item.id}`,
       ts: item.timestamp,
       item,
     });

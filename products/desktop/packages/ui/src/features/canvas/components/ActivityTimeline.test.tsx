@@ -3,6 +3,9 @@ import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
+
 vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
   usePrDetails: () => ({
     meta: { state: "open", merged: false, draft: false },
@@ -120,6 +123,53 @@ describe("ActivityTimeline", () => {
       expect.stringContaining("initial request"),
       expect.stringContaining("later follow-up"),
     ]);
+  });
+
+  it("shows notification summaries and expands their full payloads", () => {
+    renderTimeline(false, [
+      {
+        type: "session_update",
+        id: "notification-1",
+        timestamp: Date.parse("2026-07-17T09:05:00Z"),
+        update: {
+          sessionUpdate: "task_notification",
+          taskId: "background-1",
+          status: "failed",
+          summary: "Background check failed",
+          payload: {
+            error: { message: "Connection reset", code: "ECONNRESET" },
+          },
+        },
+        turnContext: {
+          toolCalls: new Map(),
+          childItems: new Map(),
+          turnCancelled: false,
+          turnComplete: true,
+        },
+      },
+    ]);
+
+    expect(screen.getByText("Background task failed")).toBeInTheDocument();
+    expect(screen.getByText(/Background check failed/)).toBeInTheDocument();
+    expect(screen.queryByText(/ECONNRESET/)).toBeNull();
+
+    const toggle = document.querySelector(
+      '[data-attr="activity-notification-payload-toggle"]',
+    );
+    expect(toggle).not.toBeNull();
+    fireEvent.click(toggle as HTMLElement);
+
+    expect(screen.getByText(/ECONNRESET/)).toBeVisible();
+    expect(track).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        action_type: "expand_notification_payload",
+        surface: "activity_panel",
+        task_id: "task-1",
+        notification_kind: "task_notification",
+        notification_status: "failed",
+      }),
+    );
   });
 
   it("renders structured references natively in conversation previews", () => {

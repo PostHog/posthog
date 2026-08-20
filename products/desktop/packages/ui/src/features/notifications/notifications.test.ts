@@ -223,6 +223,63 @@ describe("native tier settings gating (app unfocused)", () => {
   });
 });
 
+describe("task background notifications", () => {
+  it("shows failures as inspectable toasts and adds them to activity", () => {
+    const { bus } = makeBus({ hasFocus: true });
+    const listener = vi.fn();
+    bus.subscribeToTaskActivity(listener);
+    const payload = {
+      task_id: "background-1",
+      status: "failed",
+      error: { message: "Connection refused", code: "ECONNREFUSED" },
+    };
+
+    bus.notifyTaskNotification(
+      "Parent task",
+      {
+        taskId: "background-1",
+        status: "failed",
+        summary: "Background check failed",
+        payload,
+      },
+      TASK_ID,
+    );
+
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "Background task failed",
+      expect.objectContaining({
+        description: "Background check failed",
+        action: expect.objectContaining({ label: "Details" }),
+      }),
+    );
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activityKind: "message",
+        snippet: "Background check failed",
+      }),
+    );
+  });
+
+  it("keeps the full session error behind its toast", () => {
+    const { bus } = makeBus({ hasFocus: true });
+    const error = {
+      source: "agent_server",
+      error: "Connection refused",
+      requestId: "req-1",
+    };
+
+    bus.notifyTaskError("Parent task", error, TASK_ID);
+
+    expect(toastMock.error).toHaveBeenCalledWith(
+      '"Parent task" failed',
+      expect.objectContaining({
+        description: expect.stringContaining("Connection refused"),
+        action: expect.objectContaining({ label: "Details" }),
+      }),
+    );
+  });
+});
+
 describe("notifyError", () => {
   const payload = { status: 500, message: "upstream exploded", body: { x: 1 } };
 

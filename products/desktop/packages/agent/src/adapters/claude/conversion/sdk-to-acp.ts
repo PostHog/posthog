@@ -760,6 +760,9 @@ export async function handleSystemMessage(
         status: message.status,
         summary: message.summary,
         outputFile: message.output_file,
+        // Keep the original SDK message so activity can show fields this
+        // adapter does not interpret, including future SDK additions.
+        payload: message,
       });
       break;
     }

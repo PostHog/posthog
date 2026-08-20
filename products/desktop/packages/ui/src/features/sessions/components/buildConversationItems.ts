@@ -7,6 +7,7 @@ import {
   POSTHOG_NOTIFICATIONS,
 } from "@posthog/agent/acp-extensions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
+import { parseTaskNotificationParams } from "@posthog/core/sessions/schemas";
 import {
   type AcpMessage,
   type AgentConversationEvent,
@@ -757,6 +758,57 @@ function handleNotification(
       preTokens: params.preTokens,
       contextSize: params.contextSize,
     });
+    return;
+  }
+
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.TASK_NOTIFICATION)) {
+    const params = parseTaskNotificationParams(msg.params);
+    if (!params) return;
+    ensureImplicitTurn(b, ts);
+    pushItem(
+      b,
+      {
+        sessionUpdate: "task_notification",
+        taskId: params.taskId,
+        status: params.status,
+        summary: params.summary,
+        outputFile: params.outputFile,
+        payload: params.payload,
+      },
+      ts,
+    );
+    return;
+  }
+
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.ERROR)) {
+    const params =
+      typeof msg.params === "object" && msg.params !== null
+        ? (msg.params as Record<string, unknown>)
+        : {};
+    const error = params.error;
+    const message =
+      typeof params.message === "string"
+        ? params.message
+        : typeof error === "string"
+          ? error
+          : "The agent encountered an error";
+    const errorType =
+      typeof params.errorType === "string"
+        ? params.errorType
+        : typeof params.type === "string"
+          ? params.type
+          : "agent_error";
+    ensureImplicitTurn(b, ts);
+    pushItem(
+      b,
+      {
+        sessionUpdate: "error",
+        errorType,
+        message,
+        payload: params,
+      },
+      ts,
+    );
     return;
   }
 

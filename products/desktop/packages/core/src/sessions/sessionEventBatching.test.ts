@@ -110,6 +110,7 @@ function createHarness() {
   };
 
   const notifyPromptComplete = vi.fn();
+  const notifyAgentSession = vi.fn();
   const deps = {
     store,
     log: noopLog,
@@ -120,6 +121,7 @@ function createHarness() {
       stopReason?: string;
       durationMs?: number;
     }) => {
+      notifyAgentSession(notification);
       if (notification.kind === "turn_completed") {
         notifyPromptComplete(
           notification.taskTitle,
@@ -166,10 +168,21 @@ function createHarness() {
     service,
     appendEvents,
     notifyPromptComplete,
+    notifyAgentSession,
     updateSession: store.updateSession,
     emit: (event: AcpMessage) => onEvent?.(event),
     events: () => sessions[RUN_ID].events,
   };
+}
+
+function extensionNotification(
+  method: string,
+  params: Record<string, unknown>,
+): AcpMessage {
+  return {
+    ts: 1_000,
+    message: { jsonrpc: "2.0", method, params },
+  } as unknown as AcpMessage;
 }
 
 function promptEcho(id: number, ts: number): AcpMessage {
@@ -258,6 +271,43 @@ describe("streamed event batching", () => {
     // The flush timer was cleared, so advancing does not re-apply anything.
     vi.advanceTimersByTime(FLUSH_MS);
     expect(h.events()).toHaveLength(2);
+  });
+
+  it("routes live background updates to the notification service", () => {
+    const h = createHarness();
+
+    h.emit(
+      extensionNotification("_posthog/task_notification", {
+        taskId: "background-1",
+        status: "failed",
+        summary: "Background check failed",
+        payload: { task_id: "background-1", output_file: "/tmp/output" },
+      }),
+    );
+    h.emit(
+      extensionNotification("_posthog/error", {
+        source: "agent_server",
+        error: "Connection refused",
+        requestId: "req-1",
+      }),
+    );
+    vi.advanceTimersByTime(FLUSH_MS);
+
+    expect(h.notifyAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "background_task_settled",
+        notification: expect.objectContaining({
+          taskId: "background-1",
+          payload: expect.objectContaining({ task_id: "background-1" }),
+        }),
+      }),
+    );
+    expect(h.notifyAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "session_error",
+        error: expect.objectContaining({ requestId: "req-1" }),
+      }),
+    );
   });
 
   it("keeps the turn duration when the prompt mutation clears state before the response flushes", () => {

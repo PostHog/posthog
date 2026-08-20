@@ -102,6 +102,7 @@ import {
   planPermissionResponse,
   resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
+import { parseTaskNotificationParams } from "./schemas";
 import {
   collapseSupersededToolCallUpdates,
   convertStoredEntriesToEvents,
@@ -3304,6 +3305,41 @@ export class SessionService {
         });
         if (isLive) {
           this.finalizeTurnContent(taskRunId, "stop_reason", acpMsg.ts);
+        }
+      }
+      if (
+        isLive &&
+        "method" in msg &&
+        isNotification(msg.method, POSTHOG_NOTIFICATIONS.TASK_NOTIFICATION)
+      ) {
+        const session = this.getSessionByRunId(taskRunId);
+        const notification = parseTaskNotificationParams(
+          (msg as { params?: unknown }).params,
+        );
+        if (session && notification) {
+          this.d.notifyAgentSession({
+            kind: "background_task_settled",
+            taskTitle: session.taskTitle,
+            taskId: session.taskId,
+            notification,
+            isTaskAuthor: session.isTaskAuthor,
+          });
+        }
+      }
+      if (
+        isLive &&
+        "method" in msg &&
+        isNotification(msg.method, POSTHOG_NOTIFICATIONS.ERROR)
+      ) {
+        const session = this.getSessionByRunId(taskRunId);
+        if (session) {
+          this.d.notifyAgentSession({
+            kind: "session_error",
+            taskTitle: session.taskTitle,
+            taskId: session.taskId,
+            error: (msg as { params?: unknown }).params ?? "Agent error",
+            isTaskAuthor: session.isTaskAuthor,
+          });
         }
       }
       if (isTurnCompleteEvent(acpMsg)) {

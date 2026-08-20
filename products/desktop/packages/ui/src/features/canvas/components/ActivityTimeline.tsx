@@ -1,9 +1,17 @@
-import { FileTextIcon, ScrollIcon } from "@phosphor-icons/react";
+import {
+  CheckIcon,
+  FileTextIcon,
+  ScrollIcon,
+  StopIcon,
+  WarningIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import type {
   ArtifactPayload,
   CommentEventPayload,
 } from "@posthog/core/canvas/activityEvents";
 import {
+  type ActivityNotificationLike,
   type ActivityRow,
   buildActivityTimeline,
   type UserMessageLike,
@@ -18,6 +26,7 @@ import {
   CollapsibleTrigger,
   ThreadItemGroup,
 } from "@posthog/quill";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type {
   Task,
   TaskCommentThreadSummary,
@@ -31,6 +40,8 @@ import {
   CommentRow,
   CommentStateRow,
   CREATED_BADGE,
+  DetailBlock,
+  EventBead,
   MESSAGE_BADGE,
   MessageBubble,
   PersonBead,
@@ -41,6 +52,7 @@ import {
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { ThreadArtifactCard } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { serializeError } from "@posthog/ui/features/notifications/errorDetails";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
@@ -52,6 +64,8 @@ import {
   useHasTranscriptListener,
   useThreadNavigationStore,
 } from "@posthog/ui/features/sessions/threadNavigationStore";
+import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
+import { track } from "@posthog/ui/shell/analytics";
 import { Fragment, useMemo } from "react";
 
 type ConversationItem = ReturnType<
@@ -146,6 +160,75 @@ function UserMessageRow({
   );
 }
 
+function ActivityNotificationRow({
+  item,
+  connectedAbove,
+  connectedBelow,
+  taskId,
+}: {
+  item: ActivityNotificationLike;
+  connectedAbove: boolean;
+  connectedBelow: boolean;
+  taskId: string;
+}) {
+  const isError = item.kind === "error" || item.status === "failed";
+  const isStopped =
+    item.kind === "task_notification" && item.status === "stopped";
+  const label =
+    item.kind === "error" ? "Agent error" : `Background task ${item.status}`;
+  const summary = item.kind === "error" ? item.message : item.summary;
+  const serializedPayload = useMemo(
+    () => (item.payload ? serializeError(item.payload) : null),
+    [item.payload],
+  );
+  const icon = isError ? (
+    item.kind === "error" ? (
+      <WarningIcon size={11} weight="fill" />
+    ) : (
+      <XIcon size={10} weight="bold" />
+    )
+  ) : isStopped ? (
+    <StopIcon size={10} weight="fill" />
+  ) : (
+    <CheckIcon size={10} weight="bold" />
+  );
+
+  return (
+    <TimelineRow
+      connectedAbove={connectedAbove}
+      connectedBelow={connectedBelow}
+      gutter={
+        <EventBead tone={isError ? "red" : isStopped ? "amber" : "green"}>
+          {icon}
+        </EventBead>
+      }
+      timestamp={new Date(item.timestamp).toISOString()}
+      dataAttr="activity-notification-payload-toggle"
+      onExpand={() =>
+        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+          action_type: "expand_notification_payload",
+          surface: "activity_panel",
+          task_id: taskId,
+          notification_kind: item.kind,
+          ...(item.kind === "task_notification"
+            ? { notification_status: item.status }
+            : {}),
+        })
+      }
+      detail={
+        serializedPayload ? (
+          <DetailBlock className="max-h-80 overflow-auto">
+            <CodeBlock size="1">{serializedPayload}</CodeBlock>
+          </DetailBlock>
+        ) : undefined
+      }
+    >
+      <span className="font-medium">{label}</span>
+      {summary && <span className="text-muted-foreground"> · {summary}</span>}
+    </TimelineRow>
+  );
+}
+
 /** An inline `= []` default is a new array on every render, which would rebuild the timeline
  *  through the memo's dependency list. */
 const NO_COMMENT_THREADS: TaskCommentThreadSummary[] = [];
@@ -218,6 +301,34 @@ export function ActivityTimeline({
                 item.pinToTop === true && Number.isFinite(taskCreatedTimestamp)
                   ? taskCreatedTimestamp
                   : item.timestamp,
+            });
+          }
+          return items;
+        },
+        [],
+      ),
+      notifications: conversationItems.reduce<ActivityNotificationLike[]>(
+        (items, item) => {
+          if (item.type !== "session_update") return items;
+          const timestamp =
+            item.timestamp ??
+            (Number.isFinite(taskCreatedTimestamp) ? taskCreatedTimestamp : 0);
+          if (item.update.sessionUpdate === "task_notification") {
+            items.push({
+              kind: "task_notification",
+              id: item.id,
+              timestamp,
+              status: item.update.status,
+              summary: item.update.summary,
+              payload: item.update.payload,
+            });
+          } else if (item.update.sessionUpdate === "error") {
+            items.push({
+              kind: "error",
+              id: item.id,
+              timestamp,
+              message: item.update.message,
+              payload: item.update.payload,
             });
           }
           return items;
@@ -350,6 +461,15 @@ export function ActivityTimeline({
             content={row.item.content}
             timestamp={new Date(row.item.timestamp).toISOString()}
             onShowInChat={showPromptInChat(row.item.id)}
+          />
+        );
+      case "notification":
+        return (
+          <ActivityNotificationRow
+            item={row.item}
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
+            taskId={task.id}
           />
         );
       case "human_message":

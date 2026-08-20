@@ -57,7 +57,7 @@ export class TaskActivityContribution implements Contribution {
           channel_name: previous?.channel_name ?? null,
           activity_at: signal.activityAt,
           activity_kind: signal.activityKind,
-          snippet: "",
+          snippet: signal.snippet ?? "",
           latest_author: null,
           latest_message_id: null,
           is_unread: true,

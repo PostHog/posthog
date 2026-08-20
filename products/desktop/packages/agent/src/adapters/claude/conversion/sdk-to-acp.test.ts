@@ -6,6 +6,7 @@ import type {
   SDKAssistantMessage,
   SDKModelRefusalFallbackMessage,
   SDKPartialAssistantMessage,
+  SDKTaskNotificationMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
@@ -434,6 +435,41 @@ describe("import replay (no client-side history)", () => {
       context,
     );
     expect(chunkTexts(updates, "agent_message_chunk")).toEqual([]);
+  });
+});
+
+describe("handleSystemMessage task_notification", () => {
+  it("forwards the complete SDK payload for activity details", async () => {
+    const { context, notifications } = createHandlerContext();
+    const message: SDKTaskNotificationMessage = {
+      type: "system",
+      subtype: "task_notification",
+      task_id: "background-1",
+      tool_use_id: "tool-1",
+      status: "failed",
+      output_file: "/tmp/background-1.output",
+      summary: "Background check failed",
+      usage: { total_tokens: 120, tool_uses: 3, duration_ms: 4_000 },
+      skip_transcript: true,
+      uuid: "00000000-0000-0000-0000-000000000010",
+      session_id: "test-session",
+    };
+
+    await handleSystemMessage(message, context);
+
+    expect(notifications).toEqual([
+      {
+        method: "_posthog/task_notification",
+        params: {
+          sessionId: "test-session",
+          taskId: "background-1",
+          status: "failed",
+          summary: "Background check failed",
+          outputFile: "/tmp/background-1.output",
+          payload: message,
+        },
+      },
+    ]);
   });
 });
 

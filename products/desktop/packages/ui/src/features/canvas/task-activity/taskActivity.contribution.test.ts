@@ -59,8 +59,9 @@ describe("TaskActivityContribution", () => {
     activityListener?.({
       taskId: "task-1",
       taskTitle: "Channel task",
-      activityKind: "awaiting_input",
+      activityKind: "message",
       activityAt: "2026-07-27T10:00:00Z",
+      snippet: "Background check failed",
     });
 
     const cached = queryClient.getQueryData<InfiniteData<TaskActivityPage>>([
@@ -73,7 +74,8 @@ describe("TaskActivityContribution", () => {
           task_id: "task-1",
           task_title: "Channel task",
           channel_id: null,
-          activity_kind: "awaiting_input",
+          activity_kind: "message",
+          snippet: "Background check failed",
           is_unread: true,
         },
       ],

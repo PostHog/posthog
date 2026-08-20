@@ -20,6 +20,24 @@ export class AgentSessionNotificationService implements AgentSessionNotifier {
       return;
     }
 
+    if (notification.kind === "background_task_settled") {
+      this.notifications.notifyTaskNotification(
+        notification.taskTitle,
+        notification.notification,
+        notification.taskId,
+      );
+      return;
+    }
+
+    if (notification.kind === "session_error") {
+      this.notifications.notifyTaskError(
+        notification.taskTitle,
+        notification.error,
+        notification.taskId,
+      );
+      return;
+    }
+
     if (notification.kind === "needs_input") {
       this.notifications.notifyPermissionRequest(
         notification.taskTitle,
