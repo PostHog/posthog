@@ -1475,6 +1475,61 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=true,false")
         assert len(response.json()["results"]) == 2
 
+    def test_a_materialized_view_destination_with_only_the_picker_placeholder(self):
+        # The filters serializer drops the "Select a table" placeholder, so a placeholder-only list
+        # arrives non-empty and leaves empty. The consumer reads an empty list as "every view", so
+        # this has to be rejected rather than silently subscribing to all of them.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "hog": "fetch(inputs.url);",
+                "enabled": True,
+                "inputs": {},
+                "filters": {"source": "data-warehouse-view", "data_warehouse": [{"name": "Select a table"}]},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    @parameterized.expand(
+        [
+            ("data-warehouse-table", status.HTTP_201_CREATED),
+            ("data-warehouse-view", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_warehouse_source_without_a_table_selection(self, source, expected_status):
+        # An empty list still means "every table" for warehouse tables, because destinations were
+        # saved that way before the consumer matched on the selection. Materialized views are newer
+        # and have no such history, so a missing selection is rejected instead of firing on everything.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "hog": "fetch(inputs.url);",
+                "enabled": True,
+                "inputs": {},
+                "filters": {"source": source},
+            },
+        )
+        assert response.status_code == expected_status, response.json()
+
+    def test_a_materialized_view_destination_with_a_view_selected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "hog": "fetch(inputs.url);",
+                "enabled": True,
+                "inputs": {},
+                "filters": {"source": "data-warehouse-view", "data_warehouse": [{"table_name": "daily_revenue"}]},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["filters"]["source"] == "data-warehouse-view"
+
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_create_hog_function_with_site_app_type(self, mock_transpile_fn):
         response = self.client.post(
