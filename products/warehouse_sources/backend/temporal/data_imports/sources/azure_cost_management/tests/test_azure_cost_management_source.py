@@ -122,8 +122,9 @@ class TestAzureCostManagementSource:
         assert self.source.connection_host_fields == ["tenant_id", "scope"]
 
     def test_api_version_metadata(self) -> None:
-        assert self.source.supported_versions == ("2025-03-01",)
-        assert self.source.default_version == "2025-03-01"
+        assert self.source.supported_versions == ("2025-03-01", "2026-06-01")
+        # New sources start on the newest stable version; existing pins are unaffected.
+        assert self.source.default_version == "2026-06-01"
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
 
     def test_lists_tables_without_credentials(self) -> None:
@@ -197,7 +198,7 @@ class TestAzureCostManagementSource:
             assert self.source.validate_credentials(self.config, team_id=1) == result
 
         assert probe.call_args.kwargs["scope"] == "subscriptions/abc"
-        assert probe.call_args.kwargs["api_version"] == "2025-03-01"
+        assert probe.call_args.kwargs["api_version"] == "2026-06-01"
 
     def test_get_resumable_source_manager_is_bound_to_the_resume_dataclass(self) -> None:
         manager = self.source.get_resumable_source_manager(_source_inputs())
@@ -216,7 +217,7 @@ class TestAzureCostManagementSource:
         assert kwargs["endpoint"] == "cost_by_resource"
         assert kwargs["scope"] == "subscriptions/abc"
         assert kwargs["client_secret"] == "secret"
-        assert kwargs["api_version"] == "2025-03-01"
+        assert kwargs["api_version"] == "2026-06-01"
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_withholds_the_watermark_on_a_full_refresh(self) -> None:
@@ -235,7 +236,16 @@ class TestAzureCostManagementSource:
 
         assert build_source.call_args.kwargs["db_incremental_field_last_value"] == "2024-01-01"
 
-    @pytest.mark.parametrize("pinned,expected", [(None, "2025-03-01"), ("2024-08-01", "2024-08-01")])
+    @pytest.mark.parametrize(
+        "pinned,expected",
+        [
+            # No pin resolves to the current default; each supported version is honored verbatim so
+            # an existing 2025-03-01 pin keeps syncing on its own version after the default flip.
+            (None, "2026-06-01"),
+            ("2025-03-01", "2025-03-01"),
+            ("2026-06-01", "2026-06-01"),
+        ],
+    )
     def test_source_for_pipeline_honors_a_pinned_api_version(self, pinned: Optional[str], expected: str) -> None:
         inputs = _source_inputs(api_version=pinned)
 
