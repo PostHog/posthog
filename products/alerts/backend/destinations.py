@@ -274,6 +274,9 @@ def list_active_alert_destinations(
 class AlertDestinationGroup:
     hog_function_ids: tuple[str, ...]
     data: AlertDestinationData
+    # True only when every HogFunction in the group is enabled. One disabled row means the
+    # destination stops receiving that event kind, so the group is no longer fully active.
+    enabled: bool
 
 
 def _destination_type_for_template(template_id: str | None) -> DestinationType | None:
@@ -307,12 +310,13 @@ def list_alert_destination_groups(
             filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
         )
         .order_by("created_at", "id")
-        .values_list("id", "template_id", "inputs")
+        .values_list("id", "template_id", "inputs", "enabled")
     )
 
     ids_by_key: dict[tuple, list[str]] = {}
     data_by_key: dict[tuple, AlertDestinationData] = {}
-    for hog_function_id, template_id, inputs in rows:
+    enabled_by_key: dict[tuple, bool] = {}
+    for hog_function_id, template_id, inputs, enabled in rows:
         destination_type = _destination_type_for_template(template_id)
         if destination_type is None:
             continue
@@ -320,9 +324,14 @@ def list_alert_destination_groups(
         key = _destination_group_key(destination_type=destination_type, data=data, hog_function_id=str(hog_function_id))
         ids_by_key.setdefault(key, []).append(str(hog_function_id))
         data_by_key.setdefault(key, data)
+        enabled_by_key[key] = enabled_by_key.get(key, True) and enabled
 
     return [
-        AlertDestinationGroup(hog_function_ids=tuple(sorted(hog_function_ids)), data=data_by_key[key])
+        AlertDestinationGroup(
+            hog_function_ids=tuple(sorted(hog_function_ids)),
+            data=data_by_key[key],
+            enabled=enabled_by_key[key],
+        )
         for key, hog_function_ids in ids_by_key.items()
     ]
 

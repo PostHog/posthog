@@ -1143,6 +1143,34 @@ class TestLogsAlertAPI(APIBaseTest):
         assert destinations[0]["type"] == "teams"
         assert destinations[0]["webhook_url"] == "https://prod-00.westus.logic.azure.com:443/…"
 
+    def test_list_destinations_reports_disabled_when_one_hog_function_is_disabled(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        HogFunction.objects.filter(id=ids[0]).update(enabled=False)
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destinations = response.json()["results"]
+        assert len(destinations) == 1
+        assert destinations[0]["enabled"] is False
+
+    def test_list_destinations_reports_enabled_per_destination(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        paused_ids = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://paused.example.com/hook"}
+        )
+        self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://active.example.com/hook"})
+        HogFunction.objects.filter(id__in=paused_ids).update(enabled=False)
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        by_url = {destination["webhook_url"]: destination["enabled"] for destination in response.json()["results"]}
+        assert by_url == {"https://paused.example.com/…": False, "https://active.example.com/…": True}
+
     def test_list_destinations_groups_each_destinations_hog_functions_into_one_entry(self):
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -1255,17 +1283,17 @@ class TestLogsAlertAPI(APIBaseTest):
             (
                 "slack",
                 {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123"},
-                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123"},
+                {"type": "slack", "enabled": True, "slack_workspace_id": 42, "slack_channel_id": "C123"},
             ),
             (
                 "webhook",
                 {"type": "webhook", "webhook_url": "https://example.com/hook"},
-                {"type": "webhook", "webhook_url": "https://example.com/…"},
+                {"type": "webhook", "enabled": True, "webhook_url": "https://example.com/…"},
             ),
             (
                 "teams",
                 {"type": "teams", "webhook_url": "https://example.com/teams"},
-                {"type": "teams", "webhook_url": "https://example.com/…"},
+                {"type": "teams", "enabled": True, "webhook_url": "https://example.com/…"},
             ),
         ]
     )

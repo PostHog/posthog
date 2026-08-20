@@ -686,6 +686,8 @@ export interface LogsAlertDestinationConfigApi {
      * * `webhook` - webhook
      * * `teams` - teams */
     type: NotificationDestinationTypeEnumApi
+    /** False when any HogFunction in the group is disabled, because the destination then misses at least one alert event kind. */
+    enabled: boolean
     /** Integration ID for the Slack workspace. Present when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Present when type=slack. */

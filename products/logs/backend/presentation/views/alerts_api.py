@@ -767,6 +767,12 @@ class LogsAlertDestinationResponseSerializer(serializers.Serializer):
 
 class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
     type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
+    enabled = serializers.BooleanField(
+        help_text=(
+            "False when any HogFunction in the group is disabled, because the destination then misses "
+            "at least one alert event kind."
+        )
+    )
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Present when type=slack."
     )
@@ -1032,7 +1038,10 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             allowed_destination_types=LOGS_DESTINATION_TYPES,
         )
-        destinations = [{"hog_function_ids": list(group.hog_function_ids), **group.data} for group in groups]
+        destinations = [
+            {"hog_function_ids": list(group.hog_function_ids), "enabled": group.enabled, **group.data}
+            for group in groups
+        ]
 
         page = self.paginate_queryset(destinations)
         if page is not None:
