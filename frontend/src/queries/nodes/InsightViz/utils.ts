@@ -200,12 +200,23 @@ export const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
 const hasValidationErrorStatus = (error: Error | Record<string, any> | null | undefined): boolean =>
     VALIDATION_ERROR_STATUSES.has((error as Record<string, any> | null | undefined)?.status)
 
+// Raw pydantic schema errors reach the UI as a wall of "N validation errors" text with repeated
+// docs links. They read as noise, so swap them for a message that points to a next step.
+const PYDANTIC_VALIDATION_PATTERN = /validation errors? for|errors\.pydantic\.dev|union_tag_not_found/i
+
+const PYDANTIC_VALIDATION_MESSAGE =
+    "Couldn't read this query. Part of it is missing required details. Open the insight in edit mode to rebuild it."
+
 export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
     if (hasValidationErrorStatus(error)) {
         // Async queries put the error message on data.error_message, while synchronous ones use detail
         const anyError = error as Record<string, any>
+        const detail = anyError.detail || anyError.data?.error_message
+        if (typeof detail === 'string' && PYDANTIC_VALIDATION_PATTERN.test(detail)) {
+            return PYDANTIC_VALIDATION_MESSAGE
+        }
         // Add unbreakable space for better line breaking
-        return (anyError.detail || anyError.data?.error_message)?.replace('Try ', 'Try\u00A0') ?? null
+        return detail?.replace('Try ', 'Try\u00A0') ?? null
     }
 
     return null

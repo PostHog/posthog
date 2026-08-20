@@ -1,6 +1,35 @@
 import { InsightModel } from '~/types'
 
-import { extractValidationErrorCode, getQueryBasedInsightModel } from './utils'
+import { extractValidationError, extractValidationErrorCode, getQueryBasedInsightModel } from './utils'
+
+describe('extractValidationError', () => {
+    const readableMessage =
+        "Couldn't read this query. Part of it is missing required details. Open the insight in edit mode to rebuild it."
+
+    test.each([
+        [
+            'raw pydantic union-tag error becomes readable copy',
+            {
+                status: 400,
+                detail: 'JSON parse error - 5 validation errors for QueryRequest\nquery.FunnelsQuery.series.1.EventsNode\n  Field required [type=missing]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing',
+            },
+            readableMessage,
+        ],
+        [
+            'union_tag_not_found error becomes readable copy',
+            { status: 400, detail: "Unable to extract tag using discriminator 'kind' [type=union_tag_not_found]" },
+            readableMessage,
+        ],
+        [
+            'curated validation copy passes through untouched',
+            { status: 400, detail: 'Funnels require at least two steps.' },
+            'Funnels require at least two steps.',
+        ],
+        ['non-validation status returns null', { status: 500, detail: '5 validation errors for QueryRequest' }, null],
+    ])('%s', (_name, error, expected) => {
+        expect(extractValidationError(error)).toBe(expected)
+    })
+})
 
 describe('extractValidationErrorCode', () => {
     test.each([

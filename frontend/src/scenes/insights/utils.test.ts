@@ -9,6 +9,7 @@ import {
     getDisplayNameFromEntityNode,
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
+    parseDraftQueryFromURL,
 } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -808,5 +809,50 @@ describe('compareTopLevelSections()', () => {
             compareInsightTopLevelSections({ kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode, null as any)
         ).toEqual(['Insight type'])
         expect(compareInsightTopLevelSections(null as any, null as any)).toEqual([])
+    })
+})
+
+describe('parseDraftQueryFromURL()', () => {
+    it('defaults a series entry with an event but no kind to EventsNode', () => {
+        // Reproduces the reported funnel bug: series entries reached the URL hash without a `kind`
+        // discriminator, so the backend's union rejected them.
+        const query = JSON.stringify({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.FunnelsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }, { event: 'signed_up' }, { event: null }],
+            },
+        })
+
+        const parsed = parseDraftQueryFromURL(query) as any
+
+        expect(parsed.source.series).toEqual([
+            { kind: NodeKind.EventsNode, event: '$pageview' },
+            { kind: NodeKind.EventsNode, event: 'signed_up' },
+            { kind: NodeKind.EventsNode, event: null },
+        ])
+    })
+
+    it('normalizes series on a query node without a source wrapper', () => {
+        const query = JSON.stringify({ kind: NodeKind.TrendsQuery, series: [{ event: '$pageview' }] })
+
+        const parsed = parseDraftQueryFromURL(query) as any
+
+        expect(parsed.series).toEqual([{ kind: NodeKind.EventsNode, event: '$pageview' }])
+    })
+
+    it('leaves entries without an event untouched', () => {
+        const query = JSON.stringify({
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.FunnelsQuery, series: [{ kind: NodeKind.ActionsNode, id: 3 }] },
+        })
+
+        const parsed = parseDraftQueryFromURL(query) as any
+
+        expect(parsed.source.series).toEqual([{ kind: NodeKind.ActionsNode, id: 3 }])
+    })
+
+    it('returns null for unparseable input', () => {
+        expect(parseDraftQueryFromURL('not json')).toBeNull()
     })
 })

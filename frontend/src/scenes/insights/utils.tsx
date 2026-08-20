@@ -734,8 +734,26 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
     return JSON.stringify({ query, timestamp })
 }
 
+/** Series entries copied into the `#q=` URL hash sometimes lose their `kind` discriminator.
+ * The backend's discriminated union then rejects each untagged entry with an unreadable error,
+ * so default `kind` to `EventsNode` for any entry that still carries an `event`, mirroring
+ * `legacyEntityToNode`. */
+function normalizeSeriesKind(query: Record<string, any>): void {
+    const source = isObject(query.source) ? query.source : query
+    if (!Array.isArray(source.series)) {
+        return
+    }
+    source.series = source.series.map((entry: unknown) =>
+        isObject(entry) && !entry.kind && 'event' in entry ? { ...entry, kind: NodeKind.EventsNode } : entry
+    )
+}
+
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
-    return parseQuery(query)
+    const parsed = parseQuery<Node<Record<string, any>>>(query)
+    if (parsed && isObject(parsed)) {
+        normalizeSeriesKind(parsed)
+    }
+    return parsed
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {
