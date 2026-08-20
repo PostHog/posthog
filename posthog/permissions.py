@@ -721,6 +721,9 @@ class APIScopePermission(ScopeBasePermission):
             self.message = "This action does not support personal API key access"
             return False
 
+        if not self._check_channel_ceiling(request, view, required_scopes):
+            return False
+
         if is_psak:
             self._check_project_secret_api_key_team(request, view)
         else:
@@ -750,6 +753,39 @@ class APIScopePermission(ScopeBasePermission):
                 self.message = f"API key missing required scope '{required_scope}'"
                 return False
 
+        return True
+
+    def _check_channel_ceiling(self, request, view, required_scopes: list[str]) -> bool:
+        """Deny write-scoped actions when the organization caps this request's channel below
+        editor. Runs before the wildcard-scope early return on purpose: a `*` token must not
+        bypass an organization-level restriction. Reads the same policy the access-control
+        facade composes into object decisions, so the two enforcement points cannot drift."""
+        from products.access_control.backend.facade.ceilings import (  # noqa: PLC0415 — imported lazily to keep the products app out of this module's import cycle at django.setup()
+            WRITE_CAPPED_LEVELS,
+            channel_ceiling,
+            classify_channel,
+        )
+
+        channel = classify_channel(request)
+        if channel is None:
+            return True
+        if not any(scope.endswith(":write") for scope in required_scopes):
+            return True
+        try:
+            org = get_organization_from_view(view)
+        except ValueError:
+            return True
+        if not org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+            return True
+
+        scope_object = self._get_scope_object(request, view)
+        cap = channel_ceiling(org, channel, scope_object if scope_object != "INTERNAL" else None)
+        if cap in WRITE_CAPPED_LEVELS:
+            self.message = (
+                "Your organization restricts MCP access to read-only. "
+                "An organization admin can change this in your organization settings."
+            )
+            return False
         return True
 
     def _check_project_secret_api_key_team(self, request, view) -> None:
