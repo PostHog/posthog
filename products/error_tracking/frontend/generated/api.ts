@@ -52,6 +52,10 @@ import type {
     ErrorTrackingReleaseUpdateRequestApi,
     ErrorTrackingReleasesListParams,
     ErrorTrackingSettingsApi,
+    ErrorTrackingSeverityRuleApi,
+    ErrorTrackingSeverityRuleCreateRequestApi,
+    ErrorTrackingSeverityRuleListResponseApi,
+    ErrorTrackingSeverityRuleUpdateRequestApi,
     ErrorTrackingSpikeDetectionConfigApi,
     ErrorTrackingSpikeEventsListParams,
     ErrorTrackingStackFrameApi,
@@ -90,6 +94,8 @@ import type {
     PatchedErrorTrackingIssueWriteApi,
     PatchedErrorTrackingReleaseUpdateRequestApi,
     PatchedErrorTrackingSettingsApi,
+    PatchedErrorTrackingSeverityRuleReorderRequestApi,
+    PatchedErrorTrackingSeverityRuleUpdateRequestApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
     PatchedErrorTrackingSuppressionRuleUpdateRequestApi,
@@ -1324,6 +1330,120 @@ export const errorTrackingSettingsUpdateSettingsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedErrorTrackingSettingsApi),
+    })
+}
+
+export const getErrorTrackingSeverityRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/`
+}
+
+export const errorTrackingSeverityRulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSeverityRuleListResponseApi> => {
+    return apiMutator<ErrorTrackingSeverityRuleListResponseApi>(getErrorTrackingSeverityRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSeverityRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/`
+}
+
+export const errorTrackingSeverityRulesCreate = async (
+    projectId: string,
+    errorTrackingSeverityRuleCreateRequestApi: ErrorTrackingSeverityRuleCreateRequestApi,
+    options?: RequestInit
+): Promise<ErrorTrackingSeverityRuleApi> => {
+    return apiMutator<ErrorTrackingSeverityRuleApi>(getErrorTrackingSeverityRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSeverityRuleCreateRequestApi),
+    })
+}
+
+export const getErrorTrackingSeverityRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
+}
+
+export const errorTrackingSeverityRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSeverityRuleApi> => {
+    return apiMutator<ErrorTrackingSeverityRuleApi>(getErrorTrackingSeverityRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSeverityRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
+}
+
+export const errorTrackingSeverityRulesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingSeverityRuleUpdateRequestApi?: ErrorTrackingSeverityRuleUpdateRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSeverityRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSeverityRuleUpdateRequestApi),
+    })
+}
+
+export const getErrorTrackingSeverityRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
+}
+
+export const errorTrackingSeverityRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingSeverityRuleUpdateRequestApi?: PatchedErrorTrackingSeverityRuleUpdateRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSeverityRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingSeverityRuleUpdateRequestApi),
+    })
+}
+
+export const getErrorTrackingSeverityRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
+}
+
+export const errorTrackingSeverityRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSeverityRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getErrorTrackingSeverityRulesReorderPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/reorder/`
+}
+
+export const errorTrackingSeverityRulesReorderPartialUpdate = async (
+    projectId: string,
+    patchedErrorTrackingSeverityRuleReorderRequestApi?: PatchedErrorTrackingSeverityRuleReorderRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSeverityRulesReorderPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingSeverityRuleReorderRequestApi),
     })
 }
 
