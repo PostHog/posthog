@@ -23,6 +23,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
+import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
 
 /** Compact segmented-control label per priority. P4 (the lowest bar) reads as "All". */
@@ -38,6 +39,9 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
     value,
     label: THRESHOLD_SEGMENT_LABELS[value],
 }))
+
+const MY_THRESHOLD_DEFAULT_VALUE = '__default__'
+const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...THRESHOLD_SEGMENTS]
 
 function BaseBranchOverrideRows(): JSX.Element | null {
     const { baseBranchOverrides, teamConfigUpdating } = useValues(signalTeamConfigLogic)
@@ -306,6 +310,9 @@ export function SelfDrivingSection(): JSX.Element {
     const { teamConfig, teamConfigLoading, teamConfigUpdating, autostartEnabled, defaultAutostartPriority } =
         useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+    const { autonomyConfig, autonomyConfigLoading, autostartPriorityUpdating } = useValues(userAutonomyLogic)
+    const { setAutostartPriority } = useActions(userAutonomyLogic)
+    const myThreshold = autonomyConfig?.autostart_priority ?? MY_THRESHOLD_DEFAULT_VALUE
 
     if (teamConfigLoading && teamConfig === null) {
         return <LemonSkeleton className="h-20 w-full rounded" />
@@ -334,15 +341,45 @@ export function SelfDrivingSection(): JSX.Element {
             <div className="border-t border-primary bg-surface-secondary">
                 {autostartEnabled ? (
                     <>
-                        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
-                            <span className="text-xs text-secondary shrink-0">Threshold</span>
-                            <LemonSegmentedButton
-                                size="xsmall"
-                                value={defaultAutostartPriority}
-                                options={THRESHOLD_SEGMENTS}
-                                disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
-                                onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
-                            />
+                        <div className="flex flex-col gap-2 px-2.5 py-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-secondary shrink-0">Project threshold</span>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={defaultAutostartPriority}
+                                    options={THRESHOLD_SEGMENTS}
+                                    disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                                    onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs text-secondary shrink-0">My threshold</span>
+                                    <LemonSegmentedButton
+                                        size="xsmall"
+                                        value={myThreshold}
+                                        options={MY_THRESHOLD_SEGMENTS}
+                                        disabledReason={
+                                            autostartPriorityUpdating
+                                                ? 'Saving changes'
+                                                : autonomyConfigLoading
+                                                  ? 'Loading settings'
+                                                  : undefined
+                                        }
+                                        onChange={(next) =>
+                                            setAutostartPriority(
+                                                next === MY_THRESHOLD_DEFAULT_VALUE
+                                                    ? null
+                                                    : (next as SignalReportPriority)
+                                            )
+                                        }
+                                    />
+                                </div>
+                                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                                    Overrides the project threshold for reports that suggest you as reviewer. It applies
+                                    across all your projects.
+                                </p>
+                            </div>
                         </div>
                         <div className="border-t border-primary">
                             <BaseBranchOverrides />
