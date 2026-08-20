@@ -359,7 +359,7 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
         generation = tasks_facade.create_and_run_task(
             team=team,
             title=f"Canvas: {report.title or 'Report'}",
-            description=prompt,
+            description=report.summary or "",
             origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
             user_id=user_id,
             create_pr=False,

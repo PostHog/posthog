@@ -122,6 +122,8 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert attempt.status == SignalReportCanvasGeneration.Status.GENERATING
         assert attempt.generation_task_id == generation_task_id
         assert create_generation.call_args.kwargs["internal"] is False
+        assert create_generation.call_args.kwargs["description"] == report.summary
+        assert create_generation.call_args.kwargs["pending_user_message"].startswith("Build a useful standalone canvas")
 
     def test_repairs_provenance_when_reusing_an_existing_report_canvas(self) -> None:
         report = self._report()
