@@ -24,7 +24,7 @@ use ingestion_consumer::debug_recorder::{DebugLoad, DebugRecorder, DebugState, W
 use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
 };
-use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::dispatcher::{ChunkConfig, Dispatcher};
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
@@ -219,6 +219,12 @@ async fn async_main(config: Config) -> Result<()> {
         };
 
     let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
+    let chunking = ChunkConfig::new(config.sub_batch_max_events, config.sub_batch_min_events);
+    if chunking.enabled() {
+        // Log the effective bands, so a min clamped down to the max is visible.
+        info!(?chunking, "Sub-batch chunking enabled");
+    }
+    dispatcher.set_chunking(chunking);
     if let Some(recorder) = &debug_recorder {
         dispatcher.set_debug_recorder(Arc::clone(recorder));
     }
