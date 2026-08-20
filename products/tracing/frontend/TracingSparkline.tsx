@@ -195,7 +195,7 @@ export function TracingSparkline({
         [durationMode, tooltipLabelFormatter]
     )
 
-    const hasData = (durationMode ? durationHistogram!.data : sparklineData.data).length > 0
+    const hasData = seriesSource.length > 0
 
     return (
         <div className="flex flex-col gap-1">
