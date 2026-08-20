@@ -870,7 +870,7 @@ async fn try_get_feature_flag_hash_key_overrides(
     // The join keeps a person row even when it has no override, so no rows at all means this pool
     // could not see any of the requested distinct IDs. That is a different miss from seeing at
     // least one and finding no override.
-    let person_found = !rows.is_empty();
+    let any_distinct_id_found = !rows.is_empty();
 
     if query_duration.as_millis() > 200 {
         warn!(
@@ -900,10 +900,7 @@ async fn try_get_feature_flag_hash_key_overrides(
         person_id_to_distinct_id.insert(person_id, distinct_id);
 
         // Collect overrides where they exist
-        if let (Ok(feature_flag_key), Ok(hash_key)) = (
-            row.try_get::<String, _>("feature_flag_key"),
-            row.try_get::<String, _>("hash_key"),
-        ) {
+        if let Some((feature_flag_key, hash_key)) = row_override(&row) {
             overrides.push((feature_flag_key, hash_key, person_id));
         }
     }
@@ -949,8 +946,13 @@ async fn try_get_feature_flag_hash_key_overrides(
         let persons_writer = persons_writer.clone();
         let distinct_ids = distinct_id_and_hash_key_override.to_vec();
         tokio::spawn(async move {
-            check_primary_for_stale_empty(&persons_writer, team_id, &distinct_ids, person_found)
-                .await;
+            check_primary_for_stale_empty(
+                &persons_writer,
+                team_id,
+                &distinct_ids,
+                any_distinct_id_found,
+            )
+            .await;
         });
     }
 
@@ -968,7 +970,7 @@ async fn check_primary_for_stale_empty(
     persons_writer: &PostgresWriter,
     team_id: TeamId,
     distinct_id_and_hash_key_override: &[String],
-    person_found_on_replica: bool,
+    any_distinct_id_found_on_replica: bool,
 ) {
     let check = primary_has_override(persons_writer, team_id, distinct_id_and_hash_key_override);
 
@@ -980,7 +982,7 @@ async fn check_primary_for_stale_empty(
         Err(_) => "timeout",
         Ok(Err(_)) => "error",
         Ok(Ok(false)) => "agree",
-        Ok(Ok(true)) if person_found_on_replica => "disagree_override_missing",
+        Ok(Ok(true)) if any_distinct_id_found_on_replica => "disagree_override_missing",
         Ok(Ok(true)) => "disagree_person_missing",
     };
 
@@ -989,6 +991,14 @@ async fn check_primary_for_stale_empty(
         &[("outcome".to_string(), outcome.to_string())],
         1,
     );
+}
+
+/// The served read and the staleness check must agree on what counts as an override, or the
+/// disagree metrics measure the gap between two tests rather than replica lag.
+fn row_override(row: &PgRow) -> Option<(String, String)> {
+    let feature_flag_key: String = row.try_get("feature_flag_key").ok()?;
+    let hash_key: String = row.try_get("hash_key").ok()?;
+    Some((feature_flag_key, hash_key))
 }
 
 /// Both the served read and the staleness check run this, so a disagreement between them means
@@ -1038,11 +1048,7 @@ async fn primary_has_override(
 
     let rows = fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
 
-    // Same test the served read applies when it collects an override from a row.
-    Ok(rows.iter().any(|row| {
-        row.try_get::<String, _>("feature_flag_key").is_ok()
-            && row.try_get::<String, _>("hash_key").is_ok()
-    }))
+    Ok(rows.iter().any(|row| row_override(row).is_some()))
 }
 
 /// Sets feature flag hash key overrides for a list of distinct IDs.
