@@ -13,6 +13,7 @@ from django.db import IntegrityError, connection, transaction
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
@@ -105,7 +106,7 @@ def create_workflow_task(
 
     _validate_connectors(team.id, owner_id, mcp_installation_ids)
 
-    slack_integration = _resolve_slack_integration(team.id, slack_context) if slack_context is not None else None
+    slack_binding = _resolve_slack_binding(team.id, slack_context)
 
     # Snapshot the connector allowlist onto the run: the sandbox mounts only what's here
     # (see loop_mcp_installation_allowlist), so a later edit of the workflow can't change
@@ -124,17 +125,6 @@ def create_workflow_task(
         # prompt twice. The override is only read by the boot path, so it delivers once.
         "initial_prompt_override": _render_run_message(prompt, event),
     }
-
-    slack_thread_context = (
-        SlackThreadContext(
-            integration_id=slack_integration.id,
-            channel=slack_context.channel,
-            thread_ts=slack_context.thread_ts,
-            mentioning_slack_user_id=slack_context.slack_user_id or None,
-        )
-        if slack_integration is not None and slack_context is not None
-        else None
-    )
 
     try:
         # One transaction so a duplicate origin_key rolls back the task, its run, and the
@@ -172,18 +162,18 @@ def create_workflow_task(
                 extra_run_state=extra_run_state,
                 model=model,
                 reasoning_effort=reasoning_effort,
-                slack_thread_context=slack_thread_context,
+                slack_thread_context=slack_binding.thread_context if slack_binding is not None else None,
                 # Explicit: passing slack_thread_context alone defaults the origin to "slack",
                 # which flips actor and credential resolution to a Slack steering user the run
                 # doesn't have. The run must keep executing as the workflow owner.
-                interaction_origin="workflow" if slack_thread_context is not None else None,
+                interaction_origin="workflow" if slack_binding is not None else None,
             )
 
-            if slack_integration is not None and slack_context is not None:
+            if slack_binding is not None:
                 # Inside the transaction on purpose: the actual agent start is deferred to
                 # on-commit, so the binding commits atomically with the run and is guaranteed
                 # visible before the agent can finish and try to report into the thread.
-                _bind_slack_thread(team=team, integration=slack_integration, task=task, ctx=slack_context)
+                _bind_slack_thread(team=team, task=task, binding=slack_binding)
     except IntegrityError:
         if origin_key is None:
             raise
@@ -222,7 +212,7 @@ def _validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list
         raise WorkflowTaskConnectorsInvalid(invalid)
 
 
-def _render_run_message(prompt: str, event: dict[str, Any] | None = None) -> str:
+def _render_run_message(prompt: str, event: dict[str, Any] | None) -> str:
     # PostHog Code strips this established wrapper from user-message bubbles while still
     # sending its contents to the agent (same contract as render_loop_run_message).
     message = (
@@ -255,8 +245,18 @@ def _render_event_json(event: dict[str, Any]) -> str:
     return serialized
 
 
-def _resolve_slack_integration(team_id: int, ctx: contracts.WorkflowTaskSlackContext) -> Integration | None:
+@frozen
+class _SlackBinding:
+    """A slack_context resolved against the team's Slack integrations, ready to bind."""
+
+    integration: Integration
+    thread_context: SlackThreadContext
+
+
+def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext | None) -> _SlackBinding | None:
     """Team-scoped on purpose: the team filter is what stops a token binding another team's threads."""
+    if ctx is None:
+        return None
     integration = Integration.objects.filter(id=ctx.integration_id, team_id=team_id, kind="slack").first()
     if integration is None and ctx.slack_team_id:
         integration = Integration.objects.filter(
@@ -269,22 +269,30 @@ def _resolve_slack_integration(team_id: int, ctx: contracts.WorkflowTaskSlackCon
             integration_id=ctx.integration_id,
             slack_team_id=ctx.slack_team_id,
         )
-    return integration
+        return None
+    return _SlackBinding(
+        integration=integration,
+        thread_context=SlackThreadContext(
+            integration_id=integration.id,
+            channel=ctx.channel,
+            thread_ts=ctx.thread_ts,
+            mentioning_slack_user_id=ctx.slack_user_id or None,
+        ),
+    )
 
 
-def _bind_slack_thread(
-    *, team: Team, integration: Integration, task: Task, ctx: contracts.WorkflowTaskSlackContext
-) -> None:
+def _bind_slack_thread(*, team: Team, task: Task, binding: _SlackBinding) -> None:
     """Bind the run to the thread that triggered it so agent replies land there and thread
     replies forward to the agent. Never raises: a task that can't report back is still worth
     running."""
+    thread = binding.thread_context
     try:
         run = task.latest_run
         if run is None:
             return
         existing = (
             SlackThreadTaskMapping.objects.select_related("task_run")
-            .filter(integration=integration, channel=ctx.channel, thread_ts=ctx.thread_ts)
+            .filter(integration=binding.integration, channel=thread.channel, thread_ts=thread.thread_ts)
             .first()
         )
         if existing is not None and existing.task_run is not None and existing.task_run.status in ACTIVE_RUN_STATUSES:
@@ -298,17 +306,17 @@ def _bind_slack_thread(
             )
             return
         SlackThreadTaskMapping.objects.update_or_create(
-            integration=integration,
-            channel=ctx.channel,
-            thread_ts=ctx.thread_ts,
+            integration=binding.integration,
+            channel=thread.channel,
+            thread_ts=thread.thread_ts,
             defaults={
                 "team": team,
-                "slack_workspace_id": integration.integration_id or "",
+                "slack_workspace_id": binding.integration.integration_id or "",
                 "task": task,
                 "task_run": run,
-                "mentioning_slack_user_id": ctx.slack_user_id or "",
+                "mentioning_slack_user_id": thread.mentioning_slack_user_id or "",
                 # Watermark for follow-up diffs: the triggering message is already in the prompt.
-                "last_forwarded_ts": ctx.thread_ts,
+                "last_forwarded_ts": thread.thread_ts,
             },
         )
     except Exception:
