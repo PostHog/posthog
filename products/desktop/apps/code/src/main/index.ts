@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import os from "node:os";
+import path from "node:path";
 import { TypedEventEmitter } from "@posthog/shared";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import { createReconnectingWorkspaceClient } from "@posthog/workspace-client/client";
@@ -104,7 +105,10 @@ import {
 } from "./utils/logger";
 import { isMacosPackagedUnsafeBundleLocation } from "./utils/macos-packaged-install-guard";
 import { installMainFetchLogging } from "./utils/network-fetch-logger";
+import { redactUrl } from "./utils/network-log";
 import { installRendererNetworkLogging } from "./utils/network-webrequest-logger";
+import { setMemoryWatchdog } from "./watchdog/instance";
+import { MemoryWatchdog } from "./watchdog/watchdog";
 import { createWindow, onMainWindowClosed } from "./window";
 
 type FileWatcherEventsByKind = {
@@ -193,6 +197,54 @@ function crashDiagnostics() {
   };
 }
 
+// ========================================================
+// Memory watchdog
+// ========================================================
+
+// Constructed at module scope so the crash handlers below can reach it — they
+// fire before `whenReady` resolves during an early-boot crash.
+const memoryWatchdog = new MemoryWatchdog({
+  // Alongside main.log and network.log, so a user grabbing their logs picks up
+  // the memory reports in the same folder.
+  diagnosticsDirectory: path.dirname(getLogFilePath()),
+  getAppMetrics: () => app.getAppMetrics(),
+  logger: log.scope("memory-watchdog"),
+  appInfo: () => ({
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+    platform: process.platform,
+    arch: process.arch,
+    electron: process.versions.electron,
+    node: process.versions.node,
+    uptimeSeconds: Math.round(process.uptime()),
+    crashDumpsDirectory: app.getPath("crashDumps"),
+  }),
+  takeRendererHeapSnapshot: async (directory) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (candidate) => !candidate.isDestroyed(),
+    );
+    if (!window || window.webContents.isDestroyed()) {
+      throw new Error("No live renderer to snapshot");
+    }
+    const filename = `renderer-${window.webContents.getOSProcessId()}.heapsnapshot`;
+    await window.webContents.takeHeapSnapshot(path.join(directory, filename));
+    return filename;
+  },
+  onReport: (report, sample) => {
+    posthogNodeAnalytics.track(ANALYTICS_EVENTS.MEMORY_WATCHDOG_CAPTURED, {
+      trigger: report.trigger,
+      total_rss_mb: Math.round(report.totalRssBytes / 1024 / 1024),
+      threshold_mb: Math.round(report.thresholdBytes / 1024 / 1024),
+      process_count: sample?.processCount ?? 0,
+      descendant_rss_mb: Math.round(
+        (sample?.descendantRssBytes ?? 0) / 1024 / 1024,
+      ),
+    });
+  },
+});
+
+setMemoryWatchdog(memoryWatchdog);
+
 app.on("render-process-gone", (_event, webContents, details) => {
   const props = {
     source: "main",
@@ -205,6 +257,13 @@ app.on("render-process-gone", (_event, webContents, details) => {
     ...crashDiagnostics(),
   };
   log.error("Renderer process gone", props);
+  void memoryWatchdog.capture(
+    "render-process-gone",
+    `Renderer exited: ${details.reason} (code ${details.exitCode})`,
+    // An artifact preview renderer's URL is a base64 `data:` document holding
+    // the whole artifact, which has no place in a report a user attaches.
+    { ...details, url: redactUrl(webContents.getURL()) },
+  );
   posthogNodeAnalytics.captureException(
     new Error(`Renderer process gone: ${details.reason}`),
     {
@@ -253,6 +312,11 @@ app.on("child-process-gone", (_event, details) => {
     ...crashDiagnostics(),
   };
   log.error("Child process gone", props);
+  void memoryWatchdog.capture(
+    "child-process-gone",
+    `${details.type} exited: ${details.reason}`,
+    { ...details },
+  );
   posthogNodeAnalytics.captureException(
     new Error(`Child process gone (${details.type}): ${details.reason}`),
     {
@@ -364,6 +428,10 @@ app.whenReady().then(async () => {
   log.info(
     `Logs: main=${getLogFilePath()} chromium=${getChromiumLogFilePath() ?? "(disabled)"} network=${getNetworkLogFilePath()}`,
   );
+  // Before anything that can reject: a boot that dies during service
+  // initialization is exactly the kind the watchdog exists to explain, and it
+  // can only do that if its sentinel and breadcrumbs are already on disk.
+  void memoryWatchdog.start();
   ensureClaudeConfigDir();
   setupExternalLinkPermissionHandlers(session.fromPartition("persist:main"));
   registerMcpSandboxProtocol();
@@ -466,9 +534,22 @@ const teardownContainer = async (): Promise<void> => {
   } catch (error) {
     log.warn("Failed to unbind container", error);
   }
+  // Runs after the shutdown sequence succeeded and before `app.exit()`, which
+  // skips `will-quit`. A shutdown that times out force-kills before reaching
+  // here, and leaving the sentinel behind is the correct outcome then.
+  memoryWatchdog.markCleanShutdown();
 };
 
+// Covers the quit paths that never build a container or never call
+// `gracefulExit`, such as quitting to install an update.
+app.on("will-quit", () => {
+  memoryWatchdog.markCleanShutdown();
+});
+
 app.on("before-quit", async (event) => {
+  // Stop sampling now, but leave the sentinel until the shutdown has actually
+  // finished — this handler also runs on quits that go on to be force-killed.
+  memoryWatchdog.stop();
   try {
     container.get<WorkspaceServerService>(WORKSPACE_SERVER_SERVICE).stop();
   } catch {}
@@ -500,6 +581,7 @@ app.on("before-quit", async (event) => {
 
 const handleShutdownSignal = async (signal: string) => {
   log.info(`Received ${signal}, starting shutdown`);
+  memoryWatchdog.stop();
   try {
     const lifecycleService = container.get<AppLifecycleService>(
       APP_LIFECYCLE_SERVICE,
@@ -544,6 +626,9 @@ process.on("uncaughtException", (error) => {
     return;
   }
   log.error("Uncaught exception", error);
+  void memoryWatchdog.capture("uncaught-exception", error.message, {
+    stack: error.stack,
+  });
   posthogNodeAnalytics.captureException(error, {
     source: "main",
     type: "uncaughtException",
@@ -557,6 +642,9 @@ process.on("unhandledRejection", (reason) => {
   }
   log.error("Unhandled rejection", reason);
   const error = reason instanceof Error ? reason : new Error(String(reason));
+  void memoryWatchdog.capture("uncaught-exception", error.message, {
+    stack: error.stack,
+  });
   posthogNodeAnalytics.captureException(error, {
     source: "main",
     type: "unhandledRejection",

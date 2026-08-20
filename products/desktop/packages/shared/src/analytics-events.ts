@@ -1343,6 +1343,7 @@ export const ANALYTICS_EVENTS = {
   // App lifecycle
   APP_STARTED: "App started",
   APP_QUIT: "App quit",
+  MEMORY_WATCHDOG_CAPTURED: "Memory watchdog captured",
 
   // Authentication
   USER_LOGGED_IN: "User logged in",

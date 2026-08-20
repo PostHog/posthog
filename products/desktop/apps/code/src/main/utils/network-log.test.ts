@@ -87,6 +87,20 @@ describe("redactUrl", () => {
     );
   });
 
+  it("keeps only the media type of a data url", () => {
+    // An artifact preview renderer's URL is the whole document, base64-encoded.
+    const document = Buffer.from("<html>secret contents</html>").toString(
+      "base64",
+    );
+
+    const redacted = redactUrl(
+      `data:text/html;charset=utf-8;base64,${document}`,
+    );
+
+    expect(redacted).toBe("data:text/html,<redacted>");
+    expect(redacted).not.toContain(document);
+  });
+
   it("strips userinfo (user:pass@host) credentials", () => {
     const redacted = redactUrl("https://alice:s3cr3tp%40ss@example.com/api");
     expect(redacted).toBe("https://example.com/api");
