@@ -17,6 +17,71 @@
   content: attr(data-placeholder);
 }
 
+/* Markdown blocks, styled to match how the chat thread renders the same markdown
+   (ChatMarkdown). Written as CSS rather than classes on the nodes so it applies to
+   every editor instance, including ones built before an extension change. Tailwind
+   preflight strips list styling, hence the list-style declarations. */
+.cli-editor ul,
+.cli-editor ol,
+.cli-editor pre {
+  margin: 0.25em 0;
+}
+
+.cli-editor ul,
+.cli-editor ol {
+  padding-inline-start: 1rem;
+}
+
+.cli-editor ul {
+  list-style: disc;
+}
+
+.cli-editor ul ul {
+  list-style: circle;
+}
+
+.cli-editor ol {
+  padding-inline-start: 1.25rem;
+  list-style: decimal;
+}
+
+.cli-editor li + li {
+  margin-top: 0.125rem;
+}
+
+.cli-editor li > p {
+  margin: 0;
+}
+
+.cli-editor code {
+  padding-inline: 0.25rem;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+.cli-editor pre {
+  padding: 0.75rem;
+  overflow-x: auto;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+}
+
+/* pre already paints the box; the inner code element must not paint a second one. */
+.cli-editor pre code {
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-size: inherit;
+}
+
 /* Ensure Tiptap NodeView wrappers render inline for mention chips */
 .cli-editor [data-node-view-wrapper] {
   display: inline;

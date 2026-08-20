@@ -90,6 +90,8 @@ export interface BuildResult {
    *  silent: a turn can sit minutes inside one tool call or thinking block
    *  with nothing new to render, and a frozen status word reads as a hang. */
   lastActivityAt: number | null;
+  /** A background turn started without a prompt RPC and has not completed. */
+  isBackgroundTurnActive: boolean;
 }
 
 interface ProgressCardState {
@@ -118,6 +120,8 @@ interface TurnState {
   context: TurnContext;
   gitAction: ReturnType<typeof parseGitActionMessage>;
   itemCount: number;
+  /** Per-turn so item ids survive older-history prepends; the virtualized thread anchors on them. */
+  nextItemId: number;
 }
 
 export interface ItemBuilder {
@@ -131,7 +135,6 @@ export interface ItemBuilder {
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
   isClearing: boolean;
-  nextId: () => number;
   /** Progress cards keyed by the backend-supplied `group` id. The first event
    *  for a group opens the card inline where it arrived; every subsequent
    *  event for the same id mutates the same card, regardless of which turn is
@@ -150,13 +153,13 @@ export interface ItemBuilder {
   /** Timestamp (ms) of the newest event fed to this builder. See the field of
    *  the same name on `BuildResult`. */
   lastActivityAt: number | null;
+  isBackgroundTurnActive: boolean;
   /** Runs that emitted `_posthog/run_started`; until then the setup card's
    *  "agent" step stays in_progress rather than completing at HTTP-boot time. */
   runStartedRunIds: Set<string>;
 }
 
 export function createItemBuilder(): ItemBuilder {
-  let idCounter = 0;
   return {
     items: [],
     currentTurn: null,
@@ -165,11 +168,11 @@ export function createItemBuilder(): ItemBuilder {
     shellExecutes: new Map(),
     isCompacting: false,
     isClearing: false,
-    nextId: () => idCounter++,
     progressCards: new Map(),
     lowestTouchedProgressIndex: Number.POSITIVE_INFINITY,
     completedToolCallCount: 0,
     lastActivityAt: null,
+    isBackgroundTurnActive: false,
     runStartedRunIds: new Set(),
   };
 }
@@ -237,7 +240,7 @@ function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
   turn.itemCount++;
   b.items.push({
     type: "session_update",
-    id: `${turn.id}-item-${b.nextId()}`,
+    id: `${turn.id}-item-${turn.nextItemId++}`,
     update,
     turnContext: turn.context,
     timestamp: ts,
@@ -296,6 +299,7 @@ export function buildConversationItems(
     isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
     lastActivityAt: b.lastActivityAt,
+    isBackgroundTurnActive: b.isBackgroundTurnActive,
   };
 }
 
@@ -353,6 +357,7 @@ export function buildAgentConversationItems(
     isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
     lastActivityAt: b.lastActivityAt,
+    isBackgroundTurnActive: b.isBackgroundTurnActive,
   };
 }
 
@@ -566,6 +571,7 @@ function handlePromptRequest(
     context,
     gitAction,
     itemCount: 0,
+    nextItemId: 0,
   };
 
   b.pendingPrompts.set(msg.id, b.currentTurn);
@@ -687,9 +693,17 @@ function handleNotification(
   // (see accumulateSessionResources / SessionResourcesBar).
 
   if (
+    isNotification(msg.method, POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_STARTED)
+  ) {
+    b.isBackgroundTurnActive = true;
+    return;
+  }
+
+  if (
     isNotification(msg.method, POSTHOG_NOTIFICATIONS.TURN_COMPLETE) ||
     isNotification(msg.method, POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE)
   ) {
+    b.isBackgroundTurnActive = false;
     const params = msg.params as { stopReason?: string } | undefined;
     if (!b.currentTurn) return;
     completePromptTurn(b, b.currentTurn, ts, {
@@ -979,7 +993,9 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
   if (b.currentTurn && !b.currentTurn.isComplete) return;
 
   b.currentTurnStartIndex = b.items.length;
-  const turnId = `turn-${ts}-implicit`;
+  // Entries with a missing or unparseable timestamp all share one `ts`, so the
+  // item index is what keeps two implicit turns from emitting the same item ids.
+  const turnId = `turn-${ts}-implicit-${b.currentTurnStartIndex}`;
   const toolCalls = new Map<string, ToolCall>();
   const childItems = new Map<string, ConversationItem[]>();
   const context: TurnContext = {
@@ -998,6 +1014,7 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
     context,
     gitAction: { isGitAction: false, actionType: null, prompt: "" },
     itemCount: 0,
+    nextItemId: 0,
   };
 }
 
@@ -1034,7 +1051,7 @@ function pushChildItem(b: ItemBuilder, parentId: string, update: RenderItem) {
   turn.itemCount++;
   children.push({
     type: "session_update",
-    id: `${turn.id}-child-${b.nextId()}`,
+    id: `${turn.id}-child-${turn.nextItemId++}`,
     update,
     turnContext: turn.context,
   });
@@ -1080,7 +1097,7 @@ function appendTextChunkToChildren(
     turn.itemCount++;
     children.push({
       type: "session_update",
-      id: `${turn.id}-child-${b.nextId()}`,
+      id: `${turn.id}-child-${turn.nextItemId++}`,
       update: { ...update, content: { ...update.content } },
       turnContext: turn.context,
     });

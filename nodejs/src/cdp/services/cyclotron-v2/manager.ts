@@ -612,8 +612,19 @@ export class CyclotronV2Manager {
      */
     async cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult> {
         const { teamId, functionId } = options
-        if ((options.jobIds !== undefined) === (options.all === true)) {
-            throw new Error('cancelJobs requires exactly one selector: jobIds or all')
+        const selectorCount = [
+            options.jobIds !== undefined,
+            options.all === true,
+            options.parentRunId !== undefined,
+        ].filter(Boolean).length
+        if (selectorCount !== 1) {
+            throw new Error('cancelJobs requires exactly one selector: jobIds, parentRunId, or all')
+        }
+        // Rejected rather than treated as unset: the SQL builder below tests truthiness, so an
+        // empty string would leave the selector clause empty and silently widen a parent-run
+        // cancel to every in-flight job of the workflow.
+        if (options.parentRunId !== undefined && options.parentRunId.length === 0) {
+            throw new Error('cancelJobs parentRunId must be a non-empty string')
         }
 
         const jobIds = options.jobIds ? [...new Set(options.jobIds)] : undefined
@@ -626,6 +637,9 @@ export class CyclotronV2Manager {
         if (jobIds) {
             params.push(jobIds)
             selectorClause = `AND id = ANY($${params.length}::uuid[])`
+        } else if (options.parentRunId) {
+            params.push(options.parentRunId)
+            selectorClause = `AND parent_run_id = $${params.length}`
         }
         if (options.excludeQueueNames?.length) {
             params.push(options.excludeQueueNames)
@@ -690,7 +704,7 @@ export class CyclotronV2Manager {
         logger.info('Cancel sweep completed', {
             teamId,
             functionId,
-            mode: jobIds ? 'jobIds' : 'all',
+            mode: jobIds ? 'jobIds' : options.parentRunId ? 'parentRunId' : 'all',
             marked,
             remaining,
         })
