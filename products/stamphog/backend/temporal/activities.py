@@ -236,12 +236,12 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     # familiarity section from the reviewer prompt; the review itself proceeds normally.
     is_inbox_review = bool((run.output or {}).get("inbox_review"))
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
-    # Which of the owning teams the author belongs to is a judgment input the engine cannot resolve
-    # itself: the sandbox holds no token, and the owning teams are only known after it reads the
-    # checkout's ownership sources. One bulk lookup here hands it every team the author is on, and
-    # the engine intersects that with whatever the changed paths turn out to be owned by. Skipped for
-    # inbox reviews for the same reason author_pr_numbers is: the author is the App machine user, so
-    # its team membership says nothing about who wrote the diff.
+    # The engine cannot resolve which of the owning teams the author belongs to. The sandbox holds
+    # no token, and the engine learns the owning teams only after it reads the checkout's ownership
+    # sources. One bulk lookup here gives the engine every team that the author belongs to, and the
+    # engine intersects that list with the teams that own the changed paths. Inbox reviews skip this
+    # lookup for the same reason that they skip author_pr_numbers: the author is the App machine
+    # user, so its team membership says nothing about who wrote the diff.
     author_team_slugs = client.get_user_team_slugs(repo.split("/")[0], author) if author and not is_inbox_review else []
 
     policy_files: dict[str, str] = {}

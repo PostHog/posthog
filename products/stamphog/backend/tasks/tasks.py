@@ -525,13 +525,15 @@ def _retract_approvals_on_base_retarget(repo_config: StamphogRepoConfig, pr: dic
 def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
     """Whether a standing approval survives this push, rather than being dismissed and re-reviewed.
 
-    Compares the PR's own diff at the head the approval was posted for against its diff at the head
-    this delivery carries. Both sides are read with ``compare_commits`` from commit shas the payload
-    and the run already fixed, so neither can be aimed at content the PR is not actually on.
+    Compares the PR's own diff at the head that the approval was posted for against its diff at the
+    head that this delivery carries. ``compare_diff`` reads both sides from commit shas that the
+    payload and the run already fixed, so a contributor cannot point either side at content that the
+    PR is not on.
 
-    False for everything ambiguous: no PR row, no standing approval, an approval already at this head
-    (a same-head re-review is deliberately allowed to void it), a run with no recorded base sha, an
-    empty diff on either side, or any GitHub error, a diff too large for GitHub to render included.
+    Returns False for everything ambiguous: no PR row, no standing approval, an approval already at
+    this head, a run with no recorded base sha, an empty diff on either side, or any GitHub error. A
+    diff too large for GitHub to render is one such error. A same-head re-review is allowed to void
+    the approval on purpose.
     """
     team_id = repo_config.team_id
     pr_number = pr.get("number")
@@ -540,9 +542,9 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     if pr_number is None or not head_sha or not base_sha:
         return False
 
-    # Writer pin for the same reason _retract_stale_approvals_on_skip uses one: this read decides
-    # whether an approval stands, and a lagged reader missing the approving run would fall through to
-    # a dismissal the approval did not need.
+    # Writer pin for the same reason that _retract_stale_approvals_on_skip uses one. This read
+    # decides whether an approval stands, and a lagged reader that misses the approving run falls
+    # through to a dismissal that the approval did not need.
     pull_request = (
         PullRequest.objects.for_team(team_id)
         .using(router.db_for_write(PullRequest))
@@ -574,8 +576,8 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
         return False
 
     client = StamphogGitHubClient(repo_config.installation_id)
-    # posted_review_id records that stamphog approved, not that the approval still stands. A
-    # maintainer dismissing it by hand on GitHub updates nothing here, and retaining over a dismissed
+    # posted_review_id records that stamphog approved, and not that the approval still stands. A
+    # maintainer who dismisses it by hand on GitHub updates nothing here. Retention over a dismissed
     # approval would skip the replacement review and leave the PR with no approval at all. An
     # unreadable or unconfigured identity yields an empty list, which falls through to the review.
     active_ids = {review.get("id") for review in client.list_own_active_approvals(repo_config.repository, pr_number)}
@@ -593,10 +595,10 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
 def _record_retained_head(run: ReviewRun, head_sha: str) -> None:
     """Note that this run's approval also covers ``head_sha``.
 
-    ``_record_merged_pull_request`` matches an approving run on ``head_sha`` alone, so without this a
-    retained PR merges as unapproved and drops out of the daily digest permanently, because
-    ``merged_at`` makes the redelivery a no-op. The reviewed head stays on ``head_sha`` itself, which
-    the dismissal sweep and ``post_verdict``'s guards key off.
+    ``_record_merged_pull_request`` matches an approving run on ``head_sha`` alone. Without this
+    record a retained PR merges as unapproved, and it drops out of the daily digest permanently,
+    because ``merged_at`` makes the redelivery a no-op. The reviewed head stays on ``head_sha``
+    itself, which the dismissal sweep and ``post_verdict``'s guards read.
     """
     stored = (run.output or {}).get(RETAINED_HEADS_KEY) or []
     retained = [sha for sha in stored if isinstance(sha, str)]
@@ -737,8 +739,9 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
             .first()
         )
     if approving_run is None and pr_head_sha:
-        # A retained approval covers a head it was never posted at (see _record_retained_head). The
-        # content at that head was verified identical or inert, so the merge is stamphog-approved.
+        # A retained approval covers a head that it was never posted at (see
+        # _record_retained_head). The diff at that head is byte-identical to the approved diff, so
+        # the merge is stamphog-approved.
         approving_run = (
             ReviewRun.objects.for_team(team_id)
             .using(router.db_for_write(ReviewRun))
@@ -1165,17 +1168,17 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             _mark_pr_event_processed(delivery_id)
         return
 
-    # A push that leaves what stamphog approved untouched needs no fresh verdict, and dismissing over
-    # it would drop the PR out of merge readiness while a full sandboxed review re-derives the answer
-    # it already had. Placed after every trust gate above, so an approval is only ever retained on a
-    # push this same path would have been willing to review. Self-driving inbox runs are excluded to
-    # keep their head-pinning carve-out untouched.
+    # A push that leaves the approved diff untouched needs no fresh verdict. A dismissal would drop
+    # the PR out of merge readiness while a full sandboxed review derives the same answer again.
+    # This check sits after every trust gate above, so the code retains an approval only on a push
+    # that this same path would have reviewed. Self-driving inbox runs are excluded, which keeps
+    # their head-pinning carve-out untouched.
     if action in _HEAD_CHANGING_ACTIONS and inbox_review is None:
         try:
             retained = _standing_approval_retention(repo_config, pr)
         except Exception:
-            # This is an optimization, so it never costs a review: an unreachable GitHub or an
-            # unexpected payload falls through to the full path rather than retrying or retaining.
+            # This is an optimization, so it must never cost a review. An unreachable GitHub or an
+            # unexpected payload falls through to the full path, and never retries or retains.
             logger.warning("stamphog_pr_event_retention_check_failed", delivery_id=delivery_id, exc_info=True)
             retained = False
         if retained:

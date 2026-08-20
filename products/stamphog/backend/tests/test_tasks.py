@@ -117,19 +117,20 @@ def _run_task(
     ):
         mock_client.return_value.get_collaborator_permission.return_value = author_permission
         mock_client.return_value.get_pr_files.return_value = pr_files or []
-        # Retention reads both sides of its comparison with compare_diff, approved head first.
+        # Retention reads both sides of its comparison with compare_diff, and it reads the approved
+        # head first.
         if compare_diffs is None:
             mock_client.return_value.compare_diff.return_value = ""
         else:
             mock_client.return_value.compare_diff.side_effect = list(compare_diffs)
-        # Retention only trusts an approval GitHub still reports as active; default to the id the
-        # retention tests post so the check passes unless a test deliberately empties it.
+        # Retention trusts only an approval that GitHub still reports as active. Default to the id
+        # that the retention tests post, so the check passes unless a test empties it on purpose.
         mock_client.return_value.list_own_active_approvals.return_value = [
             {"id": review_id} for review_id in (active_approval_ids if active_approval_ids is not None else [9])
         ]
         process_pull_request_event(payload, delivery_id)
-    # The GitHub client is patched in here, so a test that asserts on a GitHub call has to reach the
-    # mock this context created rather than patching the same target again from outside.
+    # This context patches the GitHub client, so a test that asserts on a GitHub call must use the
+    # mock that this context created, and must not patch the same target again from outside.
     mock_execute.github = mock_client.return_value
     return mock_execute
 
@@ -1290,13 +1291,14 @@ def _approved_run(team_id: int) -> None:
     ids=["identical_diff_retains", "changed_diff_dismisses"],
 )
 def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_config, same_diff, expect_retained):
-    # A merge of the base branch leaves every blob in the PR's own diff alone, so there is nothing new
-    # to review and dismissing would drop the PR out of merge readiness. Any blob that moved is
-    # content the approval no longer covers, which is the half that keeps the stale-approval
+    # A merge of the base branch does not change any blob in the PR's own diff, so there is nothing
+    # new to review, and a dismissal would drop the PR out of merge readiness. A blob that did move
+    # is content that the approval no longer covers, and that case keeps the stale-approval
     # invariant intact.
     #
-    # Delivery ids carry the case, because _mark_pr_event_processed writes to the process-wide cache
-    # and a shared id would let the first case dedupe the second one's deliveries away.
+    # Each case uses its own delivery id, because _mark_pr_event_processed writes to the
+    # process-wide cache. A shared id would let the first case remove the second case's deliveries
+    # as duplicates.
     current_diff = _APPROVED if same_diff else _APPROVED.replace("+added", "+something else")
     _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}", team.id)
     _approved_run(team.id)
@@ -1322,10 +1324,10 @@ def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_co
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_retention_reads_both_sides_from_pinned_commits(team, repo_config):
-    # get_pr_files answers for whichever head is live when the request runs, so a contributor could
-    # push the approved content, let the comparison run, and push the unreviewed head back. Reading
-    # two immutable commits leaves no such window, so retention must never consult the PR-files
-    # endpoint and must pin each side to the base and head it is deciding about.
+    # get_pr_files answers for the head that is live when the request runs. A contributor could push
+    # the approved content, wait for the comparison, and then push the unreviewed head again. Two
+    # immutable commits leave no such window. Retention must therefore never call the PR-files
+    # endpoint, and must pin each side to the base and the head that it decides about.
     _run_task(_pr_payload(), "delivery-pinned-approved", team.id)
     _approved_run(team.id)
 
@@ -1346,8 +1348,8 @@ def test_retention_reads_both_sides_from_pinned_commits(team, repo_config):
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_manually_dismissed_approval_is_not_retained(team, repo_config):
-    # A maintainer dismissing stamphog's review on GitHub updates nothing in the product DB, so the
-    # stored review id still looks like a standing approval. Retaining over it would skip the
+    # A maintainer who dismisses stamphog's review on GitHub updates nothing in the product DB, so
+    # the stored review id still looks like a standing approval. Retention over it would skip the
     # replacement review and leave the PR with no approval at all.
     _run_task(_pr_payload(), "delivery-dismissed-approved", team.id)
     _approved_run(team.id)
@@ -1367,9 +1369,10 @@ def test_manually_dismissed_approval_is_not_retained(team, repo_config):
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_retained_approval_still_counts_as_approved_at_merge(team, repo_config):
-    # The merge handler matches an approving run on head_sha alone. A retained approval was posted at
-    # an earlier head, so without the retained-head record the merge reads as unapproved and the PR
-    # drops out of the daily digest for good, since merged_at makes the redelivery a no-op.
+    # The merge handler matches an approving run on head_sha alone. A retained approval was posted
+    # at an earlier head, so without the retained-head record the merge reads as unapproved, and the
+    # PR drops out of the daily digest permanently, because merged_at makes the redelivery a
+    # no-op.
     with team_scope(team.id):
         repo_config.digest_enabled = True
         repo_config.save()
@@ -1389,8 +1392,9 @@ def test_retained_approval_still_counts_as_approved_at_merge(team, repo_config):
     payload = _pr_payload(action="closed", head_sha="sha-2")
     payload["pull_request"]["merged"] = True
     payload["pull_request"]["merged_at"] = "2026-08-19T00:00:00Z"
-    # Audience resolution reaches GitHub for team membership; stub it so the assertion is about
-    # whether the merge counted as approved, which is the only thing the retained head decides.
+    # Audience resolution calls GitHub for team membership. Stub it, so that the assertion covers
+    # only whether the merge counted as approved, which is the one thing that the retained head
+    # decides.
     audience = ResolvedAudience(key="team:devex", reason=AudienceReason.AUTHORED)
     with patch("products.stamphog.backend.tasks.tasks.resolve_audiences", return_value=[audience]) as resolve:
         _run_task(payload, "delivery-retain-merge-closed", team.id)
@@ -1411,8 +1415,8 @@ def test_retained_approval_still_counts_as_approved_at_merge(team, repo_config):
     ids=["no_pr", "null_pr", "null_base", "empty_base"],
 )
 def test_retention_needs_a_usable_approved_base_sha(team, repo_config, output):
-    # Without the base the approved side cannot be pinned, and a malformed payload must read as
-    # "cannot answer" rather than raising into the caller's catch-all.
+    # Without the base, the code cannot pin the approved side. A malformed payload must therefore
+    # read as "cannot answer", and must not raise into the caller's catch-all.
     _run_task(_pr_payload(), f"delivery-base-{list(output)}-{output}", team.id)
     with team_scope(team.id):
         ReviewRun.objects.filter(pull_request__pr_number=42).update(posted_review_id=9, output=output)

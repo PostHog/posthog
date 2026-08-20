@@ -85,10 +85,10 @@ def _is_own_sticky_comment(comment: dict, expected_login: str | None) -> bool:
 _MAX_PAGES = 20
 _PER_PAGE = 100
 
-# Ceiling on a single compare diff. Sized well above any diff that could have been approved, since
-# stamphog's size gate refuses far smaller, and far below what an unbounded read can cost: GitHub
-# answers 200 for a diff of any size, and a range spanning thousands of files returns hundreds of
-# megabytes.
+# Ceiling on a single compare diff. The value sits well above any diff that stamphog could have
+# approved, because stamphog's size gate refuses much smaller diffs. It also sits well below the
+# cost of an unbounded read: GitHub answers 200 for a diff of any size, and a range that spans
+# thousands of files returns hundreds of megabytes.
 MAX_COMPARE_DIFF_BYTES = 5 * 1024 * 1024
 
 
@@ -452,8 +452,8 @@ class StamphogGitHubClient:
             remember_observed_core_limit(self.installation_id, response)
             if response.status_code == 401 and attempt == 0:
                 logger.info("stamphog github: 401, refreshing installation token", installation_id=self.installation_id)
-                # A streamed body holds its connection until something reads or closes it, and this
-                # path abandons the response without doing either.
+                # A streamed body holds its connection until a caller reads it or closes it. This
+                # path abandons the response, so it must close the response itself.
                 response.close()
                 continue
             raise_if_github_rate_limited(response)
@@ -631,15 +631,16 @@ class StamphogGitHubClient:
     def compare_diff(self, repo: str, base_sha: str, head_sha: str) -> str:
         """The unified diff between two commits, as text.
 
-        Both ends are commit shas rather than refs, so the answer is a property of two immutable
-        objects. That is what separates this from ``get_pr_files``, which answers for whichever head
-        is live when the request runs and therefore cannot be bound to a particular commit.
+        Both ends are commit shas rather than refs, so the result is a property of two immutable
+        objects. ``get_pr_files`` differs: it answers for the head that is live when the request
+        runs, so a caller cannot bind its answer to a particular commit.
 
-        Three-dot semantics: GitHub diffs from the merge base of the two commits, so passing a PR's
-        base sha and its head sha returns the PR's own changes rather than everything the base gained
-        since. The text carries everything git records about the change, file modes and renames
-        included, which a per-file blob sha does not. GitHub answers 4xx for a diff too large to
-        render, which surfaces here as an error rather than a shorter diff.
+        The path uses three-dot semantics, so GitHub diffs from the merge base of the two commits. A
+        caller that passes a PR's base sha and its head sha therefore gets the PR's own changes, and
+        not the commits that the base branch gained since. The text carries everything that git
+        records about the change, which includes file modes and renames. A per-file blob sha carries
+        none of that. GitHub answers 4xx when a diff is too large to render, and this method raises
+        on that status rather than returning a shorter diff.
         """
         path = f"/repos/{repo}/compare/{base_sha}...{head_sha}"
         response = self._request(
@@ -654,10 +655,10 @@ class StamphogGitHubClient:
                 f"Failed to diff {base_sha}...{head_sha} in {repo}: {response.text[:300]}",
                 status_code=response.status_code,
             )
-        # Read with a ceiling rather than into memory. GitHub answers 200 for a diff of any size, and
-        # a range spanning thousands of files really does return hundreds of megabytes, which a
-        # caller cannot un-request once it has asked. Anything over the ceiling raises, and the
-        # callers of this treat an error as "cannot answer".
+        # Read with a ceiling rather than into memory. GitHub answers 200 for a diff of any size,
+        # and a range that spans thousands of files returns hundreds of megabytes. A caller cannot
+        # cancel that transfer after it starts. A diff over the ceiling raises, and every caller
+        # treats an error as "cannot answer".
         chunks: list[bytes] = []
         read = 0
         try:

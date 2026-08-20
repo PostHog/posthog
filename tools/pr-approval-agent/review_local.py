@@ -223,13 +223,14 @@ def _build_pr_data(context: dict) -> PRData:
 def _apply_ownership_summary(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
     """Mirror Pipeline._summarize_ownership with team membership injected instead of fetched.
 
-    The Action resolves membership with one `gh` call per owning team. The sandbox has no token, so
-    the server hands over every team the author belongs to and the intersection happens here.
+    The Action resolves membership with one `gh` call per owning team. The sandbox holds no token,
+    so the server supplies every team that the author belongs to, and this function does the
+    intersection.
 
-    Setting `author_on_owning_team` matters beyond the summary text: the reviewer prompt reads that
-    key with a default of True, so leaving it unset tells the reviewer the author owns the code no
-    matter who opened the PR. An unresolvable lookup arrives as an empty set and lands on "not on any
-    owning team", which is the same direction the Action fails in and the safe one for a bot that
+    `author_on_owning_team` matters beyond the summary text. The reviewer prompt reads that key with
+    a default of True, so an unset key tells the reviewer that the author owns the code, whoever
+    opened the PR. An unresolvable lookup arrives as an empty set and yields "not on any owning
+    team". The Action fails in the same direction, and that direction is the safe one for a bot that
     approves.
     """
     cl = pipeline.classification
@@ -247,8 +248,8 @@ def _apply_ownership_summary(pipeline: Pipeline, author_team_slugs: set[str]) ->
     if teams:
         parts.append(f"touches {', '.join(teams)}")
     if individuals:
-        # Individuals never enter the membership check, because the author simply
-        # is or isn't one of them.
+        # Individuals never enter the membership check. The author either is one of them or is
+        # not.
         suffix = f" (author {author} is one of them)" if f"@{author}" in individuals else ""
         parts.append(f"individually owned by {', '.join(individuals)}{suffix}")
     if author_teams:
@@ -263,9 +264,9 @@ def _apply_ownership_summary(pipeline: Pipeline, author_team_slugs: set[str]) ->
 
 
 def _run_gates_offline(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
-    """Run the four deterministic gate checks — the same ones _run_gates runs.
+    """Run the four deterministic gate checks, the same ones that _run_gates runs.
 
-    Mirrors Pipeline._run_gates, with _summarize_ownership's `gh` membership lookup replaced by the
+    Mirrors Pipeline._run_gates, and replaces _summarize_ownership's `gh` membership lookup with the
     server-injected team set (see _apply_ownership_summary).
     """
     gates = [
@@ -351,15 +352,16 @@ def _attach_familiarity(pipeline: Pipeline, context: dict) -> None:
 
 
 def _blocked_only_by_pending_migration_check(pipeline: Pipeline) -> bool:
-    """True when the sole thing standing between this PR and a review is the unfinished analyzer.
+    """True when only the unfinished migration analyzer keeps this PR from a review.
 
-    `Pipeline._only_pending_migration_check` cannot answer this: it disqualifies on any failing gate
-    other than the deny-list, and a migrations deny always drags the tier gate down to T2-never with
-    it, so that method returns False for every migration PR it exists to catch.
+    `Pipeline._only_pending_migration_check` cannot answer this. It disqualifies the PR on any
+    failing gate other than the deny-list, and a migrations deny always pulls the tier gate down to
+    T2-never as well. That method therefore returns False for every migration PR that it exists to
+    catch.
 
-    The tier is re-derived with the migrations deny removed instead of special-casing the gate, so a
-    PR that would be T2 on its own merits (breadth, size, another deny) stays refused rather than
-    waiting for a check that will not change the outcome.
+    This function derives the tier again with the migrations deny removed, rather than special-casing
+    the gate. A PR that is T2 for another reason (breadth, size, a second deny) therefore stays
+    refused, and does not wait for a check that cannot change the outcome.
     """
     pr = pipeline.pr
     cl = pipeline.classification
@@ -392,9 +394,10 @@ def run(context: dict) -> dict:
         0, context.get("repo") or "", self_driving=bool(context.get("self_driving_review")), head_checkout=True
     )
     pipeline.pr = _build_pr_data(context)
-    # Reads commit trailers with `git log base..head` against the checkout, so it needs no token and
-    # runs here exactly as it does in the Action. Without it the agent-authorship evidence and the
-    # stamphog_review_completed provenance properties are null for every hosted review.
+    # Reads commit trailers with `git log base..head` against the checkout, so it needs no token
+    # and runs here exactly as it runs in the Action. Without this call, the agent-authorship
+    # evidence and the stamphog_review_completed provenance properties are null for every hosted
+    # review.
     pipeline.provenance = pr_provenance(pipeline.pr.base_sha, pipeline.pr.head_sha, REPO_ROOT)
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
@@ -406,11 +409,12 @@ def run(context: dict) -> dict:
         _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
         gate_verdict = pipeline._gate_verdict()
 
-        # A `Migration risk` check that has not reported yet is a race with CI, not a judgment on the
-        # PR: the deny-list only matched because the engine could not tell a safe migration from a
-        # risky one. WAIT rather than REFUSE because the hosted runtime routes every refusal to a
-        # ReviewHog handoff and strips the trigger label, which would escalate a transient check to a
-        # second review agent and make the author re-request the review it displaced.
+        # A `Migration risk` check that has not reported yet is a race with CI, and not a judgment
+        # on the PR. The deny-list matched only because the engine cannot yet tell a safe migration
+        # from a risky one. The verdict is WAIT rather than REFUSE because the hosted runtime routes
+        # every refusal to a ReviewHog handoff and strips the trigger label. A refusal would
+        # therefore escalate a transient check to a second review agent, and force the author to
+        # re-request the review that it displaced.
         if _blocked_only_by_pending_migration_check(pipeline):
             pipeline.final_verdict = "WAIT"
             pipeline.reviewer_output = {

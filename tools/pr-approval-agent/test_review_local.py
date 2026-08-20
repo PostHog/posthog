@@ -75,8 +75,9 @@ def _ownership_pipeline(ownership: dict, author: str = "alice") -> Pipeline:
 @pytest.mark.parametrize(
     "ownership,author_team_slugs,expected_summary,expected_on_team",
     [
-        # Individuals-only ownership (team_count == 0) must not collapse to "no owned paths touched",
-        # which would hide the owner handles the reviewer should route escalations to.
+        # Individuals-only ownership (team_count == 0) must not collapse to "no owned paths
+        # touched". That summary would hide the owner handles that the reviewer needs for
+        # escalations.
         ({"team_count": 0, "teams": [], "individuals": ["@a-handle"]}, set(), "individually owned by @a-handle", False),
         (
             {"team_count": 0, "teams": [], "individuals": ["@alice"]},
@@ -109,8 +110,8 @@ def test_ownership_summary_reflects_author_team_membership(
     ownership: dict, author_team_slugs: set, expected_summary: str, expected_on_team: bool | None
 ) -> None:
     # author_on_owning_team drives the reviewer prompt's "NOTE: Author is NOT on the owning team",
-    # which reads the key with a default of True. Leaving it unset told the reviewer that every
-    # author owned the code they touched, so the note never fired on a hosted review.
+    # which reads the key with a default of True. An unset key tells the reviewer that every author
+    # owns the code that they touched, and the note then never appears on a hosted review.
     pipeline = _ownership_pipeline(ownership)
 
     review_local._apply_ownership_summary(pipeline, author_team_slugs)
@@ -141,10 +142,10 @@ def _api_file(filename: str, status: str = "added") -> dict:
 
 
 def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
-    # A migration PR whose "Migration risk" check hasn't reported yet only trips the deny-list
-    # because the engine can't tell a safe migration from a risky one. Returning REFUSED there sends
-    # the hosted runtime down its refusal path: a ReviewHog handoff plus a trigger-label strip, for
-    # what is a race with CI. WAIT keeps the label and re-runs on the next push.
+    # A migration PR whose "Migration risk" check has not reported yet matches the deny-list only
+    # because the engine cannot tell a safe migration from a risky one. A REFUSED verdict would
+    # start the hosted runtime's refusal path, which is a ReviewHog handoff and a trigger-label
+    # strip, for a race with CI. WAIT keeps the label and runs the review again on the next push.
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
     monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
     context = _run_context([_api_file("posthog/migrations/0999_add_col.py")])
@@ -156,9 +157,10 @@ def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
 
 
 def test_offline_run_carries_commit_provenance(monkeypatch) -> None:
-    # pr_provenance reads commit trailers from the checkout with no token, so the sandbox can compute
-    # it. Not wiring it left provenance null on every hosted review, which drops agent-authorship
-    # from the evidence bundle and from the stamphog_review_completed properties.
+    # pr_provenance reads commit trailers from the checkout and needs no token, so the sandbox can
+    # compute it. Without this call, provenance is null on every hosted review, which drops
+    # agent-authorship from the evidence bundle and from the stamphog_review_completed
+    # properties.
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
     monkeypatch.setattr(
         review_local,

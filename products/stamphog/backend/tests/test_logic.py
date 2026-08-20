@@ -548,8 +548,9 @@ class CompareDiffSizeTests(SimpleTestCase):
             assert StamphogGitHubClient("42").compare_diff("o/r", "base", "head") == "diff --git a/x b/x\n"
 
     def test_oversized_diff_raises_instead_of_buffering(self) -> None:
-        # GitHub answers 200 for a diff of any size, and a range spanning thousands of files really
-        # does return hundreds of megabytes. Reading that into a worker is the cost this refuses.
+        # GitHub answers 200 for a diff of any size, and a range that spans thousands of files
+        # returns hundreds of megabytes. This ceiling refuses the cost of reading that into a
+        # worker.
         response = self._streamed(b"x" * (MAX_COMPARE_DIFF_BYTES + 4096))
 
         with patch.object(StamphogGitHubClient, "_request", return_value=response):
@@ -559,9 +560,9 @@ class CompareDiffSizeTests(SimpleTestCase):
 
 class ApprovalRetentionTests(SimpleTestCase):
     def test_unchanged_diff_retains_across_a_base_merge(self) -> None:
-        # Merging the base branch into a PR is the most common push on a long-lived PR. It leaves the
-        # PR's own diff alone, so there is nothing new to review and dismissing would drop the PR out
-        # of merge readiness for no reason.
+        # A merge of the base branch into a PR is the most common push on a long-lived PR. It does
+        # not change the PR's own diff, so there is nothing new to review, and a dismissal would
+        # drop the PR out of merge readiness for no reason.
         assert approved_diff_unchanged(_DIFF, _DIFF) is True
 
     def test_content_change_dismisses(self) -> None:
@@ -569,14 +570,15 @@ class ApprovalRetentionTests(SimpleTestCase):
 
     def test_mode_flip_dismisses(self) -> None:
         # A blob sha covers a file's contents and not its tree mode, so a per-file sha comparison
-        # missed an executable-bit flip on a file the PR already edits. The unified diff carries the
-        # mode, which is why the comparison is over the diff text.
+        # missed an executable-bit flip on a file that the PR already edits. The unified diff
+        # carries the mode, and the comparison therefore uses the diff text.
         assert approved_diff_unchanged(_DIFF, _DIFF_MODE_FLIPPED) is False
 
     def test_binary_change_fails_closed(self) -> None:
         # git renders a binary change over an abbreviated blob id and never as content, so two
-        # different binaries whose ids share that prefix produce the same line. Grinding a padding
-        # section until they do is within reach, so a diff carrying one cannot answer the question.
+        # different binaries whose ids share that prefix produce the same line. An attacker can pad
+        # one binary until its id collides, so a diff that carries this line cannot show whether the
+        # content changed.
         binary = (
             "diff --git a/thing.wasm b/thing.wasm\n"
             "index aaa1234..bbb5678 100644\n"
@@ -588,6 +590,6 @@ class ApprovalRetentionTests(SimpleTestCase):
 
     @parameterized.expand([("both_empty", "", ""), ("approved_empty", "", _DIFF), ("current_empty", _DIFF, "")])
     def test_empty_diff_fails_closed(self, _name: str, approved: str, current: str) -> None:
-        # Two blanks compare equal, and retaining an approval on the strength of that would treat an
-        # unreadable answer as "nothing changed".
+        # Two blanks compare equal. Retention on that evidence would treat an unreadable answer as
+        # "nothing changed".
         assert approved_diff_unchanged(approved, current) is False
