@@ -78,6 +78,7 @@ export interface taxonomicBreakdownFilterLogicValues {
         | TaxonomicFilterGroupType.CohortsWithAllUsers
         | TaxonomicFilterGroupType.DataWarehouse
         | TaxonomicFilterGroupType.DataWarehouseSourceTables
+        | TaxonomicFilterGroupType.DataWarehouseMaterializedViews
         | TaxonomicFilterGroupType.DataWarehouseProperties
         | TaxonomicFilterGroupType.DataWarehousePersonProperties
         | TaxonomicFilterGroupType.Elements
@@ -242,6 +243,7 @@ export interface taxonomicBreakdownFilterLogicMeta {
             | TaxonomicFilterGroupType.CohortsWithAllUsers
             | TaxonomicFilterGroupType.DataWarehouse
             | TaxonomicFilterGroupType.DataWarehouseSourceTables
+            | TaxonomicFilterGroupType.DataWarehouseMaterializedViews
             | TaxonomicFilterGroupType.DataWarehouseProperties
             | TaxonomicFilterGroupType.DataWarehousePersonProperties
             | TaxonomicFilterGroupType.Elements
