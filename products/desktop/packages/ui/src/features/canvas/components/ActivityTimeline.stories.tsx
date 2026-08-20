@@ -240,6 +240,28 @@ export const FullTimeline: Story = {
   },
 };
 
+export const SignalsPrincipal: Story = {
+  args: {
+    task: {
+      ...task,
+      created_by: null,
+      principal: { type: "system", name: "signals", label: "Signals" },
+    },
+    timeline: [],
+    messages: [],
+    conversationItems: [
+      {
+        type: "user_message",
+        id: "signals-initial-turn",
+        content: "Build a useful report canvas for this Signals report.",
+        timestamp: Date.parse("2026-08-04T09:05:00Z"),
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: story fixture for the row under test
+    ] as any,
+    commentThreads: [],
+  },
+};
+
 /** The changed-file list a commit row shows once GitHub answers. In the timeline
  *  above the fetch never resolves (no workspace-server in Storybook), so the
  *  presentational list is shown on its own here. */
