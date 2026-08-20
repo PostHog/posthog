@@ -1698,6 +1698,30 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json().get("scope", ""), "")
 
+    def test_refresh_of_an_empty_grant_rejected_for_first_party_apps(self):
+        # First-party /authorize auto-grants the full clamped set without a consent
+        # screen, so forcing re-auth here cannot loop back to another empty grant.
+        # Without the rejection, a corrupted scope-less token refreshes forever and
+        # the client silently 403s on every resource call instead of re-authorizing.
+        self.confidential_application.is_first_party = True
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("")
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token.token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+
     def test_refresh_rejected_when_token_scopes_outside_ceiling(self):
         self.confidential_application.scopes = ["experiment:read"]
         self.confidential_application.save()
@@ -4567,6 +4591,9 @@ class TestOAuthAPI(APIBaseTest):
             code_challenge_method="S256",
             redirect_uri="https://example.com/callback",
             expires=timezone.now() + timedelta(minutes=5),
+            # /authorize always mints first-party grants with scopes; a scope-less
+            # first-party token is a corruption artifact whose refresh is rejected.
+            scope="openid experiment:read",
             scoped_organizations=[str(self.organization.id)],
             scoped_teams=[],
         )
