@@ -625,8 +625,8 @@ Fan-out = iterate a parent resource, then query child endpoints per parent.
 ### Reading the fan-out parent from the warehouse (`parent_source="warehouse"`)
 
 > [!IMPORTANT]
-> **Not generally available — do not opt new sources in.** The flag is limited to dogfood rollouts and the only wired caller is Sentry's `issue_tag_values` custom iterator, gated on an incremental watermark.
-> This section is here because the shared fan-out builder carries the machinery either way, so anyone changing fan-out internals needs to know the constraints. Treat the caveats below (windowed parents, ordered parents, non-REST callers) as unproven outside Sentry, and ask the data warehouse team before opting another source in.
+> **Opting a source in is a deliberate conversion, not a config default.** The path is flag-gated per team, and today the only wired caller is Sentry's `issue_tag_values` custom iterator, gated on an incremental watermark.
+> Convert a source only through the `converting-fanout-parents-to-warehouse` skill — it carries the payoff triage, the parent classification procedure, and the rollout order. This section stays the reference for the runtime machinery and its constraints.
 
 By default a fan-out child re-fetches its parent endpoint on every sync — syncing `issue_hashes` re-pulls all of `issues` even when the `issues` schema already synced.
 A child endpoint opts into warehouse parent reuse with `parent_source="warehouse"` on its `DependentEndpointConfig`:
