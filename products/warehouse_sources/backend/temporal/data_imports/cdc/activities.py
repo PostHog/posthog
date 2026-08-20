@@ -1329,7 +1329,6 @@ class CDCExtractActivity:
             pk_schema = self.schema_by_name.get(table_name)
             pk_log = self._schema_log(pk_schema) if pk_schema is not None else self.log
             pk_log.warning("cdc_pk_columns_diverged", table=table_name, stored=stored_pks, wal=decoder_pks)
-            metrics.get_pk_divergence_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
 
     def _handle_truncates(self) -> list[str]:
         """Process any truncated tables observed during decoding.
