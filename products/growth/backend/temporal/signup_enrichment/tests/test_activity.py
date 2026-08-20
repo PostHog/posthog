@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
+from products.growth.backend.enrichment.core import EnrichmentOutcome
 from products.growth.backend.enrichment.fields import EnrichmentFields
+from products.growth.backend.enrichment.fit_score import IcpFitResult
 from products.growth.backend.temporal.signup_enrichment.workflow import (
     MAX_ENRICH_ATTEMPTS,
     SignupEnrichmentInputs,
@@ -31,28 +33,57 @@ def _patches(*, enrich_return, deterministic=None):
 
 
 async def test_emits_success_signal_and_snapshot_on_match():
-    fields = EnrichmentFields(company_type="STARTUP", headcount=130, industry="Fintech")
-    pha_client, (get_client, enrich, det, snapshot) = _patches(enrich_return={"return_value": fields})
+    outcome = EnrichmentOutcome(
+        provider_fields=EnrichmentFields(company_type="STARTUP", headcount=130, industry="Fintech"),
+        fit=IcpFitResult(status="scored", score=77, lists_version="lists-1"),
+    )
+    pha_client, (get_client, enrich, det, snapshot) = _patches(enrich_return={"return_value": outcome})
     with get_client, enrich, det, snapshot as snapshot_mock:
         result = await ActivityEnvironment().run(enrich_signup_organization_activity, _INPUTS)
 
     assert result == {"matched": True, "fields_filled": 3}
-    # Snapshot captured once, built from the enriched fields.
+    # Snapshot captured once, built from the enriched fields plus the at-signup fit evaluation.
     snapshot_mock.assert_called_once()
-    assert snapshot_mock.call_args.kwargs["snapshot"].company_type == "STARTUP"
-    # Launch signal emitted with success + the filled field keys.
+    snapshot_arg = snapshot_mock.call_args.kwargs["snapshot"]
+    assert snapshot_arg.company_type == "STARTUP"
+    assert snapshot_arg.icp_fit_score == 77
+    assert snapshot_arg.icp_fit_version == "v0.5"
+    assert snapshot_arg.icp_fit_status == "scored"
+    # Launch signal emitted with success + the filled field keys + the fit status.
     signal = next(c for c in pha_client.capture.call_args_list if c.kwargs["event"] == "signup_enrichment_completed")
     assert signal.kwargs["properties"]["success"] is True
     assert signal.kwargs["properties"]["matched"] is True
+    assert signal.kwargs["properties"]["icp_fit_status"] == "scored"
 
 
 async def test_falls_back_to_deterministic_company_type_on_miss():
-    pha_client, (get_client, enrich, det, snapshot) = _patches(enrich_return={"return_value": None}, deterministic="yc")
+    outcome = EnrichmentOutcome(provider_fields=None, fit=IcpFitResult(status="not_found"))
+    pha_client, (get_client, enrich, det, snapshot) = _patches(
+        enrich_return={"return_value": outcome}, deterministic="yc"
+    )
     with get_client, enrich, det, snapshot as snapshot_mock:
         result = await ActivityEnvironment().run(enrich_signup_organization_activity, _INPUTS)
 
     assert result == {"matched": False, "fields_filled": 0}
-    assert snapshot_mock.call_args.kwargs["snapshot"].company_type == "yc"
+    snapshot_arg = snapshot_mock.call_args.kwargs["snapshot"]
+    assert snapshot_arg.company_type == "yc"
+    # A score-less evaluation snapshots the status alone: no number, no version.
+    assert snapshot_arg.icp_fit_score is None
+    assert snapshot_arg.icp_fit_version is None
+    assert snapshot_arg.icp_fit_status == "not_found"
+
+
+async def test_degraded_fit_scoring_leaves_the_snapshot_without_fit_keys():
+    outcome = EnrichmentOutcome(provider_fields=EnrichmentFields(company_type="STARTUP"), fit=None)
+    pha_client, (get_client, enrich, det, snapshot) = _patches(enrich_return={"return_value": outcome})
+    with get_client, enrich, det, snapshot as snapshot_mock:
+        await ActivityEnvironment().run(enrich_signup_organization_activity, _INPUTS)
+
+    snapshot_arg = snapshot_mock.call_args.kwargs["snapshot"]
+    assert snapshot_arg.icp_fit_score is None
+    assert snapshot_arg.icp_fit_status is None
+    signal = next(c for c in pha_client.capture.call_args_list if c.kwargs["event"] == "signup_enrichment_completed")
+    assert signal.kwargs["properties"]["icp_fit_status"] is None
 
 
 async def test_connection_cleanup_runs_on_the_orm_thread():
@@ -61,7 +92,9 @@ async def test_connection_cleanup_runs_on_the_orm_thread():
     # then fails every activity on the worker until the pod is replaced.
     cleanup_threads = []
 
-    pha_client, (get_client, enrich, det, snapshot) = _patches(enrich_return={"return_value": None})
+    pha_client, (get_client, enrich, det, snapshot) = _patches(
+        enrich_return={"return_value": EnrichmentOutcome(provider_fields=None, fit=None)}
+    )
     with (
         get_client,
         enrich,
