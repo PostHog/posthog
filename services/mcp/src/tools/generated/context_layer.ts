@@ -3,6 +3,9 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    ContextLayerAgentChannelPagesRetrieveParams,
+    ContextLayerAgentPagesRetrieveQueryParams,
+    ContextLayerAgentPagesUpdateBody,
     ContextLayerChannelPagesRetrieveParams,
     ContextLayerPagesRetrieveQueryParams,
     ContextLayerPagesUpdateBody,
@@ -68,7 +71,7 @@ const contextWikiPageUpdate = (): ToolBase<typeof ContextWikiPageUpdateSchema, S
     },
 })
 
-const LoopContextWikiChannelResolveSchema = ContextLayerChannelPagesRetrieveParams.omit({ organization_id: true })
+const LoopContextWikiChannelResolveSchema = ContextLayerAgentChannelPagesRetrieveParams.omit({ project_id: true })
 
 const loopContextWikiChannelResolve = (): ToolBase<
     typeof LoopContextWikiChannelResolveSchema,
@@ -77,25 +80,25 @@ const loopContextWikiChannelResolve = (): ToolBase<
     name: 'loop-context-wiki-channel-resolve',
     schema: LoopContextWikiChannelResolveSchema,
     handler: async (context: Context, params: z.infer<typeof LoopContextWikiChannelResolveSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
+        const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ChannelWikiPage>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/context_layer/channel-pages/${encodeURIComponent(String(params.channel_id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/channel-pages/${encodeURIComponent(String(params.channel_id))}/`,
         })
         return result
     },
 })
 
-const LoopContextWikiPageRetrieveSchema = ContextLayerPagesRetrieveQueryParams
+const LoopContextWikiPageRetrieveSchema = ContextLayerAgentPagesRetrieveQueryParams
 
 const loopContextWikiPageRetrieve = (): ToolBase<typeof LoopContextWikiPageRetrieveSchema, Schemas.WikiPage> => ({
     name: 'loop-context-wiki-page-retrieve',
     schema: LoopContextWikiPageRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof LoopContextWikiPageRetrieveSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
+        const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WikiPage>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/context_layer/pages/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
             query: {
                 path: params.path,
             },
@@ -104,13 +107,13 @@ const loopContextWikiPageRetrieve = (): ToolBase<typeof LoopContextWikiPageRetri
     },
 })
 
-const LoopContextWikiPageUpdateSchema = ContextLayerPagesUpdateBody
+const LoopContextWikiPageUpdateSchema = ContextLayerAgentPagesUpdateBody
 
 const loopContextWikiPageUpdate = (): ToolBase<typeof LoopContextWikiPageUpdateSchema, Schemas.ContextLayerStatus> => ({
     name: 'loop-context-wiki-page-update',
     schema: LoopContextWikiPageUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof LoopContextWikiPageUpdateSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
+        const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.path !== undefined) {
             body['path'] = params.path
@@ -123,7 +126,7 @@ const loopContextWikiPageUpdate = (): ToolBase<typeof LoopContextWikiPageUpdateS
         }
         const result = await context.api.request<Schemas.ContextLayerStatus>({
             method: 'PUT',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/context_layer/pages/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
             body,
         })
         return result

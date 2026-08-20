@@ -116,3 +116,10 @@ export type ContextLayerPagesRetrieveParams = {
      */
     path: string
 }
+
+export type ContextLayerAgentPagesRetrieveParams = {
+    /**
+     * Repo-relative Markdown path of the page to read.
+     */
+    path: string
+}

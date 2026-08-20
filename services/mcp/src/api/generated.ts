@@ -84330,6 +84330,13 @@ export namespace Schemas {
       Community: 'community',
     } as const;
 
+    export type ContextLayerAgentPagesRetrieveParams = {
+    /**
+     * Repo-relative Markdown path of the page to read.
+     */
+    path: string;
+    };
+
     export type ConversationsListParams = {
     /**
      * Number of results to return per page.

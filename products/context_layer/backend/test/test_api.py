@@ -82,6 +82,7 @@ class TestContextLayerAPI(APIBaseTest):
         # that is not project-nested, which is the whole reason the agent route
         # exists — without it no real sandbox token can publish at all.
         assert post(self.base_url).status_code == 403
+
     def test_enable_returns_the_head_the_import_landed(self, _flag) -> None:
         # Callers pass this straight back as `base_head`, so a sha from before
         # the channel import costs them a conflict on their first write.
@@ -282,6 +283,7 @@ class TestContextLayerAPI(APIBaseTest):
         )
         return self._bearer(
             "task:read task:write loop_context_internal:write",
+            scoped_teams=[self.team.id],
             sandbox_task_id=task.id,
         )
 
@@ -313,10 +315,10 @@ class TestContextLayerAPI(APIBaseTest):
         # Reads stay open across the wiki: it is organization-wide reference
         # material every agent is meant to draw on.
         self._enable()
-        token = self._bearer("task:read task:write loop_context_internal:write")
+        token = self._bearer("task:read task:write loop_context_internal:write", scoped_teams=[self.team.id])
         self.client.logout()
         page = self.client.get(
-            f"{self.base_url}/pages/",
+            f"{self.agent_url}/pages/",
             {"path": "AGENTS.md"},
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
@@ -334,7 +336,7 @@ class TestContextLayerAPI(APIBaseTest):
         self.client.logout()
 
         in_scope = self.client.put(
-            f"{self.base_url}/pages/",
+            f"{self.agent_url}/pages/",
             {
                 "path": "channels/growth.md",
                 # A real loop reads the page and edits in place, so the frontmatter
@@ -350,7 +352,7 @@ class TestContextLayerAPI(APIBaseTest):
         # AGENTS.md is what every agent bootstraps from, so a loop reaching it
         # would rewrite the whole organization's starting instructions.
         out_of_scope = self.client.put(
-            f"{self.base_url}/pages/",
+            f"{self.agent_url}/pages/",
             {"path": "AGENTS.md", "content": "# Owned\n", "base_head": in_scope.json()["head_sha"]},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {token}",
@@ -359,10 +361,10 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_pages_reject_task_scopes_without_run_provenance(self, _flag) -> None:
         self._enable()
-        token = self._bearer("task:read task:write internal_run:read")
+        token = self._bearer("task:read task:write internal_run:read", scoped_teams=[self.team.id])
         self.client.logout()
         response = self.client.get(
-            f"{self.base_url}/pages/",
+            f"{self.agent_url}/pages/",
             {"path": "areas/analytics.md"},
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )

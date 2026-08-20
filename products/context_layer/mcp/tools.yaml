@@ -67,7 +67,7 @@ tools:
             base_head. A concurrent wiki change returns a conflict instead of being overwritten.
         feature_flag: context-layer
     loop-context-wiki-channel-resolve:
-        operation: context_layer_channel_pages_retrieve
+        operation: context_layer_agent_channel_pages_retrieve
         enabled: true
         scopes:
             - task:read
@@ -80,7 +80,7 @@ tools:
         description: Resolve a channel id to its context wiki page path for an unattended loop run.
         feature_flag: context-layer
     loop-context-wiki-page-retrieve:
-        operation: context_layer_pages_retrieve
+        operation: context_layer_agent_pages_retrieve
         enabled: true
         scopes:
             - task:read
@@ -93,7 +93,7 @@ tools:
         description: Read a context wiki page and its head_sha for an unattended loop run.
         feature_flag: context-layer
     loop-context-wiki-page-update:
-        operation: context_layer_pages_update
+        operation: context_layer_agent_pages_update
         enabled: true
         scopes:
             - task:write
