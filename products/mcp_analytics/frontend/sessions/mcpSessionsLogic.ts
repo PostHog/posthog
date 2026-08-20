@@ -108,10 +108,10 @@ export interface mcpSessionsLogicValues {
     selectedSessionIntent: string
     selectedSessionToolCalls: {
         calls: MCPToolCallApi[]
+        error: string | null
         hasNext: boolean
         loading: boolean
         loadingMore: boolean
-        error: string | null
     }
     sessions: MCPSessionApi[]
     sessionsLoading: boolean
@@ -258,10 +258,10 @@ export interface mcpSessionsLogicMeta {
             toolCallsError: string | null
         ) => {
             calls: MCPToolCallApi[]
+            error: string | null
             hasNext: boolean
             loading: boolean
             loadingMore: boolean
-            error: string | null
         }
     }
 }
