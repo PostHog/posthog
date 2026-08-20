@@ -272,6 +272,9 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                 actions.resetManualRefresh()
             }
         },
+        loadHealthIssuesFailure: () => {
+            lemonToast.error('Failed to load health issues')
+        },
         setShowDismissed: () => {
             actions.loadHealthIssues()
         },

@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
@@ -32,5 +33,17 @@ describe('healthSceneLogic', () => {
         // The refresh POST is throttled to one call per team every 5 minutes and checks re-run on a
         // daily schedule, so mounting must not auto-fire it — that was the source of the 429 storm.
         expect(createSpy).not.toHaveBeenCalled()
+    })
+
+    it('shows an error toast when loading issues fails', async () => {
+        getSpy.mockRejectedValue(new Error('Failed to fetch'))
+        const errorToastSpy = jest.spyOn(lemonToast, 'error')
+
+        logic = healthSceneLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadHealthIssuesFailure'])
+
+        expect(errorToastSpy).toHaveBeenCalledWith('Failed to load health issues')
     })
 })
