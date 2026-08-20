@@ -87,7 +87,7 @@ class GoogleDriveAuth:
     team_id: Optional[int] = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GoogleDriveResumeConfig:
     # Drive's opaque nextPageToken. None means "start this list from its first page".
     page_token: Optional[str] = None
