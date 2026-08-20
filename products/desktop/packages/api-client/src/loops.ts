@@ -101,17 +101,17 @@ export namespace LoopSchemas {
 
   export type LoopContextOutputsWrite = Partial<LoopContextOutputs>;
 
-  /** The context (a "#channel" / desktop folder) a loop is attached to, plus what it maintains. */
+  /** The context (a "#channel" / desktop space) a loop is attached to, plus what it maintains. */
   export type LoopContextTarget = {
-    /** Desktop folder id of the attached context. */
-    folder_id: string;
+    /** Channel id of the attached context. */
+    channel_id: string;
     /** Context (channel) name, used to file runs into its feed. */
     name: string;
     outputs: LoopContextOutputs;
   };
 
   export type LoopContextTargetWrite = {
-    folder_id: string;
+    channel_id: string;
     name: string;
     outputs?: LoopContextOutputsWrite;
   };

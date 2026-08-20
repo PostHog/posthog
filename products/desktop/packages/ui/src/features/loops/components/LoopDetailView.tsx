@@ -132,7 +132,7 @@ export function LoopDetailView({
       () =>
         spacesLayout && contextTarget ? (
           <LoopSpaceBreadcrumb
-            folderId={contextTarget.folder_id}
+            folderId={contextTarget.channel_id}
             spaceName={contextTarget.name}
             leafLabel={loopName}
           />
