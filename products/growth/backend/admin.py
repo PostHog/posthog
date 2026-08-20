@@ -477,6 +477,12 @@ class IcpScoringConfigAdmin(admin.ModelAdmin):
             readonly = (*readonly, "version", "tags", "quality_investors")
         return readonly
 
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: IcpScoringConfig | None = None) -> bool:
+        return False
+
     def save_model(self, request: HttpRequest, obj: IcpScoringConfig, form: forms.ModelForm, change: bool) -> None:
         if not change and request.user.is_authenticated:
             obj.created_by = request.user
