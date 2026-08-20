@@ -73,7 +73,7 @@ class TestFingerprintProjectionQueryScope(APIBaseTest):
 
         response = self._query(headers={"authorization": f"Bearer {value}"})
 
-        assert response.status_code == expected_status, response.json()
+        assert response.status_code == expected_status, response.data
 
     def test_query_endpoint_throttles_session_requests(self) -> None:
         cache.clear()
