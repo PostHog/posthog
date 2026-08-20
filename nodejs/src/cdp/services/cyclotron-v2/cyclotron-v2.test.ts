@@ -1746,13 +1746,13 @@ describe('Cyclotron V2', () => {
                 createWorker(EMAIL_QUEUE, overrides)
 
             it('dequeues the fast class before an earlier-enqueued bulk backlog when priority dequeue is enabled', async () => {
-                // A bulk broadcast (priority 10) is already queued when two fast-class
+                // A bulk broadcast (priority 1) is already queued when two fast-class
                 // sends (priority 0) arrive, one from the same team. Without priority
                 // ordering, the same-team fast job waits behind the whole backlog.
                 const teamA = 100
                 const teamB = 200
                 await manager.bulkCreateJobs([
-                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 10 })),
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
                     { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
                     { teamId: teamB, queueName: EMAIL_QUEUE, priority: 0 },
                 ])
@@ -1768,8 +1768,8 @@ describe('Cyclotron V2', () => {
                 const teamA = 100
                 const teamB = 200
                 await manager.bulkCreateJobs([
-                    ...Array.from({ length: 2 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 10 })),
-                    ...Array.from({ length: 2 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE, priority: 10 })),
+                    ...Array.from({ length: 2 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
+                    ...Array.from({ length: 2 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE, priority: 1 })),
                     { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
                 ])
 
@@ -1784,10 +1784,10 @@ describe('Cyclotron V2', () => {
 
                 expect(drained).toEqual([
                     [0, teamA],
-                    [10, teamA],
-                    [10, teamB],
-                    [10, teamA],
-                    [10, teamB],
+                    [1, teamA],
+                    [1, teamB],
+                    [1, teamA],
+                    [1, teamB],
                 ])
             })
 
@@ -1795,7 +1795,7 @@ describe('Cyclotron V2', () => {
                 const teamA = 100
                 const teamB = 200
                 await manager.bulkCreateJobs([
-                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 10 })),
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
                     { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
                     { teamId: teamB, queueName: EMAIL_QUEUE, priority: 0 },
                 ])
@@ -1805,7 +1805,7 @@ describe('Cyclotron V2', () => {
 
                 // Legacy ordering is dequeue_seq only: the first fair round is team A's
                 // first bulk job and team B's fast job, so priorities stay mixed.
-                expect(jobs.map((j) => j.priority).sort((a, b) => a - b)).toEqual([0, 10])
+                expect(jobs.map((j) => j.priority).sort((a, b) => a - b)).toEqual([0, 1])
             })
 
             it('picks small-tenant jobs into the same batch as big-tenant jobs', async () => {
