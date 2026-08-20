@@ -17,6 +17,7 @@ import {
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -95,7 +96,7 @@ export function TracingSparkline({
                 key: s.name,
                 label: s.name,
                 data: s.values,
-                color: `var(--${s.color})`,
+                color: getColorVar(s.color),
             })),
         [seriesSource]
     )

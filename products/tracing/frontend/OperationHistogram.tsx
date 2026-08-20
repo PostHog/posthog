@@ -11,6 +11,7 @@ import {
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {
@@ -51,7 +52,7 @@ export function OperationHistogram({
                 key: s.name,
                 label: s.name,
                 data: s.values,
-                color: `var(--${s.color})`,
+                color: getColorVar(s.color),
             })),
         [data.data]
     )
