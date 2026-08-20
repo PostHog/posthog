@@ -341,7 +341,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         // recover to a fresh chat; otherwise just leave the history untouched.
                         if (error?.status === 404) {
                             if (values.currentConversationId === conversationId) {
-                                router.actions.push(urls.ai())
+                                // Replace, not push: this is automatic error recovery, so the dead chat
+                                // URL must leave history — otherwise Back returns to it and re-triggers the 404.
+                                router.actions.replace(urls.ai())
                             }
                             return values.conversationHistory
                         }
