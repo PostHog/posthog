@@ -341,7 +341,7 @@ class TestMaybeSyncAccountProperties:
             "sync-warehouse-account-properties-job-123-ignored",
         ]
 
-    async def test_one_segment_start_failure_does_not_block_the_other(self):
+    async def test_one_segment_start_failure_is_raised_after_trying_the_other(self):
         workflow = MaterializeViewWorkflow()
         result = dataclasses.replace(_materialize_result("skip"), account_property_sync_enabled=True)
         start_child = AsyncMock(side_effect=[RuntimeError("tracked queue unavailable"), None])
@@ -350,7 +350,8 @@ class TestMaybeSyncAccountProperties:
             patch.object(temporalio.workflow, "logger"),
             patch(f"{WORKFLOW_MODULE}.capture_exception"),
         ):
-            await workflow._maybe_sync_account_properties(_inputs(), result, "job-123")
+            with pytest.raises(RuntimeError, match="tracked queue unavailable"):
+                await workflow._maybe_sync_account_properties(_inputs(), result, "job-123")
 
         assert start_child.await_count == 2
         assert start_child.await_args_list[1].args[1].segment == "ignored"

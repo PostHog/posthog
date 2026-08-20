@@ -811,7 +811,7 @@ async def _materialize_fully(
         if tracker is not None:
             await asyncio.to_thread(tracker.check, batch)
         await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
-        await _stage_account_property_batch(account_property_sink, batch_index, batch, fatal=False)
+        await _stage_account_property_batch(account_property_sink, batch_index, batch, fatal=True)
         batch_index += 1
         if delta_table is None:
             pa_schema = batch.schema

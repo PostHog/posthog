@@ -2,12 +2,14 @@ import io
 import json
 import asyncio
 import hashlib
+from collections.abc import AsyncIterator, Iterator
 from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
+import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 
@@ -30,6 +32,7 @@ from products.warehouse_sources.backend.facade.temporal import (
 logger = structlog.get_logger(__name__)
 
 _ACCOUNT_LOOKUP_CHUNK_SIZE = 1_000
+_PARQUET_BATCH_SIZE = 50_000
 _SEGMENTS_REQUIRED_FOR_CLEANUP = frozenset({"tracked", "ignored"})
 
 
@@ -72,29 +75,33 @@ def _decode_parquet_rows(data: bytes) -> list[dict[str, Any]]:
 
 
 def _encode_snapshot(hashes: dict[str, str]) -> bytes:
-    import pyarrow as pa  # noqa: PLC0415 — keeps PyArrow table construction off the import path
-
     table = pa.table({"external_id": list(hashes), "value_hash": list(hashes.values())})
     buffer = pa.BufferOutputStream()
     pq.write_table(table, buffer, compression="zstd")
     return buffer.getvalue().to_pybytes()
 
 
-async def _read_parquet_rows(team_id: int, binding: WarehouseBinding, job_id: str) -> list[dict[str, Any]]:
+def _parquet_batches(data: bytes) -> Iterator[pa.RecordBatch]:
+    return pq.ParquetFile(io.BytesIO(data)).iter_batches(batch_size=_PARQUET_BATCH_SIZE)
+
+
+async def _iter_parquet_row_batches(
+    team_id: int, binding: WarehouseBinding, job_id: str
+) -> AsyncIterator[list[dict[str, Any]]]:
     prefix = account_property_job_staged_prefix(team_id, binding, job_id)
-    rows: list[dict[str, Any]] = []
     async with aget_s3_client() as s3_client:
         try:
             listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
         except FileNotFoundError:
-            return []
+            return
         entries = listing.values() if isinstance(listing, dict) else listing
         file_paths = sorted(entry["Key"] for entry in entries if entry.get("type") != "directory")
         for file_path in file_paths:
             uri = file_path if file_path.startswith("s3://") else f"s3://{file_path}"
             data = await s3_client._cat_file(uri)
-            rows.extend(await asyncio.to_thread(_decode_parquet_rows, data))
-    return rows
+            batches = await asyncio.to_thread(_parquet_batches, data)
+            while (batch := await asyncio.to_thread(next, batches, None)) is not None:
+                yield await asyncio.to_thread(batch.to_pylist)
 
 
 async def _read_snapshot_hashes(
@@ -265,40 +272,48 @@ async def run_account_property_segment_sync(
     if await _segment_already_completed(team_id, binding, job_id, segment):
         return {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
 
-    rows = await _read_parquet_rows(team_id, binding, job_id)
     sources = await database_sync_to_async(_enabled_sources, thread_sensitive=False)(team_id, binding)
-    counts = {"rows_read": len(rows), "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
+    counts = {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
 
     for source in sources:
         source_column = source.source_column
         if source_column is None:
             continue
-        values_by_external_id: dict[str, Any] = {}
-        for row in rows:
-            external_id = row.get(source.key_column)
-            value = row.get(source_column)
-            if external_id is not None and value is not None:
-                values_by_external_id[str(external_id)] = _json_safe(value)
         prior_hashes = await _read_snapshot_hashes(team_id, binding, str(source.id), segment)
-        changed = {
-            external_id: value
-            for external_id, value in values_by_external_id.items()
-            if prior_hashes.get(external_id) != _value_hash(value)
-        }
-        counts["changed"] += len(changed)
-        if not changed:
-            continue
-        account_ids = await database_sync_to_async(_matching_account_ids, thread_sensitive=False)(
-            team_id, segment, list(changed)
-        )
-        counts["matched"] += len(account_ids)
-        applied = await database_sync_to_async(_apply_source_values, thread_sensitive=False)(
-            team_id, source, account_ids, changed, segment
-        )
-        counts["written"] += applied.written
-        if applied.failed:
+        applied_hashes: dict[str, str] = {}
+        source_failed = False
+        source_rows_read = 0
+        async for rows in _iter_parquet_row_batches(team_id, binding, job_id):
+            source_rows_read += len(rows)
+            values_by_external_id: dict[str, Any] = {}
+            for row in rows:
+                external_id = row.get(source.key_column)
+                value = row.get(source_column)
+                if external_id is not None and value is not None:
+                    values_by_external_id[str(external_id)] = _json_safe(value)
+            changed = {
+                external_id: value
+                for external_id, value in values_by_external_id.items()
+                if prior_hashes.get(external_id) != _value_hash(value)
+            }
+            counts["changed"] += len(changed)
+            if not changed:
+                continue
+            account_ids = await database_sync_to_async(_matching_account_ids, thread_sensitive=False)(
+                team_id, segment, list(changed)
+            )
+            counts["matched"] += len(account_ids)
+            applied = await database_sync_to_async(_apply_source_values, thread_sensitive=False)(
+                team_id, source, account_ids, changed, segment
+            )
+            counts["written"] += applied.written
+            source_failed = source_failed or applied.failed
+            applied_hashes.update(applied.hashes)
+            prior_hashes.update(applied.hashes)
+        counts["rows_read"] = max(counts["rows_read"], source_rows_read)
+        if source_failed:
             counts["source_errors"] += 1
-        await _write_snapshot_hashes(team_id, binding, str(source.id), segment, job_id, applied.hashes)
+        await _write_snapshot_hashes(team_id, binding, str(source.id), segment, job_id, applied_hashes)
 
     if counts["source_errors"]:
         raise AccountPropertySourceValueError(

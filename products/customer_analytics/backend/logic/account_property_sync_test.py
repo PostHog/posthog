@@ -4,8 +4,12 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pyarrow as pa
+import pyarrow.parquet as pq
+
 from products.customer_analytics.backend.logic.account_property_sync import (
     AccountPropertySyncSegment,
+    _iter_parquet_row_batches,
     _mark_completed_and_maybe_cleanup,
     _matching_account_ids,
     _value_hash,
@@ -51,6 +55,29 @@ class _S3ClientContext:
 
     async def __aexit__(self, *args) -> bool:
         return False
+
+
+@pytest.mark.asyncio
+async def test_staged_parquet_is_decoded_in_bounded_batches() -> None:
+    binding = saved_query_binding("019f0000-0000-7000-8000-000000000001")
+    table = pa.table({"organization_id": [f"org-{index}" for index in range(50_001)]})
+    buffer = pa.BufferOutputStream()
+    pq.write_table(table, buffer)
+    client = MagicMock()
+    client._ls = AsyncMock(return_value=[{"Key": "prefix/chunk.parquet", "type": "file"}])
+    client._cat_file = AsyncMock(return_value=buffer.getvalue().to_pybytes())
+
+    with patch(f"{_MODULE}.aget_s3_client", return_value=_S3ClientContext(client)):
+        batch_sizes = [
+            len(rows)
+            async for rows in _iter_parquet_row_batches(
+                7,
+                binding,
+                "job-1",
+            )
+        ]
+
+    assert batch_sizes == [50_000, 1]
 
 
 @pytest.mark.asyncio

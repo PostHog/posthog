@@ -635,6 +635,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
     ) -> None:
         if not materialize_result.account_property_sync_enabled:
             return
+        first_error: Exception | None = None
         for segment in ("tracked", "ignored"):
             child_id = f"sync-warehouse-account-properties-{job_id}-{segment}"
             try:
@@ -663,6 +664,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     "Failed to start account-property segment sync",
                     extra={"job_id": job_id, "segment": segment, "error": str(error)},
                 )
+                first_error = first_error or error
+        if first_error is not None:
+            raise first_error
 
     async def _maybe_produce_cdp_rows(
         self,
