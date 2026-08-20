@@ -1283,8 +1283,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             ("dashboards", "dashboards=not-json"),
             ("dashboards", 'dashboards={"a": 1}'),
+            ("dashboards", "dashboards=[{}]"),
             ("tags", "tags=not-json"),
             ("created_by", "created_by=42"),
+            ("created_by", 'created_by=["alice"]'),
         ]
     )
     def test_list_insights_with_malformed_filter_param_returns_400(self, param_name: str, query: str) -> None:
