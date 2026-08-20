@@ -276,10 +276,7 @@ export function TaskRowDropdownMenu({ menu }: { menu: TaskRowMenuProps }) {
             variant="default"
             size="icon-xs"
             aria-label={`Options for ${menu.title || "task"}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              setOpen(true);
-            }}
+            onClick={(event) => event.stopPropagation()}
           />
         }
       >

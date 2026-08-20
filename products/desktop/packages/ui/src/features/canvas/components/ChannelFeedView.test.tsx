@@ -1,6 +1,6 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { Theme } from "@radix-ui/themes";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -168,8 +168,12 @@ describe("ChannelFeedView", () => {
   it.each([
     {
       name: "options menu",
-      open: async (user: ReturnType<typeof userEvent.setup>) =>
-        user.click(screen.getByLabelText(`Options for ${task.title}`)),
+      open: async () => {
+        fireEvent.mouseDown(
+          screen.getByLabelText(`Options for ${task.title}`),
+          { button: 0 },
+        );
+      },
     },
     {
       name: "context menu",
@@ -193,6 +197,7 @@ describe("ChannelFeedView", () => {
 
     await open(user);
 
+    await waitFor(() => expect(screen.getByText("Pin")).toBeInTheDocument());
     for (const label of [
       "Pin",
       "Rename",
@@ -202,6 +207,29 @@ describe("ChannelFeedView", () => {
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
+  });
+
+  it("closes the options menu when its trigger is pressed again", async () => {
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    const trigger = screen.getByLabelText(`Options for ${task.title}`);
+    fireEvent.mouseDown(trigger, { button: 0 });
+    await waitFor(() => expect(screen.getByText("Pin")).toBeInTheDocument());
+
+    fireEvent.mouseDown(trigger, { button: 0 });
+    await waitFor(() =>
+      expect(screen.queryByText("Pin")).not.toBeInTheDocument(),
+    );
   });
 
   it("reports when its task is opened", async () => {
