@@ -68,6 +68,19 @@ describe("extractPostHogObjectReferences", () => {
     expect(references).toEqual([{ kind: "flag", id: "real", label: "real" }]);
   });
 
+  it("stays fast on many unmatched backtick runs", () => {
+    const hostile = Array.from(
+      { length: 400 },
+      (_, index) => `${"`".repeat(index + 1)}a`,
+    ).join("");
+    const start = performance.now();
+    const references = extractPostHogObjectReferences(
+      `${hostile.repeat(4)}\n<flag id="real" />`,
+    );
+    expect(performance.now() - start).toBeLessThan(1_000);
+    expect(references).toEqual([{ kind: "flag", id: "real", label: "real" }]);
+  });
+
   it("ignores partial, unknown, and oversized references", () => {
     expect(
       extractPostHogObjectReferences(

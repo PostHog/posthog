@@ -45,9 +45,50 @@ export interface PostHogObjectReference {
 
 // Remove inline code spans, matching CommonMark: an opening run of N backticks
 // closes on the next run of exactly N, so a tag inside `code` or ``co`de`` stays
-// literal.
+// literal. Runs are collected once and matched through per-length cursors, so a
+// line full of unmatched runs costs one pass instead of a rescan per run.
 function stripInlineCode(line: string): string {
-  return line.replace(/(?<!`)(`+)(?!`)(.*?)(?<!`)\1(?!`)/g, "");
+  const runs: { start: number; end: number }[] = [];
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] !== "`") continue;
+    let j = i + 1;
+    while (j < line.length && line[j] === "`") j++;
+    runs.push({ start: i, end: j });
+    i = j - 1;
+  }
+  if (runs.length < 2) return line;
+  const runsByLength = new Map<number, number[]>();
+  runs.forEach((run, index) => {
+    const length = run.end - run.start;
+    let list = runsByLength.get(length);
+    if (!list) {
+      list = [];
+      runsByLength.set(length, list);
+    }
+    list.push(index);
+  });
+  const cursors = new Map<number, number>();
+  let result = "";
+  let copied = 0;
+  let index = 0;
+  while (index < runs.length) {
+    const opener = runs[index];
+    const length = opener.end - opener.start;
+    const list = runsByLength.get(length) ?? [];
+    let cursor = cursors.get(length) ?? 0;
+    while (cursor < list.length && list[cursor] <= index) cursor++;
+    cursors.set(length, cursor);
+    if (cursor >= list.length) {
+      index++;
+      continue;
+    }
+    const closerIndex = list[cursor];
+    result += line.slice(copied, opener.start);
+    copied = runs[closerIndex].end;
+    cursors.set(length, cursor + 1);
+    index = closerIndex + 1;
+  }
+  return result + line.slice(copied);
 }
 
 // Blank out fenced code blocks so the tag parser never reads a citation the
