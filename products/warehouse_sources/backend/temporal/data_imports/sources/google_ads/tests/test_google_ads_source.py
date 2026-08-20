@@ -1568,6 +1568,57 @@ class TestGoogleAdsQueryConstruction:
         lower_bounds = [re.search(r">= '(\d{4}-\d{2}-\d{2})'", q).group(1) for q in queries]  # type: ignore[union-attr]
         assert lower_bounds[:4] == ["2026-01-01", "2026-01-08", "2026-01-15", "2026-01-22"]
 
+    def test_lookback_reread_windows_do_not_stall_drain_short_of_today(self):
+        # The cursor arrives already rewound by the lookback (the rolling overlap re-read). With
+        # data every day, those ~4 re-read windows used to burn almost the whole 5-window budget,
+        # so the run stopped before reaching today and the cursor crawled a few days per run while
+        # the job reported Completed. Re-read windows must not count toward the forward-progress
+        # budget, so a run whose real backlog fits the budget always reaches today.
+        thirty_days = 30 * 24 * 60 * 60
+        stored_cursor = dt.date(2026, 7, 17)
+        shifted_cursor = stored_cursor - dt.timedelta(seconds=thirty_days)
+        window_rows = {(shifted_cursor + dt.timedelta(days=i)).isoformat(): 1 for i in range(80)}
+
+        with freeze_time("2026-07-27"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                window_rows=window_rows,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=shifted_cursor,
+                db_incremental_field_lookback_seconds=thirty_days,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        # The re-read windows are still traversed (the lookback exists to pick up restated rows),
+        # and the drain then continues past the stored cursor all the way to today+1.
+        lower_bounds = [re.search(r">= '(\d{4}-\d{2}-\d{2})'", q).group(1) for q in queries]  # type: ignore[union-attr]
+        upper_bounds = [re.search(r"< '(\d{4}-\d{2}-\d{2})'", q).group(1) for q in queries]  # type: ignore[union-attr]
+        assert lower_bounds[0] == "2026-06-17"
+        assert max(upper_bounds) == "2026-07-28"
+
+    def test_first_sync_budget_ignores_lookback(self):
+        # A first sync has no stored watermark, so no lookback shift was applied to its start date.
+        # Exempting a lookback-sized slice of its windows anyway would let one run extract past the
+        # per-run budget that keeps runs short enough to complete and land the cursor.
+        window_rows = {
+            (dt.date(2024, 7, 17) + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1
+            for i in range(12)
+        }
+
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                window_rows=window_rows,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                db_incremental_field_lookback_seconds=30 * 24 * 60 * 60,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert len(queries) == GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
+
     def test_dimension_table_query_has_no_order_clause(self):
         _response, queries = self._run_source(_single_row_table())
 

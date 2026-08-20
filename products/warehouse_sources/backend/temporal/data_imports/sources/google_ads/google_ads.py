@@ -507,6 +507,7 @@ def google_ads_source(
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    db_incremental_field_lookback_seconds: int | None = None,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
 
@@ -591,6 +592,18 @@ def google_ads_source(
             )
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
+
+            # An established cursor arrives already rewound by the user-configured lookback (the
+            # rolling overlap re-read, see `apply_incremental_lookback`), so `start` sits up to
+            # `lookback` days before the real stored watermark. Windows ending at or below that
+            # watermark only re-read already-synced data; counting them against the forward-progress
+            # budget lets a dense lookback (30 days ≈ 4+ full windows) consume nearly the whole
+            # budget, so the run stops short of today and the cursor crawls — or, past ~5 windows of
+            # lookback, freezes — while every run reports Completed. A first sync has no watermark
+            # and gets no lookback shift, so its boundary stays at `start` and every window counts.
+            resync_boundary = start
+            if db_incremental_field_last_value is not None and db_incremental_field_lookback_seconds:
+                resync_boundary = start + dt.timedelta(seconds=db_incremental_field_lookback_seconds)
             windows_with_data = 0
             first_window = True
 
@@ -605,9 +618,11 @@ def google_ads_source(
                     had_data = True
                     yield pa_table
 
-                # Empty windows don't count toward the per-run budget and don't stop the loop, so a
-                # gap in the data is crossed within a single run instead of stalling the cursor on it.
-                if had_data:
+                # Only windows that extend past the stored watermark count toward the per-run
+                # budget. Windows entirely inside the lookback re-read, and empty windows, are
+                # traversed for free, so neither the overlap re-read nor a gap in the data can
+                # stall the cursor short of today.
+                if had_data and window_end > resync_boundary:
                     windows_with_data += 1
                 first_window = False
                 start = window_end

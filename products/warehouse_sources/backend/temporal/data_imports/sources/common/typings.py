@@ -97,6 +97,10 @@ class SourceInputs:
     reset_pipeline: bool
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
+    # Seconds `db_incremental_field_last_value` was rewound by `apply_incremental_lookback` for the
+    # rolling overlap re-read. Sources that drain a stats backlog in bounded windows need it to tell
+    # already-synced re-read windows apart from windows that advance the cursor. 0/None means no shift.
+    db_incremental_field_lookback_seconds: Optional[int] = None
     # Multi-schema import context, read by `resolve_source_location`.
     schema_metadata: Optional[dict[str, Any]] = None
     s3_folder_name: Optional[str] = None

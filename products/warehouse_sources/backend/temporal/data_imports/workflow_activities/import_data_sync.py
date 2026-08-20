@@ -255,6 +255,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
+        applied_lookback_seconds: int | None = None
 
         if reset_pipeline is not True:
             processed_incremental_last_value = process_incremental_value(
@@ -271,6 +272,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             # overlap window and catches late or backdated rows. Incremental merge makes the
             # re-read idempotent — append would duplicate, so it's gated to incremental.
             if schema.is_incremental:
+                applied_lookback_seconds = schema.incremental_field_lookback_seconds
                 processed_incremental_last_value = apply_incremental_lookback(
                     processed_incremental_last_value,
                     schema.incremental_field_type,
@@ -322,6 +324,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 if schema.should_use_incremental_field
                 else None,
                 db_incremental_field_earliest_value=processed_incremental_earliest_value
+                if schema.should_use_incremental_field
+                else None,
+                db_incremental_field_lookback_seconds=applied_lookback_seconds
                 if schema.should_use_incremental_field
                 else None,
                 logger=logger,

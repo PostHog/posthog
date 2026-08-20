@@ -243,6 +243,9 @@ class GoogleAdsSource(
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            db_incremental_field_lookback_seconds=inputs.db_incremental_field_lookback_seconds
+            if inputs.should_use_incremental_field
+            else None,
         )
 
     @property
