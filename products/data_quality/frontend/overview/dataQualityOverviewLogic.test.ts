@@ -283,6 +283,23 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.overviewSummary).toEqual('1 of 3 checks failing, across 1 tables and views.')
     })
 
+    it('counts a subject whose only failure is warning-only among the failing subjects', async () => {
+        // A warn-severity failure raises the failing-check count but leaves the subject's health at
+        // 'warn', so a subject count taken from the health rollup read "1 of 1 checks failing,
+        // across 0 tables and views".
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
+            results: [buildCheck('check-1', 'orders', 'failed', { severity: 'warn' })],
+        })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([
+            { subject_type: 'view', subject_uuid: 'uuid-orders', health: 'warn', checks_total: 1, checks_failing: 0 },
+        ])
+        await mountLogic()
+
+        expect(logic.values.failingCheckCount).toEqual(1)
+        expect(logic.values.failingSubjectCount).toEqual(1)
+        expect(logic.values.overviewSummary).toEqual('1 of 1 checks failing, across 1 tables and views.')
+    })
+
     it.each<[string, (string | null)[], string]>([
         // The regression: a not-failing check was reported as passed, so a page of never-run checks
         // read as an all-clear the moment they were created.

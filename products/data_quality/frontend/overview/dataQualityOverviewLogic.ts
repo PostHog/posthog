@@ -281,7 +281,7 @@ export interface dataQualityOverviewLogicMeta {
             filters: OverviewFilters
         ) => DataQualityOverviewCheckApi[]
         failingCheckCount: (checks: DataQualityOverviewCheckApi[]) => number
-        failingSubjectCount: (subjectHealth: DataQualitySubjectHealthApi[]) => number
+        failingSubjectCount: (checks: DataQualityOverviewCheckApi[]) => number
         overviewSummary: (
             checks: DataQualityOverviewCheckApi[],
             failingCheckCount: number,
@@ -492,10 +492,17 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             (checks: DataQualityOverviewCheckApi[]) =>
                 checks.filter((check) => ['failed', 'errored'].includes(check.last_status ?? '')).length,
         ],
+        // Counted from the same checks as failingCheckCount, not the health rollup: a warn-severity
+        // or disabled failure raises the check count but leaves the subject's health short of
+        // 'failing', which would read as "N checks failing, across 0 tables and views".
         failingSubjectCount: [
-            (s) => [s.subjectHealth],
-            (subjectHealth: DataQualitySubjectHealthApi[]) =>
-                subjectHealth.filter((entry) => ['failing', 'erroring'].includes(entry.health)).length,
+            (s) => [s.checks],
+            (checks: DataQualityOverviewCheckApi[]) =>
+                new Set(
+                    checks
+                        .filter((check) => ['failed', 'errored'].includes(check.last_status ?? ''))
+                        .map((check) => subjectKeyOf(check.subject_type, check.subject_uuid))
+                ).size,
         ],
         // A not-failing check is not a passed check: a never-run or skipped one also has no failure.
         // Only claim every check passed when every check actually passed, so a fresh page of unrun
