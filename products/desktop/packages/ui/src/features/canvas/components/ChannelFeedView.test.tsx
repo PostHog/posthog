@@ -41,9 +41,17 @@ vi.mock("@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead", () => ({
 vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
   usePinnedTasks: () => ({ togglePin: vi.fn() }),
 }));
+const { archiveTask } = vi.hoisted(() => ({ archiveTask: vi.fn() }));
 vi.mock("@posthog/ui/features/archive/useArchiveTask", () => ({
-  useArchiveTask: () => ({ archiveTask: vi.fn() }),
+  useArchiveTask: () => ({ archiveTask }),
 }));
+vi.mock(
+  "@posthog/ui/features/sidebar/components/ArchiveRunningTaskDialog",
+  () => ({
+    ArchiveRunningTaskDialog: ({ open }: { open: boolean }) =>
+      open ? <div>Archive running task?</div> : null,
+  }),
+);
 vi.mock("@posthog/ui/features/sessions/components/StopCloudRunDialog", () => ({
   StopCloudRunDialog: ({ open, title }: { open: boolean; title: string }) =>
     open ? <div>{title}</div> : null,
@@ -107,6 +115,7 @@ const task = {
 afterEach(() => {
   vi.restoreAllMocks();
   archivedTaskIds.current = new Set<string>();
+  archiveTask.mockReset();
   channelTaskData.current = undefined;
 });
 
@@ -237,6 +246,41 @@ describe("ChannelFeedView", () => {
     await waitFor(() =>
       expect(screen.queryByText("Pin")).not.toBeInTheDocument(),
     );
+  });
+
+  it("opens the archive confirmation for an active task", async () => {
+    channelTaskData.current = {
+      cloudPrUrl: null,
+      isGenerating: true,
+      isPinned: false,
+      needsPermission: false,
+      taskRunEnvironment: "cloud",
+      taskRunStatus: "in_progress",
+    };
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    fireEvent.mouseDown(screen.getByLabelText(`Options for ${task.title}`), {
+      button: 0,
+    });
+    await waitFor(() =>
+      expect(screen.getByText("Archive")).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByText("Archive"));
+
+    expect(screen.getByText("Archive running task?")).toBeInTheDocument();
+    expect(archiveTask).not.toHaveBeenCalled();
   });
 
   it("opens the stop confirmation for an active cloud task", async () => {

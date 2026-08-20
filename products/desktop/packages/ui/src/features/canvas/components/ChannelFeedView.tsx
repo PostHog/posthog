@@ -71,6 +71,7 @@ import { usePrTitles } from "@posthog/ui/features/git-interaction/usePrDetails";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { usePrChecks } from "@posthog/ui/features/pr-review/usePrChecks";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
+import { ArchiveRunningTaskDialog } from "@posthog/ui/features/sidebar/components/ArchiveRunningTaskDialog";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import {
   type SidebarPrState,
@@ -731,9 +732,10 @@ const FeedItem = memo(function FeedItem({
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(task.title);
   const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
-  const canStop =
-    taskData?.taskRunEnvironment === "cloud" && isTaskActivelyRunning(taskData);
+  const isActive = taskData ? isTaskActivelyRunning(taskData) : false;
+  const canStop = taskData?.taskRunEnvironment === "cloud" && isActive;
   const starter = channelTaskStarter(task);
   const prompt = useMemo(
     () => stripContextBlocks(xmlToPlainText(task.description ?? "")),
@@ -816,6 +818,25 @@ const FeedItem = memo(function FeedItem({
       })
       .finally(() => setIsSavingTitle(false));
   }, [isSavingTitle, renameTask, task.id, task.title, titleValue]);
+  const runArchive = useCallback(async () => {
+    try {
+      await archiveTask({ taskId: task.id });
+    } catch (error) {
+      toast.error("Couldn't archive task", { description: "Try again." });
+      throw error;
+    }
+  }, [archiveTask, task.id]);
+  const archiveTaskFromFeed = useCallback(() => {
+    if (isActive) {
+      setArchiveConfirmOpen(true);
+      return;
+    }
+    void runArchive().catch(() => undefined);
+  }, [isActive, runArchive]);
+  const confirmArchive = useCallback(async () => {
+    await runArchive();
+    setArchiveConfirmOpen(false);
+  }, [runArchive]);
   const menu: TaskRowMenuProps = useMemo(
     () => ({
       kind: "task",
@@ -833,14 +854,10 @@ const FeedItem = memo(function FeedItem({
           toast.error("Couldn't update pin", { description: "Try again." });
         });
       },
-      onArchive: () => {
-        void archiveTask({ taskId: task.id }).catch(() => {
-          toast.error("Couldn't archive task", { description: "Try again." });
-        });
-      },
+      onArchive: archiveTaskFromFeed,
     }),
     [
-      archiveTask,
+      archiveTaskFromFeed,
       beginTitleEdit,
       canStop,
       commandCenterCells,
@@ -1105,6 +1122,13 @@ const FeedItem = memo(function FeedItem({
           </div>
         </CardContent>
       </Card>
+      <ArchiveRunningTaskDialog
+        open={archiveConfirmOpen}
+        taskTitle={task.title}
+        stopsCloudSandbox={taskData?.taskRunEnvironment === "cloud"}
+        onConfirm={confirmArchive}
+        onCancel={() => setArchiveConfirmOpen(false)}
+      />
       <StopCloudRunDialog
         open={stopConfirmOpen}
         taskId={task.id}
