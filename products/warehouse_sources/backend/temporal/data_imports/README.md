@@ -63,6 +63,24 @@ Observability: `warehouse_repartition_flagged` / `started` / `completed` / `fail
 
 The existing admin repartition action now stages a `repartition_pending` target and triggers this cheap in-place path (no reset, no source re-pull) instead of a reset + resync.
 
+## Retry backoff for repeatedly failing schemas
+
+A schema whose credential was revoked, whose table was dropped, or whose incremental config is invalid used to retry at full cadence forever, writing one failed `ExternalDataJob` per scheduled tick indefinitely.
+
+`ExternalDataSchema.consecutive_failures` counts failed syncs since the last success (`update_external_job_status` moves it, once per job, on the first terminal transition).
+Past `FAILURE_BACKOFF_THRESHOLD` failures in a row, the wait after `last_failed_at` doubles per extra failure, starting from the schema's own sync interval and capped at `FAILURE_BACKOFF_CAP` (a day).
+The schedule keeps firing on its normal cadence; `create_external_data_job_model_activity` ends the run inside that window before writing anything, so no job row is created and the schema keeps showing its real failed state.
+Backed-off runs are counted by the `data_import_failure_backoff_skipped` metric.
+
+The streak resets on any successful sync, on re-enabling a schema, and on any manual trigger (reload, resync, source reload) — so a user asking for a sync always gets one straight away.
+
+Two exclusions:
+
+- **CDC schemas never back off.** Their extraction has to keep draining the replication slot or the slot goes invalid and the source needs a full re-snapshot. CDC has its own breaker in `cdc_broken`.
+- **Failures the source isn't responsible for don't count** — a user cancelling a sync, or a v3 lock takeover force-failing a stuck job. Those callers pass `counts_towards_failure_streak=False`.
+
+Backoff only slows retries down; it never stops them. Terminal, user-actionable errors are handled separately by the non-retryable error map, which disables the schema and tells the user what to fix.
+
 ## Admin panel actions
 
 Most day-to-day interventions no longer need a k8s pod — they're buttons on the `ExternalDataSchema` change page in the Django admin (`/admin/warehouse_sources/externaldataschema/<schema_id>/change/`).

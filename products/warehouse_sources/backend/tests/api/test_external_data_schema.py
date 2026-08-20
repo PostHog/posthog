@@ -9,6 +9,7 @@ from unittest import mock
 
 from django.conf import settings
 from django.test.client import Client as HttpClient
+from django.utils import timezone
 
 import psycopg
 import pytest_asyncio
@@ -548,6 +549,47 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_reload_keeps_failure_backoff_cleared(self):
+        # trigger_external_data_workflow clears the backoff counters with a queryset UPDATE. The
+        # reload view then persists status, and a full save() would write the stale in-memory
+        # consecutive_failures/last_failed_at back, re-arming the backoff the user just cleared.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        )
+        ExternalDataSchema.objects.filter(id=schema.id).update(consecutive_failures=9, last_failed_at=timezone.now())
+
+        def clear_backoff(instance):
+            ExternalDataSchema.objects.filter(id=instance.id).update(consecutive_failures=0, last_failed_at=None)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow",
+                side_effect=clear_backoff,
+            ) as mock_trigger,
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+                return_value=False,
+            ),
+        ):
+            response = self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/reload/")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_trigger.assert_called_once()
+        schema.refresh_from_db()
+        assert schema.consecutive_failures == 0
+        assert schema.last_failed_at is None
+        assert schema.status == ExternalDataSchema.Status.RUNNING
 
     def test_update_schema_sync_type_is_logged_to_activity(self):
         source = ExternalDataSource.objects.create(
