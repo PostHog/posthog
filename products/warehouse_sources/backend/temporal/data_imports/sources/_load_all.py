@@ -34,6 +34,7 @@ from .airbyte.source import AirbyteSource
 from .aircall.source import AircallSource
 from .airops.source import AirOpsSource
 from .airtable.source import AirtableSource
+from .airwallex.source import AirwallexSource
 from .aiven.source import AivenSource
 from .akamai_reporting.source import AkamaiReportingSource
 from .akeneo.source import AkeneoSource
@@ -570,6 +571,7 @@ from .honeybadger.source import HoneybadgerSource
 from .honeycomb.source import HoneycombSource
 from .hookdeck.source import HookdeckSource
 from .hoorayhr.source import HoorayHRSource
+from .hootsuite.source import HootsuiteSource
 from .hostaway.source import HostawaySource
 from .housecall_pro.source import HousecallProSource
 from .hubplanner.source import HubplannerSource
@@ -606,6 +608,7 @@ from .intruder.source import IntruderSource
 from .invoiced.source import InvoicedSource
 from .invoiceninja.source import InvoiceninjaSource
 from .ip2whois.source import IP2WhoisSource
+from .ironsource_ads.source import IronSourceAdsSource
 from .iterable.source import IterableSource
 from .iyzico.source import IyzicoSource
 from .jamf_pro.source import JamfProSource
@@ -735,6 +738,7 @@ from .microsoft_defender_cloud_apps.source import MicrosoftDefenderCloudAppsSour
 from .microsoft_defender_endpoint.source import MicrosoftDefenderEndpointSource
 from .microsoft_defender_for_cloud.source import MicrosoftDefenderForCloudSource
 from .microsoft_entra_id.source import MicrosoftEntraIdSource
+from .microsoft_excel.source import MicrosoftExcelSource
 from .microsoft_intune.source import MicrosoftIntuneSource
 from .microsoft_lists.source import MicrosoftListsSource
 from .microsoft_purview.source import MicrosoftPurviewSource
@@ -925,6 +929,7 @@ from .procore.source import ProcoreSource
 from .productboard.source import ProductboardSource
 from .productiv.source import ProductivSource
 from .productive.source import ProductiveSource
+from .profound.source import ProfoundSource
 from .prompting_company.source import PromptingCompanySource
 from .promptwatch.source import PromptWatchSource
 from .proofpoint_tap.source import ProofpointTapSource
@@ -997,6 +1002,7 @@ from .salesforce.source import SalesforceSource
 from .salesforce_marketing_cloud.source import SalesforceMarketingCloudSource
 from .salesloft.source import SalesLoftSource
 from .salestrics.source import SalestricsSource
+from .samcart.source import SamCartSource
 from .sanity.source import SanitySource
 from .sap_concur.source import SapConcurSource
 from .sap_erp.source import SapErpSource
@@ -1244,6 +1250,7 @@ from .whop.source import WhopSource
 from .wikipedia_pageviews.source import WikipediaPageviewsSource
 from .windmill.source import WindmillSource
 from .windsor_ai.source import WindsorAiSource
+from .wisprflow.source import WisprFlowSource
 from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource

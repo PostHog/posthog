@@ -121,6 +121,19 @@ def delete_expired_exported_assets() -> None:
 
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+def fail_stuck_video_exports() -> None:
+    """Give up on video exports whose render workflow died without recording a reason.
+
+    The workflow records its own failures, but not the ones where it never got to run: its execution
+    timeout firing, a dispatch failure, a lost worker. Without this sweep those rows stay
+    indistinguishable from a render still in progress.
+    """
+    from products.exports.backend.stuck_exports import fail_stuck_video_exports as run_sweep
+
+    run_sweep()
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
 @skip_team_scope_audit
 def delete_expired_delegation_invites() -> None:
     """Delete delegation invites that have passed their expiry.
@@ -327,8 +340,13 @@ def redispatch_orphaned_queued_task_runs() -> None:
     # Cloud only: local (desktop) runs idle in QUEUED by design while the desktop agent drives
     # them; cloud-dispatching one hijacks the live session and eventually marks it failed.
     candidate_ids = tasks_facade.get_stale_queued_task_run_ids(
-        RECONCILE_AFTER, BATCH_SIZE, environment=tasks_facade.TaskRunEnvironment.CLOUD
+        RECONCILE_AFTER,
+        BATCH_SIZE,
+        environment=tasks_facade.TaskRunEnvironment.CLOUD,
+        exclude_covered_dispatches=True,
     )
+    saturated = len(candidate_ids) >= BATCH_SIZE
+    candidate_ids = tasks_facade.filter_uncovered_workflow_dispatch_run_ids(candidate_ids)
     outcomes: dict[str, int] = {}
     for run_id in candidate_ids:
         try:
@@ -339,7 +357,6 @@ def redispatch_orphaned_queued_task_runs() -> None:
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
         ORPHANED_QUEUED_TASK_RUN_RECONCILED_COUNTER.labels(outcome=outcome).inc()
 
-    saturated = len(candidate_ids) >= BATCH_SIZE
     log = logger.warning if saturated else logger.info
     log(
         "redispatch_orphaned_queued_task_runs.sweep_done",
@@ -352,6 +369,8 @@ def redispatch_orphaned_queued_task_runs() -> None:
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )
+
+    tasks_facade.maintain_workflow_dispatch_outbox()
 
 
 @shared_task(ignore_result=True)

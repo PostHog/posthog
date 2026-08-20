@@ -106,8 +106,8 @@ def reachable_agent_grants(team_id: int, credential_owner_id: int | None) -> Q:
     """The grants an agent run may use: the run's own credential owner's grants
     at any scope, plus every member's team-scoped grants.
 
-    A run with no credential owner (an autonomous support reply, a creatorless
-    scout) reaches team-scoped grants only. Grant rows with no user resolve for
+    A run with no credential owner (an autonomous support reply, any scout
+    run) reaches team-scoped grants only. Grant rows with no user resolve for
     nobody, so they are excluded from every lane.
 
     An admin's per-member revocation of the server applies here as well as on

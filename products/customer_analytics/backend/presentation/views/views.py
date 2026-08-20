@@ -25,6 +25,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -43,6 +44,7 @@ from posthog.permissions import (
     get_authenticator_scopes,
     is_service_auth,
 )
+from posthog.rate_limit import RunSavedQueryRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
@@ -50,6 +52,8 @@ from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountChannelSummarySerializer,
+    AccountEmailThreadMessageSerializer,
+    AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
     AccountRelationshipDefinitionSerializer,
@@ -73,9 +77,14 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
     FeatureRequestCreateSerializer,
+    FeatureRequestHistorySerializer,
+    FeatureRequestListQuerySerializer,
     FeatureRequestProductAreaListQuerySerializer,
     FeatureRequestProductAreaSerializer,
     FeatureRequestSerializer,
+    FeatureRequestStatusHistorySerializer,
+    FeatureRequestUpdateSerializer,
+    FeatureRequestVersionSerializer,
     MeetingSerializer,
     SupportTicketSerializer,
 )
@@ -89,14 +98,20 @@ _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
 
 
+# The warehouse resources a person/group-property source can bind to: the import source behind a
+# table, or a materialized view. Each needs its own API-token scope folded into the object check.
+_WAREHOUSE_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view"})
+
+
 class _WarehouseScopeGatedAccessControl:
-    """Wraps ``UserAccessControl`` so object-level ``external_data_source`` access additionally
-    requires the request token to carry the matching ``external_data_source`` scope (``read`` for
-    viewer, ``write`` for editor). Person-property sources gate all warehouse read/write through
-    ``check_access_level_for_object`` on the linked ``external_data_source``, so folding the token
-    scope in here enforces the cross-resource scope on every path without threading it through the
-    facade. Session auth (no token scopes) and ``*`` tokens are unaffected — API scopes never gate
-    session requests, which stay RBAC-only. Everything else delegates to the wrapped instance."""
+    """Wraps ``UserAccessControl`` so object-level warehouse access additionally requires the request
+    token to carry the matching scope for that resource (``read`` for viewer, ``write`` for editor) —
+    ``external_data_source`` for a table binding, ``warehouse_view`` for a view binding.
+    Person-property sources gate all warehouse read/write through ``check_access_level_for_object`` on
+    the bound warehouse object, so folding the token scope in here enforces the cross-resource scope on
+    every path without threading it through the facade. Session auth (no token scopes) and ``*`` tokens
+    are unaffected — API scopes never gate session requests, which stay RBAC-only. Everything else
+    delegates to the wrapped instance."""
 
     def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
         self._inner = inner
@@ -112,16 +127,17 @@ class _WarehouseScopeGatedAccessControl:
 
     def _token_lacks_scope_for(self, obj: Any, required_level: Any) -> bool:
         scopes = self._token_scopes
-        if "*" in scopes or model_to_resource(obj) != "external_data_source":
+        resource = model_to_resource(obj)
+        if "*" in scopes or resource not in _WAREHOUSE_SCOPE_GATED_RESOURCES:
             return False
-        if "external_data_source:write" in scopes:
+        if f"{resource}:write" in scopes:
             return False  # write implies read, so it satisfies both viewer and editor
-        return not (required_level == "viewer" and "external_data_source:read" in scopes)
+        return not (required_level == "viewer" and f"{resource}:read" in scopes)
 
 
 def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
-    """The view's ``UserAccessControl``, additionally gating ``external_data_source`` object access on
-    the request token's warehouse scope. A no-op for session/other non-token auth (no token scopes)."""
+    """The view's ``UserAccessControl``, additionally gating warehouse object access on the request
+    token's scope for that resource. A no-op for session/other non-token auth (no token scopes)."""
     scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
     if scopes is None:
         return view.user_access_control
@@ -143,6 +159,11 @@ _ACCOUNT_ID_PARAM = OpenApiParameter(
 # NOTE: deliberately no class docstring — a docstring here is inherited as the ViewSets'
 # ``__doc__`` and drf-spectacular would surface it as every operation's description (the
 # model-backed viewsets had none), drifting the generated clients.
+class AccountEmailThreadMessagePagination(LimitOffsetPagination):
+    default_limit = 50
+    max_limit = 200
+
+
 class _FacadePaginationMixin:
     # Drives the standard ``LimitOffsetPagination`` envelope from a facade ``(page, count)``
     # result. The facade does the slicing (offset/limit), so we set the paginator's state
@@ -279,6 +300,7 @@ class FeatureRequestViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     scope_object = "customer_analytics"
@@ -287,12 +309,26 @@ class FeatureRequestViewSet(
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
 
-    def list(self, request: Request, *args, **kwargs) -> Response:
+    @validated_request(
+        query_serializer=FeatureRequestListQuerySerializer,
+        responses={200: OpenApiResponse(response=FeatureRequestSerializer(many=True))},
+    )
+    def list(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        data = request.validated_query_data
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_feature_requests(
                 team_id=self.team_id,
                 user_access_control=self.user_access_control,
+                filters=contracts.FeatureRequestListFilters(
+                    search=data.get("search", ""),
+                    statuses=tuple(data.get("statuses", ())),
+                    priorities=tuple(data.get("priorities", ())),
+                    product_area_ids=tuple(data.get("product_area_ids", ())),
+                    account_ids=tuple(data.get("account_ids", ())),
+                    archive_state=data["archive_state"],
+                    ordering=data["request_ordering"],
+                ),
                 offset=offset,
                 limit=limit,
             ),
@@ -334,6 +370,92 @@ class FeatureRequestViewSet(
             raise ValidationError({error.field: error.message})
         response_status = status.HTTP_201_CREATED if outcome.created else status.HTTP_200_OK
         return Response(FeatureRequestSerializer(instance=outcome.request).data, status=response_status)
+
+    @extend_schema(request=FeatureRequestUpdateSerializer, responses={200: FeatureRequestSerializer})
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            feature_request = api.update_feature_request(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.UpdateFeatureRequestInput(
+                    expected_version=data["expected_version"],
+                    title=data.get("title"),
+                    description=data.get("description"),
+                    account_id=data.get("account_id"),
+                    product_area_ids=(tuple(data["product_area_ids"]) if "product_area_ids" in request.data else None),
+                    request_status=data.get("request_status"),
+                    request_priority=data.get("request_priority"),
+                    request_priority_is_set="request_priority" in request.data,
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestUpdateSerializer, responses={200: FeatureRequestSerializer})
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        return self.update(request, *args, **kwargs)
+
+    def _set_archived(self, request: Request, *, archived: bool) -> Response:
+        serializer = FeatureRequestVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.set_feature_request_archived(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                expected_version=serializer.validated_data["expected_version"],
+                archived=archived,
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True)
+    def archive(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_archived(request, archived=True)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True)
+    def restore(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_archived(request, archived=False)
+
+    @extend_schema(responses={200: FeatureRequestHistorySerializer(many=True)})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def history(self, request: Request, *args, **kwargs) -> Response:
+        history = api.list_feature_request_history(
+            team_id=self.team_id,
+            feature_request_id=self.kwargs["pk"],
+            user_access_control=self.user_access_control,
+        )
+        if history is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestHistorySerializer(instance=history, many=True).data)
+
+    @extend_schema(responses={200: FeatureRequestStatusHistorySerializer(many=True)})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def status_history(self, request: Request, *args, **kwargs) -> Response:
+        history = api.list_feature_request_status_history(
+            team_id=self.team_id,
+            feature_request_id=self.kwargs["pk"],
+            user_access_control=self.user_access_control,
+        )
+        if history is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
 
 
 class CustomerProfileConfigViewSet(
@@ -691,6 +813,22 @@ def _account_relationship_definition_write_fields(validated, raw_data: dict) -> 
     return fields
 
 
+class CustomPropertySourceSyncThrottle(RunSavedQueryRateThrottle):
+    """A manual sync starts a real warehouse run — a billable import for a table binding, a
+    materialization for a view. Keying on the bound warehouse object instead of the mapping puts a
+    view-bound sync in the same bucket as the canonical saved-query run endpoint, so a caller can't
+    exceed that view's run limit by pointing two mappings at it (or by using this route instead)."""
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        source_id = view.kwargs.get("pk", "")
+        if team_id and source_id:
+            binding_id = api.get_custom_property_source_binding_id(team_id, source_id)
+            if binding_id:
+                return self.cache_format % {"scope": self.scope, "ident": f"{team_id}_{binding_id}"}
+        return super().get_cache_key(request, view)
+
+
 class CustomPropertySourceViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -834,11 +972,11 @@ class CustomPropertySourceViewSet(
         request=None,
         responses={202: CustomPropertySyncTriggerResponseSerializer},
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, throttle_classes=[CustomPropertySourceSyncThrottle])
     def sync(self, request: Request, *args, **kwargs) -> Response:
-        """Person and group sources only: trigger the underlying warehouse schema's sync now. This
-        re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
-        off it."""
+        """Person and group sources only: run what this source reads now — an import for a table
+        binding (a real, billable warehouse sync), a materialization for a view binding. The
+        incremental person/group-property update runs off that run."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             triggered = api.trigger_person_property_sync(
@@ -846,7 +984,7 @@ class CustomPropertySourceViewSet(
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
-        except api.WarehouseSyncPausedError as e:
+        except (api.WarehouseSyncPausedError, api.ViewNotSyncableError) as e:
             return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if not triggered:
             raise ValidationError("This action is only available for enabled person- or group-property sources.")
@@ -1089,6 +1227,22 @@ class AccountViewSet(
                 description="When true, returns only accounts where no user actively holds any relationship.",
             ),
             OpenApiParameter(
+                name="include_churned",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                description="Include churned accounts. Churned accounts are hidden by default.",
+            ),
+            OpenApiParameter(
+                name="include_ignored",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                description="Include ignored accounts. Ignored accounts are hidden by default.",
+            ),
+            OpenApiParameter(
                 name="ordering",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -1112,6 +1266,8 @@ class AccountViewSet(
                 search=request.query_params.get("search", "").strip() or None,
                 tags=tags,
                 all_roles_unassigned=request.query_params.get("all_roles_unassigned", "").lower() == "true",
+                include_churned=request.query_params.get("include_churned", "").lower() == "true",
+                include_ignored=request.query_params.get("include_ignored", "").lower() == "true",
                 ordering=ordering,
             ),
             AccountSerializer,
@@ -1146,6 +1302,71 @@ class AccountViewSet(
         if tickets is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
+
+    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountEmailThreadSerializer(many=True)})
+    @action(methods=["GET"], detail=True, url_path="email_threads")
+    def email_threads(self, request: Request, *args, **kwargs) -> Response:
+        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        def fetch(offset: int, limit: int) -> tuple[list[api.AccountEmailThreadSummary], int]:
+            try:
+                result = api.get_account_email_threads(
+                    self.team_id,
+                    self.kwargs["pk"],
+                    self.user_access_control,
+                    offset=offset,
+                    limit=limit,
+                )
+            except api.ResourceForbiddenError:
+                raise PermissionDenied()
+            return result if result is not None else ([], 0)
+
+        return self._paginate_via_facade(request, fetch, AccountEmailThreadSerializer)
+
+    @extend_schema(
+        operation_id="accounts_email_thread_messages_list",
+        parameters=[_ACCOUNT_ID_PARAM],
+        responses={200: AccountEmailThreadMessageSerializer(many=True)},
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"email_threads/(?P<thread_id>[^/.]+)",
+        url_name="email-thread-detail",
+        pagination_class=AccountEmailThreadMessagePagination,
+    )
+    def email_thread(self, request: Request, thread_id: str, *args, **kwargs) -> Response:
+        try:
+            parsed_thread_id = str(UUID(thread_id))
+        except ValueError:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
+        assert limit is not None
+        offset = paginator.get_offset(request)
+        try:
+            result = api.get_account_email_thread_messages(
+                self.team_id,
+                self.kwargs["pk"],
+                parsed_thread_id,
+                self.user_access_control,
+                offset=offset,
+                limit=limit,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        if result is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        messages, count = result
+        paginator.request = request
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.count = count
+        serializer = AccountEmailThreadMessageSerializer(instance=messages, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(
         parameters=[
@@ -1187,7 +1408,7 @@ class AccountViewSet(
                 return mixin_result
         # Ticket content behind an account-scoped viewset — a token holding only
         # account:read must not read it.
-        if view.action == "support_tickets":
+        if view.action in {"support_tickets", "email_threads", "email_thread"}:
             return ["account:read", "ticket:read"]
         return None
 
@@ -1204,6 +1425,7 @@ class AccountViewSet(
                     properties=data.properties or {},
                     tags=_account_tags_input(serializer),
                     slack_summary_cadence=data.slack_summary_cadence,
+                    churned_at=data.churned_at,
                 ),
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
@@ -1237,6 +1459,8 @@ class AccountViewSet(
                     if "slack_summary_cadence" in request.data
                     else None,
                     slack_summary_cadence_provided="slack_summary_cadence" in request.data,
+                    churned_at=data.churned_at if "churned_at" in request.data else None,
+                    churned_at_provided="churned_at" in request.data,
                 ),
                 user_access_control=self.user_access_control,
                 required_level=_object_required_level(request, write=True),
@@ -1651,7 +1875,10 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         relationship = api.end_account_relationship(
-            team_id=self.team_id, account_id=account_id, relationship_id=self.kwargs["pk"]
+            team_id=self.team_id,
+            account_id=account_id,
+            relationship_id=self.kwargs["pk"],
+            actor=cast(User, request.user),
         )
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)

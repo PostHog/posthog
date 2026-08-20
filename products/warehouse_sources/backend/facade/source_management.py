@@ -23,6 +23,7 @@ _LAZY = {
     "CDCRepairInProgress": "cdc.repair",
     "repair_cdc_source": "cdc.repair",
     "purge_buffer_prefix": "cdc.buffer",
+    "ClickHouseConnectionError": "sources.clickhouse.clickhouse",
     "ClickHouseSource": "sources.clickhouse.source",
     "AnySource": "sources.common.base",
     "ExternalWebhookInfo": "sources.common.base",

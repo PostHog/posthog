@@ -37,6 +37,7 @@ import {
     hasZeroRollout,
     featureFlagLogic as sceneFeatureFlagLogic,
     validateFeatureFlagKey,
+    validateFeatureFlagVariantKey,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -4251,9 +4252,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     filters: {
                         multivariate: {
                             variants: feature_flag_config?.filters?.multivariate?.variants?.map(({ key }) => ({
-                                key: !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-                                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-                                    : undefined,
+                                key: validateFeatureFlagVariantKey(key),
                             })),
                         },
                     },

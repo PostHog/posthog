@@ -49,9 +49,8 @@ A newer relevant delivery supersedes older non-terminal runs. Rules that keep th
 - Terminal states (`TERMINAL_STATUSES` in `facade/enums.py`) are never rewritten — `mark_review_failed`
   must not clobber a delivered outcome, and terminal saves are conditional
   (`.exclude(status=SUPERSEDED).update(...)`), never plain `save()`.
-- `post_verdict` guards before ANY GitHub write: superseded status, current head vs run head, and
-  a last fresh status read. Losing the final conditional update means dismiss-your-own-approval,
-  not "log and return".
+- `post_verdict` guards before ANY GitHub write: superseded status, current head vs run head, current base (ref and SHA) vs the reviewed one (a retarget, or a parent branch moving under a stacked PR, rewrites the diff with the head unchanged, and the retarget delivery can trail the activity), and a last fresh status read.
+  Losing the final conditional update means dismiss-your-own-approval, not "log and return".
 - Out-of-order webhook deliveries are dropped by the `payload_updated_at` clock — checked before
   the transaction AND re-checked under the row lock, and the descriptive-field refresh is gated on
   the same clock inside the UPDATE's WHERE clause.
@@ -76,6 +75,8 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   `STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS`, not code edits.
 - Everything posted to GitHub goes through `_scrub_credentials` AND `_neutralize_active_markdown`
   (GitHub's camo proxy auto-fetches images — a markdown image URL is an exfiltration channel).
+- The sandbox checkout is the PR head, so the engine's Agent SDK session runs with `setting_sources=[]` + `strict_mcp_config` (reviewer.py): a PR-shipped `.claude/settings.json` hook, `CLAUDE.md`, or `.mcp.json` is readable as untrusted content, never loaded as configuration.
+  Don't reintroduce filesystem settings discovery there.
 
 ## The self-driving inbox carve-out (the one exception to the bot-author refusal)
 
@@ -135,12 +136,26 @@ narrow:
 ## Trust boundaries
 
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
-  able to rewrite the policy that gates it. Same for the `digest:` channel declaration.
+  able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
+  root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
   it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
   settings — those were configured under a verified binding.
-- Name-matched Slack digest channels provision **disabled** pending a human enable (a workspace
-  member can squat a channel named like a team slug). Only repo-declared channels auto-enable.
+- Auto-provisioned digest channels arrive **enabled**, a bare Slack name match included. Only
+  workspace members can create a channel, and a digest carries merged PR titles and summaries those
+  same people can read on the PRs, so gating a name match behind a human enable bought a silent
+  no-op — a channel row, no run row, no post, and an info log in a worker pod — rather than
+  protection. The exclusion that stays is the shared-channel one, the only path where a digest
+  leaves the workspace: only the repo's own `digest:` channel skips it, because the `owners.yaml`
+  registry can name a channel for a team the declaring repo does not own.
+- The app is not a member of a channel it only matched by name, so `post_digest` joins on
+  `not_in_channel` and retries the post once. The join is attempted, never gated on the scope:
+  `conversations.join` needs `channels:join`, and whether an install granted it is invisible to the
+  person who set the digest up, so asking Slack is the only way to find out. A refused join fails
+  the run with an error naming the invite, which is a signal in the digests scene and self-heals the
+  moment somebody adds the app.
+- A declared channel that does not resolve is a dead end, never a retry with the audience slug —
+  the slug is the wrong name the declaration exists to correct.
 - PR content — title, body, diff, comments, reactions — is untrusted input everywhere, including
   in reviewer prompts and error messages persisted to API-readable fields (`run.error` keeps only
   a truncated first line for exactly this reason).

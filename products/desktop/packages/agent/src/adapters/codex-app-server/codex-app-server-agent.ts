@@ -8,6 +8,7 @@ import type {
   ListSessionsResponse,
   LoadSessionRequest,
   LoadSessionResponse,
+  McpServer,
   NewSessionRequest,
   NewSessionResponse,
   PromptRequest,
@@ -28,7 +29,9 @@ import {
   serializeError,
 } from "@posthog/shared";
 import {
+  isMethod,
   type NativeGoalState,
+  POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
 } from "../../acp-extensions";
 import type { ModelInfo } from "../../gateway-models";
@@ -54,6 +57,7 @@ import {
 } from "../claude/context-breakdown";
 import { isLocalSkillCommandChunk } from "../local-skill";
 import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
+import { visiblePromptBlocks } from "../prompt-blocks";
 import { resolveSpokenNarration } from "../session-meta";
 import {
   AppServerClient,
@@ -143,17 +147,6 @@ const GOAL_COMMAND = {
   description: "Set or view the goal for a long-running task",
   input: { hint: "[<objective>|clear|pause|resume]" },
 };
-
-function isHiddenPromptBlock(block: PromptRequest["prompt"][number]): boolean {
-  const meta = block._meta as { ui?: { hidden?: boolean } } | undefined;
-  return meta?.ui?.hidden === true;
-}
-
-function visiblePromptBlocks(
-  prompt: PromptRequest["prompt"],
-): PromptRequest["prompt"] {
-  return prompt.filter((block) => !isHiddenPromptBlock(block));
-}
 
 function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
   const visible = visiblePromptBlocks(prompt);
@@ -256,6 +249,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private additionalDirectories?: string[];
   /** The session workspace stays writable when extra roots are applied per turn. */
   private workspaceDirectory?: string;
+  private threadSetup?: {
+    meta?: AppServerSessionMeta;
+    developerInstructions?: string;
+  };
   /** The in-flight turn's <proposed_plan>, streamed or completed (drives the implement handoff). */
   private planProposal?: { itemId: string; text: string };
   /** Structured plan tool call already emitted while the proposal streams. */
@@ -428,6 +425,78 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     return { sessionId: threadId, configOptions: this.config.options };
   }
 
+  async extMethod(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (!isMethod(method, POSTHOG_METHODS.REFRESH_SESSION)) {
+      throw RequestError.methodNotFound(method);
+    }
+    if (params.mcpServers === undefined) {
+      throw new RequestError(
+        -32602,
+        "refresh_session requires at least one refreshable field (e.g. mcpServers)",
+      );
+    }
+    if (!Array.isArray(params.mcpServers)) {
+      throw new RequestError(
+        -32602,
+        "refresh_session: mcpServers must be an array",
+      );
+    }
+    if (!this.threadId) {
+      throw new RequestError(
+        -32002,
+        "Cannot refresh session before a thread is started",
+      );
+    }
+    if (this.turns.isPending || this.nativeGoalTurnId) {
+      throw new RequestError(
+        -32002,
+        "Cannot refresh session while a prompt turn is in flight",
+      );
+    }
+
+    await this.refreshThreadMcpServers(params.mcpServers as McpServer[]);
+    return { refreshed: true };
+  }
+
+  private async refreshThreadMcpServers(servers: McpServer[]): Promise<void> {
+    const cwd = this.workspaceDirectory;
+    let localTools: ReturnType<typeof buildLocalToolsServer> = null;
+    try {
+      localTools = buildLocalToolsServer(
+        { cwd },
+        this.localToolsMeta(this.threadSetup?.meta),
+      );
+    } catch (err) {
+      this.logger.warn(
+        "local-tools server unavailable on refresh; continuing without it",
+        { error: String(err) },
+      );
+    }
+    const mcpServers = toCodexMcpServers(
+      [...servers, ...(localTools ? [localTools] : [])],
+      { gatePosthogExec: true },
+    );
+    const config = buildThreadConfig(mcpServers, this.additionalDirectories);
+    const developerInstructions = this.threadSetup?.developerInstructions;
+
+    await this.rpc.request(APP_SERVER_METHODS.THREAD_RESUME, {
+      model: this.config.model,
+      cwd,
+      threadId: this.threadId,
+      ...(developerInstructions ? { developerInstructions } : {}),
+      ...(config ? { config } : {}),
+    });
+
+    this.logger.info("Refreshed codex thread MCP servers", {
+      threadId: this.threadId,
+      mcpServers: mcpServers ? Object.keys(mcpServers) : [],
+      hasLocalTools: !!localTools,
+    });
+  }
+
   /** Replay a resumed thread's persisted turns (from the thread/resume response) as session updates. */
   private replayHistory(thread: AppServerThread | undefined): void {
     if (!this.sessionId || !thread?.turns?.length) return;
@@ -523,6 +592,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         ].filter((s): s is string => !!s),
       ),
     ].join("\n\n");
+    this.threadSetup = { meta: params.meta, developerInstructions };
     // Degrade gracefully: an unresolvable bundled local-tools script skips it with a
     // warning rather than killing thread setup.
     let localTools: ReturnType<typeof buildLocalToolsServer> = null;
@@ -1472,6 +1542,16 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       const turnId = (params as { turn?: { id?: string } })?.turn?.id;
       if (!this.turns.isPending && turnId) {
         this.nativeGoalTurnId = turnId;
+        void this.client
+          .extNotification(POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_STARTED, {
+            sessionId: this.sessionId,
+          })
+          .catch((error) =>
+            this.logger.warn(
+              "Background turn start notification failed",
+              error,
+            ),
+          );
       }
       this.turns.onStarted(turnId);
       this.interruptQueuedGoalTurn(turnId);
@@ -1517,8 +1597,20 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       this.commandOutputs.clear();
       const turn = (params as { turn?: { id?: string; status?: string } })
         ?.turn;
-      if (turn?.id === this.nativeGoalTurnId) {
+      const completedNativeGoalTurn = turn?.id === this.nativeGoalTurnId;
+      if (completedNativeGoalTurn) {
         this.nativeGoalTurnId = undefined;
+        void this.client
+          .extNotification(POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE, {
+            sessionId: this.sessionId,
+            stopReason: mapTurnStopReason(turn?.status),
+          })
+          .catch((error) =>
+            this.logger.warn(
+              "Background turn completion notification failed",
+              error,
+            ),
+          );
       }
       // Drop the late completion of an already-interrupted turn (else it cancels the follow-up).
       if (this.turns.shouldDropCompletion(turn?.id)) return;

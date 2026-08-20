@@ -59,6 +59,7 @@ jobs:
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
                         - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci-setup-user.py'
                         - 'bin/hobby-ci.py'
                         - 'bin/upgrade-hobby'
                         - 'bin/migrate-*-hobby'
@@ -80,12 +81,15 @@ jobs:
                       # by the `hobby:` filter — workflow self-edits, `.dockerignore`
                       # (silently changes the build context), and `pnpm-lock.yaml` so
                       # Renovate-style dep bumps are exercised on PR (otherwise they'd
-                      # only fail after merging).
+                      # only fail after merging). Root `package.json` carries the
+                      # `packageManager` pin the image seeds corepack from, and a pin-only
+                      # edit leaves the lockfile untouched.
                       build_inputs:
                         - .github/workflows/container-images-ci.yml
                         - .github/actions/build-n-cache-image/**
                         - .dockerignore
                         - pnpm-lock.yaml
+                        - package.json
                       # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
                       # to .dockerignore — Dockerfile COPY changes are covered by the image boot check).
                       dockerignore:

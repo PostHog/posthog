@@ -9,8 +9,10 @@ from django.test import SimpleTestCase, override_settings
 import jwt
 from parameterized import parameterized
 
+from products.stamphog.backend.facade.enums import AudienceReason
+from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
-from products.stamphog.backend.logic.digest_config import load_repo_digest_config
+from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, StamphogGitHubError, _build_app_jwt
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
@@ -126,7 +128,12 @@ class BuildReviewerInvocationTests(SimpleTestCase):
 class SlackDigestEscapingTests(SimpleTestCase):
     def _summary(self, *, title: str, author: str, body: str, intro: str = "") -> DigestSummary:
         pr = DigestPRSummary(
-            pr_number=7, title=title, url="https://github.com/o/r/pull/7", author_login=author, summary=body
+            pr_number=7,
+            title=title,
+            url="https://github.com/o/r/pull/7",
+            author_login=author,
+            summary=body,
+            repository="o/r",
         )
         return DigestSummary(intro=intro, prs=[pr])
 
@@ -145,6 +152,33 @@ class SlackDigestEscapingTests(SimpleTestCase):
         text = _build_fallback_text(self._summary(title="<!channel>", author="a", body="b", intro="<!everyone>"))
         assert "<!channel>" not in text
         assert "<!everyone>" not in text
+
+    def test_pr_lines_name_the_repo_only_when_the_digest_spans_repos(self) -> None:
+        # A team audience collects merges from every repo it owns code in, and PR numbers repeat
+        # across repos — two "#412" lines that differ only by link target are unreadable. The far
+        # more common single-repo digest must not pay a constant repo prefix on every line.
+        def _pr(repository: str, number: int) -> DigestPRSummary:
+            return DigestPRSummary(
+                pr_number=number,
+                title="Ship it",
+                url=f"https://github.com/{repository}/pull/{number}",
+                author_login="dev",
+                summary="did a thing",
+                repository=repository,
+            )
+
+        one_repo = DigestSummary(intro="", prs=[_pr("acme/widgets", 412), _pr("acme/widgets", 413)])
+        two_repos = DigestSummary(intro="", prs=[_pr("acme/widgets", 412), _pr("acme/charts", 412)])
+
+        assert "#412 Ship it" in _build_fallback_text(one_repo)
+        assert "acme/widgets#412" not in _build_fallback_text(one_repo)
+        sections = [b["text"]["text"] for b in _build_blocks(one_repo) if b.get("type") == "section"]
+        assert any("|#412 Ship it>" in text for text in sections)
+
+        assert "acme/widgets#412" in _build_fallback_text(two_repos)
+        assert "acme/charts#412" in _build_fallback_text(two_repos)
+        sections = [b["text"]["text"] for b in _build_blocks(two_repos) if b.get("type") == "section"]
+        assert any("|acme/charts#412 Ship it>" in text for text in sections)
 
     def test_section_text_is_capped_below_slack_limit(self) -> None:
         # Slack rejects sections whose mrkdwn text exceeds 3000 chars, and a rejected post unlinks the
@@ -392,3 +426,90 @@ class TemporalRegistryTests(SimpleTestCase):
         }
         registered = {fn.__name__ for fn in ACTIVITIES}
         assert defined == registered
+
+
+class ResolveAudiencesTests(SimpleTestCase):
+    @staticmethod
+    def _gate_result(teams: object) -> dict:
+        return {"classification": {"ownership": {"teams": teams}}}
+
+    @parameterized.expand(
+        [
+            (
+                "owning_teams_join_the_author",
+                ["@PostHog/team-replay", "@PostHog/team-surveys"],
+                [
+                    ("team-devex", AudienceReason.AUTHORED),
+                    ("team-replay", AudienceReason.OWNED),
+                    ("team-surveys", AudienceReason.OWNED),
+                ],
+            ),
+            (
+                "author_owning_its_own_code_stays_one_audience",
+                ["@PostHog/team-devex", "@PostHog/team-replay"],
+                [("team-devex", AudienceReason.AUTHORED), ("team-replay", AudienceReason.OWNED)],
+            ),
+            ("individual_owners_are_not_audiences", ["@someone"], [("team-devex", AudienceReason.AUTHORED)]),
+            (
+                "a_crafted_slug_cannot_claim_the_repo_namespace",
+                ["@PostHog/repo:PostHog/posthog", "@PostHog/team with spaces"],
+                [("team-devex", AudienceReason.AUTHORED)],
+            ),
+            ("missing_ownership_section", None, [("team-devex", AudienceReason.AUTHORED)]),
+            ("malformed_ownership_section", "team-replay", [("team-devex", AudienceReason.AUTHORED)]),
+        ]
+    )
+    def test_owner_teams_become_audiences(self, _name: str, teams: object, expected: list) -> None:
+        # Owner audiences are what carry "this changed in your area", and they are read back out of a
+        # blob the sandbox wrote, so a shape the engine never promised must degrade to author-only
+        # rather than dropping the merge. The author winning a collision is what keeps a team that
+        # wrote its own code out of its own "changed in your area" list. Ownership comes from the
+        # PR-head owners.yaml, so a slug is attacker-controlled: one shaped like "repo:owner/name"
+        # would otherwise reach the channel path that auto-enables and skips the shared-channel guard.
+        repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
+        with (
+            patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None),
+            patch(
+                "products.stamphog.backend.logic.audiences._author_team_audience_key",
+                return_value="team-devex",
+            ),
+        ):
+            audiences = resolve_audiences(repo_config, {}, self._gate_result(teams))
+        assert [(a.key, a.reason) for a in audiences] == expected
+
+    def test_repo_declared_channel_still_collects_owner_audiences(self) -> None:
+        # A repo that pins all its merges to one channel still has owning teams, and they should
+        # hear about their area — the declared channel replaces the author cascade, not the fan-out.
+        repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
+        with patch(
+            "products.stamphog.backend.logic.audiences.load_repo_digest_config",
+            return_value=RepoDigestConfig(channel="eng-merges"),
+        ):
+            audiences = resolve_audiences(repo_config, {}, self._gate_result(["@PostHog/team-replay"]))
+        assert [(a.key, a.reason) for a in audiences] == [
+            ("repo:PostHog/posthog", AudienceReason.REPO_DECLARED),
+            ("team-replay", AudienceReason.OWNED),
+        ]
+
+
+class OwnedFileCountTests(SimpleTestCase):
+    def test_true_owned_count_survives_the_capped_sample(self) -> None:
+        # The sample is capped and the count is not. If the prompt reported the sample size, a team
+        # owning most of a large change would look grazed by it and get filtered out of its own digest.
+        repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
+        gate_result = {
+            "classification": {
+                "ownership": {
+                    "teams": ["@PostHog/team-replay"],
+                    "team_files": {"@PostHog/team-replay": [f"a{i}.py" for i in range(10)]},
+                    "team_file_counts": {"@PostHog/team-replay": 200},
+                }
+            }
+        }
+        with (
+            patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None),
+            patch("products.stamphog.backend.logic.audiences._author_team_audience_key", return_value="team-devex"),
+        ):
+            owned = next(a for a in resolve_audiences(repo_config, {}, gate_result) if a.key == "team-replay")
+        assert len(owned.owned_files) == 10
+        assert owned.owned_file_count == 200

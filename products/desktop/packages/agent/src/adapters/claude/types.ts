@@ -10,6 +10,7 @@ import type {
   Query,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { BedrockGatewayVariant } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 import type { PostHogProductId } from "../../posthog-products";
 import type { AgentMode } from "../../types";
@@ -66,6 +67,9 @@ export type Turn = {
 
 export type Session = BaseSession & {
   query: Query;
+  /** Id of the underlying SDK session. Equal to the ACP session id until a
+   * /clear swaps in a fresh SDK session; resume/refresh must target this id. */
+  sdkSessionId: string;
   /** The Options object passed to query() — mutating it affects subsequent prompts */
   queryOptions: Options;
   /** Rebuilds the in-process ("sdk") signed-commit server with a fresh instance
@@ -117,6 +121,10 @@ export type Session = BaseSession & {
   queryGeneration: number;
   /** The query iterator ended and can't be revived; new prompts reject. */
   queryClosed?: boolean;
+  /** Set while a /clear is swapping the SDK query; resolves when it settles
+   * (success or failure). Prompts await it, cancel/refresh refuse during it,
+   * and a second /clear is rejected — the swap must never be raced. */
+  clearing?: Promise<void>;
   cancelController?: AbortController;
   forceCancelTimer?: ReturnType<typeof setTimeout>;
   emitRawSDKMessages: boolean | SDKMessageFilter[];
@@ -226,6 +234,12 @@ export type NewSessionMeta = {
    * emits always (consumers gate playback), local stays silent.
    */
   spokenNarration?: boolean;
+  /**
+   * Matched `bedrock-llm-gateway` variant at session start. `test` serves the
+   * session from Bedrock through the gateway. Only the desktop resolves this,
+   * so headless runs leave it unset and keep the gateway's default provider.
+   */
+  bedrockGatewayVariant?: BedrockGatewayVariant;
   jsonSchema?: Record<string, unknown> | null;
   mcpToolApprovals?: McpToolApprovals;
   posthogExecPermissionRegex?: string;

@@ -46,6 +46,14 @@ import {
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import {
+  RightPanel,
+  SWITCHER_WIDTH_PX,
+} from "@posthog/ui/features/navigation/components/RightPanel";
+import {
+  CONTENT_CHROME_RIGHT_VAR,
+  useRightPanelOpen,
+} from "@posthog/ui/features/navigation/rightPanelSide";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import {
@@ -57,7 +65,7 @@ import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
-import { Box, Flex } from "@radix-ui/themes";
+import { Flex } from "@radix-ui/themes";
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
@@ -65,7 +73,7 @@ import {
   useParams,
   useRouterState,
 } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type CSSProperties, type ReactNode, useState } from "react";
 
 // Edit toggle + autosave status for a canvas. Source is server-versioned now —
 // version browsing and revert live in the canvas view's own toolbar — so the
@@ -84,6 +92,7 @@ function FreeformEditControls({
   const containerNoun = spacesLayout ? "space" : "channel";
   const editing = useIsDashboardEditing(dashboardId);
   const setEditing = useDashboardEditStore((s) => s.setEditing);
+  const openChat = useCanvasChatPanelStore((state) => state.openChat);
   const { dashboard } = useDashboard(dashboardId);
   const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
@@ -117,7 +126,6 @@ function FreeformEditControls({
           surface: "canvas",
           channel_id: channelId,
           dashboard_id: dashboardId,
-          kind: "freeform",
           success: true,
         }),
       )
@@ -127,7 +135,6 @@ function FreeformEditControls({
           surface: "canvas",
           channel_id: channelId,
           dashboard_id: dashboardId,
-          kind: "freeform",
           success: false,
         });
         toast.error(
@@ -158,7 +165,6 @@ function FreeformEditControls({
       surface: "canvas",
       channel_id: channelId,
       dashboard_id: dashboardId,
-      kind: "freeform",
     });
     void queryClient.invalidateQueries({ queryKey: [CANVAS_QUERY_KEY] });
     remountFrame(dashboardId);
@@ -257,9 +263,9 @@ function FreeformEditControls({
             surface: "canvas",
             channel_id: channelId,
             dashboard_id: dashboardId,
-            kind: "freeform",
             editing: !editing,
           });
+          if (!editing) openChat();
           setEditing(dashboardId, !editing);
         }}
       >
@@ -357,6 +363,7 @@ export function WebsiteLayout() {
   const channelId = params.channelId;
   const dashboardId = params.dashboardId;
   const taskId = params.taskId;
+  const rightPanelOpen = useRightPanelOpen(taskId);
   const base = channelId ? `/website/${channelId}` : "/website";
 
   const { data: tasks } = useTasks();
@@ -394,32 +401,26 @@ export function WebsiteLayout() {
       {/* Title bar for non-canvas views: every channel scene (task detail,
           new task, CONTEXT.md) pushes its "# channel / leaf" breadcrumb into
           the header store, as do channel-less mirrored pages (Home, Skills, …).
-          Hidden when the canvas toolbar is showing (grid / a single canvas). */}
-      {!showToolbar && headerContent && (
-        <Flex
-          align="center"
-          gap="2"
-          className="h-10 shrink-0 border-gray-6 border-b px-3"
-        >
-          <Flex
-            align="center"
-            justify="between"
-            className="h-full min-w-0 flex-1 overflow-hidden"
-          >
+          Hidden when the canvas toolbar is showing (grid / a single canvas),
+          and skipped entirely when there is neither a title nor a session's
+          actions to carry. */}
+      {!showToolbar && (headerContent || channelTask) && (
+        <div className="flex h-10 shrink-0 items-center gap-2 border-gray-6 border-b pr-2 pl-1">
+          <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
             {headerContent}
-          </Flex>
+          </div>
+          {/* Rendered without a wrapper: the actions cap themselves at half the
+              bar, and a wrapper that hugs their content resolves that
+              percentage against itself, which clips them. */}
           {channelTask && <TaskHeaderActions task={channelTask} />}
-        </Flex>
+        </div>
       )}
 
       {/* Single canvas toolbar: the "# channel / canvas" breadcrumb (left) and
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && channelId && (
-        <Flex
-          align="center"
-          className="h-10 shrink-0 border-border border-b px-3"
-        >
+        <div className="flex h-10 shrink-0 items-center border-border border-b px-3">
           {isDashboardDetail && dashboardId ? (
             <CanvasBreadcrumb
               channelName={channelName}
@@ -440,13 +441,34 @@ export function WebsiteLayout() {
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
           )}
-        </Flex>
+        </div>
       )}
-      <Box flexGrow="1" overflow="hidden">
-        <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
-          <Outlet />
-        </MentionAvailabilityProvider>
-      </Box>
+      {/* The right panel's switcher pins itself to this row's top right, so the
+          row is its positioning context. `isolate` keeps the switcher's stacking
+          rank inside the row, where it only has to beat the panel's own layer,
+          rather than reaching the app's dialogs and popovers. While the panel is
+          closed the switcher floats over the content pane, so the row publishes
+          how much of its right edge is spoken for and the pane's own chrome
+          stops short of it. */}
+      <div
+        className="relative isolate flex min-h-0 flex-1 overflow-hidden"
+        style={
+          {
+            [CONTENT_CHROME_RIGHT_VAR]: rightPanelOpen
+              ? "0px"
+              : `${SWITCHER_WIDTH_PX}px`,
+          } as CSSProperties
+        }
+      >
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
+            <Outlet />
+          </MentionAvailabilityProvider>
+        </div>
+        {/* One panel at a time beside the content: the session's timeline,
+            artifacts, comments, or changes, as a push column. */}
+        {spacesLayout && <RightPanel />}
+      </div>
       {/* Warm-iframe pool for canvases. Mounted once here so it persists across
           every in-space navigation; overlays itself onto the active canvas's
           placeholder and stays warm-but-hidden otherwise. */}

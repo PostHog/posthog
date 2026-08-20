@@ -33,7 +33,10 @@ import {
     logsAlertsResetCreate,
     logsAlertsRetrieve,
 } from 'products/logs/frontend/generated/api'
-import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsAlertConfigurationApi,
+    PatchedLogsAlertConfigurationApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import type { LogsAlertFormType } from '../../components/LogsAlerting/logsAlertFormLogic'
 
@@ -414,10 +417,7 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
                 actions.applyEnabledChange(false)
                 return
             }
-            dispatchPreEnableCheck(runPreEnableChecks(values.alert, values.alertForm), {
-                onConfirm: () => actions.applyEnabledChange(true),
-                onConfigureNotifications: () => actions.setActiveTab('notifications'),
-            })
+            dispatchPreEnableCheck(runPreEnableChecks(values.alertForm), () => actions.applyEnabledChange(true))
         },
         enableAlert: () => {
             if (!values.alert) {
@@ -431,14 +431,15 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
                     actions.applyEnabledChange(true)
                 }
             }
-            dispatchPreEnableCheck(runPreEnableChecks(values.alert, values.alertForm), {
-                onConfirm: proceed,
-                onConfigureNotifications: () => actions.setActiveTab('notifications'),
-            })
+            dispatchPreEnableCheck(runPreEnableChecks(values.alertForm), proceed)
         },
         applyEnabledChange: async ({ enabled }) => {
+            const update: PatchedLogsAlertConfigurationApi = { enabled }
+            if (!enabled) {
+                update.snooze_until = null
+            }
             try {
-                const updated = await logsAlertsPartialUpdate(String(values.currentTeamId), props.id, { enabled })
+                const updated = await logsAlertsPartialUpdate(String(values.currentTeamId), props.id, update)
                 actions.patchAlertLocally(updated)
                 actions.resetAlertForm(buildFormDefaults(updated))
             } catch (e: any) {

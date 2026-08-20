@@ -22,9 +22,15 @@ import requests
 import structlog
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.models.user import User
 
-from products.notebooks.backend.kernel_package import SANDBOX_PACKAGE_NAME, kernel_package_bytes_and_hash
+from products.notebooks.backend.kernel_package import (
+    BAKED_PACKAGE_ROOT,
+    BAKED_VERSION_PATH,
+    SANDBOX_PACKAGE_NAME,
+    kernel_package_bytes_and_hash,
+)
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.tasks.backend.facade.sandbox import SandboxBase, get_sandbox_class_for_backend
 
@@ -196,11 +202,22 @@ def mint_data_plane_token(notebook_short_id: str, team_id: int, user_id: int | N
     )
 
 
-def verify_data_plane_token(token: str) -> tuple[str, int, int | None]:
-    """Return (notebook_short_id, team_id, user_id) from a valid token, else raise signing.BadSignature."""
+@frozen
+class DataPlaneClaims:
+    notebook_short_id: str
+    team_id: int
+    user_id: int | None
+
+
+def verify_data_plane_token(token: str) -> DataPlaneClaims:
+    """Return the claims from a valid token, else raise signing.BadSignature."""
     data = signing.loads(token, salt=_DATA_PLANE_TOKEN_SALT, max_age=_DATA_PLANE_TOKEN_MAX_AGE_SECONDS)
     user_id = data.get("user_id")
-    return str(data["notebook_short_id"]), int(data["team_id"]), int(user_id) if user_id is not None else None
+    return DataPlaneClaims(
+        notebook_short_id=str(data["notebook_short_id"]),
+        team_id=int(data["team_id"]),
+        user_id=int(user_id) if user_id is not None else None,
+    )
 
 
 def _find_running_runtime(notebook: Notebook, user: User | None) -> KernelRuntime | None:
@@ -262,32 +279,73 @@ def _wait_for_server_ready(server_url: str, connect_token: str | None, expected_
     raise RuntimeError("SQLV2 kernel-server did not become ready")
 
 
+# Stop a previous server via its PID file — never pkill by our own name: the
+# pattern would match this very launch command's shell and kill it mid-deploy.
+# The pkill lines only clear pre-package servers (distinct names, safe to
+# match) from sandboxes that predate the PID file; drop them once those age out.
+_STOP_PREVIOUS_SERVER = (
+    f"kill $(cat {_SERVER_PID_PATH} 2>/dev/null) 2>/dev/null || true; "
+    "pkill -f '[n]b_sql_v2_kernel_server' 2>/dev/null; pkill -f '[n]b_data_v2_kernel_server' 2>/dev/null; "
+)
+# Echoed by the baked launch so the caller can tell it ran from a matching image
+# rather than exiting early on a stale stamp.
+_BAKED_LAUNCH_MARKER = "nb_kernel_baked_ok"
+
+
+def _launch_server(package_root: str, port: int, version: str) -> str:
+    """Shell that backgrounds the kernel-server out of `package_root` and records its PID.
+
+    `< /dev/null` detaches the server from the exec's pipes so `execute` returns.
+    The backgrounded launch must stay a single simple command (PYTHONPATH= prefix,
+    no `cd X && …`) — a compound list backgrounds a wrapper subshell, so `$!`
+    would record the wrapper's PID and the next redeploy would kill nothing.
+    Prefer the notebook venv python (has pyarrow).
+    """
+    return (
+        'PY=/opt/notebook-venv/bin/python3; [ -x "$PY" ] || PY=python3; '
+        f'PYTHONPATH={package_root} nohup "$PY" -m {SANDBOX_PACKAGE_NAME}.server '
+        f"--port {port} --secret-file {_SECRET_PATH} --version {version} "
+        f"> {_SERVER_LOG_PATH} 2>&1 < /dev/null & echo $! > {_SERVER_PID_PATH}"
+    )
+
+
+def _launch_baked_kernel_server(sandbox: SandboxBase, port: int, version: str) -> bool:
+    """Launch the package the image baked in, unless its stamp predates `version`.
+
+    Returns False on a stale stamp, having stopped the old server but started no
+    new one, so the caller falls back to the tarball. The version is a hex digest,
+    so it needs no shell quoting beyond the comparison's own quotes.
+    """
+    command = (
+        _STOP_PREVIOUS_SERVER
+        + f'[ "$(cat {BAKED_VERSION_PATH} 2>/dev/null)" = "{version}" ] || exit 0; '
+        + _launch_server(BAKED_PACKAGE_ROOT, port, version)
+        + f"; echo {_BAKED_LAUNCH_MARKER}"
+    )
+    result = sandbox.execute(command, timeout_seconds=30)
+    return _BAKED_LAUNCH_MARKER in result.stdout
+
+
 def _deploy_kernel_server(sandbox: SandboxBase, runtime: KernelRuntime, package: bytes, version: str) -> None:
-    """Write the kernel package + secret into the sandbox and (re)launch the server.
+    """Write the secret into the sandbox and (re)launch the kernel-server.
 
     This is the only place the control plane (write_file/execute) is used, exactly
     as Code bootstraps its agent-server. Per-run dispatch is a plain authed POST.
+
+    The image bakes the package, so the usual path is one execute that launches it
+    in place. Uploading the tarball is the fallback for a kernel edit no image build
+    has picked up yet, which keeps a merged kernel fix from waiting on an image.
     """
     port = _CONTAINER_PORT_BY_BACKEND.get(runtime.backend, 47821)
     sandbox.write_file(_SECRET_PATH, kernel_server_secret(str(runtime.id)).encode())
+    if _launch_baked_kernel_server(sandbox, port, version):
+        return
+
     sandbox.write_file(_TARBALL_PATH, package)
-    # Stop a previous server via its PID file — never pkill by our own name: the
-    # pattern would match this very launch command's shell and kill it mid-deploy.
-    # The pkill lines only clear pre-package servers (distinct names, safe to
-    # match) from sandboxes that predate the PID file; drop them once those age out.
-    # `< /dev/null` detaches the server from the exec's pipes so `execute` returns.
-    # The backgrounded launch must stay a single simple command (PYTHONPATH= prefix,
-    # no `cd X && …`) — a compound list backgrounds a wrapper subshell, so `$!`
-    # would record the wrapper's PID and the next redeploy would kill nothing.
-    # Prefer the notebook venv python (has pyarrow).
     launch = (
-        f"kill $(cat {_SERVER_PID_PATH} 2>/dev/null) 2>/dev/null || true; "
-        "pkill -f '[n]b_sql_v2_kernel_server' 2>/dev/null; pkill -f '[n]b_data_v2_kernel_server' 2>/dev/null; "
-        f"rm -rf {_PACKAGE_ROOT} && mkdir -p {_PACKAGE_ROOT} && tar -xzf {_TARBALL_PATH} -C {_PACKAGE_ROOT} && "
-        'PY=/opt/notebook-venv/bin/python3; [ -x "$PY" ] || PY=python3; '
-        f'PYTHONPATH={_PACKAGE_ROOT} nohup "$PY" -m {SANDBOX_PACKAGE_NAME}.server '
-        f"--port {port} --secret-file {_SECRET_PATH} --version {version} "
-        f"> {_SERVER_LOG_PATH} 2>&1 < /dev/null & echo $! > {_SERVER_PID_PATH}"
+        _STOP_PREVIOUS_SERVER
+        + f"rm -rf {_PACKAGE_ROOT} && mkdir -p {_PACKAGE_ROOT} && tar -xzf {_TARBALL_PATH} -C {_PACKAGE_ROOT} && "
+        + _launch_server(_PACKAGE_ROOT, port, version)
     )
     sandbox.execute(launch, timeout_seconds=30)
 
@@ -296,8 +354,9 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
     """Ensure the in-sandbox kernel-server is running the current package version.
 
     Idempotent — a healthy server at the expected version is reused as-is; a stale
-    or unreachable one is redeployed from the freshly built tarball (this is the
-    dev loop: edit `kernel/`, next run redeploys, no image rebuild).
+    or unreachable one is redeployed, from the image's baked package when that
+    matches and from the freshly built tarball when it does not (this is the dev
+    loop: edit `kernel/`, next run redeploys, no image rebuild).
     """
     runtime = _find_running_runtime(notebook, user)
     if runtime is None:

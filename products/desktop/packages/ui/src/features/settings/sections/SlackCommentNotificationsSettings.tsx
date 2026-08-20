@@ -67,13 +67,9 @@ export function SlackCommentNotificationsSettings() {
   );
 
   return (
-    <>
-      <Text
-        size="sm"
-        weight="medium"
-        className="mt-4 mb-1 block border-gray-6 border-t pt-4"
-      >
-        Slack
+    <div className="flex flex-col border-(--gray-5) border-t border-dashed pt-3">
+      <Text size="sm" weight="medium" className="mb-1 block">
+        Comment notifications
       </Text>
       <Text size="xs" variant="muted" className="mb-1 block">
         Comment notifications can also reach you in Slack, so you hear about
@@ -119,6 +115,6 @@ export function SlackCommentNotificationsSettings() {
           />
         </div>
       </SettingRow>
-    </>
+    </div>
   );
 }

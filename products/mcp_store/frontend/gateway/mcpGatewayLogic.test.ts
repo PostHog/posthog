@@ -30,7 +30,7 @@ import type {
     MCPServiceAccountApi,
     UserBasicApi,
 } from '../generated/api.schemas'
-import { CONNECTED_SERVERS_FILTER, GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
+import { GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
 
 const YOU: UserBasicApi = {
     id: MOCK_DEFAULT_USER.id,
@@ -607,7 +607,7 @@ describe('mcpGatewayLogic', () => {
         expect(logic.values.recommendedTemplates).toEqual([freshTemplate])
     })
 
-    it('filters to servers with a connection, including connections that need attention', () => {
+    it('lists servers with a connection, including connections that need attention', () => {
         const connectedServer = gatewayServer({
             id: 'connected-server',
             your_connection: {
@@ -621,10 +621,7 @@ describe('mcpGatewayLogic', () => {
         const disconnectedServer = gatewayServer({ id: 'disconnected-server' })
         logic.actions.loadServersSuccess([connectedServer, disconnectedServer])
 
-        logic.actions.setCategoryFilter(CONNECTED_SERVERS_FILTER)
-
-        expect(logic.values.connectedServerCount).toBe(1)
-        expect(logic.values.filteredServers).toEqual([connectedServer])
+        expect(logic.values.connectedServers).toEqual([connectedServer])
     })
 
     it.each([
@@ -700,10 +697,10 @@ describe('mcpGatewayLogic', () => {
     })
 
     // The endpoint defaults an omitted scope back to personal, so a share sent without
-    // one silently demotes a team share.
+    // one silently demotes a team share. The action fills in 'team', the product default.
     it.each([
-        ['team' as const, 'team'],
-        [undefined, 'personal'],
+        ['personal' as const, 'personal'],
+        [undefined, 'team'],
     ])('sends scope %s as %s when sharing a server with an agent', async (requested, expected) => {
         mockServiceAccountAccess.mockResolvedValue(serviceAccountWithShare(expected as MCPAgentGrantScopeEnumApi))
 

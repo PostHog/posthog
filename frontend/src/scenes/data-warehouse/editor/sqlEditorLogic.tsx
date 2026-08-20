@@ -37,10 +37,12 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
+import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
@@ -75,12 +77,19 @@ import {
     DataModelingNode,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryIncremental,
+    DataWarehouseSavedQueryIncrementalCheck,
     ExportContext,
     ExternalDataSource,
     QueryBasedInsightModel,
 } from '~/types'
 
-import { validateMetricDescription, validateMetricName } from 'products/data_catalog/frontend/common'
+import {
+    METRIC_FIELD_COPY,
+    MetricFormPrefill,
+    validateMetricDescription,
+    validateMetricName,
+} from 'products/data_catalog/frontend/common'
 import {
     dataCatalogMetricsCreate,
     dataCatalogMetricsPartialUpdate,
@@ -107,7 +116,8 @@ import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
-import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
+import { IncrementalConfigFields } from './IncrementalConfigFields'
+import { findInnermostSelectAtOffset } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
@@ -266,6 +276,13 @@ export interface QueryTab {
 }
 
 export type SqlEditorSource = 'insight' | 'endpoint' | 'view' | 'metric'
+
+export interface SaveAsMetricFields {
+    name: string
+    display_name: string
+    description: string
+    unit: string
+}
 
 export interface DataWarehouseAccessControlModalProps {
     resource:
@@ -427,6 +444,22 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     return hash
 }
 
+function parseMetricPrefill(value: unknown): MetricFormPrefill | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null
+    }
+
+    const source = value as Record<string, unknown>
+    const prefill: MetricFormPrefill = {}
+    for (const field of ['name', 'display_name', 'description', 'unit'] as const) {
+        if (typeof source[field] === 'string') {
+            prefill[field] = source[field] as string
+        }
+    }
+
+    return Object.keys(prefill).length ? prefill : null
+}
+
 function parseOutputTab(value: unknown): OutputTab | null {
     if (Object.values(OutputTab).includes(value as OutputTab)) {
         return value as OutputTab
@@ -552,6 +585,7 @@ export interface sqlEditorLogicValues {
     materializationModalView: DataWarehouseSavedQuery | null
     metadata: HogQLMetadataResponse | null
     metadataLoading: boolean
+    metricPrefill: MetricFormPrefill | null
     metricUpdating: boolean
     originalQueryInput: string | null | undefined
     queryInput: string | null
@@ -623,12 +657,18 @@ export interface sqlEditorLogicActions {
     loadDataWarehouseSavedQueryFolders: () => any // dataWarehouseViewsLogic
     materializeDataWarehouseSavedQuery: (
         viewId: string,
-        syncFrequency?: import('~/types').DataModelingSyncInterval | undefined
+        syncFrequency?: import('~/types').DataModelingSyncInterval | undefined,
+        incremental?: DataWarehouseSavedQueryIncremental | undefined
     ) => {
+        incremental: DataWarehouseSavedQueryIncremental | undefined
         syncFrequency: import('~/types').DataModelingSyncInterval | undefined
         viewId: string
     } // dataWarehouseViewsLogic
-    runDataWarehouseSavedQuery: (viewId: string) => {
+    runDataWarehouseSavedQuery: (
+        viewId: string,
+        fullRefresh?: boolean | undefined
+    ) => {
+        fullRefresh: boolean | undefined
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
@@ -925,12 +965,10 @@ export interface sqlEditorLogicActions {
         value: true
     }
     saveAsMetricSubmit: (
-        name: string,
-        description: string,
+        fields: SaveAsMetricFields,
         queryOverride?: string
     ) => {
-        description: string
-        name: string
+        fields: SaveAsMetricFields
         queryOverride: string | undefined
     }
     saveAsView: (
@@ -947,11 +985,13 @@ export interface sqlEditorLogicActions {
         dagId?: string,
         folderId?: string | null,
         isTest?: any,
-        queryOverride?: string
+        queryOverride?: string,
+        incremental?: DataWarehouseSavedQueryIncremental
     ) => {
         dagId: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
+        incremental: DataWarehouseSavedQueryIncremental | undefined
         isTest: any
         materializeAfterSave: any
         name: string
@@ -1037,6 +1077,9 @@ export interface sqlEditorLogicActions {
     }
     setMetadataLoading: (loading: boolean) => {
         loading: boolean
+    }
+    setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => {
+        metricPrefill: MetricFormPrefill | null
     }
     setMetricUpdating: (updating: boolean) => {
         updating: boolean
@@ -1285,7 +1328,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dagId?: string,
             folderId?: string | null,
             isTest = false,
-            queryOverride?: string
+            queryOverride?: string,
+            incremental?: DataWarehouseSavedQueryIncremental
         ) => ({
             name,
             materializeAfterSave,
@@ -1294,6 +1338,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             folderId,
             isTest,
             queryOverride,
+            incremental,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string, queryOverride?: string) => ({
@@ -1308,11 +1353,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dagId,
         }),
         saveAsMetric: true,
-        saveAsMetricSubmit: (name: string, description: string, queryOverride?: string) => ({
-            name,
-            description,
+        saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string) => ({
+            fields,
             queryOverride,
         }),
+        setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => ({ metricPrefill }),
         setEditingMetricName: (metricName: string | null) => ({ metricName }),
         updateEditingMetric: true,
         setMetricUpdating: (updating: boolean) => ({ updating }),
@@ -1552,6 +1597,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             'insight' as SqlEditorSource,
             {
                 setEditorSource: (_, { source }) => source,
+            },
+        ],
+        metricPrefill: [
+            null as MetricFormPrefill | null,
+            {
+                setMetricPrefill: (_, { metricPrefill }) => metricPrefill,
             },
         ],
         dashboardId: [
@@ -2125,6 +2176,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     current: candidates.queries[candidates.initialIndex],
                 }
 
+                // Checked once as the dialog opens rather than on every keystroke: it only depends
+                // on the SQL being saved, which cannot change while the dialog is up. A failure
+                // leaves the incremental fields hidden, so the view saves as a normal full refresh.
+                let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
+                if (values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
+                    try {
+                        incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
+                            query: selectedRef.current ?? values.queryInput ?? '',
+                        })
+                    } catch {
+                        incrementalCheck = null
+                    }
+                }
+
                 const folderOptions: { value: string | null; label: string }[] = [
                     { value: null, label: 'No folder' },
                     ...values.dataWarehouseSavedQueryFolders.map((folder) => ({
@@ -2166,6 +2231,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         folderId: null,
                         isTest: false,
                         materializeAfterSave,
+                        incrementalEnabled: false,
+                        incrementalKey: incrementalCheck?.key_candidates[0] ?? null,
+                        incrementalUniqueKey: [],
+                        incrementalLookbackSeconds: 0,
                         dagId: multiDagEnabled
                             ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
                             : undefined,
@@ -2269,17 +2338,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 )}
                                 <LemonField name="materializeAfterSave" className="mt-2">
                                     {({ value, onChange }) => (
-                                        <div className="flex items-center gap-2">
-                                            <LemonCheckbox
-                                                checked={value}
-                                                onChange={onChange}
-                                                data-attr="sql-editor-input-save-view-materialize"
-                                                label="Materialize this view"
-                                            />
-                                            <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
-                                                <span className="text-muted cursor-pointer">&#9432;</span>
-                                            </Tooltip>
-                                        </div>
+                                        <>
+                                            <div className="flex items-center gap-2">
+                                                <LemonCheckbox
+                                                    checked={value}
+                                                    onChange={onChange}
+                                                    data-attr="sql-editor-input-save-view-materialize"
+                                                    label="Materialize this view"
+                                                />
+                                                <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
+                                                    <span className="text-muted cursor-pointer">&#9432;</span>
+                                                </Tooltip>
+                                            </div>
+                                            {value && <IncrementalConfigFields check={incrementalCheck} />}
+                                        </>
                                     )}
                                 </LemonField>
                                 <SaveTargetCycler
@@ -2293,6 +2365,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     errors: {
                         viewName: validateSavedQueryName,
                         dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
+                        incrementalKey: (key, { incrementalEnabled, materializeAfterSave: materialize }) =>
+                            incrementalEnabled && materialize && !key ? 'Select the incremental column' : undefined,
+                        incrementalUniqueKey: (uniqueKey, { incrementalEnabled, materializeAfterSave: materialize }) =>
+                            incrementalEnabled && materialize && !uniqueKey?.length
+                                ? 'Select at least one unique key column'
+                                : undefined,
                     },
                     onSubmit: async ({
                         viewName,
@@ -2300,7 +2378,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         folderId,
                         isTest,
                         materializeAfterSave: shouldMaterialize,
+                        incrementalEnabled,
+                        incrementalKey,
+                        incrementalUniqueKey,
+                        incrementalLookbackSeconds,
                     }) => {
+                        const incremental =
+                            shouldMaterialize && incrementalEnabled && incrementalKey && incrementalUniqueKey?.length
+                                ? {
+                                      enabled: true,
+                                      incremental_key: incrementalKey,
+                                      unique_key: incrementalUniqueKey,
+                                      lookback_seconds: incrementalLookbackSeconds ?? 0,
+                                  }
+                                : undefined
                         await asyncActions.saveAsViewSubmit(
                             viewName,
                             shouldMaterialize ?? false,
@@ -2308,7 +2399,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             dagId,
                             folderId,
                             isTest ?? false,
-                            selectedRef.current
+                            selectedRef.current,
+                            incremental
                         )
                         if (multiDagEnabled && dagId) {
                             dataModelingLogic.actions.setSelectedDagId(dagId)
@@ -2325,6 +2417,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 folderId,
                 isTest = false,
                 queryOverride,
+                incremental,
             }) => {
                 const biEditorState = getActiveBIEditorState()
                 const query: HogQLQuery = values.sourceQuery.source
@@ -2361,6 +2454,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...(folderId ? { folder_id: folderId } : {}),
                         ...(dagId ? { dag_id: dagId } : {}),
                         ...(isTest ? { is_test: true } : {}),
+                        ...(incremental ? { incremental } : {}),
                     })
                     captureBIEditorQuerySaved(biEditorState, 'view', 'create')
 
@@ -2615,14 +2709,35 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const selectedRef = { current: candidates.queries[candidates.initialIndex] }
                 LemonDialog.openForm({
                     title: 'Save as metric',
-                    initialValues: { name: '', description: '' },
+                    initialValues: {
+                        name: '',
+                        display_name: '',
+                        description: '',
+                        unit: '',
+                        ...values.metricPrefill,
+                    },
                     content: (
                         <>
-                            <LemonField name="name" label="Name">
-                                <LemonInput placeholder="monthly_active_users" autoFocus />
+                            <LemonField name="name" label={METRIC_FIELD_COPY.name.label}>
+                                <LemonInput placeholder={METRIC_FIELD_COPY.name.placeholder} autoFocus />
                             </LemonField>
-                            <LemonField name="description" label="Description" className="mt-2">
-                                <LemonInput placeholder="What this metric measures and how to read it" />
+                            <LemonField
+                                name="display_name"
+                                label={METRIC_FIELD_COPY.displayName.label}
+                                className="mt-2"
+                            >
+                                <LemonInput placeholder={METRIC_FIELD_COPY.displayName.placeholder} />
+                            </LemonField>
+                            <LemonField name="description" label={METRIC_FIELD_COPY.description.label} className="mt-2">
+                                {/* stopPropagation keeps Enter from reaching the dialog form and submitting mid-sentence */}
+                                <LemonTextArea
+                                    placeholder={METRIC_FIELD_COPY.description.placeholder}
+                                    minRows={2}
+                                    stopPropagation
+                                />
+                            </LemonField>
+                            <LemonField name="unit" label={METRIC_FIELD_COPY.unit.label} className="mt-2">
+                                <LemonInput placeholder={METRIC_FIELD_COPY.unit.placeholder} />
                             </LemonField>
                             <SaveTargetCycler
                                 candidates={candidates}
@@ -2637,22 +2752,33 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         description: (description) =>
                             !description?.trim() ? 'Add a description' : validateMetricDescription(description.trim()),
                     },
-                    onSubmit: async ({ name, description }) =>
-                        actions.saveAsMetricSubmit(name.trim(), description.trim(), selectedRef.current),
+                    onSubmit: async ({ name, display_name, description, unit }) =>
+                        actions.saveAsMetricSubmit(
+                            {
+                                name: name.trim(),
+                                display_name: display_name.trim(),
+                                description: description.trim(),
+                                unit: unit.trim(),
+                            },
+                            selectedRef.current
+                        ),
                 })
             },
-            saveAsMetricSubmit: async ({ name, description, queryOverride }) => {
+            saveAsMetricSubmit: async ({ fields, queryOverride }) => {
                 const biEditorState = getActiveBIEditorState()
                 try {
                     const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
-                        name,
-                        description,
+                        name: fields.name,
+                        display_name: fields.display_name || undefined,
+                        description: fields.description,
+                        unit: fields.unit || undefined,
                         definition: normalizeRawQuerySource({
                             ...(values.sourceQuery.source as HogQLQuery),
                             query: queryOverride ?? values.queryInput ?? '',
                         }) as unknown as Record<string, unknown>,
                     })
                     captureBIEditorQuerySaved(biEditorState, 'metric', 'create')
+                    actions.setMetricPrefill(null)
                     lemonToast.success('Metric created')
                     router.actions.push(urls.dataCatalogMetric(metric.name))
                 } catch (error: any) {
@@ -3274,6 +3400,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 searchParams.source === 'metric'
             ) {
                 actions.setEditorSource(searchParams.source)
+            }
+            const metricPrefillFromUrl = parseMetricPrefill(searchParams.metric_prefill)
+            if (metricPrefillFromUrl) {
+                actions.setMetricPrefill(metricPrefillFromUrl)
             }
             if (searchParams.dashboard) {
                 const parsed = parseInt(searchParams.dashboard, 10)

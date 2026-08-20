@@ -47,11 +47,11 @@ export type MlMirrorConfig = {
     /**
      * Collect the URLs of remote images as well, so the fetch lane can download them later.
      *
-     * Enabling changes the mirrored JSONL shape a second time: a remote image's `src` carries an
-     * `imageurl:<pseudoTeam>:<hash>` ref instead of the grey placeholder. The prefix differs from
-     * the image lane's `image:` on purpose, because this hash names the URL rather than the bytes
-     * behind it. Nothing fetches those URLs yet, so every such ref is dangling, and a dangling ref
-     * renders as the same placeholder it replaced. What this buys is the measurement of how many
+     * Enabling changes the mirrored JSONL shape a second time: a remote image keeps its grey
+     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its
+     * `imageurl:<pseudoTeam>:<hash>` ref. The prefix differs from the image lane's `image:` on
+     * purpose, because this hash names the URL rather than the bytes behind it. Nothing fetches
+     * those URLs yet, so every such ref is dangling. What this buys is the measurement of how many
      * URLs and how many distinct hosts real traffic carries.
      */
     SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
@@ -69,6 +69,9 @@ export type MlMirrorConfig = {
      */
     SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: boolean
 
+    // US-only, PEM, multiple keys allowed (comma-separated)
+    WEB_BOT_AUTH_PRIVATE_KEYS: string
+
     /**
      * While true the fetch lane sends no outbound request. It reads the topic, dedupes, writes the
      * ledger and reports the metrics, which is the phase 0 measurement: how many requests the
@@ -84,8 +87,88 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: number
     /** Capacity of the per-pod seen-ref cache that sits in front of the Redis ledger. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: number
-    /** Bounds one round trip to the sighting store, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
+    /**
+     * TTL on each crawl history entry, so it is both the recrawl interval and the ledger's Redis
+     * footprint: the key count converges on the distinct-URL count of this window, which is the
+     * number that sizes the Redis. An env var because it is the main memory lever for that cluster,
+     * and memory pressure moves faster than a deploy.
+     *
+     * 7 days measures the dry-run dedup hit rate over a window the cluster can hold. Once fetching
+     * is on, this is also how often a recurring image is refetched from the customer's site, so
+     * raising it back up trades Redis memory for outbound politeness.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS: number
+    /** Bounds one round trip to the crawl history, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: number
+
+    /**
+     * What one registrable domain receives from one pod.
+     *
+     * Every value below is a politeness control, so all of them are environment variables. An
+     * incident must change the load this lane puts on a customer site in minutes, and a deploy
+     * takes longer than that.
+     *
+     * One request each second is far below the rate a browser puts on the same site. This lane
+     * works at that rate because one fetch serves every session that refers to the image, and
+     * because nothing waits on the result.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: number
+    /** Tokens a domain holds while idle, so a site seen once an hour gets a short run rather than one request. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_BURST: number
+    /** Also the worker count of one back queue, so the connection limit and the worker count cannot disagree. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: number
+    /**
+     * Requests this pod holds open across every domain at once.
+     *
+     * Nothing caps the number of domains, because the topic keys by registrable domain, so a domain
+     * lands on one partition and one pod, and its rate limit lives there. A pod that owns many
+     * domains must serve them all, because each has its own allowance and none waits on the others.
+     *
+     * This bounds the pod instead. A body reads into a buffer, so the resident peak is roughly this
+     * times SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES, and the sockets and the DNS lookups
+     * scale with it too. Raise the pod's memory before you raise this.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
+    /**
+     * Wall time the fetch pass of one poll batch may take.
+     *
+     * A batch can hold more URLs for one domain than a polite rate carries in this time. What the
+     * pass does not reach goes to a delay topic and spends a hop. The value sits well inside Kafka's
+     * max.poll.interval.ms of 300s, which the crawl history round trips share.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: number
+    /** Refused before the body when the response declares more, and abandoned mid-body when it declares nothing. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: number
+    /** Covers one URL including its redirects, separate from the connect timeout of the shared request layer. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS: number
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS: number
+    /** Consecutive failures of one domain before this pod stops sending to it. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_FAILURES: number
+    SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_COOLDOWN_MS: number
+    /** The longest a domain stays blocked, whether the breaker or a site's own `Retry-After` blocked it. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS: number
+    /** Held after a 429 or a 503 that named no period. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS: number
+    /** Domains one pod holds rate-limit state for. Past this the least recently used entry goes, and the pod forgets that the domain was blocked. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS: number
+
+    /**
+     * The delay topic one retry pod drains, and the period every record in it waits.
+     *
+     * One server runs every tier, so three deployments of one image cover 1 minute, 10 minutes, and
+     * one hour. The pod's `max.poll.interval.ms` must exceed the period, or the broker evicts the
+     * consumer while it sleeps.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC: string
+    SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS: number
+    /**
+     * One record per batch, so the poll interval the server computes is exact.
+     *
+     * A batch of many records can hold records written hours apart, and that batch waits once for
+     * each of them. Sizing the poll interval for that case means multiplying the tier's period by
+     * the batch size, which soon passes what Kafka accepts at the 1 hour tier.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: number
 
     /**
      * Capacity of the mirror's produced-URL ref cache, which bounds re-produces onto the fetch
@@ -162,12 +245,30 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
         SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
+        WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: 6 * 60 * 60 * 1000,
         SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: 500_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS: 7 * 24 * 60 * 60,
         SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: 5_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: 1,
+        SESSION_RECORDING_ML_IMAGE_FETCH_BURST: 5,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: 6,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: 20_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: 2 * 1024 * 1024,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS: 10_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS: 3,
+        SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_FAILURES: 5,
+        SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_COOLDOWN_MS: 60_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS: 2 * 60 * 60 * 1000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS: 60_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS: 20_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC: '',
+        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS: 60_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: 1,
         SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',

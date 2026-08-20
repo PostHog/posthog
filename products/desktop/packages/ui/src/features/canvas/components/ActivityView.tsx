@@ -34,7 +34,6 @@ import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activ
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
-import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
@@ -53,108 +52,13 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { Text } from "@radix-ui/themes";
-import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
-
-function ChannelSuffix({ channelName }: { channelName: string | null }) {
-  if (!channelName) return null;
-  return (
-    <>
-      {" in "}
-      <Text as="span" size="1" weight="medium">
-        #{channelName}
-      </Text>
-    </>
-  );
-}
-
-function ownedItemName(item: TaskActivityItem): string {
-  switch (item.commentTarget?.scope) {
-    case "desktop_canvas":
-      return "canvas";
-    case "task_artifact":
-      return "artifact";
-    default:
-      return "task";
-  }
-}
-
-/** The lead line describing what happened, chosen by the row's activity kind. */
-export function activityHeadline(
-  item: TaskActivityItem,
-  currentUserEmail?: string | null,
-): ReactNode {
-  switch (item.activityKind) {
-    case "awaiting_input":
-      return (
-        <>
-          The agent is waiting for your reply
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    case "completed":
-      return (
-        <>
-          The agent completed this task
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    case "message":
-      if (!item.author) {
-        return (
-          <>
-            The agent replied
-            <ChannelSuffix channelName={item.channelName} />
-          </>
-        );
-      }
-      return (
-        <>
-          {item.author.email === currentUserEmail
-            ? "You replied"
-            : `${userDisplayName(item.author)} replied`}
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    case "mention":
-      return (
-        <>
-          <Text as="span" size="1" weight="medium">
-            {userDisplayName(item.author)}
-          </Text>{" "}
-          mentioned you
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    case "thread_reply":
-      return (
-        <>
-          <Text as="span" size="1" weight="medium">
-            {userDisplayName(item.author)}
-          </Text>{" "}
-          replied to a thread you participated in
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    case "owned_item_comment":
-      return (
-        <>
-          <Text as="span" size="1" weight="medium">
-            {userDisplayName(item.author)}
-          </Text>{" "}
-          commented on your {ownedItemName(item)}
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    default:
-      return "You created this task";
-  }
-}
+import { activityHeadline } from "./activityHeadline";
 
 export function ActivityRow({
   item,
@@ -211,6 +115,10 @@ export function ActivityRow({
         .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
     }
     onNavigate?.();
+    if (channelId && item.targetScope === "desktop_canvas" && item.targetId) {
+      navigateToChannelDashboard(channelId, item.targetId);
+      return;
+    }
     if (channelId && item.commentTarget?.scope === "desktop_canvas") {
       useCanvasChatPanelStore.getState().openComments();
       navigateToChannelDashboard(channelId, item.commentTarget.itemId);

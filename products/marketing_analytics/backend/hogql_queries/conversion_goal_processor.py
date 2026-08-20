@@ -99,9 +99,12 @@ TRACKED_FIELDS: list[TrackedField] = [
     TrackedField("content", "utm_content", "utm_content_name"),
     TrackedField("term", "utm_term", "utm_term_name"),
     TrackedField("referring_domain", "$referring_domain", None, "$direct"),
-    TrackedField("gclid", "$gclid"),
-    TrackedField("fbclid", "$fbclid"),
-    TrackedField("gad_source", "$gad_source"),
+    # Unprefixed: these are the names the SDK writes on the event (see CAMPAIGN_PROPERTIES
+    # in posthog/taxonomy/taxonomy.py). The `$initial_*` forms channel_type reads are
+    # person-scoped copies derived from these, and `$gclid` exists nowhere at all.
+    TrackedField("gclid", "gclid"),
+    TrackedField("fbclid", "fbclid"),
+    TrackedField("gad_source", "gad_source"),
 ]
 
 
@@ -204,7 +207,9 @@ class SharedTouchpointsPrecompute:
             return self._result
 
 
-@dataclass
+# Mutable by design: `precompute_stale` is set while building the query, and each
+# processor owns a `timings` clone the runner merges back after the pool joins.
+@dataclass(frozen=False)
 class ConversionGoalProcessor:
     """
     Processes conversion goals for marketing analytics queries.
@@ -271,13 +276,22 @@ class ConversionGoalProcessor:
             return self.goal.schema_map.get(field.schema_map_key, field.event_property)
         return field.event_property
 
+    def sums_a_property(self) -> bool:
+        """Whether this goal's column holds a summed property value rather than a conversion count.
+
+        Anything dividing by a goal's column needs to tell the two apart, so this shares the branch
+        with `get_select_field` rather than re-deriving it from `math`.
+        """
+        math_type = self.goal.math
+        return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
+
     def get_select_field(self) -> ast.Expr:
         """Build select field expression based on math aggregation type"""
         math_type = self.goal.math
 
         if math_type in [BaseMathType.DAU, "dau"]:
             return self._build_dau_select()
-        elif math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum"):
+        elif self.sums_a_property():
             return self._build_sum_select()
         else:
             return ast.Call(name="count", args=[ast.Constant(value="*")])

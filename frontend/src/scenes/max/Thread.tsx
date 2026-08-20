@@ -79,6 +79,7 @@ import {
     MessageTemplate,
     ReasoningAnswer,
     RecordingsWidget,
+    ReplayVisionScanWidget,
     ResourcesBar,
     ThreadView,
 } from 'products/posthog_ai/frontend/api/primitives'
@@ -1464,6 +1465,14 @@ function renderToolCallWidget(
                     filters={widgetDef.args}
                     embedded
                     onAcceptFilters={onAcceptSessionFilters}
+                />
+            )
+        case 'replay_vision_scan':
+            return (
+                <ReplayVisionScanWidget
+                    scanId={widgetDef.args.scanId}
+                    sessionIds={widgetDef.args.sessionIds}
+                    skipped={widgetDef.args.skipped}
                 />
             )
         default:

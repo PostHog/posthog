@@ -152,6 +152,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("reserved_new", "new"),
             ("reserved_scouts", "scouts"),
             ("reserved_review_hog", "review-hog"),
+            ("reserved_community", "community"),
         ]
     )
     def test_create_skill_validates_name_format(self, _label, skill_name):
@@ -895,6 +896,28 @@ class TestLLMSkillAPI(APIBaseTest):
 
         copy_skill = LLMSkill.objects.get(name="the-copy", deleted=False)
         assert LLMSkillFile.objects.filter(skill=copy_skill).count() == 1
+
+    @parameterized.expand(
+        [
+            ("plain-name-copy", "", ""),
+            ("review-hog-perspective-my-lens", "", "review_hog"),
+            ("plain-copy-of-scout", "scout", ""),
+        ]
+    )
+    def test_duplicate_derives_category_from_new_name(
+        self, new_name: str, source_category: str, expected_category: str
+    ):
+        self.create_skill(name="category-source", category=source_category)
+
+        response = self.client.post(
+            self._url("name/category-source/duplicate"),
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["category"] == expected_category
+        assert LLMSkill.objects.get(name=new_name, deleted=False).category == expected_category
 
     def test_duplicate_to_existing_name_fails(self):
         self.create_skill(name="source")

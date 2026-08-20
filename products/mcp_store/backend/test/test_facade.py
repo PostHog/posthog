@@ -12,7 +12,7 @@ from products.mcp_store.backend.agents import (
     resolve_gateway_agent_token,
 )
 from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPMemberServerRevocation,
@@ -42,7 +42,7 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert results == [
-            ActiveInstallationInfo(
+            ActiveInstallation(
                 id=str(installation.id),
                 name="Linear",
                 proxy_path=f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/proxy/",
@@ -359,7 +359,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             granted_by=self.user,
         )
 
-        def resolve(credential_owner_id: int | None) -> list[ActiveInstallationInfo]:
+        def resolve(credential_owner_id: int | None) -> list[ActiveInstallation]:
             return get_installations_for_sandbox(
                 self.team.id,
                 task_origin="support_reply",
@@ -392,7 +392,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             granted_by=self.user,
         )
 
-        def resolve() -> list[ActiveInstallationInfo]:
+        def resolve() -> list[ActiveInstallation]:
             return get_installations_for_sandbox(
                 self.team.id,
                 task_origin="support_reply",
@@ -437,7 +437,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             scope=scope,
         )
 
-    def _agent_results(self, credential_owner_id: int | None) -> list[ActiveInstallationInfo]:
+    def _agent_results(self, credential_owner_id: int | None) -> list[ActiveInstallation]:
         return get_installations_for_sandbox(
             self.team.id,
             task_origin="support_reply",
@@ -479,6 +479,52 @@ class TestGetInstallationsForSandbox(BaseTest):
         principal = resolve_gateway_agent_token(results[0].proxy_token or "")
         assert principal is not None
         assert principal.credential_owner_id is None
+
+    def test_per_scout_allowlist_gates_grants_of_every_scope(self) -> None:
+        account = self._support_agent()
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        picked_server = self._create_gateway_server(name="Picked", url="https://picked.example.com/mcp")
+        dropped_server = self._create_gateway_server(name="Dropped", url="https://dropped.example.com/mcp")
+        picked = self._create_installation(user=teammate, gateway_server=picked_server, url=picked_server.url)
+        dropped = self._create_installation(user=teammate, gateway_server=dropped_server, url=dropped_server.url)
+        self._grant(account, picked_server, user=teammate, installation=picked, scope="team")
+        self._grant(account, dropped_server, user=teammate, installation=dropped, scope="team")
+
+        def resolve(allowed: list[str] | None) -> set[str]:
+            # No credential owner, like a scout run: only team shares are reachable, and the
+            # allowlist picks which of them mount.
+            return {
+                result.id
+                for result in get_installations_for_sandbox(
+                    self.team.id,
+                    task_origin="support_reply",
+                    task_agent_key="support",
+                    allowed_gateway_server_ids=allowed,
+                )
+            }
+
+        assert resolve([str(picked_server.id)]) == {str(picked.id)}
+        # An empty selection mounts nothing at all: team shares are gated too, so a scout
+        # with no servers selected runs without MCP servers.
+        assert resolve([]) == set()
+        assert resolve(None) == {str(picked.id), str(dropped.id)}
+
+    def test_per_scout_allowlist_gates_a_credential_owners_personal_grant_too(self) -> None:
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Owned", url="https://owned.example.com/mcp")
+        other_server = self._create_gateway_server(name="Other", url="https://other.example.com/mcp")
+        owned = self._create_installation(gateway_server=server, url=server.url)
+        self._grant(account, server, user=self.user, installation=owned)
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            task_origin="support_reply",
+            task_agent_key="support",
+            credential_owner_id=self.user.id,
+            allowed_gateway_server_ids=[str(other_server.id)],
+        )
+
+        assert results == []
 
     def test_owner_credential_wins_over_a_teammates_team_share_of_the_same_server(self) -> None:
         account = self._support_agent()
