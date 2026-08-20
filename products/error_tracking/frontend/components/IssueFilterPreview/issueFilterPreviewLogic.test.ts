@@ -2,7 +2,7 @@ import { quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PropertyOperator } from '~/types'
+import { PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import {
     DEFAULT_DATE_RANGE,
@@ -46,8 +46,30 @@ describe('issueFilterPreviewLogic', () => {
         expect(filters.values.filterGroup).toEqual(DEFAULT_FILTER_GROUP)
 
         preview.actions.setActivePreview('fingerprints')
-        preview.actions.applyPropertyFilter('$exception_fingerprint', 'fingerprint-1')
+        preview.actions.applyPropertyFilter('$exception_fingerprint', 'fingerprint-1', PropertyOperator.Exact, true)
+        preview.actions.applyPropertyFilter('$exception_fingerprint', 'fingerprint-2', PropertyOperator.Exact, true)
+        expect(filters.values.filterGroup).toEqual({
+            type: 'AND',
+            values: [
+                {
+                    type: 'AND',
+                    values: [
+                        {
+                            key: '$exception_fingerprint',
+                            type: 'event',
+                            operator: PropertyOperator.Exact,
+                            value: ['fingerprint-2'],
+                        },
+                    ],
+                },
+            ],
+        })
         expect(preview.values.canUndoActivePreview).toBe(true)
+        preview.actions.undoActivePreview()
+        expect((filters.values.filterGroup.values[0] as UniversalFiltersGroup).values[0]).toMatchObject({
+            key: '$exception_fingerprint',
+            value: ['fingerprint-1'],
+        })
         preview.actions.undoActivePreview()
         expect(filters.values.filterGroup).toEqual(DEFAULT_FILTER_GROUP)
 

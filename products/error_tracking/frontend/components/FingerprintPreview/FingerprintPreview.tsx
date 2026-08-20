@@ -5,6 +5,8 @@ import { ScatterChart, TooltipSurface } from '@posthog/quill-charts'
 import { useChartTheme } from 'lib/charts/hooks'
 import { Button, Spinner, Text } from 'lib/ui/quill'
 
+import { PropertyOperator } from '~/types'
+
 import { IssueFilterPreviewHeader } from '../IssueFilterPreview/IssueFilterPreviewHeader'
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
 import { fingerprintProjectionLogic } from './fingerprintProjectionLogic'
@@ -63,7 +65,12 @@ export function FingerprintPreview({ issueId }: { issueId: string }): JSX.Elemen
                                 )}
                                 onPointClick={(point) => {
                                     if (point.meta?.fingerprint) {
-                                        applyPropertyFilter('$exception_fingerprint', point.meta.fingerprint)
+                                        applyPropertyFilter(
+                                            '$exception_fingerprint',
+                                            point.meta.fingerprint,
+                                            PropertyOperator.Exact,
+                                            true
+                                        )
                                     }
                                 }}
                             />
