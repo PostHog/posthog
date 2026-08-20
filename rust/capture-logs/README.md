@@ -51,7 +51,7 @@ The token is your PostHog project token.
 | 400 | Body could not be decoded as OTLP protobuf or JSON | Permanent |
 | 401 | No token, or a token that cannot be a project API key (for example a `phx_` personal API key) | Permanent, so the client stops and surfaces the misconfiguration |
 | 413 | Body over `MAX_REQUEST_BODY_SIZE_BYTES`, or a batch Kafka refuses as over its message size limit | Permanent, and the client should send smaller batches |
-| 500 | The records could not be written to Kafka | Retry |
+| 500 | The records could not be written to Kafka | OTLP does not retry 500, so the client drops the batch |
 
 The 401 covers shape only: empty, over 64 characters, non-ASCII, containing a null byte, or
 prefixed `phx_`. None of those can be a project API key, so answering 200 and dropping the
