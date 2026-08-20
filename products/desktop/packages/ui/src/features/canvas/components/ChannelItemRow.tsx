@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
@@ -40,6 +41,7 @@ import {
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
+import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import {
   type DragEvent,
   type ReactNode,
@@ -281,6 +283,13 @@ export function ChannelItemRow({
 }) {
   const status = useChannelTaskStatus(item);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const currentUser = useCurrentUser();
+  const canHandoff =
+    item.kind === "task" &&
+    item.task != null &&
+    item.authorUser?.id != null &&
+    currentUser.data?.id === item.authorUser.id;
   const handleDragStart = useCallback(
     (event: DragEvent) => {
       if (item.kind !== "task") return;
@@ -324,8 +333,11 @@ export function ChannelItemRow({
             onRename,
             onTogglePin: () => actions.togglePin(item),
             onArchive: () => actions.archive(item),
+            ...(canHandoff ? { onHandoff: () => setHandoffOpen(true) } : {}),
           },
-    [item, channelId, actions, onAddToCommandCenter, onRename],
+    // canHandoff rides on the currentUser query, so it belongs in deps for a
+    // sign-in refresh to re-evaluate.
+    [item, channelId, actions, onAddToCommandCenter, onRename, canHandoff],
   );
 
   if (isEditing) {
@@ -405,6 +417,13 @@ export function ChannelItemRow({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {canHandoff && item.task ? (
+        <HandoffTaskDialog
+          task={item.task}
+          open={handoffOpen}
+          onOpenChange={setHandoffOpen}
+        />
+      ) : null}
     </>
   );
 }
