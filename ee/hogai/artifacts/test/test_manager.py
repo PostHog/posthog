@@ -161,7 +161,7 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
 
         self.assertEqual(len(content.blocks), 1)
         block = content.blocks[0]
-        self.assertIsInstance(block, ErrorBlock)
+        assert isinstance(block, ErrorBlock)
         self.assertEqual(block.message, UNRESOLVED_VISUALIZATION_MESSAGE)
         mock_capture.assert_called_once()
         self.assertEqual(mock_capture.call_args.kwargs["event"], UNRESOLVED_VISUALIZATION_EVENT)
