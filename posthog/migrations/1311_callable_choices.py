@@ -2,7 +2,7 @@
 
 from django.db import migrations, models
 
-import posthog.models.integration
+import posthog.models.integration.model
 
 
 class Migration(migrations.Migration):
@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             model_name="integration",
             name="kind",
             field=models.CharField(
-                choices=posthog.models.integration.integration_kind_choices,
+                choices=posthog.models.integration.model.integration_kind_choices,
                 max_length=32,
             ),
         ),
