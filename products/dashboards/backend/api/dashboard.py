@@ -115,6 +115,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
+from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.feature_flags import dashboard_customization_enabled, dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import (
@@ -158,7 +159,6 @@ from products.notifications.backend.facade.api import (
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.presentation.insight import (
     INCLUDE_DASHBOARDS_PARAMETER,
-    DashboardTileBasicSerializer,
     InsightBasicSerializer,
     InsightSerializer,
     InsightViewSet,
