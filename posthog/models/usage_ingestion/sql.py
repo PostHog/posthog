@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_USAGE_RECORDS, KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_USAGE_RECORDS
@@ -78,7 +80,13 @@ CREATE TABLE IF NOT EXISTS {KAFKA_USAGE_RECORDS_TABLE}
 (
     {BASE_USAGE_RECORDS_COLUMNS}
 )
-ENGINE = {kafka_engine(topic=KAFKA_USAGE_RECORDS, group=CONSUMER_GROUP_USAGE_RECORDS)}
+ENGINE = {
+        kafka_engine(
+            topic=KAFKA_USAGE_RECORDS,
+            group=CONSUMER_GROUP_USAGE_RECORDS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION,
+        )
+    }
 SETTINGS date_time_input_format = 'best_effort'
 """
 

@@ -16,6 +16,33 @@ The Django publisher must have warmed the `usage_ingestion/organization_id.json`
 HyperCache before relying on cache hits; PostgreSQL remains the source of truth
 for cold or stale mappings.
 
+## Where it runs
+
+| Resource | Placement |
+| --- | --- |
+| Kafka cluster | `warpstream-shared` |
+| Topic | `clickhouse_usage_records`, 8 partitions, 7-day retention |
+| ClickHouse Kafka table and MV | `NodeRole.INGESTION_SMALL` |
+| ClickHouse storage and read tables | `NodeRole.DATA` |
+| Redis (HyperCache) | the `billing` instance |
+| Owning team | `team-billing` |
+
+`warpstream-shared` carries the low-volume topics that do not justify a cluster
+of their own, which is what usage records are.
+The alternative was `warpstream-ingestion`, where `usage_report_events_preagg`
+lives, but that cluster carries the event hot path.
+Usage records come from a standalone gateway rather than the event pipeline, so
+putting them there would couple billing data to the noisiest cluster for no gain.
+The producer and the ClickHouse Kafka engine table must name the same cluster:
+the table takes it from `CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION`,
+and the service takes its topic from `USAGE_INGESTION_TOPIC`.
+
+Partition count can be raised later without risk, which is not true of an
+ordered stream.
+ClickHouse deduplicates by record identity and picks a winner by
+`event_timestamp`, so a key that moves to a different partition after a
+repartition cannot change the result.
+
 ## End-to-end tests
 
 Both tests run the service in-process and need the local dev stack for Kafka and
