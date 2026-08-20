@@ -1,5 +1,5 @@
 import type { SourceFieldConfig } from '~/queries/schema/schema-general'
-import type { ExternalDataSourceSchema } from '~/types'
+import type { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
@@ -10,6 +10,7 @@ import {
     removeEmptySensitiveValues,
     runBulkSchemaAction,
     schemasEligibleForSync,
+    schemasNeedingLookbackResync,
 } from './sourceSettingsLogic'
 
 function makeSchema(overrides: Partial<ExternalDataSourceSchema>): ExternalDataSourceSchema {
@@ -226,6 +227,24 @@ describe('schemasEligibleForSync', () => {
 
     it('returns an empty list when nothing is eligible', () => {
         expect(schemasEligibleForSync([makeSchema({ sync_type: null, should_sync: true })])).toEqual([])
+    })
+})
+
+describe('schemasNeedingLookbackResync', () => {
+    it('keeps only enabled incremental tables so a raised lookback resyncs stats tables, not entity tables', () => {
+        const source = {
+            schemas: [
+                makeSchema({ id: 'stats-on', should_sync: true, incremental: true }),
+                makeSchema({ id: 'stats-off', should_sync: false, incremental: true }),
+                makeSchema({ id: 'entity-on', should_sync: true, incremental: false }),
+            ],
+        } as ExternalDataSource
+
+        expect(schemasNeedingLookbackResync(source).map((s) => s.id)).toEqual(['stats-on'])
+    })
+
+    it('returns an empty list when the source is missing', () => {
+        expect(schemasNeedingLookbackResync(null)).toEqual([])
     })
 })
 

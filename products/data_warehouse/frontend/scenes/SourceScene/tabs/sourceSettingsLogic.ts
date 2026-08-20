@@ -18,7 +18,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -313,6 +313,20 @@ export async function runBulkSchemaAction(
 // Only schemas that are enabled with a configured sync method can be synced on demand.
 export function schemasEligibleForSync(schemas: ExternalDataSourceSchema[]): ExternalDataSourceSchema[] {
     return schemas.filter((schema) => !!schema.sync_type && schema.should_sync)
+}
+
+const SYNC_LOOKBACK_FIELD = 'sync_lookback_days'
+
+function parseLookbackDays(value: unknown): number | null {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+}
+
+// A raised history window (e.g. Meta Ads `sync_lookback_days`) only pulls in older data on a full
+// resync. An enabled incremental table that already imported keeps its start date until then, so
+// these are the tables a raise would otherwise silently skip.
+export function schemasNeedingLookbackResync(source: ExternalDataSource | null): ExternalDataSourceSchema[] {
+    return source?.schemas.filter((schema) => schema.should_sync && schema.incremental) ?? []
 }
 
 // Bulk-enable payloads: already-enabled schemas are skipped; schemas without a sync method ask
@@ -1055,6 +1069,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     ...sanitizedPayload,
                 }
 
+                // Read before the update, while `values.source` still holds the old config, so we can
+                // offer a resync when the user widens the history window (otherwise it's silently ignored).
+                const previousLookbackDays = parseLookbackDays(values.source?.job_inputs?.[SYNC_LOOKBACK_FIELD])
+                const nextLookbackDays = parseLookbackDays(sanitizedPayload[SYNC_LOOKBACK_FIELD])
+                const schemasToResync = schemasNeedingLookbackResync(values.source)
+
                 // Handle file uploads
                 const sourceFieldConfig = values.sourceFieldConfig
                 if (sourceFieldConfig?.fields) {
@@ -1102,6 +1122,24 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     })
                     actions.loadSource()
                     lemonToast.success('Source updated')
+
+                    if (
+                        previousLookbackDays !== null &&
+                        nextLookbackDays !== null &&
+                        nextLookbackDays > previousLookbackDays &&
+                        schemasToResync.length > 0
+                    ) {
+                        LemonDialog.open({
+                            title: 'Import the older data?',
+                            description: `A wider history window applies to tables you already synced only after a full resync. Resync ${pluralize(schemasToResync.length, 'table', 'tables')} now to import the older data?`,
+                            primaryButton: {
+                                children: 'Resync now',
+                                onClick: () => actions.bulkResync(schemasToResync),
+                            },
+                            secondaryButton: { children: 'Not now' },
+                        })
+                    }
+
                     tryShowMCPHint('data_warehouse_sources.update', {
                         derivedPrompt: values.source?.source_type
                             ? `Update the configuration on my ${values.source.source_type} source`
