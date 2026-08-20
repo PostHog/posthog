@@ -87,11 +87,13 @@ function useRightPanelTask(taskId: string): Task | null {
 /** Which panel this session has open. */
 function useActiveSide(taskId: string): RightPanelSide | null {
   const stored = useRightPanelStore((s) => s.sideByKey[taskId]);
+  const closedByDefault = useRightPanelStore((s) => s.closedByDefault);
   const reviewMode = useReviewNavigationStore(
     (s) => s.reviewModes[taskId] ?? "closed",
   );
   return resolveRightPanelSide({
     stored,
+    closedByDefault,
     isReviewOpen: reviewMode !== "closed",
   });
 }

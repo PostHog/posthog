@@ -71,11 +71,13 @@ export const INBOX_PRIORITY_OPTIONS: {
   { value: "P4", accent: "var(--gray-9)" },
 ];
 
-export const INBOX_SOURCE_OPTIONS: {
+export type InboxSourceOption = {
   value: SourceProduct;
   label: string;
   icon: ReactNode;
-}[] = [
+};
+
+export const INBOX_SOURCE_OPTIONS: InboxSourceOption[] = [
   {
     value: "session_replay",
     label: "Session replay",

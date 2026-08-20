@@ -105,6 +105,44 @@ export interface ReportChartApi {
 }
 
 /**
+ * * `pending` - Pending
+ * * `generating` - Generating
+ * * `ready` - Ready
+ * * `failed` - Failed
+ */
+export type SignalReportCanvasGenerationStatusEnumApi =
+    (typeof SignalReportCanvasGenerationStatusEnumApi)[keyof typeof SignalReportCanvasGenerationStatusEnumApi]
+
+export const SignalReportCanvasGenerationStatusEnumApi = {
+    Pending: 'pending',
+    Generating: 'generating',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `managed` - Managed
+ * * `collaborative` - Collaborative
+ */
+export type CollaborationModeEnumApi = (typeof CollaborationModeEnumApi)[keyof typeof CollaborationModeEnumApi]
+
+export const CollaborationModeEnumApi = {
+    Managed: 'managed',
+    Collaborative: 'collaborative',
+} as const
+
+export interface SignalReportCanvasApi {
+    readonly canvas_id: string
+    readonly discussion_task_id: string
+    /** @nullable */
+    readonly generation_task_id: string | null
+    readonly generation_status: SignalReportCanvasGenerationStatusEnumApi
+    readonly collaboration_mode: CollaborationModeEnumApi
+    readonly failure_reason: string
+    readonly updated_at: string
+}
+
+/**
  * * `pr_incorrect` - PR incorrect
  * * `pr_not_useful` - PR not useful
  * * `duplicate` - Duplicate
@@ -203,6 +241,8 @@ export interface SignalReportApi {
     readonly artefact_count: number
     /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
     readonly charts: readonly ReportChartApi[]
+    /** The persistent canvas and shared discussion created for this report, when available. */
+    readonly canvas_session: SignalReportCanvasApi | null
     /**
      * P0–P4 from the latest priority judgment artefact (when present).
      * @nullable
@@ -2062,7 +2102,7 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly status_changed_at: string | null
-    /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
+    /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
     readonly auto_pause_exempt: boolean
     /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
     tags?: string[]
@@ -3668,6 +3708,8 @@ export interface FleetFindingsSummaryApi {
     authored_report_count: number
     /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists) and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
     edited_report_count: number
+    /** Number of scout runs created in the window, whether or not they produced output. Unlike the report tallies it is not capped, so it is the fleet's activity over the same span the output counts describe. */
+    run_count: number
     /**
      * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
      * @nullable

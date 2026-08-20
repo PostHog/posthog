@@ -41,10 +41,13 @@ from posthog.api.hog_invocation_cancel import (
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.hog_invocation_results import (
     HogInvocationResultDetailSerializer,
+    HogInvocationResultsCountSerializer,
     HogInvocationResultSerializer,
+    HogInvocationResultsFiltersSerializer,
     HogInvocationResultsRequestSerializer,
     fetch_hog_invocation_result,
     fetch_hog_invocation_results,
+    fetch_hog_invocation_results_count,
     tag_invocation_results_query,
 )
 from posthog.api.log_entries import LogEntryMixin
@@ -64,6 +67,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
+    cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
@@ -93,7 +97,10 @@ from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
-from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
+from products.workflows.backend.api.hog_flow_batch_job import (
+    HogFlowBatchJobCancelResponseSerializer,
+    HogFlowBatchJobSerializer,
+)
 from products.workflows.backend.api.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
@@ -105,6 +112,7 @@ from products.workflows.backend.api.publish_impact import build_publish_impact
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
+    ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
     HogFlow,
@@ -733,6 +741,47 @@ def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     return source is not None and source != EventSource.WEB
 
 
+def _normalize_slack_channel_filters(filters: dict) -> None:
+    """Reduce a `channel` filter value to the bare Slack channel id, in place.
+
+    The channel picker identifies a channel as ``C123|#name``, but the event carries ``C123``, so
+    storing the picker's value verbatim compiles a filter that can never match. The frontend strips
+    it too; this is here because the same dead filter is one API or MCP call away otherwise.
+    """
+    properties = filters.get("properties")
+    if not isinstance(properties, list):
+        return
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("key") != "channel":
+            continue
+        value = prop.get("value")
+        if isinstance(value, str):
+            prop["value"] = value.split("|")[0]
+        elif isinstance(value, list):
+            prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
+
+
+def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
+    """Stored email sender overrides keyed by action id, live and draft variants both kept.
+
+    Which variant a save should be compared against depends on how the request routes (a
+    builder save targets the draft, a raw API write targets live), so validation grandfathers
+    a value matching either - both are values already stored on the workflow.
+    """
+    result: dict[str, list[dict]] = {}
+    draft = instance.draft if isinstance(instance.draft, dict) else {}
+    for actions in (instance.actions, draft.get("actions")):
+        for stored_action in actions or []:
+            if not isinstance(stored_action, dict) or not stored_action.get("id"):
+                continue
+            email_input = ((stored_action.get("config") or {}).get("inputs") or {}).get("email")
+            value = email_input.get("value") if isinstance(email_input, dict) else None
+            from_value = value.get("from") if isinstance(value, dict) else None
+            if isinstance(from_value, dict):
+                result.setdefault(stored_action["id"], []).append(from_value)
+    return result
+
+
 def _event_config_has_event_or_action(event_config: dict) -> bool:
     # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
     # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
@@ -988,7 +1037,11 @@ class HogFlowActionSerializer(serializers.Serializer):
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. "
+            "slack-message runs once per message posted in a connected Slack channel, and takes only "
+            "filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, "
+            "subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. "
+            "webhook and "
             "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
             "requires template_id: 'template-source-webhook-pixel'. "
             "filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], "
@@ -1206,6 +1259,25 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
+            elif data.get("config", {}).get("type") == "slack-message":
+                # Everything the trigger selects on — channel, poster, text, thread — is a property
+                # of the Slack message, so there is no config beyond the filters. The event name is
+                # fixed, which is what makes an events/actions entry here meaningless.
+                filters = data.get("config", {}).get("filters", {}) or {}
+                if not isinstance(filters, dict):
+                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                filters.pop("events", None)
+                filters.pop("actions", None)
+                _normalize_slack_channel_filters(filters)
+                # Left on the default "events" source: the internal event is event-shaped, so
+                # property filters compile against event.properties.* with no special casing.
+                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                if is_draft:
+                    if serializer.is_valid():
+                        data["config"]["filters"] = serializer.validated_data
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    data["config"]["filters"] = serializer.validated_data
             else:
                 if strict:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
@@ -1244,6 +1316,18 @@ class HogFlowActionSerializer(serializers.Serializer):
                         # {"secret": true} marker recovers the stored value instead of wiping it.
                         "encrypted_inputs": (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id"))
                         or {},
+                        # Team plus this action's stored sender override, so a literal custom
+                        # sender address is checked against the integration's verified domain at
+                        # save time, while an unchanged stored value is grandfathered.
+                        "get_team": self.context.get("get_team"),
+                        "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
+                            data.get("id")
+                        ),
+                        # Request-scoped: a drip sequence's steps share senders, and the actions
+                        # list validates one action at a time (mirrors _message_template_cache).
+                        "email_integration_domain_cache": self.context.setdefault(
+                            "_email_integration_domain_cache", {}
+                        ),
                     },
                 )
 
@@ -1985,6 +2069,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
             self.context["existing_encrypted_inputs"] = existing_secret_map(instance, template_cache={})
+            # Stored sender overrides, keyed by action id, so child action validation only holds
+            # newly written custom sender addresses to the verified-domain rule. Draft wins over
+            # live for the same reason as secrets: it is the value the client last saw.
+            self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
@@ -2080,12 +2168,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         data["trigger"] = trigger_actions[0]["config"]
 
-        # Warehouse-triggered workflows are person-less ("row-scoped"): one run per synced row with no
-        # associated person. Person-dependent steps and person-aware exit conditions would silently
-        # assume person data, so we block them here — the serializer is the source of truth, so the API,
-        # MCP, and frontend can't bypass it. We force exit_only_at_end since the other exit conditions
-        # re-evaluate trigger/conversion filters that may reference person properties.
-        if data["trigger"].get("type") == "data-warehouse-table":
+        # Some triggers are person-less ("row-scoped"): a synced warehouse row and a Slack poster are
+        # both things no PostHog person is attached to. Person-dependent steps and person-aware exit
+        # conditions would silently assume person data, so we block them here — the serializer is the
+        # source of truth, so the API, MCP, and frontend can't bypass it. We force exit_only_at_end
+        # since the other exit conditions re-evaluate trigger/conversion filters that may reference
+        # person properties.
+        if data["trigger"].get("type") in ROW_SCOPED_TRIGGER_TYPES:
             data["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
             if not is_draft:
                 offending_types = sorted(
@@ -2099,8 +2188,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     raise serializers.ValidationError(
                         {
                             "actions": (
-                                "These step types rely on person data, which is unavailable for data warehouse "
-                                f"table triggers: {', '.join(offending_types)}"
+                                "These step types rely on person data, which a "
+                                f"{data['trigger'].get('type')} trigger has none of: "
+                                f"{', '.join(offending_types)}"
                             )
                         }
                     )
@@ -2728,6 +2818,7 @@ class HogFlowViewSet(
         "bulk_delete",
         "rerun",
         "cancel_invocations",
+        "cancel_batch_job",
         "graph",
         "action_email",
         "publish",
@@ -2762,8 +2853,9 @@ class HogFlowViewSet(
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read
         # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
-        # able to enumerate who a workflow ran for.
-        if self.action in ("invocation_results", "invocation_result"):
+        # able to enumerate who a workflow ran for. The count endpoint returns no person data but
+        # accepts a distinct_id filter, so without person:read it would be a person-existence oracle.
+        if self.action in ("invocation_results", "invocation_result", "invocation_results_count"):
             return ["hog_flow:read", "person:read"]
         # Assets expose recipient/distinct_id/person_id and the message bytes — require
         # person:read so a hog_flow:read-only token can't enumerate who got emailed.
@@ -3859,10 +3951,48 @@ class HogFlowViewSet(
             limit=params["limit"],
             status=params["status"].split(",") if params.get("status") else None,
             distinct_id=params.get("distinct_id"),
+            error_message_contains=params.get("error_message_contains"),
             after=after_date,
             before=before_date,
         )
         return Response(HogInvocationResultSerializer(data, many=True).data)
+
+    @extend_schema(
+        operation_id="hog_flows_invocation_results_count_retrieve",
+        parameters=[HogInvocationResultsFiltersSerializer],
+        responses=HogInvocationResultsCountSerializer,
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
+    def invocation_results_count(self, request: Request, *args, **kwargs):
+        """
+        Count invocations matching the same filters as the list endpoint,
+        without its 500-row cap.
+        """
+        obj = self.get_object()
+        tag_invocation_results_query(self.function_kind)
+
+        param_serializer = HogInvocationResultsFiltersSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        after_date = None
+        before_date = None
+        if params.get("after"):
+            after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        count = fetch_hog_invocation_results_count(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            status=params["status"].split(",") if params.get("status") else None,
+            distinct_id=params.get("distinct_id"),
+            error_message_contains=params.get("error_message_contains"),
+            after=after_date,
+            before=before_date,
+        )
+        return Response(HogInvocationResultsCountSerializer({"count": count}).data)
 
     @extend_schema(
         operation_id="hog_flows_invocation_result_retrieve",
@@ -4283,6 +4413,80 @@ class HogFlowViewSet(
             batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "batch_job_id",
+                OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the batch run to stop.",
+            ),
+        ],
+        responses={200: HogFlowBatchJobCancelResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"], url_path="batch_jobs/(?P<batch_job_id>[^/.]+)/cancel")
+    def cancel_batch_job(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Stop a batch run: no more of its audience is enrolled, and every run of it
+        still in flight is canceled.
+
+        Stopping is asynchronous: runs are flagged here, then terminated by the
+        workflow workers. Steps that already executed, like sent messages, are not
+        undone. Already-finished batch runs are left untouched.
+        """
+        hog_flow = self.get_object()
+
+        try:
+            batch_job = HogFlowBatchJob.objects.get(id=kwargs["batch_job_id"], hog_flow=hog_flow, team_id=self.team_id)
+        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
+            # DjangoValidationError fires when the id is not a parseable UUID — surface
+            # as 404 rather than a 500 reported to error tracking.
+            raise exceptions.NotFound("Batch job not found")
+
+        non_terminal = {
+            HogFlowBatchJob.State.WAITING,
+            HogFlowBatchJob.State.QUEUED,
+            HogFlowBatchJob.State.ACTIVE,
+        }
+        if batch_job.status not in non_terminal:
+            return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
+
+        # One CDP call flags a bounded chunk of rows; a large batch needs several. Same
+        # shape as cancel_invocations — `done: false` after the cap tells the caller to
+        # request again for the rest.
+        data: dict = {"marked": 0, "remaining": 0, "done": False}
+        for _ in range(5):
+            res = cancel_hog_flow_batch_job(
+                team_id=self.team_id, hog_flow_id=str(hog_flow.id), batch_job_id=str(batch_job.id)
+            )
+            if res.status_code != 200:
+                raise exceptions.APIException(detail=res.text, code="cancel_failed")
+            page = res.json()
+            data = {
+                "marked": data["marked"] + page.get("marked", 0),
+                "remaining": page.get("remaining", 0),
+                "done": page.get("done", False),
+            }
+            if data["done"]:
+                break
+
+        if data["done"]:
+            # Conditional so a completion that landed mid-cancel wins over the flip; the
+            # resolver's own terminal write absorbs the reverse race. `.update()` bypasses
+            # auto_now, so stamp updated_at explicitly.
+            HogFlowBatchJob.objects.filter(id=batch_job.id, status__in=non_terminal).update(
+                status=HogFlowBatchJob.State.CANCELLED, updated_at=timezone.now()
+            )
+
+        batch_job.refresh_from_db()
+        self._report_workflow_action(
+            "hog_flow_batch_job_cancel_requested",
+            hog_flow,
+            {"batch_job_id": str(batch_job.id), "marked": data["marked"], "done": data["done"]},
+        )
+        return Response({"status": batch_job.status, **data})
 
     @extend_schema(methods=["GET"], responses=HogFlowScheduleSerializer(many=True))
     @extend_schema(methods=["POST"], request=HogFlowScheduleSerializer, responses=HogFlowScheduleSerializer)

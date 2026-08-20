@@ -17,6 +17,12 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # (default 15s) elapses and it retries the backend itself. Self-heals without our retry doing
     # anything special, so it's transient by construction, not a symptom of the underlying cause.
     "server login has been failing, cached error",
+    # psycopg's own message when libpq finds the backend socket already gone (raised as a
+    # ProtocolViolation, SQLSTATE 08P01, which the class-based check above doesn't cover since
+    # 08P01 also covers genuine protocol bugs). Same dead-socket condition as the "closed
+    # unexpectedly" marker above, just detected client-side instead of reported by the server.
+    # Reaches us standalone too, not only wrapped in the cached-login message above.
+    "server conn crashed",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and

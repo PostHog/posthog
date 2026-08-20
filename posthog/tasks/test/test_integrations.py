@@ -56,7 +56,7 @@ class TestIntegrationsTasks(APIBaseTest):
         # id reaches refresh_integration, it must not spend the rotating token via the unlocked path.
         integration = self.create_integration("resend", config={"refreshed_at": time.time() - 3600})
 
-        with patch("posthog.models.integration.OauthIntegration.refresh_access_token") as refresh_mock:
+        with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
             refresh_integration(integration.id)
 
         assert refresh_mock.called is False
@@ -91,7 +91,7 @@ class TestIntegrationsTasks(APIBaseTest):
             },
         )
 
-        with patch("posthog.models.integration.OauthIntegration.refresh_access_token") as refresh_mock:
+        with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
             refresh_integration(integration.id)
 
         assert refresh_mock.called is False
@@ -109,7 +109,7 @@ class TestIntegrationsTasks(APIBaseTest):
         # just-loaded row so a task that finds it already fresh skips the mint instead of re-minting.
         integration = self.create_integration("github", config={"refreshed_at": refreshed_at, "expires_in": 3600})
 
-        with patch("posthog.models.integration.GitHubIntegration.refresh_access_token") as refresh_mock:
+        with patch("posthog.models.integration.github.GitHubIntegration.refresh_access_token") as refresh_mock:
             refresh_integration(integration.id)
 
         assert refresh_mock.called is expected_refreshed

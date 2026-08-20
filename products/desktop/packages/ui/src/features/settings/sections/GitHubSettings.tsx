@@ -8,16 +8,19 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react";
 import type { UserGitHubIntegration } from "@posthog/api-client/posthog-client";
+import { deriveGithubApprovalState } from "@posthog/core/onboarding/githubConnectPanel";
 import { githubInstallationSettingsUrl } from "@posthog/core/settings/githubRepoSummary";
 import { formatRelativeTimeLong } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { GithubApprovalNotice } from "@posthog/ui/features/integrations/GithubApprovalNotice";
 import {
   describeGithubConnectError,
   invalidateGithubQueries,
   useGithubUserConnect,
 } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import {
+  useGithubInstallRequests,
   useUserGithubIntegrations,
   useUserRepositoryIntegration,
 } from "@posthog/ui/features/integrations/useIntegrations";
@@ -54,6 +57,13 @@ export function GitHubSettings() {
   } = useGithubUserConnect({ projectId });
   const canConnect = projectId != null && cloudRegion != null && !isConnecting;
 
+  const { data: installRequests = [] } = useGithubInstallRequests();
+  const approvalState = deriveGithubApprovalState({
+    errorCode: error?.code,
+    requests: installRequests,
+    hasIntegration: integrations.length > 0,
+  });
+
   const handleConnect = () => {
     if (hasConnectError) reset();
     void connect();
@@ -83,11 +93,13 @@ export function GitHubSettings() {
         </Button>
       </Flex>
 
-      {hasConnectError && (
+      {approvalState !== "none" ? (
+        <GithubApprovalNotice state={approvalState} />
+      ) : hasConnectError ? (
         <Text className="text-(--red-11) text-[13px]">
           {describeGithubConnectError(error)}
         </Text>
-      )}
+      ) : null}
 
       <Flex direction="column" className="border-(--gray-5) border-t">
         {isLoading ? (

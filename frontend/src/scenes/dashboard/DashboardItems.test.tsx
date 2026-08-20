@@ -117,11 +117,17 @@ jest.mock('./items/DashboardTextItem', () => ({
 
 jest.mock('react-grid-layout', () => {
     return {
+        cloneLayoutItem: (item: Record<string, unknown>) => ({ ...item }),
         useContainerWidth: () => ({
             width: 1200,
             containerRef: { current: null },
             mounted: true,
         }),
+        verticalCompactor: {
+            type: 'vertical',
+            allowOverlap: false,
+            compact: (layout: unknown[]) => layout,
+        },
         Responsive: ({
             className,
             rowHeight,
@@ -263,6 +269,79 @@ describe('DashboardItems', () => {
     it('matches snapshot in edit mode with layout zoom enabled', () => {
         const { container } = render(<DashboardItems />)
         expect(container.firstChild).toMatchSnapshot()
+    })
+
+    it.each([
+        ['tight', '8,8'],
+        ['condensed', '12,12'],
+        ['relaxed', '32,32'],
+    ] as const)('uses %s tile spacing for tiles and the edit grid', (tileSpacing, margin) => {
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5, customization: { tile_spacing: tileSpacing } },
+                    tiles: [],
+                    layouts: { sm: [] },
+                    dashboardMode: DashboardMode.Edit,
+                    layoutEditMode: true,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                    widgetResultsByTileId: {},
+                    widgetRefreshStatus: {},
+                }
+            }
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+            return {}
+        })
+
+        const { container } = render(<DashboardItems />)
+        expect(container.querySelector('[data-attr="grid-background"]')).toHaveAttribute('data-margin', margin)
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-margin', margin)
+    })
+
+    it('uses standard spacing when persisted customization is invalid', () => {
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5, customization: { tile_spacing: 'unknown' } },
+                    tiles: [],
+                    layouts: { sm: [] },
+                    dashboardMode: DashboardMode.Edit,
+                    layoutEditMode: true,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                    widgetResultsByTileId: {},
+                    widgetRefreshStatus: {},
+                }
+            }
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+            return {}
+        })
+
+        const { container } = render(<DashboardItems />)
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-margin', '16,16')
     })
 
     it('shows widget tiles on public dashboards', () => {
