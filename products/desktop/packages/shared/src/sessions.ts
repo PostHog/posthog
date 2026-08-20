@@ -288,16 +288,18 @@ export function sessionSupportsNativeSteer(
 /**
  * Whether the session can answer a one-shot "/btw" side question (a
  * single-turn, tool-less query forked off the live transcript). Decided by the
- * adapter's negotiated `sideQuestion` capability; cloud sessions can't — the
- * fork runs against the local transcript.
+ * adapter's negotiated `sideQuestion` capability where one was negotiated.
  *
- * Fallback: if `sideQuestion` is unset (a session started before capability
- * plumbing), local Claude is assumed capable, matching the steer fallback.
+ * Cloud runs never complete the ACP `initialize` handshake with this client, so
+ * the capability is inferred from the adapter instead: the sandbox runs the same
+ * `@posthog/agent` build, and the fork happens there against its own transcript.
+ * A sandbox predating the `side_question` command rejects it, which surfaces as
+ * an error on the card rather than a missing command.
  */
 export function sessionSupportsSideQuestion(
   session: Pick<AgentSession, "isCloud" | "sideQuestion" | "adapter">,
 ): boolean {
-  if (session.isCloud) return false;
   if (session.sideQuestion === true) return true;
-  return session.sideQuestion == null && session.adapter === "claude";
+  if (session.sideQuestion === false) return false;
+  return session.adapter === "claude";
 }

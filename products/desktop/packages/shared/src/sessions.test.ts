@@ -143,10 +143,16 @@ describe("sessionSupportsSideQuestion", () => {
       { isCloud: false, sideQuestion: false, adapter: "claude" },
       false,
     ],
-    // The fork runs against the local transcript, so cloud never qualifies.
+    // Cloud runs never negotiate the capability, so the adapter decides: the
+    // sandbox runs the same agent build and forks its own transcript.
     [
-      "cloud claude with the capability",
-      { isCloud: true, sideQuestion: true, adapter: "claude" },
+      "cloud claude with no capability",
+      { isCloud: true, sideQuestion: undefined, adapter: "claude" },
+      true,
+    ],
+    [
+      "cloud codex with no capability",
+      { isCloud: true, sideQuestion: undefined, adapter: "codex" },
       false,
     ],
   ])("%s", (_label, session, expected) => {

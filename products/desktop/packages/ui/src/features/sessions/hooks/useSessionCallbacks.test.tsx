@@ -323,7 +323,7 @@ describe("useSessionCallbacks.handleSendPrompt askSideQuestion gating", () => {
       useSessionCallbacks({
         taskId: TASK,
         task,
-        session: makeSession({ isCloud: true, sideQuestion: true }),
+        session: makeSession({ sideQuestion: false }),
         repoPath: "/repo",
       }),
     );
