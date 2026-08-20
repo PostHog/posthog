@@ -79,9 +79,9 @@ tools:
             conditions:
                 description: >
                     Display conditions for in-app surveys, such as URL matching, event triggers, device filters, or
-                    linked flag variants. To target people, groups, or cohorts by properties, use
-                    targeting_flag_filters instead. Do not use URL, selector, event, device, or linkedFlagVariant
-                    conditions for external_survey forms.
+                    linked flag variants. To target people, groups, or cohorts by properties, use targeting_flag_filters
+                    instead. Do not use URL, selector, event, device, or linkedFlagVariant conditions for
+                    external_survey forms.
             start_date:
                 description: >
                     Setting this launches the survey immediately. Leave unset unless the user explicitly asks to launch
@@ -93,8 +93,8 @@ tools:
             targeting_flag_filters:
                 description: >
                     Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or
-                    more rules in groups[].properties[], each with key, value, operator, and an optional type. Use
-                    this instead of conditions for property targeting. Do not use this for external_survey forms.
+                    more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this
+                    instead of conditions for property targeting. Do not use this for external_survey forms.
             enable_iframe_embedding:
                 description: >
                     Allows an external_survey form to be embedded in an iframe. Use only when the user explicitly asks
