@@ -79,9 +79,10 @@ class AsyncHarmonicClient:
                     raise RuntimeError("HTTP session not initialized. Use async context manager.")
                 async with self.session.post(
                     f"{HARMONIC_BASE_URL}/graphql",
-                    params={"apikey": self.api_key},
                     json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
-                    headers={"Content-Type": "application/json"},
+                    # Key in a header, not a query param: aiohttp errors carry request_info.real_url,
+                    # so a URL-borne key would leak into exception telemetry when a lookup raises.
+                    headers={"Content-Type": "application/json", "apikey": self.api_key},
                 ) as response:
                     response.raise_for_status()
                     data = await response.json()
@@ -134,9 +135,10 @@ class AsyncHarmonicClient:
                     raise RuntimeError("HTTP session not initialized. Use async context manager.")
                 async with self.session.post(
                     f"{HARMONIC_BASE_URL}/graphql",
-                    params={"apikey": self.api_key},
                     json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
-                    headers={"Content-Type": "application/json"},
+                    # Key in a header, not a query param: aiohttp errors carry request_info.real_url,
+                    # so a URL-borne key would leak into exception telemetry when a lookup raises.
+                    headers={"Content-Type": "application/json", "apikey": self.api_key},
                 ) as response:
                     response.raise_for_status()
                     data = await response.json()

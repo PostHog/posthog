@@ -57,9 +57,8 @@ def _clean(domain: str) -> str:
 async def _graphql_probe(session: aiohttp.ClientSession, api_key: str, identifiers: dict[str, str]) -> str:
     async with session.post(
         f"{HARMONIC_BASE_URL}/graphql",
-        params={"apikey": api_key},
         json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": {"identifiers": identifiers}},
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "apikey": api_key},
     ) as response:
         if response.status >= 400:
             return f"error:http_{response.status}"
@@ -90,7 +89,8 @@ async def _graphql_url_probe(session: aiohttp.ClientSession, api_key: str, domai
 async def _rest_probe(session: aiohttp.ClientSession, api_key: str, domain: str) -> str:
     async with session.post(
         f"{HARMONIC_BASE_URL}/companies",
-        params={"apikey": api_key, "website_domain": domain, "enrich_missing_company": "true"},
+        params={"website_domain": domain, "enrich_missing_company": "true"},
+        headers={"apikey": api_key},
     ) as response:
         if response.status == 404:
             return NOT_FOUND
