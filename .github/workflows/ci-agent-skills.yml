@@ -152,33 +152,6 @@ jobs:
                   DEBUG: 1
               run: ./bin/hogli build:skills
 
-    # Single required status check for branch protection. Add future skill check
-    # jobs to `needs` here rather than reconfiguring GitHub.
-    agent_skills_tests:
-        needs: [changes, check-skills]
-        name: Agent Skills Pass
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        # always(), not !cancelled(): a skipped required check is treated as a pass by
-        # branch protection, so on cancellation the gate must run and emit an explicit
-        # result rather than skip into a green. A cancelled or timed-out job is caught
-        # by the != success && != skipped checks below; a legitimate no-change skip passes.
-        if: always()
-        steps:
-            - name: Check outcomes
-              run: |
-                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
-                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
-                    exit 1
-                  fi
-
-                  if [[ "${{ needs.check-skills.result }}" != "success" && "${{ needs.check-skills.result }}" != "skipped" ]]; then
-                    echo "Agent skills checks did not succeed (result: ${{ needs.check-skills.result }})."
-                    exit 1
-                  fi
-
-                  echo "All agent skills checks passed."
-
     current-master:
         name: Check current master
         runs-on: ubuntu-latest
