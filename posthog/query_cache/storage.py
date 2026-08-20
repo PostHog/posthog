@@ -410,15 +410,15 @@ def delete_blob(*, bucket: str, key: str, team_id: int, trigger: str) -> None:
     S3_DELETE_COUNTER.labels(trigger=trigger, outcome="success").inc()
 
 
-def schedule_blob_delete(old_value: Optional[bytes], *, team_id: int, cache_key: str, trigger: str) -> None:
+def schedule_blob_delete(old_value: object, *, team_id: int, cache_key: str, trigger: str) -> None:
     """Enqueue a delayed best-effort delete for the blob behind a pointer that just left Redis.
 
-    Callers pass whatever value their write replaced or evicted; anything that isn't a
-    pointer record is ignored. Never raises: cache writes happen in web, Celery, Temporal,
-    and Dagster processes, and one of them failing to reach the broker must cost an orphaned
+    Callers pass a displacing script's raw return value; anything that isn't a pointer
+    record is ignored. Never raises: cache writes happen in web, Celery, Temporal, and
+    Dagster processes, and one of them failing to reach the broker must cost an orphaned
     blob (the lifecycle rule collects it), not the cache write.
     """
-    if old_value is None or not is_s3_pointer(old_value):
+    if not isinstance(old_value, bytes) or not is_s3_pointer(old_value):
         return
     pointer = decode_pointer(old_value)
     if pointer is None:

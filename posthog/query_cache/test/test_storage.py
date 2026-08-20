@@ -32,6 +32,7 @@ from posthog.storage.object_storage import ObjectStorageError
 class FakeObjectStorage:
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
+        self.written_keys: list[str] = []
         self.fail_writes = False
         self.fail_reads = False
 
@@ -39,6 +40,7 @@ class FakeObjectStorage:
         if self.fail_writes:
             raise ObjectStorageError("write failed")
         self.objects[(bucket, key)] = content
+        self.written_keys.append(key)
 
     def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> bytes | None:
         if self.fail_reads:
@@ -284,6 +286,8 @@ class TestQueryCacheS3Routing(BaseTest):
             cache.store_result(response=first, target_age=None)
             cache.store_result(response=second, target_age=None)
 
+        # A shared object key would let overlapping recomputes overwrite each other's blob.
+        assert len(set(self.storage.written_keys)) == 2
         # The second store replaced the first store's pointer, which enqueued a delete for its
         # blob (Celery runs eagerly under TEST); only the second store's object remains.
         assert len(self.storage.objects) == 1

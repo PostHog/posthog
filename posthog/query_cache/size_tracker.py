@@ -133,8 +133,15 @@ return 1
 # the caller wrote, so a swap that lost a race to a newer write skips instead of clobbering it.
 # Compares the full expected value rather than a redis.sha1hex digest because fakeredis's Lua
 # runtime, which the tests run on, does not implement sha1hex.
+# The already-swapped check makes the script idempotent: the cluster client retries EVALSHA
+# when a reply is lost, and a retry after the swap landed must read as swapped, not as
+# superseded, because the superseded path deletes the blob the entry now points at. Pointer
+# records embed a per-upload uuid, so only this caller's own swap can have written ARGV[2].
 REPLACE_IF_UNCHANGED_SCRIPT = """
 local current = redis.call('GET', KEYS[1])
+if current == ARGV[2] then
+    return 2
+end
 if current ~= ARGV[1] then
     return 0
 end
@@ -305,8 +312,7 @@ class TeamCacheSizeTracker:
                 current_size -= removed_size
                 continue
 
-            if isinstance(old_value, bytes):
-                storage.schedule_blob_delete(old_value, team_id=self.team_id, cache_key=cache_key, trigger="evicted")
+            storage.schedule_blob_delete(old_value, team_id=self.team_id, cache_key=cache_key, trigger="evicted")
             removed_size = self._remove_tracking(cache_key)
 
             current_size -= removed_size
