@@ -1699,10 +1699,6 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json().get("scope", ""), "")
 
     def test_refresh_of_an_empty_grant_rejected_for_first_party_apps(self):
-        # First-party /authorize auto-grants the full clamped set without a consent
-        # screen, so forcing re-auth here cannot loop back to another empty grant.
-        # Without the rejection, a corrupted scope-less token refreshes forever and
-        # the client silently 403s on every resource call instead of re-authorizing.
         self.confidential_application.is_first_party = True
         self.confidential_application.scopes = ["experiment:read"]
         self.confidential_application.save()
@@ -4591,8 +4587,6 @@ class TestOAuthAPI(APIBaseTest):
             code_challenge_method="S256",
             redirect_uri="https://example.com/callback",
             expires=timezone.now() + timedelta(minutes=5),
-            # /authorize always mints first-party grants with scopes; a scope-less
-            # first-party token is a corruption artifact whose refresh is rejected.
             scope="openid experiment:read",
             scoped_organizations=[str(self.organization.id)],
             scoped_teams=[],

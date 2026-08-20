@@ -718,11 +718,6 @@ class OAuthValidator(OAuth2Validator):
 
         narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "ceiling_scopes", None) or [])
         if narrowed == [] and getattr(application, "is_first_party", False):
-            # A completely scope-less token (not even OIDC scopes) is a corruption
-            # artifact, and refreshing it perpetuates a session whose every resource
-            # call 403s. First-party /authorize auto-grants the full clamped set with
-            # no consent screen, so the re-auth this rejection forces yields a scoped
-            # token instead of looping back to another empty grant.
             logger.warning(
                 "oauth_empty_scope_refresh_rejected",
                 client_name=getattr(application, "name", "unknown"),
