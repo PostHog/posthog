@@ -14,14 +14,15 @@ subtrees, and every other product runs alone under turbo. So this checks each se
 separately. A shared basename across two sessions is fine and always has been; the
 repo has many.
 
-Inside a session, sharding decides whether a collision actually fires. With
-``--split-granularity=file`` pytest-split gates each file before import
-(``PytestSplitFilePlugin.pytest_ignore_collect``), so two colliding files only meet
-when the plan puts them in one shard. ci-backend.yml falls back to item granularity
-when the installed pytest-split lacks ``optimal_chunks``, and there every file is
-imported, so the collision fires and the shard dies. This guard therefore flags a
-hazard rather than a live failure: it fires on the fallback path, on any unsharded
-run, and on a plan that happens to co-locate the pair.
+Inside a session, sharding decides whether a collision fires. A full sharded run
+passes ``--split-granularity=file``, and pytest-split then gates each file before
+import (``PytestSplitFilePlugin.pytest_ignore_collect``), so a pair only meets when
+the plan puts both in one shard. Every other path imports both:
+
+* selected mode, the usual one on a PR, runs ``pytest $FILES`` with no splitting at
+  all, so any diff whose selection reaches both files kills the job;
+* the item-granularity fallback ci-backend.yml keeps for unrebased PRs;
+* any run by hand of the same paths.
 
 ``--import-mode=importlib`` would drop the uniqueness requirement everywhere and make
 this whole class of bug impossible. That changes import semantics for every test, so
