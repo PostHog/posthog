@@ -883,11 +883,11 @@ class TestEvaluationReportAccessControl(APIBaseTest):
         self.base_url = f"/api/environments/{self.team.id}/llm_analytics/evaluation_reports/"
         self.other_user = User.objects.create_and_join(self.organization, "report-viewer@posthog.com", "testtest")
 
-    def _grant(self, resource: str, access_level: str) -> None:
+    def _grant(self, resource: str, access_level: str, resource_id: str | None = None) -> None:
         AccessControl.objects.create(
             team=self.team,
             resource=resource,
-            resource_id=None,
+            resource_id=resource_id,
             access_level=access_level,
             organization_member=OrganizationMembership.objects.get(
                 user=self.other_user, organization=self.organization
@@ -912,3 +912,26 @@ class TestEvaluationReportAccessControl(APIBaseTest):
         response = self.client.get(self.base_url)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_evaluation_specific_editor_cannot_redirect_another_evaluations_report(self) -> None:
+        visible_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Visible Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+        self._grant("evaluation", "none")
+        self._grant("evaluation", "editor", resource_id=str(visible_evaluation.id))
+        self.client.force_login(self.other_user)
+
+        response = self.client.patch(
+            f"{self.base_url}{self.report.id}/",
+            {"delivery_targets": [{"type": "email", "value": "attacker@example.com"}]},
+            format="json",
+        )
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        self.report.refresh_from_db()
+        assert self.report.delivery_targets == [{"type": "email", "value": "test@example.com"}]

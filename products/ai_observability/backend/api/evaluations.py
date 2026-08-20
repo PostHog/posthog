@@ -7,7 +7,7 @@ import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -1161,6 +1161,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog evaluation code against sample events without saving."""
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "viewer"):
+            raise exceptions.PermissionDenied()
+
         serializer = TestHogRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({"error": serializer.errors}, status=400)

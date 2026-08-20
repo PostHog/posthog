@@ -1881,6 +1881,21 @@ class TestEvaluationsAccessControl(APIBaseTest):
         results = response.json()["results"]
         assert [result["name"] for result in results] == ["Visible"]
 
+    @patch("products.ai_observability.backend.api.evaluations.query_ai_events")
+    def test_object_level_grant_does_not_authorize_team_wide_hog_preview(self, mock_query) -> None:
+        visible = self._create_evaluation("Visible")
+        self._grant(self.no_access_user, "viewer", resource_id=str(visible.id))
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_query.assert_not_called()
+
     def test_llm_analytics_grant_no_longer_implies_evaluation_access(self):
         # Regression guard for removing "evaluation" from RESOURCE_INHERITANCE_MAP.
         self._grant(self.no_access_user, "editor", resource="llm_analytics")

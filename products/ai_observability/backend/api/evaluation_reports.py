@@ -19,7 +19,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.integration import Integration
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportGenerationStatus,
     normalize_metrics_payload,
@@ -33,7 +33,7 @@ from products.ai_observability.backend.models.evaluation_reports import (
     EvaluationReportQuerySet,
     EvaluationReportRun,
 )
-from products.ai_observability.backend.models.evaluations import EvaluationTarget
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 from products.workflows.backend.utils.rrule_utils import validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -567,11 +567,21 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
         }
 
 
+class EvaluationReportAccessControlPermission(AccessControlPermission):
+    def has_object_permission(self, request: Request, view: Any, obj: EvaluationReport) -> bool:
+        if is_service_auth(request):
+            return True
+        required_level = self._get_required_access_level(request, view)
+        if required_level is None:
+            return True
+        return view.user_access_control.check_access_level_for_object(obj.evaluation, required_level)
+
+
 class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """CRUD for evaluation report configurations + report run history."""
 
     scope_object = "evaluation"
-    permission_classes = [AccessControlPermission]
+    permission_classes = [EvaluationReportAccessControlPermission]
     serializer_class = EvaluationReportSerializer
     queryset = EvaluationReport.objects.all()
 
@@ -596,6 +606,11 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             )
             .order_by("-created_at"),
         )
+        if not is_service_auth(self.request):
+            visible_evaluation_ids = self.user_access_control.filter_queryset_by_access_level(
+                Evaluation.objects.filter(team_id=self.team_id, deleted=False)
+            ).values("id")
+            report_queryset = report_queryset.filter(evaluation_id__in=visible_evaluation_ids)
         # Generate validates eligibility explicitly so unsupported legacy rows return a useful 400.
         if self.action != "generate":
             report_queryset = report_queryset.reportable()
