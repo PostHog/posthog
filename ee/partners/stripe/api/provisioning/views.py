@@ -104,11 +104,15 @@ class StripeProvisioningAPIView(RegionProxyMixin, APIView):
     authentication_classes: list[type[BaseAuthentication]] = []
     permission_classes: list = []
     spec_envelope: ClassVar[Envelope] = "flat"
+    # Rate-limit errors keep one shape per endpoint whichever throttle refuses,
+    # so a global throttle can't answer a bucket rejection in another envelope.
+    # The token endpoint keeps the typed shape here, not its own oauth one.
+    rate_limit_envelope: ClassVar[Envelope] = "typed"
 
     def check_throttles(self, request: Request) -> None:
-        """Reject in the view's spec envelope: DRF's default ``{"detail": ...}``
-        shape is not part of this namespace's wire contract and must not leak
-        out of it, whichever throttle refuses. Consults every throttle and keeps
+        """Reject in the endpoint's rate-limit envelope: DRF's default
+        ``{"detail": ...}`` shape is not part of this namespace's wire contract
+        and must not leak out of it, whichever throttle refuses. Consults every throttle and keeps
         the longest wait, mirroring DRF's own ``check_throttles`` so
         ``Retry-After`` is the real time until the request would be allowed,
         not the first refusing throttle's shorter window."""
@@ -123,6 +127,7 @@ class StripeProvisioningAPIView(RegionProxyMixin, APIView):
             "rate_limited",
             "Rate limit exceeded. Try again later.",
             status=429,
+            envelope=self.rate_limit_envelope,
             retry_after=math.ceil(wait) if wait else None,
         )
 
@@ -560,6 +565,7 @@ class OAuthTokenView(StripeProvisioningAPIView):
 
 class StripeResourceAPIView(SignatureCheckedMixin, StripeProvisioningAPIView):
     spec_envelope = "status"
+    rate_limit_envelope: ClassVar[Envelope] = "status"
     region_proxy_strategy = "bearer_lookup"
     authentication_classes = [StripeBearerAuthentication]
 

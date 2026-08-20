@@ -143,11 +143,18 @@ def _proxy_to_region(request: HttpRequest, target_domain: str) -> HttpResponse:
         except ValueError:
             data = {"error": "Invalid response from alternate region"}
 
-        return HttpResponse(
+        proxied = HttpResponse(
             json.dumps(data, separators=_JSON_SEPARATORS),
             status=response.status_code,
             content_type="application/json",
         )
+        # The region that handled the request computed this wait, and rebuilding
+        # the response would otherwise drop it: a forwarded 429 would tell the
+        # caller nothing about when to retry.
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            proxied["Retry-After"] = retry_after
+        return proxied
 
     except requests.exceptions.RequestException as e:
         capture_exception(e, {"target_url": target_url, "step": "stripe_provisioning.proxy.failed"})

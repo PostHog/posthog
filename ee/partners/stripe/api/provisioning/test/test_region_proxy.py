@@ -10,11 +10,13 @@ from django_redis.exceptions import ConnectionInterrupted
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 
-def _fake_upstream(payload: dict, status_code: int = 200) -> MagicMock:
+def _fake_upstream(payload: dict, status_code: int = 200, headers: dict | None = None) -> MagicMock:
     response = MagicMock()
     response.status_code = status_code
     response.content = json.dumps(payload).encode()
     response.json.return_value = payload
+    # A real dict, so a header the proxy doesn't copy reads as absent here.
+    response.headers = headers or {}
     return response
 
 
@@ -116,6 +118,26 @@ class TestRegionProxy(StripeProvisioningTestBase):
             res = self._post_signed(f"{BASE_PATH}/provisioning/account_requests", data=self._account_request("EU"))
         assert res.status_code == 502
         assert res.json() == {"error": {"code": "proxy_failed", "message": "Failed to route to correct region"}}
+
+    def test_forwarded_rejection_keeps_the_wait_the_other_region_computed(self):
+        # The far region owns the bucket, so it owns the wait. Rebuilding the
+        # response here dropped the header and left the caller guessing.
+        with (
+            patch("ee.partners.stripe.api.provisioning.region_proxy.get_instance_region", return_value="US"),
+            patch(
+                "ee.partners.stripe.api.provisioning.region_proxy.requests.request",
+                return_value=_fake_upstream(
+                    {"type": "error", "error": {"code": "rate_limited", "message": "Rate limit exceeded."}},
+                    status_code=429,
+                    headers={"Retry-After": "137"},
+                ),
+            ),
+        ):
+            res = self._post_signed(f"{BASE_PATH}/provisioning/account_requests", data=self._account_request("EU"))
+
+        assert res.status_code == 429
+        assert res["Retry-After"] == "137"
+        assert res.json()["error"]["code"] == "rate_limited"
 
     def test_unreachable_cache_routes_an_auth_code_it_cannot_look_up(self):
         # The code lives only in the local cache, so an outage here can't rule it
