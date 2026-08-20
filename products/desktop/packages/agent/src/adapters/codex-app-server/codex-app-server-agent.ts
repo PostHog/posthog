@@ -21,10 +21,6 @@ import type {
   SetSessionConfigOptionResponse,
   StopReason,
 } from "@agentclientprotocol/sdk";
-import {
-  buildContextWikiInstructions,
-  resolveContextWikiPath,
-} from "../../context-wiki";
 import { RequestError } from "@agentclientprotocol/sdk";
 import {
   classifyGatewayLimitError,
@@ -38,6 +34,10 @@ import {
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
 } from "../../acp-extensions";
+import {
+  buildContextWikiInstructions,
+  resolveContextWikiPath,
+} from "../../context-wiki";
 import type { ModelInfo } from "../../gateway-models";
 import { DEFAULT_CODEX_MODEL } from "../../gateway-models";
 import {
