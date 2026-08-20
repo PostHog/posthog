@@ -145,7 +145,6 @@ class TestTeamCacheSizeTracker(BaseTest):
         # Tracking should be updated
         self.assertEqual(self.tracker.get_total_size(), len(data))
 
-    @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500)
     def test_set_method_triggers_eviction_when_over_limit(self):
         # First write - under limit
         data1 = b"x" * 200
@@ -158,7 +157,8 @@ class TestTeamCacheSizeTracker(BaseTest):
 
         # This should trigger eviction of test_key_1
         data3 = b"z" * 200
-        evicted = self.tracker.set("test_key_3", data3, 300)
+        with override_instance_config("TEAM_CACHE_SIZE_LIMIT_BYTES", 500):
+            evicted = self.tracker.set("test_key_3", data3, 300)
 
         self.assertIn("test_key_1", evicted)
         self.assertIsNone(self._entry("test_key_1"))
@@ -217,7 +217,6 @@ class TestTeamCacheSizeTracker(BaseTest):
         tracker_team_a.purge()
         tracker_team_b.purge()
 
-    @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500)
     def test_entry_larger_than_limit_evicts_all(self):
         self._seed_entry("test_key_1", b"x" * 100)
         self.tracker.track_cache_write("test_key_1", 100)
@@ -227,7 +226,8 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertEqual(self.tracker.get_total_size(), 200)
 
         large_data = b"z" * 600
-        evicted = self.tracker.set("large_key", large_data, 300)
+        with override_instance_config("TEAM_CACHE_SIZE_LIMIT_BYTES", 500):
+            evicted = self.tracker.set("large_key", large_data, 300)
 
         self.assertIn("test_key_1", evicted)
         self.assertIn("test_key_2", evicted)
