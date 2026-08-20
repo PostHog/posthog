@@ -12,7 +12,18 @@ from parameterized import parameterized
 
 from posthog.models import Organization, ProxyRecord
 from posthog.security.url_validation import PinnedUrlVerdict
-from posthog.temporal.proxy_service.monitor import PROXY_LIVE_CHECK_TIMEOUT_S, CheckActivityInput, check_proxy_is_live
+from posthog.temporal.proxy_service.cloudflare import (
+    CustomHostname,
+    CustomHostnameSSL,
+    CustomHostnameSSLStatus,
+    CustomHostnameStatus,
+)
+from posthog.temporal.proxy_service.monitor import (
+    PROXY_LIVE_CHECK_TIMEOUT_S,
+    CheckActivityInput,
+    _check_cloudflare_certificate_status,
+    check_proxy_is_live,
+)
 
 
 class TestCheckProxyIsLive(TestCase):
@@ -202,6 +213,23 @@ class TestCheckProxyIsLive(TestCase):
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.requests.post")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_reports_cloudflare_1014(self, mock_get_record, mock_post):
+        # A 403 body with Cloudflare error 1014 must report a hostname authorization problem,
+        # not a bare status code.
+        mock_get_record.return_value = self.proxy_record
+        mock_response = Mock(status_code=403, text="<h1>Error 1014</h1>")
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_response)
+        mock_post.return_value = mock_response
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("1014", result.errors[0])
+        self.assertEqual(result.warnings, [])
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_rejects_redirect(self, mock_get_record, mock_post):
         # With allow_redirects=False a 3xx is not followed; raise_for_status only rejects 4xx/5xx,
         # so this guards that a redirect fails the check instead of silently marking the proxy live.
@@ -251,4 +279,44 @@ class TestCheckProxyIsLive(TestCase):
         result = await check_proxy_is_live(self.input)
 
         self.assertEqual(result.errors, ["Live proxy certificate is expiring soon"])
+        self.assertEqual(result.warnings, [])
+
+
+def _hostname(status: CustomHostnameStatus, ssl_status=CustomHostnameSSLStatus.ACTIVE) -> CustomHostname:
+    return CustomHostname(
+        id="id",
+        hostname="e.example.com",
+        status=status,
+        ssl=CustomHostnameSSL(status=ssl_status, validation_errors=[]),
+    )
+
+
+class TestCheckCloudflareCertificateStatus(TestCase):
+    @parameterized.expand(
+        [
+            ("blocked", CustomHostnameStatus.BLOCKED),
+            ("pending_blocked", CustomHostnameStatus.PENDING_BLOCKED),
+            ("moved", CustomHostnameStatus.MOVED),
+            ("pending_migration", CustomHostnameStatus.PENDING_MIGRATION),
+        ]
+    )
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.get_custom_hostname_by_domain")
+    async def test_blocked_hostname_is_error_even_when_cert_active(self, _name, status, mock_get):
+        # An active SSL certificate must not mask a hostname that the edge blocked or moved.
+        mock_get.return_value = _hostname(status=status, ssl_status=CustomHostnameSSLStatus.ACTIVE)
+
+        result = await _check_cloudflare_certificate_status(Mock(domain="e.example.com"), Mock())
+
+        self.assertEqual(len(result.errors), 1)
+        self.assertEqual(result.warnings, [])
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.get_custom_hostname_by_domain")
+    async def test_active_hostname_and_cert_passes(self, mock_get):
+        mock_get.return_value = _hostname(status=CustomHostnameStatus.ACTIVE)
+
+        result = await _check_cloudflare_certificate_status(Mock(domain="e.example.com"), Mock())
+
+        self.assertEqual(result.errors, [])
         self.assertEqual(result.warnings, [])
