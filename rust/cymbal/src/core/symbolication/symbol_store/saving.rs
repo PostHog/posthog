@@ -183,7 +183,7 @@ impl<F> Saving<F> {
             record.id // The call to save() above ensures that this id is correct
         )
         .fetch_one(&self.pool)
-        .await.expect("Got at least one row back").map_or(0, |v| {
+        .await?.map_or(0, |v| {
             v.max(0) as u64
         });
 
@@ -534,7 +534,7 @@ impl SymbolSetRecord {
             self.last_used
         )
         .fetch_one(e)
-        .await.expect("Got at least one row back");
+        .await?;
 
         metrics::counter!(SYMBOL_SET_SAVED).increment(1);
 

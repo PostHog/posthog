@@ -438,7 +438,7 @@ impl IssueFingerprintOverride {
             issue.id,
             fingerprint,
             first_seen
-        ).fetch_one(executor).await.expect("Got at least one row back");
+        ).fetch_one(executor).await?;
 
         Ok(res)
     }
