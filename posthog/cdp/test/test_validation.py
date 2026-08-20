@@ -791,6 +791,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     "secret_field": {"value": "EXISTING_SECRET_VALUE"},
                 },
             ),
+            # The UI sends the read-back mask as the value when a secret is left untouched. This
+            # must keep the stored secret, not encrypt the mask over it.
+            (
+                {
+                    "secret_field": {"value": "********", "secret": True},
+                },
+                {
+                    "secret_field": {"value": "EXISTING_SECRET_VALUE"},
+                },
+            ),
         ]:
             serializer = MappingsSerializer(
                 data={
@@ -804,6 +814,30 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
             values_only = {k: {"value": v["value"]} for k, v in validated.items()}
             assert values_only == expected_result
+
+    @parameterized.expand(
+        [
+            # Read-back mask flagged as secret, nothing stored to restore.
+            ({"value": "********", "secret": True},),
+            # Mask that lost its secret flag - the persistence guard must still refuse it.
+            ({"value": "********"},),
+        ]
+    )
+    def test_masked_secret_without_stored_value_is_rejected(self, input_value):
+        # The mask must never be encrypted as the real credential when there is nothing to restore.
+        inputs_schema = [
+            {"key": "secret_field", "type": "string", "required": True, "secret": True},
+        ]
+
+        serializer = MappingsSerializer(
+            data={
+                "inputs_schema": inputs_schema,
+                "inputs": {"secret_field": input_value},
+            },
+            context={"function_type": "destination", "encrypted_inputs": {}},
+        )
+        with self.assertRaises(ValidationError):
+            serializer.is_valid(raise_exception=True)
 
     def test_validate_filters_builds_bytecode(self):
         filters = {
