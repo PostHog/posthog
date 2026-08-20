@@ -1362,6 +1362,8 @@ class ExternalDataSourceType(models.TextChoices):
     SAMCART = "SamCart", "SamCart"
     IRONSOURCEADS = "IronSourceAds", "IronSourceAds"
     MICROSOFTEXCEL = "MicrosoftExcel", "MicrosoftExcel"
+    PROFOUND = "Profound", "Profound"
+    AIRWALLEX = "Airwallex", "Airwallex"
     POLYMARKET = "Polymarket", "Polymarket"
 
 

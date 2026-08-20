@@ -62,6 +62,14 @@ class TestPolymarketSource:
         assert ok is expected
         assert (message is None) is expected
 
+    def test_non_retryable_errors_cover_the_regional_403(self) -> None:
+        # Gamma restricts some regions with a 403 that no credential fix can resolve; the message
+        # should tell the caller that rather than let the pipeline retry forever.
+        errors = PolymarketSource().get_non_retryable_errors()
+
+        assert "403 Client Error: Forbidden for url: https://gamma-api.polymarket.com" in errors
+        assert errors["403 Client Error: Forbidden for url: https://gamma-api.polymarket.com"] is not None
+
     def test_resumable_manager_is_bound_to_the_resume_dataclass(self) -> None:
         manager = PolymarketSource().get_resumable_source_manager(_inputs())
 

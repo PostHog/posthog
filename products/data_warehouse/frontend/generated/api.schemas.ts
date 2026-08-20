@@ -3189,6 +3189,8 @@ export interface CredentialApi {
  * * `SamCart` - SamCart
  * * `IronSourceAds` - IronSourceAds
  * * `MicrosoftExcel` - MicrosoftExcel
+ * * `Profound` - Profound
+ * * `Airwallex` - Airwallex
  * * `Polymarket` - Polymarket
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -4495,6 +4497,8 @@ export const ExternalDataSourceTypeEnumApi = {
     SamCart: 'SamCart',
     IronSourceAds: 'IronSourceAds',
     MicrosoftExcel: 'MicrosoftExcel',
+    Profound: 'Profound',
+    Airwallex: 'Airwallex',
     Polymarket: 'Polymarket',
 } as const
 
