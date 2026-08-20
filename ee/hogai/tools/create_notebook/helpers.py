@@ -18,6 +18,7 @@ from products.posthog_ai.backend.models.assistant import AgentArtifact
 
 from ee.hogai.artifacts.handlers.visualization import VisualizationHandler
 from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.artifacts.telemetry import areport_unresolved_notebook_visualizations
 from ee.hogai.artifacts.types import StoredBlock, StoredNotebookArtifactContent, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
 from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc
@@ -176,6 +177,13 @@ async def save_notebook_to_db(
             else:
                 notebook_query = {"kind": "InsightVizNode", "source": query}
             viz_lookup[ref_id] = {"query": notebook_query, "name": result.content.name}
+
+        # Report on save (once per genuine failure), not on every read/enrich.
+        await areport_unresolved_notebook_visualizations(
+            team=team,
+            notebook_artifact_id=artifact.short_id,
+            unresolved_artifact_ids=[ref_id for ref_id in ref_ids if ref_id not in viz_lookup],
+        )
 
     def resolve_visualization(artifact_id: str) -> dict | None:
         return viz_lookup.get(artifact_id)

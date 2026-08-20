@@ -12,6 +12,7 @@ from products.notebooks.backend.facade.collab import apply_utf16_text_changes, m
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 
+from ee.hogai.artifacts.telemetry import UNRESOLVED_VISUALIZATION_EVENT, UNRESOLVED_VISUALIZATION_MESSAGE
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.helpers import NotebookEditNotAllowedError, save_notebook_to_db
 
@@ -160,17 +161,23 @@ class TestSaveNotebookToDb(BaseTest):
         self.assertEqual(queries[0]["kind"], "InsightVizNode")
         self.assertEqual(queries[0]["source"]["kind"], "TrendsQuery")
 
-    def test_save_notebook_emits_placeholder_when_artifact_missing(self):
-        # Sanity: when the ref can't be resolved from any source, we still get the
-        # "[Visualization not found]" placeholder paragraph instead of a ph-query.
-        notebook = self._save_and_get_notebook(
-            viz_short_id="vmis",
-            parent_short_id="nmis",
-        )
+    def test_save_notebook_emits_placeholder_and_reports_when_artifact_missing(self):
+        # When the ref can't be resolved from any source, the saved notebook shows the recover
+        # message instead of a chart, and the write path reports the failure once.
+        with patch("ee.hogai.artifacts.telemetry.posthoganalytics.capture") as mock_capture:
+            notebook = self._save_and_get_notebook(
+                viz_short_id="vmis",
+                parent_short_id="nmis",
+            )
 
         markdown = _get_notebook_markdown(notebook)
         self.assertEqual(len(_extract_query_props(markdown)), 0)
-        self.assertIn("Visualization not found", markdown)
+        self.assertIn(UNRESOLVED_VISUALIZATION_MESSAGE, markdown)
+        unresolved_calls = [
+            call for call in mock_capture.call_args_list if call.kwargs["event"] == UNRESOLVED_VISUALIZATION_EVENT
+        ]
+        self.assertEqual(len(unresolved_calls), 1)
+        self.assertEqual(unresolved_calls[0].kwargs["properties"]["unresolved_artifact_ids"], ["vmis"])
 
     def test_save_notebook_creates_markdown_notebook(self):
         self._create_visualization_artifact(query={"kind": "TrendsQuery", "series": []}, short_id="vmkd")

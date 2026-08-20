@@ -18,7 +18,7 @@ from ee.hogai.artifacts.handlers.base import (
     get_handler_for_content_type,
     register_handler,
 )
-from ee.hogai.artifacts.telemetry import UNRESOLVED_VISUALIZATION_MESSAGE, areport_unresolved_notebook_visualizations
+from ee.hogai.artifacts.telemetry import UNRESOLVED_VISUALIZATION_MESSAGE
 from ee.hogai.artifacts.types import (
     DatabaseArtifactResult,
     EnrichedBlock,
@@ -93,13 +93,12 @@ class NotebookHandler(ArtifactHandler[StoredNotebookArtifactContent, NotebookArt
 
         # Build enriched blocks
         enriched_blocks: list[EnrichedBlock] = []
-        unresolved_ids: list[str] = []
         for block in content.blocks:
             if isinstance(block, VisualizationRefBlock):
                 viz_content = viz_contents.get(block.artifact_id)
                 if viz_content is None:
                     # Reference no longer resolves to any query - tell the reader how to recover.
-                    unresolved_ids.append(block.artifact_id)
+                    # The failure is reported once on the write path, not here on every read.
                     enriched_blocks.append(
                         ErrorBlock(
                             message=UNRESOLVED_VISUALIZATION_MESSAGE,
@@ -125,12 +124,6 @@ class NotebookHandler(ArtifactHandler[StoredNotebookArtifactContent, NotebookArt
             else:
                 # Pass through other block types unchanged
                 enriched_blocks.append(block)
-
-        await areport_unresolved_notebook_visualizations(
-            team=context.team,
-            notebook_artifact_id=context.artifact_id,
-            unresolved_artifact_ids=unresolved_ids,
-        )
 
         is_saved = False
         if context.artifact_id:

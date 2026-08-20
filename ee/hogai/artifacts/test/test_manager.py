@@ -147,7 +147,9 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
         self.assertIsInstance(content, NotebookArtifactContent)
         self.assertEqual(len(content.blocks), 1)
 
-    def test_unresolvable_visualization_ref_reports_and_prompts_a_rebuild(self):
+    def test_unresolvable_visualization_ref_prompts_a_rebuild_without_reporting_on_read(self):
+        # Reading a notebook re-enriches it on every render, so the failure must NOT be reported
+        # here - only once on the write path - or the event fires on every read.
         artifact = AgentArtifact.objects.create(
             name="Report",
             type=AgentArtifact.Type.NOTEBOOK,
@@ -163,9 +165,10 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
         block = content.blocks[0]
         assert isinstance(block, ErrorBlock)
         self.assertEqual(block.message, UNRESOLVED_VISUALIZATION_MESSAGE)
-        mock_capture.assert_called_once()
-        self.assertEqual(mock_capture.call_args.kwargs["event"], UNRESOLVED_VISUALIZATION_EVENT)
-        self.assertEqual(mock_capture.call_args.kwargs["properties"]["unresolved_artifact_ids"], ["gone"])
+        unresolved_events = [
+            call for call in mock_capture.call_args_list if call.kwargs.get("event") == UNRESOLVED_VISUALIZATION_EVENT
+        ]
+        self.assertEqual(unresolved_events, [])
 
     def test_retrieves_content_with_expected_type(self):
         artifact = AgentArtifact.objects.create(
