@@ -52,3 +52,8 @@ tools:
             call cdp-function-templates-list first to find its id. Returns the full template including source code,
             inputs schema, default filters, and mapping templates. Use this to understand what inputs a template
             requires before creating a function from it.
+        param_overrides:
+            id:
+                aliases:
+                    - template_id
+                    - templateId
