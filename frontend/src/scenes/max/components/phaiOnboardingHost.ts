@@ -4,8 +4,14 @@ import { SidePanelTab } from '~/types'
 
 import type { PhaiViewMode } from '../maxGlobalLogic'
 
-/** The composer the takeover should target, or `null` when the user isn't on a surface that runs one. */
-export type PhaiOnboardingHost = 'scene' | 'side-panel' | null
+/** The composer a takeover targets. */
+export type PhaiOnboardingHost = 'scene' | 'side-panel'
+
+export interface PhaiOnboardingMount {
+    host: PhaiOnboardingHost
+    /** Whether this surface may open the takeover on its own, rather than only through the replay button. */
+    autoOpen: boolean
+}
 
 export interface PhaiOnboardingHostInput {
     sceneId: string | null
@@ -15,24 +21,14 @@ export interface PhaiOnboardingHostInput {
     selectedTab: SidePanelTab | null
 }
 
-/**
- * Where the PostHog AI onboarding takeover may open. Every surface that renders the runner's composer
- * belongs here: the composer carries the replay button, which reopens the takeover, so a surface left out
- * would show a button that opens nothing.
- */
-export function resolvePhaiOnboardingHost({
+/** The surface that may open the takeover by itself, on a first open of the new PostHog AI. */
+function resolveAutoOpenHost({
     sceneId,
     receivedFeatureFlags,
     effectivePhaiView,
     sidePanelOpen,
     selectedTab,
-}: PhaiOnboardingHostInput): PhaiOnboardingHost {
-    // `/tasks` renders the runner for everyone who can reach the scene, with no runtime toggle in play, so
-    // the takeover follows the scene rather than the PostHog AI view mode.
-    if (sceneId === Scene.TaskTracker) {
-        return 'scene'
-    }
-
+}: PhaiOnboardingHostInput): PhaiOnboardingHost | null {
     // Flags re-resolve during a session (identify, reloadFeatureFlags). Acting before they land would let a
     // dismissal write the "seen" flag for a user who never saw the new surface at all.
     if (!receivedFeatureFlags || effectivePhaiView !== 'new') {
@@ -50,4 +46,27 @@ export function resolvePhaiOnboardingHost({
     }
 
     return null
+}
+
+/**
+ * Every takeover the current surfaces need. A surface belongs here whenever it renders the runner's
+ * composer, because the composer carries the replay button — leaving one out would show a button that opens
+ * nothing. Only a first open of the new PostHog AI opens the takeover by itself; `/tasks` mounts it purely
+ * so its replay button works.
+ */
+export function resolvePhaiOnboardingMounts(input: PhaiOnboardingHostInput): PhaiOnboardingMount[] {
+    const mounts: PhaiOnboardingMount[] = []
+
+    const autoOpenHost = resolveAutoOpenHost(input)
+    if (autoOpenHost) {
+        mounts.push({ host: autoOpenHost, autoOpen: true })
+    }
+
+    // `/tasks` reaches everyone who can open the scene, whatever their PostHog AI view mode, so a takeover
+    // opening there wouldn't line up with a first look at the new PostHog AI. It waits for the replay button.
+    if (input.sceneId === Scene.TaskTracker && autoOpenHost !== 'scene') {
+        mounts.push({ host: 'scene', autoOpen: false })
+    }
+
+    return mounts
 }
