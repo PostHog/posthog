@@ -6,12 +6,14 @@ TableConfig entry. Adding a table means authoring one config entry plus its DDL 
 How correctness is shared with the storage engine:
 - Incremental windows overlap by ``TableConfig.lookback_seconds`` (falling back to the job-level
   ``backward_lookback_seconds``) so a row committed after its timestamp slot passed the prior
-  high-watermark is still picked up next run. Because re-emitted versions dedupe in ClickHouse,
-  the turn-around cost of a wide overlap is writes, not correctness — so flags, the largest
-  mirror, rewinds one hourly cycle while orgs and teams absorb a day of missed runs.
-- Re-emitted rows inside that overlap are deduped by the ReplicatedReplacingMergeTree engine at
-  merge time (``_inserted_at`` as the version column). Readers of the mirror use FINAL / argMax,
-  as every other ClickHouse consumer of these tables already must.
+  high-watermark is still picked up next run. Re-emitting a row the mirror already holds costs
+  writes rather than correctness, so flags, the largest mirror, rewinds one hourly cycle while
+  orgs and teams absorb a day of missed runs.
+- ReplicatedReplacingMergeTree collapses re-emitted rows at merge time, but only for a table whose
+  ORDER BY is identity alone. posthog_featureflag qualifies and keeps the newest row by
+  ``updated_at``. posthog_organization and posthog_team still trail ``updated_at`` in their ORDER
+  BY, so every version gets its own sort key and none of them collapse; a follow-up migration
+  reshapes those two. Readers use FINAL / argMax either way.
 """
 
 import json
@@ -63,9 +65,10 @@ class TableConfig:
     - ``watermark_expr``: SQL expression used in place of ``watermark_column`` when filtering and
       ordering the Postgres read, for tables whose watermark column is nullable at the source.
       Flags use COALESCE(updated_at, created_at), matching the coalesced value the mirror stores.
-    - ``order_by``: full ClickHouse ORDER BY tuple. Contains ``key`` (optionally behind a leading
-      locality column such as ``organization_id`` for teams) so same-row versions land in the same
-      part; ends with ``watermark_column`` so ``argMax`` reads are cheap.
+    - ``order_by``: full ClickHouse ORDER BY tuple, and with it the engine's dedup key. Contains
+      ``key`` (optionally behind a leading locality column such as ``organization_id`` for teams)
+      so same-row versions land in the same part. Anything that changes between versions of a row
+      must stay out of it, or those versions stop collapsing.
     - ``select_columns``: Postgres columns to pull, in mirror order.
     - ``jsonb_text_cast``: columns to select as ``col::text`` rather than parsed jsonb, so psycopg2
       doesn't parse 30+ fields per row only for the transform to re-serialize them.
@@ -77,8 +80,7 @@ class TableConfig:
     - ``lookback_seconds``: how far below the mirror's high-watermark the hourly sync rewinds each
       run, to catch rows that committed after their timestamp slot passed the prior watermark.
       Default 86400; a table overrides it when the rewrite cost of a wide overlap outweighs the
-      outage backlog a missing run would leave. re-emitted versions dedupe in ClickHouse, so the
-      overlap only costs writes.
+      outage backlog a missing run would leave.
     """
 
     key: tuple[str, ...]
@@ -510,7 +512,9 @@ _FEATURE_FLAG_BOOL_FIELDS = [
     "has_encrypted_payloads",
 ]
 
-_FEATURE_FLAG_ORDER_BY = "(team_id, id, updated_at)"
+# ReplacingMergeTree collapses rows sharing the full ORDER BY tuple, so the tuple is identity only:
+# adding updated_at would give every edit its own sort key and the mirror would keep every version.
+_FEATURE_FLAG_ORDER_BY = "(team_id, id)"
 
 # updated_at is NULL until a flag's first edit, so Postgres-side filtering and ordering fall back
 # to created_at. The transform applies the same coalesce before insert, so the mirror's watermark
@@ -542,7 +546,7 @@ def _feature_flag_ddl() -> str:
             updated_at DateTime64(6),
             _inserted_at DateTime64(6) DEFAULT now64(6)
         )
-        ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog_featureflag', '{{shard}}-{{replica}}', _inserted_at)
+        ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog_featureflag', '{{shard}}-{{replica}}', updated_at)
         ORDER BY {_FEATURE_FLAG_ORDER_BY}
         SETTINGS index_granularity = 8192
     """

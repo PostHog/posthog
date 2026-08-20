@@ -202,8 +202,12 @@ class TestTableDdl:
         assert "ReplicatedReplacingMergeTree" in sql
         assert "key String" in sql
         assert "filters String" in sql
-        # Flag identity is (team_id, id), not (team_id, key) — see TableConfig note on tombstone renames.
-        assert "ORDER BY (team_id, id, updated_at)" in sql
+        # Identity alone, so ReplacingMergeTree collapses a flag's versions instead of keeping one
+        # row per edit. id rather than key because tombstones rename key; see the TableConfig note.
+        assert "ORDER BY (team_id, id)" in sql
+        # updated_at as the version column, so the newest Postgres state wins even when a backfill
+        # re-inserts an older window after the hourly sync.
+        assert "'{shard}-{replica}', updated_at)" in sql
 
 
 class TestFetchRowsInBatches:
