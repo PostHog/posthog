@@ -410,7 +410,7 @@ export function EvidenceRefChip({
           <Popover.Positioner side="top" sideOffset={8} className="z-[9999]">
             <Popover.Popup
               data-testid="evidence-hover-card"
-              className="dark rounded-[6px] border border-(--gray-4) bg-(--gray-2) text-(--gray-12) outline-none"
+              className="rounded-[6px] border border-(--gray-4) bg-(--gray-2) text-(--gray-12) outline-none"
               style={{ boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)" }}
             >
               <EvidenceHoverCardLoader target={target} url={url}>
