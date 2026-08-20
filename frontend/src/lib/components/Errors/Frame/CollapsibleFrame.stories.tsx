@@ -188,6 +188,8 @@ export function FrameWithNoCodeLocation(): JSX.Element {
                 raw_id: 'no-location-1',
                 mangled_name: '?',
                 resolved_name: null,
+                // Every cymbal conversion for a JS frame emits this lang, including TypeScript sources.
+                lang: 'javascript',
                 source: '/dashboard/1',
                 line: 0,
                 column: 0,
