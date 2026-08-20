@@ -88,14 +88,15 @@ def _fit_record_writes(fit: IcpFitResult) -> tuple[dict[str, Any], list[str]]:
     return values, [key for key in _FIT_NUMERIC_KEYS if key not in values]
 
 
-def _fit_group_properties(fit: IcpFitResult) -> dict[str, Any]:
-    """The ClickHouse group-property projection for one fit evaluation.
+def _fit_projection(fit: IcpFitResult) -> dict[str, Any]:
+    """The fit projection for one evaluation — shared by the ClickHouse group properties
+    and the person mirror, since neither store can delete a stale key.
 
-    Group properties cannot be deleted, so a score-less evaluation writes only the status
-    key: pairing a fresh `icp_fit_version` with a stale numeric `icp_fit_score` would
-    misattribute that number to the new evaluation. The (score, version) pair on the group
-    therefore always describes the same evaluation, and `icp_fit_status` is the consumer's
-    guard — a score is current only when status is scored/disqualified.
+    A score-less evaluation writes only the status key: pairing a fresh `icp_fit_version`
+    with a stale numeric `icp_fit_score` would misattribute that number to the new
+    evaluation. The (score, version) pair therefore always describes the same evaluation,
+    and `icp_fit_status` is the consumer's guard — a score is current only when status is
+    scored/disqualified.
     """
     if fit.score is None:
         return {"icp_fit_status": fit.status}
@@ -127,11 +128,12 @@ def write_organization_enrichment(
     the policy (never sent when it would overwrite a Clay-written person score).
 
     The fit evaluation writes its own `icp_fit_*` family — status always, numeric keys
-    only when this evaluation produced them (see _fit_record_writes) — and mirrors
-    `icp_fit_score` onto the person via `fit_mirror_distinct_id`, a blind write since
-    nothing else owns that key. Any of the three groups (fields / clay score / fit) may be
-    absent: a fields-only write is the field backfill, a fit-only write (fields=None) is
-    the score backfill and the miss-path status stamp.
+    only when this evaluation produced them (see _fit_record_writes) — and mirrors the
+    same (score, version, status) or status-only shape onto the person via
+    `fit_mirror_distinct_id`, a blind write since nothing else owns that key. Any of the
+    three groups (fields / clay score / fit) may be absent: a fields-only write is the
+    field backfill, a fit-only write (fields=None) is the score backfill and the
+    miss-path status stamp.
 
     No-op when there are no set fields and no scores, so a Harmonic miss with fit scoring
     degraded leaves the stores untouched.
@@ -154,7 +156,7 @@ def write_organization_enrichment(
     if icp_score is not None:
         properties = {**properties, "icp_score": icp_score, "icp_score_version": SCORE_VERSION}
     if fit is not None:
-        properties = {**properties, **_fit_group_properties(fit)}
+        properties = {**properties, **_fit_projection(fit)}
 
     if properties:
         pha_client.group_identify(
@@ -169,10 +171,10 @@ def write_organization_enrichment(
             properties={"icp_score": icp_score, "icp_score_version": SCORE_VERSION},
         )
 
-    if fit is not None and fit.score is not None and fit_mirror_distinct_id:
+    if fit is not None and fit_mirror_distinct_id:
         pha_client.set(
             distinct_id=fit_mirror_distinct_id,
-            properties={"icp_fit_score": fit.score, "icp_fit_version": fit.version},
+            properties=_fit_projection(fit),
         )
 
 

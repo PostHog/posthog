@@ -208,9 +208,10 @@ def _score_fit(
     scoring against empty lists would floor three components and look like a real answer.
 
     The fit person mirror needs no ownership guard and no person read: `icp_fit_score` is a
-    brand-new person key nothing else writes, so a numeric result mirrors blindly on every
+    brand-new person key nothing else writes, so every evaluation mirrors blindly on every
     attempt (unlike the clay mirror, which shares Clay's key and stays recheck-only behind
-    the ownership check).
+    the ownership check) — including a score-less one, whose status overwrites a stale
+    number left by an earlier scored attempt.
     """
     try:
         lists = load_active_lists()
@@ -227,8 +228,7 @@ def _score_fit(
         capture_exception(e)
         return None, None
 
-    mirror_distinct_id = distinct_id if result.score is not None else None
-    return result, mirror_distinct_id
+    return result, distinct_id
 
 
 async def enrich_organization(
