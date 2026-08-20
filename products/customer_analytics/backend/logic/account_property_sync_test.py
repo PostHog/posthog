@@ -13,6 +13,7 @@ from products.customer_analytics.backend.logic.account_property_sync import (
     _mark_completed_and_maybe_cleanup,
     _matching_account_ids,
     _value_hash,
+    run_account_property_segment_sync,
 )
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
@@ -55,6 +56,42 @@ class _S3ClientContext:
 
     async def __aexit__(self, *args) -> bool:
         return False
+
+
+@pytest.mark.asyncio
+async def test_each_staged_batch_is_shared_across_sources() -> None:
+    binding = saved_query_binding("019f0000-0000-7000-8000-000000000001")
+    sources = []
+    for index in range(2):
+        source = MagicMock()
+        source.id = f"source-{index}"
+        source.key_column = "organization_id"
+        source.source_column = f"value_{index}"
+        sources.append(source)
+    batch_calls = 0
+
+    async def batches(*args):
+        nonlocal batch_calls
+        batch_calls += 1
+        yield [{"organization_id": "org-1", "value_0": 1, "value_1": 2}]
+
+    with (
+        patch(f"{_MODULE}._segment_already_completed", new=AsyncMock(return_value=False)),
+        patch(f"{_MODULE}._enabled_sources", return_value=sources),
+        patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+        patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=batches),
+        patch(f"{_MODULE}._matching_account_ids", return_value={}),
+        patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
+        patch(f"{_MODULE}._mark_completed_and_maybe_cleanup", new=AsyncMock()),
+    ):
+        await run_account_property_segment_sync(
+            team_id=7,
+            binding=binding,
+            job_id="job-1",
+            segment=AccountPropertySyncSegment.TRACKED,
+        )
+
+    assert batch_calls == 1
 
 
 @pytest.mark.asyncio

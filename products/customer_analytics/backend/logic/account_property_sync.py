@@ -3,6 +3,7 @@ import json
 import asyncio
 import hashlib
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import field
 from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
@@ -50,6 +51,14 @@ class AppliedSourceValues:
     written: int
     hashes: dict[str, str]
     failed: bool
+
+
+@frozen(frozen=False)
+class SourceSyncState:
+    source: CustomPropertySource
+    prior_hashes: dict[str, str]
+    applied_hashes: dict[str, str] = field(default_factory=dict)
+    failed: bool = False
 
 
 def _json_safe(value: Any) -> Any:
@@ -275,16 +284,24 @@ async def run_account_property_segment_sync(
     sources = await database_sync_to_async(_enabled_sources, thread_sensitive=False)(team_id, binding)
     counts = {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
 
+    states: list[SourceSyncState] = []
     for source in sources:
-        source_column = source.source_column
-        if source_column is None:
+        if source.source_column is None:
             continue
-        prior_hashes = await _read_snapshot_hashes(team_id, binding, str(source.id), segment)
-        applied_hashes: dict[str, str] = {}
-        source_failed = False
-        source_rows_read = 0
-        async for rows in _iter_parquet_row_batches(team_id, binding, job_id):
-            source_rows_read += len(rows)
+        states.append(
+            SourceSyncState(
+                source=source,
+                prior_hashes=await _read_snapshot_hashes(team_id, binding, str(source.id), segment),
+            )
+        )
+
+    async for rows in _iter_parquet_row_batches(team_id, binding, job_id):
+        counts["rows_read"] += len(rows)
+        for state in states:
+            source = state.source
+            source_column = source.source_column
+            if source_column is None:
+                continue
             values_by_external_id: dict[str, Any] = {}
             for row in rows:
                 external_id = row.get(source.key_column)
@@ -294,7 +311,7 @@ async def run_account_property_segment_sync(
             changed = {
                 external_id: value
                 for external_id, value in values_by_external_id.items()
-                if prior_hashes.get(external_id) != _value_hash(value)
+                if state.prior_hashes.get(external_id) != _value_hash(value)
             }
             counts["changed"] += len(changed)
             if not changed:
@@ -307,13 +324,21 @@ async def run_account_property_segment_sync(
                 team_id, source, account_ids, changed, segment
             )
             counts["written"] += applied.written
-            source_failed = source_failed or applied.failed
-            applied_hashes.update(applied.hashes)
-            prior_hashes.update(applied.hashes)
-        counts["rows_read"] = max(counts["rows_read"], source_rows_read)
-        if source_failed:
+            state.failed = state.failed or applied.failed
+            state.applied_hashes.update(applied.hashes)
+            state.prior_hashes.update(applied.hashes)
+
+    for state in states:
+        if state.failed:
             counts["source_errors"] += 1
-        await _write_snapshot_hashes(team_id, binding, str(source.id), segment, job_id, applied_hashes)
+        await _write_snapshot_hashes(
+            team_id,
+            binding,
+            str(state.source.id),
+            segment,
+            job_id,
+            state.applied_hashes,
+        )
 
     if counts["source_errors"]:
         raise AccountPropertySourceValueError(

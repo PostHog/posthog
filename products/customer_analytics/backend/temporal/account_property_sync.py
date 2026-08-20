@@ -4,20 +4,27 @@ import json
 import time
 
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
-from products.customer_analytics.backend.facade.temporal_contracts import AccountPropertySyncInput
+from products.customer_analytics.backend.facade.temporal_contracts import (
+    AccountPropertySyncInput,
+    DispatchAccountPropertySyncInput,
+)
 
 with workflow.unsafe.imports_passed_through():
     from datetime import timedelta
 
+    from django.conf import settings
+
     import structlog
     from prometheus_client import Counter, Histogram
+
+    from posthog.temporal.common.client import async_connect
 
     from products.customer_analytics.backend.logic.account_property_sync import (
         AccountPropertySourceValueError,
@@ -42,6 +49,34 @@ ACCOUNT_PROPERTY_SYNC_DURATION_SECONDS = Histogram(
     labelnames=["segment"],
     buckets=(0.5, 1.0, 2.5, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0),
 )
+
+
+@activity.defn(name="dispatch-warehouse-account-property-sync")
+async def dispatch_warehouse_account_property_sync_activity(input: DispatchAccountPropertySyncInput) -> None:
+    client = await async_connect()
+    for segment in ("tracked", "ignored"):
+        workflow_id = f"sync-warehouse-account-properties-{input.job_id}-{segment}"
+        try:
+            await client.start_workflow(
+                ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME,
+                AccountPropertySyncInput(
+                    team_id=input.team_id,
+                    saved_query_id=input.saved_query_id,
+                    job_id=input.job_id,
+                    segment=segment,
+                ),
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                execution_timeout=timedelta(hours=24),
+            )
+        except WorkflowAlreadyStartedError:
+            logger.info(
+                "Account-property segment sync already running",
+                team_id=input.team_id,
+                job_id=input.job_id,
+                segment=segment,
+            )
 
 
 @activity.defn
@@ -96,4 +131,7 @@ class SyncWarehouseAccountPropertiesWorkflow(PostHogWorkflow):
 
 
 ACCOUNT_PROPERTY_SYNC_WORKFLOWS = [SyncWarehouseAccountPropertiesWorkflow]
-ACCOUNT_PROPERTY_SYNC_ACTIVITIES = [sync_warehouse_account_properties_activity]
+ACCOUNT_PROPERTY_SYNC_ACTIVITIES = [
+    dispatch_warehouse_account_property_sync_activity,
+    sync_warehouse_account_properties_activity,
+]

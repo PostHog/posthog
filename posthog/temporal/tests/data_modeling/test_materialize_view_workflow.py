@@ -22,7 +22,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
 )
 
-from products.customer_analytics.backend.facade.temporal_contracts import AccountPropertySyncInput
+from products.customer_analytics.backend.facade.temporal_contracts import DispatchAccountPropertySyncInput
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, QualityAuditMode
 from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncActivityInputs
 
@@ -114,7 +114,7 @@ class TestQualityGateBranching:
         assert "publish_queryable_table_activity" not in started
         assert "succeed_materialization_activity" not in started
 
-    async def test_account_staging_starts_parallel_segment_children(self):
+    async def test_account_staging_dispatches_parallel_segments(self):
         materialize_result = dataclasses.replace(_materialize_result("skip"), account_property_sync_enabled=True)
         activity_results = [
             False,
@@ -122,12 +122,19 @@ class TestQualityGateBranching:
             materialize_result,
             PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
             None,
+            None,
         ]
         start_child = AsyncMock()
 
-        await self._run(activity_results, {}, start_child=start_child)
+        _, execute_activity = await self._run(activity_results, {}, start_child=start_child)
 
-        assert [call.args[1].segment for call in start_child.await_args_list] == ["tracked", "ignored"]
+        dispatch_call = next(
+            call
+            for call in execute_activity.await_args_list
+            if call.args[0] == "dispatch-warehouse-account-property-sync"
+        )
+        assert isinstance(dispatch_call.args[1], DispatchAccountPropertySyncInput)
+        assert dispatch_call.args[1].job_id == "job-1"
 
     async def test_a_passing_audit_publishes_and_succeeds(self):
         activity_results = [
@@ -325,36 +332,27 @@ class TestFinalizeOrphanedDuckgresJob:
 
 
 class TestMaybeSyncAccountProperties:
-    async def test_starts_independent_tracked_and_ignored_children(self):
-        workflow = MaterializeViewWorkflow()
-        result = _materialize_result("skip")
-        result = dataclasses.replace(result, account_property_sync_enabled=True)
-        with patch.object(temporalio.workflow, "start_child_workflow", new=AsyncMock()) as start_child:
-            await workflow._maybe_sync_account_properties(_inputs(), result, "job-123")
-
-        assert start_child.await_count == 2
-        payloads = [call.args[1] for call in start_child.await_args_list]
-        assert all(isinstance(payload, AccountPropertySyncInput) for payload in payloads)
-        assert [payload.segment for payload in payloads] == ["tracked", "ignored"]
-        assert [call.kwargs["id"] for call in start_child.await_args_list] == [
-            "sync-warehouse-account-properties-job-123-tracked",
-            "sync-warehouse-account-properties-job-123-ignored",
-        ]
-
-    async def test_one_segment_start_failure_is_raised_after_trying_the_other(self):
+    async def test_dispatches_both_segments_through_a_retrying_activity(self):
         workflow = MaterializeViewWorkflow()
         result = dataclasses.replace(_materialize_result("skip"), account_property_sync_enabled=True)
-        start_child = AsyncMock(side_effect=[RuntimeError("tracked queue unavailable"), None])
-        with (
-            patch.object(temporalio.workflow, "start_child_workflow", new=start_child),
-            patch.object(temporalio.workflow, "logger"),
-            patch(f"{WORKFLOW_MODULE}.capture_exception"),
-        ):
-            with pytest.raises(RuntimeError, match="tracked queue unavailable"):
-                await workflow._maybe_sync_account_properties(_inputs(), result, "job-123")
+        execute_activity = AsyncMock()
+        with patch.object(temporalio.workflow, "execute_activity", new=execute_activity):
+            await workflow._maybe_sync_account_properties(_inputs(), result, "job-123")
 
-        assert start_child.await_count == 2
-        assert start_child.await_args_list[1].args[1].segment == "ignored"
+        execute_activity.assert_awaited_once()
+        assert execute_activity.await_args is not None
+        activity_name, payload = execute_activity.await_args.args
+        assert activity_name == "dispatch-warehouse-account-property-sync"
+        assert isinstance(payload, DispatchAccountPropertySyncInput)
+        assert payload.job_id == "job-123"
+        assert execute_activity.await_args.kwargs["retry_policy"].maximum_attempts == 5
+
+    async def test_no_dispatch_when_no_account_rows_were_staged(self):
+        workflow = MaterializeViewWorkflow()
+        execute_activity = AsyncMock()
+        with patch.object(temporalio.workflow, "execute_activity", new=execute_activity):
+            await workflow._maybe_sync_account_properties(_inputs(), _materialize_result("skip"), "job-123")
+        execute_activity.assert_not_awaited()
 
 
 class TestMaybeEnrichViewSemantics:

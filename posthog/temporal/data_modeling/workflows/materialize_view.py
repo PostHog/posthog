@@ -58,7 +58,7 @@ from posthog.temporal.data_modeling.metrics import (
 from posthog.temporal.data_modeling.workflows.enrich_view_semantics import EnrichViewSemanticsWorkflow
 from posthog.temporal.utils import CDPProducerWorkflowInputs
 
-from products.customer_analytics.backend.facade.temporal_contracts import AccountPropertySyncInput
+from products.customer_analytics.backend.facade.temporal_contracts import DispatchAccountPropertySyncInput
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
 from products.data_quality.backend.facade.contracts import (
     CHECK_SUITE_WORKFLOW_NAME,
@@ -635,38 +635,17 @@ class MaterializeViewWorkflow(PostHogWorkflow):
     ) -> None:
         if not materialize_result.account_property_sync_enabled:
             return
-        first_error: Exception | None = None
-        for segment in ("tracked", "ignored"):
-            child_id = f"sync-warehouse-account-properties-{job_id}-{segment}"
-            try:
-                await temporalio.workflow.start_child_workflow(
-                    "sync-warehouse-account-properties",
-                    AccountPropertySyncInput(
-                        team_id=inputs.team_id,
-                        saved_query_id=materialize_result.saved_query_id,
-                        job_id=job_id,
-                        segment=segment,
-                    ),
-                    id=child_id,
-                    id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(hours=24),
-                )
-            except WorkflowAlreadyStartedError:
-                temporalio.workflow.logger.info(
-                    "Account-property segment sync already running",
-                    extra={"job_id": job_id, "segment": segment},
-                )
-            except Exception as error:
-                capture_exception(error)
-                temporalio.workflow.logger.warning(
-                    "Failed to start account-property segment sync",
-                    extra={"job_id": job_id, "segment": segment, "error": str(error)},
-                )
-                first_error = first_error or error
-        if first_error is not None:
-            raise first_error
+        await temporalio.workflow.execute_activity(
+            "dispatch-warehouse-account-property-sync",
+            DispatchAccountPropertySyncInput(
+                team_id=inputs.team_id,
+                saved_query_id=materialize_result.saved_query_id,
+                job_id=job_id,
+            ),
+            task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=5),
+        )
 
     async def _maybe_produce_cdp_rows(
         self,
