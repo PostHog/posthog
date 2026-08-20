@@ -276,7 +276,7 @@ export class RerunPaginatorService {
                 queued: progress.queued + queuedThisPage,
                 skipped: progress.skipped + skipped + conflictSkipped,
                 cursor: this.advanceCursor(state, rows.slice(0, examined)),
-                done: this.isDone(state, rows.length, queuedThisPage),
+                done: this.isDone(state, rows.length, queuedThisPage, examined),
                 last_error: undefined,
                 pages_processed: (progress.pages_processed ?? 0) + 1,
             }
@@ -450,10 +450,13 @@ export class RerunPaginatorService {
         return Math.max(0, cap - state.progress.queued)
     }
 
-    private isDone(state: RerunJobState, fetchedCount: number, queuedCount: number): boolean {
+    private isDone(state: RerunJobState, fetchedCount: number, queuedCount: number, examinedCount: number): boolean {
         const budgetSpent = this.remainingBudget(state) <= queuedCount
-        const pageWasPartial = fetchedCount < RERUN_PAGE_SIZE
-        return budgetSpent || pageWasPartial
+        // A partial page means no further rows exist — but only once the whole
+        // page was examined. rehydrateBatch stops early at the budget cutoff, so
+        // rows past `examinedCount` are unseen and must be left for the next page.
+        const pageExhausted = fetchedCount < RERUN_PAGE_SIZE && examinedCount === fetchedCount
+        return budgetSpent || pageExhausted
     }
 
     private advanceCursor(state: RerunJobState, processed: InvocationRow[]): RerunJobState['progress']['cursor'] {

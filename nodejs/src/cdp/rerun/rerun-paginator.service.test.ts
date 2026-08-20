@@ -644,6 +644,48 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.queued).toBe(2)
         })
 
+        it('does not finish a partial page early when a budget candidate fails to rehydrate', async () => {
+            const now = DateTime.now()
+            const windowStart = now.minus({ days: 10 }).toISO()!
+            const windowEnd = now.plus({ days: 1 }).toISO()!
+            const at = (days: number): Date =>
+                now.minus({ days }).set({ hour: 10, minute: 0, second: 0, millisecond: 0 }).toJSDate()
+
+            // Two good failures in the window ...
+            await seedRows([
+                { invocation_id: 'good-1', status: 'failed', error: new Error('5xx'), scheduledAt: at(3) },
+                { invocation_id: 'good-2', status: 'failed', error: new Error('5xx'), scheduledAt: at(5) },
+            ])
+            // ... plus a newer failure whose stored globals cannot be decoded, so it fails
+            // rehydration. seedRawRow stamps scheduled_at = now, so it sorts first.
+            await seedRawRow('poison', 'not-a-decodable-globals-blob')
+
+            // Page 1, cap 2: the poison row and good-1 fill the two candidate slots, so the
+            // scan breaks before good-2. The poison row spends a slot but no budget when it
+            // fails to rehydrate. The page is partial but not fully examined, so the rerun
+            // must continue rather than strand good-2 with a budget unit unspent.
+            const page1 = await paginator.processPage(
+                team.id,
+                buildState({
+                    request: { filter: { window_start: windowStart, window_end: windowEnd, max_count: 2 } },
+                }),
+                { jobId: 'test-rerun-job', createdAt: DateTime.now() }
+            )
+            expect(page1.state.progress.done).toBe(false)
+            expect(hogQueue.queueInvocations.mock.calls.flatMap((c) => c[0]).map((i: any) => i.id)).toEqual(['good-1'])
+
+            // Page 2 resumes from the cursor and reaches good-2.
+            const page2 = await paginator.processPage(team.id, page1.state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+            const allEnqueued = hogQueue.queueInvocations.mock.calls.flatMap(
+                (c) => c[0] as CyclotronJobInvocationHogFunction[]
+            )
+            expect(allEnqueued.map((i) => i.id)).toEqual(['good-1', 'good-2'])
+            expect(page2.state.progress.done).toBe(true)
+        })
+
         it('rehydrates from the latest cross-partition state, not the pre-replay in-window snapshot', async () => {
             const { at, windowStart, windowEnd } = recentWindow()
 
