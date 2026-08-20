@@ -6,6 +6,7 @@ import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from django.contrib.auth.models import AnonymousUser
 
@@ -139,6 +140,25 @@ def report_user_logged_in(
         event="user logged in",
         properties={"social_provider": social_provider},
         groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_login_failed(failure_reason: str, distinct_id: str | None = None) -> None:
+    """
+    Reports that a login attempt failed, so blocked logins are measurable. `failure_reason` is the
+    error code the user hits (for example "invalid_credentials"). A `distinct_id` attaches the event
+    to the account that owns the email; its absence means no account matched the email.
+    """
+    account_exists = distinct_id is not None
+    properties: dict[str, object] = {"failure_reason": failure_reason, "account_exists": account_exists}
+    if not account_exists:
+        # No account owns this email, so keep the attempt from creating a person profile.
+        properties["$process_person_profile"] = False
+
+    posthoganalytics.capture(
+        distinct_id=distinct_id or str(uuid4()),
+        event="user login failed",
+        properties=properties,
     )
 
 

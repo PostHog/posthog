@@ -623,8 +623,12 @@ class TestLoginAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             self.assertNotIn("email", response.json())
 
-        # Events never get reported
-        mock_capture.assert_not_called()
+        # A failed login against a known account is reported and attached to that account.
+        mock_capture.assert_any_call(
+            distinct_id=self.user.distinct_id,
+            event="user login failed",
+            properties={"failure_reason": "invalid_credentials", "account_exists": True},
+        )
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_email(self, mock_capture):
@@ -640,8 +644,16 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertNotIn("email", response.json())
 
-        # Events never get reported
-        mock_capture.assert_not_called()
+        # A failed login against an unknown email is reported without creating a person profile.
+        mock_capture.assert_called_once_with(
+            distinct_id=ANY,
+            event="user login failed",
+            properties={
+                "failure_reason": "invalid_credentials",
+                "account_exists": False,
+                "$process_person_profile": False,
+            },
+        )
 
     def test_cant_login_without_required_attributes(self):
         required_attributes = ["email", "password"]
