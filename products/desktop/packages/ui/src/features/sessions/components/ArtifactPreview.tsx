@@ -1,6 +1,7 @@
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import {
+  getPostHogObjectArtifactMetadata,
   groupRunArtifactVersions,
   OUTPUT_ARTIFACT_TYPES,
   parseRunArtifacts,
@@ -118,6 +119,16 @@ export function ArtifactPreview({
   // right away.
   const events = useSessionSelector(taskId, (session) => session?.events);
   const completedUploads = useCompletedArtifactUploads(events ?? []);
+  // The preview query caches forever under a stable artifact id, but a
+  // reference entry updates in place as later turns cite it again; the store's
+  // cloudArtifacts refresh on every successful registration, so its copy of
+  // the metadata is the live one.
+  const liveReferenceMetadata = useSessionSelector(taskId, (session) => {
+    const entry = session?.cloudArtifacts?.find(
+      (artifact) => artifact.id === artifactId,
+    );
+    return entry ? getPostHogObjectArtifactMetadata(entry) : null;
+  });
   const {
     runs,
     isLoading: runsLoading,
@@ -332,7 +343,10 @@ export function ArtifactPreview({
 
   if (isPostHogObjectPreview(previewData)) {
     return (
-      <PostHogObjectPage metadata={previewData.metadata} fallbackName={name} />
+      <PostHogObjectPage
+        metadata={liveReferenceMetadata ?? previewData.metadata}
+        fallbackName={name}
+      />
     );
   }
 
