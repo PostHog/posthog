@@ -24,9 +24,9 @@ export function shouldAutoRefreshTools(state: AutoRefreshState): boolean {
  */
 export const AUTO_REFRESH_MAX_RETRIES = 2;
 
-/** Exponential backoff between silent auto-refresh retries: 1s, 2s, then 4s. */
+/** Exponential backoff between silent auto-refresh retries: 1s, then 2s. */
 export function autoRefreshRetryDelayMs(failureCount: number): number {
-  return Math.min(1000 * 2 ** failureCount, 8000);
+  return 1000 * 2 ** failureCount;
 }
 
 /**
