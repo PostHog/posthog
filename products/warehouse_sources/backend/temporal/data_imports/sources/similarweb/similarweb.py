@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.settings import (
+    API_VERSION_V5,
     BASE_URL,
     CAPABILITIES_PATH,
     CHUNK_ROWS,
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     PAGE_LIMIT,
     SIMILARWEB_ENDPOINTS,
     TRAFFIC_SOURCES,
+    V5_ENGAGEMENT_PATH,
     SimilarwebEndpointConfig,
 )
 
@@ -108,6 +110,43 @@ def _parse_row_date(value: Any) -> Optional[datetime]:
         return None
 
 
+def _uses_v5_engagement(config: SimilarwebEndpointConfig, api_version: str) -> bool:
+    """Whether this request goes to the V5 multi-metric engagement endpoint rather than legacy."""
+    return api_version == API_VERSION_V5 and config.v5_metric is not None
+
+
+def _prepare_request(
+    api_key: str,
+    api_version: str,
+    config: SimilarwebEndpointConfig,
+    domain: str,
+    country: str,
+    granularity: str,
+    start_month: Optional[str],
+    end_month: Optional[str],
+    offset: Optional[int] = None,
+) -> tuple[str, dict[str, Any], dict[str, str]]:
+    """Build the `(url, params, headers)` for one request, dispatching on the resolved API version.
+
+    V5 serves the engagement metrics from one `/v5/website-analysis` endpoint with `api-key` header
+    auth and a `metrics` selector; every other table — and every table under the legacy pin — keeps
+    the per-resource path and `api_key` query param it has always used.
+    """
+    if _uses_v5_engagement(config, api_version):
+        params: dict[str, Any] = {"domain": domain, "metrics": config.v5_metric, "format": "json"}
+        if config.accepts_country:
+            params["country"] = country
+        if config.accepts_granularity:
+            params["granularity"] = granularity
+        if start_month and end_month:
+            params["start_date"] = start_month
+            params["end_date"] = end_month
+        return f"{BASE_URL}{V5_ENGAGEMENT_PATH}", params, {"api-key": api_key}
+
+    url = f"{BASE_URL}{config.path.format(domain=quote(domain, safe=''))}"
+    return url, _build_params(api_key, config, country, granularity, start_month, end_month, offset=offset), {}
+
+
 def _build_params(
     api_key: str,
     config: SimilarwebEndpointConfig,
@@ -137,12 +176,13 @@ def _request(
     session: requests.Session,
     config: SimilarwebEndpointConfig,
     domain: str,
+    url: str,
     params: dict[str, Any],
+    headers: dict[str, str],
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
-    url = f"{BASE_URL}{config.path.format(domain=quote(domain, safe=''))}"
     try:
-        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(url, params=params, headers=headers or None, timeout=REQUEST_TIMEOUT_SECONDS)
     except requests.RequestException as exc:
         # Connection/timeout exceptions carry the prepared URL — including the api_key query param —
         # and str(exc) is persisted as the import's error, so re-raise with the param-free url only.
@@ -173,8 +213,12 @@ def _series_rows(
     country: str,
     granularity: str,
     logger: FilteringBoundLogger,
+    api_version: str,
 ) -> list[dict[str, Any]]:
-    payload = body.get(config.data_key)
+    # V5 wraps every metric's series under a standardized `data` key; legacy names the key after
+    # the metric. Either way each row carries its `date` and the metric value.
+    data_key = "data" if _uses_v5_engagement(config, api_version) else config.data_key
+    payload = body.get(data_key)
     if not isinstance(payload, list):
         return []
 
@@ -285,6 +329,7 @@ def _paginated_rows(
     end_month: Optional[str],
     resumable_source_manager: ResumableSourceManager[SimilarwebResumeConfig],
     logger: FilteringBoundLogger,
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_index = resume.next_domain_index if resume is not None else 0
@@ -295,8 +340,10 @@ def _paginated_rows(
         offset = start_offset if index == start_index else 0
 
         while True:
-            params = _build_params(api_key, config, country, granularity, start_month, end_month, offset=offset)
-            rows = _record_rows(_request(session, config, domain, params, logger), config, domain)
+            url, params, headers = _prepare_request(
+                api_key, api_version, config, domain, country, granularity, start_month, end_month, offset=offset
+            )
+            rows = _record_rows(_request(session, config, domain, url, params, headers, logger), config, domain)
             if rows:
                 yield rows
             if len(rows) < PAGE_LIMIT:
@@ -321,6 +368,7 @@ def _series_chunks(
     start_month: Optional[str],
     end_month: Optional[str],
     logger: FilteringBoundLogger,
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
     """Collect every domain's series, then emit it ordered by period.
 
@@ -333,12 +381,14 @@ def _series_chunks(
     """
     rows: list[dict[str, Any]] = []
     for domain in domains:
-        params = _build_params(api_key, config, country, granularity, start_month, end_month)
-        body = _request(session, config, domain, params, logger)
+        url, params, headers = _prepare_request(
+            api_key, api_version, config, domain, country, granularity, start_month, end_month
+        )
+        body = _request(session, config, domain, url, params, headers, logger)
         if config.name == TRAFFIC_SOURCES:
             rows.extend(_traffic_sources_rows(body, config, domain, country, granularity, logger))
         else:
-            rows.extend(_series_rows(body, config, domain, country, granularity, logger))
+            rows.extend(_series_rows(body, config, domain, country, granularity, logger, api_version))
 
     rows.sort(key=lambda row: (row["date"], row["domain"]))
 
@@ -355,6 +405,7 @@ def _get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SimilarwebResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -383,6 +434,7 @@ def _get_rows(
             end_month,
             resumable_source_manager,
             logger,
+            api_version,
         )
         return
 
@@ -396,6 +448,7 @@ def _get_rows(
         start_month,
         end_month,
         logger,
+        api_version,
     )
 
 
@@ -408,6 +461,7 @@ def similarweb_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SimilarwebResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
@@ -424,6 +478,7 @@ def similarweb_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
