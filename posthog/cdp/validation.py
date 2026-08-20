@@ -715,6 +715,14 @@ class InputsSerializer(serializers.DictField):
                         errors[key] = "No value is saved for this secret input. Enter the value again."
                         continue
 
+            if value == {} and schema.get("required") and schema.get("default") is not None:
+                # A required input the caller left out falls back to the schema's default rather than
+                # failing validation. Callers that assemble inputs by hand - the alert wizard, the API,
+                # Terraform - can't know about a default the destination editor would have pre-filled,
+                # so adding one to an existing template would otherwise break them. An explicitly empty
+                # value still fails below: only an absent key takes the default.
+                value = {"value": schema["default"]}
+
             self.context["schema"] = schema
 
             # Propagate templating from schema to input item, if set
