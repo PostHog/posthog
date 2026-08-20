@@ -701,6 +701,7 @@ def _sync_table(
 
         last_sync: Optional[datetime] = None
         if not config.full_refresh:
+            # nosemgrep: clickhouse-fstring-param-audit - table_name is a TABLE_CONFIGS key from the job config allowlist; watermark_column is code-controlled
             result = sync_execute(f"SELECT max({cfg.watermark_column}) FROM models.{table_name}")
             if result and result[0][0]:
                 last_sync = result[0][0] - timedelta(seconds=config.backward_lookback_seconds)
@@ -708,6 +709,7 @@ def _sync_table(
         else:
             context.log.info(f"Full refresh: truncating models.{table_name}")
             try:
+                # nosemgrep: clickhouse-fstring-param-audit - table_name is a TABLE_CONFIGS key from the job config allowlist
                 sync_execute(f"TRUNCATE TABLE models.{table_name}")
             except Exception as e:
                 context.log.warning(f"Could not truncate (may not exist): {e}")

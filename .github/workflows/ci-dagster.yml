@@ -164,6 +164,9 @@ jobs:
                         - 'products/warehouse_sources/backend/models/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
+                        # The postgres-to-clickhouse ETL DAG imports the encrypted-flag
+                        # payload redaction constant from the flags backend.
+                        - 'products/feature_flags/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
                         - 'products/signals/backend/**/*.py'
                         - 'products/marketing_analytics/backend/**/*.py'
