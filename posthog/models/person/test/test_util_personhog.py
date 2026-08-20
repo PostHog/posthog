@@ -621,3 +621,30 @@ class TestGetDistinctIdsMappedByEmail(BaseTest):
         with patch("posthog.hogql.query.execute_hogql_query") as execute:
             assert get_distinct_ids_mapped_by_email(self.team.id, ["", ""]) == {}
         execute.assert_not_called()
+
+
+class TestEmailLookupBatching(SimpleTestCase):
+    def test_batches_emails_and_unions_results(self):
+        # More emails than one chunk must fan out into several bounded queries whose results are unioned.
+        # A single query would be capped at HogQL's default row limit and silently drop most matches on
+        # a large sync, so this guards against collapsing the loop back into one call.
+        persons = [
+            MagicMock(uuid="u1", distinct_ids=["d1"]),
+            MagicMock(uuid="u2", distinct_ids=["d2"]),
+            MagicMock(uuid="u3", distinct_ids=["d3"]),
+        ]
+        batch_results = [
+            MagicMock(results=[("u1", "a@x.com"), ("u2", "b@x.com")]),
+            MagicMock(results=[("u3", "c@x.com")]),
+        ]
+        with (
+            patch("posthog.models.team.Team") as team_cls,
+            patch("posthog.models.person.util._EMAIL_LOOKUP_CHUNK_SIZE", 2),
+            patch("posthog.hogql.query.execute_hogql_query", side_effect=batch_results) as execute,
+            patch("posthog.models.person.util.get_persons_by_uuids", return_value=persons),
+        ):
+            team_cls.objects.get.return_value = MagicMock()
+            result = get_distinct_ids_mapped_by_email(7, ["a@x.com", "b@x.com", "c@x.com"])
+
+        assert execute.call_count == 2
+        assert result == {"a@x.com": "d1", "b@x.com": "d2", "c@x.com": "d3"}

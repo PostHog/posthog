@@ -373,12 +373,20 @@ def get_persons_mapped_by_distinct_id(
 # Case-insensitive batch email lookup over the HogQL persons table. Identified persons sort first so
 # that when several persons share an email, the one carrying resolvable distinct_ids wins;
 # created_at/id break ties for a fully deterministic pick. Mirrors conversations' person_lookup.
+# The explicit LIMIT matters: HogQL caps a limitless top-level query at DEFAULT_RETURNED_ROWS (100),
+# which would silently drop most matches on a large sync. The caller batches the email list so no one
+# query approaches even the clamped ceiling (MAX_SELECT_RETURNED_ROWS).
 _PERSON_EMAIL_LOOKUP_QUERY = """
 SELECT id, properties.email
 FROM persons
 WHERE lower(properties.email) IN {emails}
 ORDER BY is_identified DESC, created_at ASC, id ASC
+LIMIT {limit}
 """
+
+# Emails per lookup query. Keeps the IN-list parameter and the returned rows well under HogQL's
+# limits even when several persons share an email (each shared email costs an extra result row).
+_EMAIL_LOOKUP_CHUNK_SIZE = 1_000
 
 
 def get_distinct_ids_mapped_by_email(team_id: int, emails: list[str]) -> dict[str, str]:
@@ -391,6 +399,7 @@ def get_distinct_ids_mapped_by_email(team_id: int, emails: list[str]) -> dict[st
     through personhog (``get_persons_by_uuids``).
     """
     from posthog.hogql import ast  # noqa: PLC0415 — keeps the heavy HogQL stack off the import path
+    from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS  # noqa: PLC0415
     from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
 
     from posthog.models.team import Team  # noqa: PLC0415 — avoids a person/team import cycle at module load
@@ -400,18 +409,22 @@ def get_distinct_ids_mapped_by_email(team_id: int, emails: list[str]) -> dict[st
         return {}
 
     team = Team.objects.get(id=team_id)
-    response = execute_hogql_query(
-        _PERSON_EMAIL_LOOKUP_QUERY,
-        placeholders={"emails": ast.Constant(value=lowered)},
-        team=team,
-        query_type="warehouse_person_property_email_lookup",
-    )
-
     # First uuid per email wins (results are ordered so the best-matching person comes first).
     uuid_by_email: dict[str, str] = {}
-    for person_uuid, prop_email in response.results or []:
-        if prop_email:
-            uuid_by_email.setdefault(prop_email.lower(), str(person_uuid))
+    for start in range(0, len(lowered), _EMAIL_LOOKUP_CHUNK_SIZE):
+        chunk = lowered[start : start + _EMAIL_LOOKUP_CHUNK_SIZE]
+        response = execute_hogql_query(
+            _PERSON_EMAIL_LOOKUP_QUERY,
+            placeholders={
+                "emails": ast.Constant(value=chunk),
+                "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+            },
+            team=team,
+            query_type="warehouse_person_property_email_lookup",
+        )
+        for person_uuid, prop_email in response.results or []:
+            if prop_email:
+                uuid_by_email.setdefault(prop_email.lower(), str(person_uuid))
     if not uuid_by_email:
         return {}
 
