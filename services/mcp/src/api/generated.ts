@@ -6323,6 +6323,16 @@ export namespace Schemas {
       uuid: string;
     }
 
+    export type ErrorTrackingQueryIssueSeverity = typeof ErrorTrackingQueryIssueSeverity[keyof typeof ErrorTrackingQueryIssueSeverity];
+
+
+    export const ErrorTrackingQueryIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export type ErrorTrackingIssueStatus = typeof ErrorTrackingIssueStatus[keyof typeof ErrorTrackingIssueStatus];
 
 
@@ -6348,6 +6358,7 @@ export namespace Schemas {
       last_seen: string;
       library?: string | null;
       name?: string | null;
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       source?: string | null;
       status: ErrorTrackingIssueStatus;
     }
@@ -6398,6 +6409,7 @@ export namespace Schemas {
       name?: string | null;
       odds_ratio: number;
       population: Population;
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       status: ErrorTrackingIssueStatus;
     }
 
@@ -7669,6 +7681,7 @@ export namespace Schemas {
       issue_description?: string | null;
       issue_id: string;
       issue_name?: string | null;
+      issue_severity?: ErrorTrackingQueryIssueSeverity | null;
       issue_status: string;
       /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
       version: number;
@@ -30323,6 +30336,22 @@ export namespace Schemas {
       cohort: ErrorTrackingIssueCohortRead | null;
     }
 
+    /**
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical
+     */
+    export type ErrorTrackingIssueSeverityRuleEnum = typeof ErrorTrackingIssueSeverityRuleEnum[keyof typeof ErrorTrackingIssueSeverityRuleEnum];
+
+
+    export const ErrorTrackingIssueSeverityRuleEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export interface ErrorTrackingIssueSplitFingerprint {
       /** Fingerprint to split into a new issue. */
       fingerprint: string;
@@ -30669,6 +30698,72 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+    }
+
+    /**
+     * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+     * @nullable
+     */
+    export type ErrorTrackingSeverityRuleDisabledData = {
+      message?: string;
+      issue?: { [key: string]: unknown };
+      properties?: { [key: string]: unknown };
+    } | null;
+
+    export interface ErrorTrackingSeverityRule {
+      /** Unique identifier of the severity rule. */
+      readonly id: string;
+      /** Property-group filters evaluated against the event that creates an issue. */
+      filters: PropertyGroupFilterValue;
+      /** Severity assigned to a newly created issue when this rule is the first match.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Evaluation priority. Lower values run first, and the first matching rule wins. */
+      order_key: number;
+      /**
+         * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+         * @nullable
+         */
+      disabled_data: ErrorTrackingSeverityRuleDisabledData;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingSeverityRuleCreateRequest {
+      /** Property-group filters evaluated against the event that creates an issue. */
+      filters: PropertyGroupFilterValue;
+      /** Severity assigned when this rule is the first match.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Evaluation priority. Lower values run first. Defaults to 0. */
+      order_key?: number;
+    }
+
+    export interface ErrorTrackingSeverityRuleListResponse {
+      /** Severity rules in ascending evaluation order. */
+      results: ErrorTrackingSeverityRule[];
+    }
+
+    export interface ErrorTrackingSeverityRuleUpdateRequest {
+      /** Replacement property-group filters. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /** Replacement severity. Omit to preserve the existing severity.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity?: ErrorTrackingIssueSeverityRuleEnum;
     }
 
     export interface ErrorTrackingSignalExtra {
@@ -40503,6 +40598,9 @@ export namespace Schemas {
      * * `non_failure_status_codes` - non_failure_status_codes
      * * `customer_analytics_account_properties` - customer_analytics_account_properties
      * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
+     * * `task_model` - task_model
+     * * `task_repository` - task_repository
+     * * `task_mcp_installations` - task_mcp_installations
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -40525,6 +40623,9 @@ export namespace Schemas {
       NonFailureStatusCodes: 'non_failure_status_codes',
       CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
       CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
+      TaskModel: 'task_model',
+      TaskRepository: 'task_repository',
+      TaskMcpInstallations: 'task_mcp_installations',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -58311,6 +58412,28 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+    }
+
+    /**
+     * Mapping from severity rule UUID to its new evaluation order.
+     */
+    export type PatchedErrorTrackingSeverityRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingSeverityRuleReorderRequest {
+      /** Mapping from severity rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingSeverityRuleReorderRequestOrders;
+    }
+
+    export interface PatchedErrorTrackingSeverityRuleUpdateRequest {
+      /** Replacement property-group filters. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /** Replacement severity. Omit to preserve the existing severity.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity?: ErrorTrackingIssueSeverityRuleEnum;
     }
 
     export interface PatchedErrorTrackingSpikeDetectionConfig {
