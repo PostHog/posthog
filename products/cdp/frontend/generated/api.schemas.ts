@@ -281,6 +281,9 @@ export const HogFunctionTypeEnumApi = {
  * * `non_failure_status_codes` - non_failure_status_codes
  * * `customer_analytics_account_properties` - customer_analytics_account_properties
  * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
+ * * `task_model` - task_model
+ * * `task_repository` - task_repository
+ * * `task_mcp_installations` - task_mcp_installations
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -302,6 +305,9 @@ export const InputsSchemaItemTypeEnumApi = {
     NonFailureStatusCodes: 'non_failure_status_codes',
     CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
     CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
+    TaskModel: 'task_model',
+    TaskRepository: 'task_repository',
+    TaskMcpInstallations: 'task_mcp_installations',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
