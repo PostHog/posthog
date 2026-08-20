@@ -10,16 +10,12 @@ function teamConfigKey(projectId: number | null) {
 export function useSignalTeamConfig() {
   const { projectId, oauthAccessToken } = useAuthStore();
 
-  return useQuery<SignalTeamConfig | null>({
+  // The backend lazily creates the singleton, so a read never means "no config".
+  // Let auth/5xx/network failures surface as query errors instead of a false
+  // no-cap state.
+  return useQuery<SignalTeamConfig>({
     queryKey: teamConfigKey(projectId),
-    queryFn: async () => {
-      try {
-        return await getPostHogApiClient().getSignalTeamConfig();
-      } catch {
-        // The team config row may not exist yet.
-        return null;
-      }
-    },
+    queryFn: () => getPostHogApiClient().getSignalTeamConfig(),
     enabled: !!projectId && !!oauthAccessToken,
     staleTime: 30_000,
   });
@@ -36,7 +32,7 @@ export function useUpdateMaxReportsPerDay() {
         max_reports_per_day: limit,
       }),
     onSuccess: (fresh) => {
-      queryClient.setQueryData<SignalTeamConfig | null>(
+      queryClient.setQueryData<SignalTeamConfig>(
         teamConfigKey(projectId),
         fresh,
       );

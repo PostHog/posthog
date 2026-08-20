@@ -23,7 +23,7 @@ import { useThemeColors } from "@/lib/theme";
 
 export function DailyReportLimitRow() {
   const themeColors = useThemeColors();
-  const { data: config, isLoading } = useSignalTeamConfig();
+  const { data: config, isLoading, isError } = useSignalTeamConfig();
   const updateLimit = useUpdateMaxReportsPerDay();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -31,7 +31,11 @@ export function DailyReportLimitRow() {
 
   const status = describeDailyReportLimit(config);
   const savedValue = dailyReportLimitFieldValue(config);
-  const rightLabel = status.limit === null ? "No limit" : String(status.limit);
+  const rightLabel = isError
+    ? "—"
+    : status.limit === null
+      ? "No limit"
+      : String(status.limit);
 
   // Reset the field from the saved value when the sheet opens (an event, not a
   // prop-sync effect).
@@ -64,18 +68,22 @@ export function DailyReportLimitRow() {
     <>
       <Pressable
         onPress={openSheet}
-        disabled={isLoading}
-        className={`active:bg-gray-2 ${isLoading ? "opacity-50" : ""}`}
+        disabled={isLoading || isError}
+        className={`active:bg-gray-2 ${isLoading || isError ? "opacity-50" : ""}`}
       >
         <View className="flex-row items-center gap-3 border-gray-5 border-b px-4 py-3">
           <View className="min-w-0 flex-1">
             <Text className="font-medium text-[15px] text-gray-12">
               Daily report limit
             </Text>
-            <Text className="mt-0.5 text-[12px] text-gray-10 leading-snug">
-              {status.usageText}
+            <Text
+              className={`mt-0.5 text-[12px] leading-snug ${isError ? "text-status-error" : "text-gray-10"}`}
+            >
+              {isError
+                ? "Couldn't load the limit. Try again later."
+                : status.usageText}
             </Text>
-            {status.reachedText ? (
+            {!isError && status.reachedText ? (
               <Text className="mt-0.5 text-[12px] text-status-warning leading-snug">
                 {status.reachedText}
               </Text>
