@@ -1109,6 +1109,7 @@ class SessionRecordingViewSet(
     @action(methods=["POST"], detail=False, url_path="bulk_delete")
     def bulk_delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """Bulk delete recordings via recording-api (crypto-shredding)."""
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
 
         session_recording_ids = request.data.get("session_recording_ids", [])
         date_from = request.data.get("date_from", None)
