@@ -138,10 +138,12 @@ def upsert_check(
         except IntegrityError:
             # Check-then-insert race: a concurrent identical request inserted this fingerprint between
             # the lookup above and this create. Refetch and refine the row it won with, so the loser
-            # gets the promised existing check (HTTP 200) rather than a 500. A collision on any other
-            # constraint (e.g. the name) is a genuine conflict, not this race -- re-raise it.
+            # gets the promised existing check (HTTP 200) rather than a 500.
             existing = _find_by_fingerprint(team.id, subject_type, subject_uuid, fingerprint)
             if existing is None:
+                # The name constraint races the same way, past its own precheck, so report it as the
+                # conflict it is rather than letting the database error surface as a 500.
+                ensure_name_available(team.id, fields.get("name") or "")
                 raise
 
     return update_check(existing, **fields), False
@@ -197,9 +199,14 @@ def edit_check(*, team: Team, check: DataQualityCheck, editor: User | None, **fi
             locked = DataQualityCheck.objects.for_team(team.id).select_for_update().get(id=check.id)
             return _commit_edit(team, locked, editor, requested)
     except IntegrityError:
+        # Which constraint lost decides which field the error is addressed to. Asking about the
+        # definition alone would answer "duplicate" for every one of them, since an edit that leaves
+        # the assertion alone still finds its own fingerprint.
         candidate = _candidate_definition(team, check, requested)
-        if _find_by_fingerprint(team.id, check.subject_type, str(check.subject_uuid), candidate.fingerprint):
+        if _definition_taken(check, candidate.fingerprint):
             raise DuplicateDefinitionError()
+        if _name_taken(team.id, requested.get("name") or "", exclude_id=check.id):
+            raise NameConflictError()
         raise
 
 
@@ -256,14 +263,18 @@ def _candidate_definition(team: Team, check: DataQualityCheck, requested: dict[s
     )
 
 
-def _ensure_definition_available(check: DataQualityCheck, fingerprint: str) -> None:
-    clash = (
+def _definition_taken(check: DataQualityCheck, fingerprint: str) -> bool:
+    """Whether *another* active check on this subject already asserts this."""
+    return (
         DataQualityCheck.objects.for_team(check.team_id)
         .filter(fingerprint=fingerprint, deleted=False, **_subject_fk(check.subject_type, str(check.subject_uuid)))
         .exclude(id=check.id)
         .exists()
     )
-    if clash:
+
+
+def _ensure_definition_available(check: DataQualityCheck, fingerprint: str) -> None:
+    if _definition_taken(check, fingerprint):
         raise DuplicateDefinitionError()
 
 
@@ -353,6 +364,24 @@ def start_check_suite(
         raise
 
     return suite_run
+
+
+def empty_check_suite(*, team: Team, user: User | None = None) -> DataQualitySuiteRun:
+    """Record a run that had nothing to run, without starting a workflow.
+
+    An empty selection cannot be expressed to the worker: by the time ``check_ids`` reaches the
+    prepare activity, an empty list is indistinguishable from no selector at all, and the suite
+    would sweep the whole project.
+    """
+    now = datetime.now(UTC)
+    return DataQualitySuiteRun.objects.for_team(team.id).create(
+        team=team,
+        trigger=SuiteRunTrigger.MANUAL,
+        created_by=user,
+        status=SuiteRunStatus.EMPTY,
+        started_at=now,
+        finished_at=now,
+    )
 
 
 def _name_taken(team_id: int, name: str, exclude_id: UUID | str | None = None) -> bool:

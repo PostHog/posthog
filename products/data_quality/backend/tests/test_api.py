@@ -295,6 +295,20 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert loser.column_name == "total"
         assert winner.check_type == CheckType.UNIQUE
 
+    def test_a_name_race_lost_to_the_constraint_reads_as_a_conflict(self) -> None:
+        # Two rows can both clear the name precheck and race to commit one name; the constraint
+        # settles it, and the loser must see the same field error the precheck raises, not a 500.
+        self._create_check(check_type=CheckType.UNIQUE, name="orders_customer_id_unique")
+        loser = self._create_check(column_name="total")
+
+        with patch.object(checks_logic, "_name_taken", side_effect=[False, True]):
+            response = self.client.patch(f"{self.url}/{loser.id}/", {"name": "orders_customer_id_unique"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "name"
+        loser.refresh_from_db()
+        assert loser.name == ""
+
     def test_a_racing_identical_create_returns_the_winning_row_not_a_500(self) -> None:
         # Two identical creates can both miss the fingerprint lookup and race to insert; the uniqueness
         # constraint lets only one win. Simulate the loser by making its lookup miss the row the winner
@@ -490,6 +504,45 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert self.client.get(f"{base}/{sweep.id}/").status_code == status.HTTP_404_NOT_FOUND
         check_runs = self.client.get(f"{base}/{mine.id}/check_runs/")
         assert [row["subject_name"] for row in check_runs.json()] == ["orders"]
+
+    def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self) -> None:
+        # Authorizing history against the definition the check carries *now* lets a member point a
+        # check that reads the denied "orders" at something harmless and then read what it recorded:
+        # the compiled query, the failed-row count and the observed value.
+        allowed = self._make_view("customers")
+        reads_orders = {"query": "SELECT 1 FROM orders"}
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config=reads_orders,
+            fingerprint=uuid4().hex,
+        )
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual"),
+            quality_check=check,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config=reads_orders,
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+            compiled_query="SELECT * FROM orders",
+        )
+        self._deny_the_view()
+
+        url = f"{self._checks_url(allowed.id)}/{check.id}"
+        edited = self.client.patch(url + "/", {"check_type": CheckType.NOT_NULL, "column_name": "id", "config": {}})
+        history = self.client.get(f"{url}/runs/")
+
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        assert history.status_code == status.HTTP_200_OK
+        assert history.json() == []
 
     def _deny_the_view(self) -> None:
         # Deny the default member object-level access to the "orders" view, the way the HogQL

@@ -10,6 +10,7 @@ data. ORM model classes never cross here either -- ``facade/models.py`` is their
 from ..logic.checks import (
     checks_for_subject,
     edit_check,
+    empty_check_suite,
     ensure_name_available,
     soft_delete_check,
     start_check_suite,
@@ -47,6 +48,7 @@ __all__ = [
     "compute_fingerprint",
     "denied_subject_names",
     "edit_check",
+    "empty_check_suite",
     "ensure_name_available",
     "from_config_entry",
     "get_gate_config",

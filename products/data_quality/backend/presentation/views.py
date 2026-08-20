@@ -7,9 +7,11 @@ serialize the result. Nothing here runs a check -- every trigger hands off to Te
 a suite-run handle to poll.
 """
 
+import json
 from collections import defaultdict
 from collections.abc import Callable
 from typing import ClassVar, cast
+from uuid import UUID
 
 from django.db.models import QuerySet
 
@@ -119,17 +121,51 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
             self._denied_subjects_cache = cached
         return cached
 
+    def _reads_denied_subject(self, check_type: str, config: dict, denied: set[str]) -> bool:
+        """Whether this definition reads a subject the caller is denied.
+
+        The parent is not the only subject a check reads: a relationships check names a second
+        subject and a custom_sql query selects arbitrary tables, both run by the worker with team
+        scope only. Authorize them too, or a check on an allowed subject is a count oracle over a
+        denied one.
+        """
+        return any(
+            api.is_subject_denied(name, denied)
+            for name in api.referenced_subject_names(self.team.id, check_type, config)
+        )
+
     def _require_referenced_subject_access(self, check_type: str, config: dict) -> None:
-        # The parent is not the only subject a check reads: a relationships check names a second
-        # subject and a custom_sql query selects arbitrary tables, both run by the worker with team
-        # scope only. Authorize them too, or a check on an allowed subject is a count oracle over a
-        # denied one.
         denied = self._denied_subject_names()
         if not denied:
             return
-        for name in api.referenced_subject_names(self.team.id, check_type, config):
-            if api.is_subject_denied(name, denied):
-                raise PermissionDenied("You don't have access to a table or view this check reads.")
+        if self._reads_denied_subject(check_type, config, denied):
+            raise PermissionDenied("You don't have access to a table or view this check reads.")
+
+    def _readable_runs(self, runs: list[DataQualityCheckRun]) -> list[DataQualityCheckRun]:
+        """Drop the runs whose definition read a subject the caller is denied.
+
+        Judged from the definition each run executed, not the one its check carries now, so editing
+        a check cannot retroactively expose or hide its history. Runs older than the config snapshot
+        fall back to their check; one that predates it and has lost its check is withheld, since what
+        it read cannot be established.
+        """
+        denied = self._denied_subject_names()
+        if not denied:
+            return runs
+        verdicts: dict[str, bool] = {}
+        readable = []
+        for run in runs:
+            config = run.check_config if run.check_config is not None else getattr(run.quality_check, "config", None)
+            if config is None:
+                continue
+            # One verdict per definition: a suite re-runs the same checks, and resolving a
+            # relationships target costs a query.
+            cache_key = f"{run.check_type}:{json.dumps(config, sort_keys=True, default=str)}"
+            if cache_key not in verdicts:
+                verdicts[cache_key] = self._reads_denied_subject(run.check_type, config, denied)
+            if not verdicts[cache_key]:
+                readable.append(run)
+        return readable
 
 
 class _SubjectScopedViewSet(_QualityGatedViewSet):
@@ -308,9 +344,16 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
     @action(methods=["GET"], detail=True, pagination_class=None)
     def runs(self, request: Request, **kwargs) -> Response:
         check = self.get_object()
+        # The current definition gates the check itself; each run is then judged on the definition
+        # it executed, so editing a check into a harmless one does not unlock what it used to read.
         self._require_referenced_subject_access(check.check_type, check.config)
-        runs = DataQualityCheckRun.objects.for_team(self.team_id).filter(quality_check=check).order_by("-created_at")
-        return Response(DataQualityCheckRunSerializer(runs[:_RECENT_RUNS_LIMIT], many=True).data)
+        runs = list(
+            DataQualityCheckRun.objects.for_team(self.team_id)
+            .filter(quality_check=check)
+            .select_related("quality_check")
+            .order_by("-created_at")[:_RECENT_RUNS_LIMIT]
+        )
+        return Response(DataQualityCheckRunSerializer(self._readable_runs(runs), many=True).data)
 
     @extend_schema(
         description="Health rollup for this table or view, from the denormalized status of its checks.",
@@ -512,6 +555,51 @@ class DataQualityRunViewSet(
     def safely_get_queryset(self, queryset: QuerySet[DataQualitySuiteRun]) -> QuerySet[DataQualitySuiteRun]:
         return queryset.filter(team_id=self.team_id).order_by("-created_at")
 
+    def filter_queryset(self, queryset: QuerySet[DataQualitySuiteRun]) -> QuerySet[DataQualitySuiteRun]:
+        """Withhold the suites that report on a subject the caller is denied.
+
+        A suite row carries its subject and its passed/failed/errored/skipped counters, so serving
+        one is serving outcome counts over the rows behind it. The nested suite lists are gated by
+        their parent; this one spans every subject and has no parent to gate on. Excluded in SQL
+        rather than filtered per page, so the paginated count cannot report the withheld suites
+        either.
+        """
+        queryset = super().filter_queryset(queryset)
+        denied_uuids = self._denied_subject_uuids()
+        if not denied_uuids:
+            return queryset
+        covering_denied = (
+            DataQualityCheckRun.objects.for_team(self.team_id)
+            .filter(subject_uuid__in=denied_uuids)
+            .values("suite_run_id")
+        )
+        return queryset.exclude(subject_uuid__in=denied_uuids).exclude(id__in=covering_denied)
+
+    def _denied_subject_uuids(self) -> set[UUID]:
+        """The ids of the subjects this caller is denied, as suite and check runs record them.
+
+        Read from the names already denormalized onto checks and their runs rather than resolved one
+        subject at a time, so a restricted member's page costs two queries instead of one per
+        subject. That inherits the denormalized name's rename window, which every check-list surface
+        shares.
+        """
+        denied = self._denied_subject_names()
+        if not denied:
+            return set()
+        checks = DataQualityCheck.objects.for_team(self.team_id).values_list(
+            "saved_query_id", "table_id", "subject_name"
+        )
+        named_subjects = [(saved_query_id or table_id, name) for saved_query_id, table_id, name in checks]
+        # A hard-deleted check leaves its runs behind with the FK nulled, so its subject would drop
+        # out of the set above while its suites still report on it.
+        named_subjects += (
+            DataQualityCheckRun.objects.for_team(self.team_id)
+            .filter(quality_check__isnull=True)
+            .values_list("subject_uuid", "subject_name")
+            .distinct()
+        )
+        return {uuid for uuid, name in named_subjects if uuid and api.is_subject_denied(name, denied)}
+
     @extend_schema(
         description="Run the named checks now, or every enabled check in the project when none are named. "
         "Returns the suite run to poll for the report.",
@@ -527,12 +615,16 @@ class DataQualityRunViewSet(
         if requested:
             runnable = runnable.filter(id__in=requested)
         checks = self._authorized_checks(list(runnable), named=bool(requested))
-
-        suite_run = api.start_check_suite(
-            team=self.team,
-            user=cast(User, request.user),
-            check_ids=[str(check.id) for check in checks],
-        )
+        if not checks:
+            # An empty selection cannot be handed to the worker: it reads as no selector at all and
+            # would sweep the project, which is the opposite of what the caller may run.
+            suite_run = api.empty_check_suite(team=self.team, user=cast(User, request.user))
+        else:
+            suite_run = api.start_check_suite(
+                team=self.team,
+                user=cast(User, request.user),
+                check_ids=[str(check.id) for check in checks],
+            )
         return Response(DataQualitySuiteRunSerializer(suite_run).data)
 
     def _authorized_checks(self, checks: list[DataQualityCheck], named: bool) -> list[DataQualityCheck]:

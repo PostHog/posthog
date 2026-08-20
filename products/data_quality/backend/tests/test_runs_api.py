@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -14,7 +15,7 @@ from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
-from products.data_quality.backend.models import DataQualityCheck, DataQualitySuiteRun
+from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -109,6 +110,25 @@ class TestDataQualityRunAPI(APIBaseTest):
 
         assert start.call_args.kwargs["check_ids"] == [str(mine.id)]
 
+    @parameterized.expand([("every_check_is_denied",), ("named_ids_match_nothing_runnable",)])
+    def test_a_run_with_nothing_to_run_starts_no_workflow(self, case: str) -> None:
+        # An empty selection is indistinguishable from no selector by the time it reaches the
+        # worker, so handing one over sweeps the whole project instead of running none of it.
+        body: dict = {}
+        if case == "every_check_is_denied":
+            self._check(self.orders)
+            self._deny_orders()
+        else:
+            self._check(self.customers)
+            body = {"check_ids": [str(uuid4())]}
+
+        with patch(START_SUITE) as connect:
+            response = self.client.post(self.url, body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == "empty"
+        connect.assert_not_called()
+
     def test_naming_a_denied_check_is_refused(self) -> None:
         # Naming one is an attempt to read it, so it 403s rather than being silently dropped.
         denied = self._check(self.orders)
@@ -142,6 +162,41 @@ class TestDataQualityRunAPI(APIBaseTest):
 
         assert {row["id"] for row in listed.json()["results"]} == {str(sweep.id), str(scoped.id)}
         assert self.client.get(f"{self.url}{sweep.id}/").status_code == status.HTTP_200_OK
+
+    def test_history_withholds_the_suites_that_report_on_a_denied_subject(self) -> None:
+        # A suite row carries its subject and its outcome counters, so serving one is serving counts
+        # over rows the member cannot read. The nested lists are gated by their parent; this one
+        # spans every subject and has none.
+        self._check(self.orders)
+        mine = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="materialization", subject_type=SubjectType.VIEW, subject_uuid=self.customers.id
+        )
+        denied = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="materialization", subject_type=SubjectType.VIEW, subject_uuid=self.orders.id
+        )
+        sweep = self._sweep_covering(self.orders)
+        self._deny_orders()
+
+        listed = self.client.get(self.url)
+
+        assert {row["id"] for row in listed.json()["results"]} == {str(mine.id)}
+        assert self.client.get(f"{self.url}{denied.id}/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{self.url}{sweep.id}/").status_code == status.HTTP_404_NOT_FOUND
+
+    def _sweep_covering(self, view: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
+        """A multi-subject sweep whose counters include one check run against this view."""
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=suite_run,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=view.id,
+            subject_name=view.name,
+            check_type=CheckType.NOT_NULL,
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+        )
+        return suite_run
 
     def test_the_overview_lists_every_subjects_checks(self) -> None:
         # The nested surfaces each serve one parent, so this is the only list that spans subjects.
