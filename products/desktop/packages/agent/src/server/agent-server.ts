@@ -417,6 +417,18 @@ function buildMissingAttachmentNotice(count: number): string {
   );
 }
 
+/**
+ * The codex session's LLM auth, from the resolved gateway env. Codex must never
+ * read the raw run credential: on the Go-gateway path the bearer is the per-run
+ * scoped token (see configureEnvironment).
+ */
+export function codexAuthFromGatewayEnv(env: GatewayEnv): {
+  apiBaseUrl: string;
+  apiKey: string;
+} {
+  return { apiBaseUrl: env.openaiBaseUrl, apiKey: env.openaiApiKey };
+}
+
 export class AgentServer {
   private config: AgentServerConfig;
   private sessionReadyBootMs?: number;
@@ -1745,8 +1757,7 @@ export class AgentServer {
         runtimeAdapter === "codex"
           ? {
               cwd: this.config.repositoryPath ?? "/tmp/workspace",
-              apiBaseUrl: gatewayEnv.openaiBaseUrl,
-              apiKey: this.config.apiKey,
+              ...codexAuthFromGatewayEnv(gatewayEnv),
               // Bundled-binary hint for the native codex CLI: the codex
               // binary itself, or any file in its directory. Set in the
               // sandbox image (POSTHOG_CODEX_BINARY_PATH); when unset the
@@ -4222,11 +4233,29 @@ ${commonInstructions}
   } = {}): GatewayEnv {
     const { apiKey, apiUrl, projectId } = this.config;
     const product = resolveGatewayProduct({ isInternal, originProduct });
-    const {
-      baseUrl: gatewayUrl,
-      isAiGateway,
-      aiProduct,
-    } = resolveGatewayTarget({ product, aiStage, posthogHost: apiUrl });
+    // Go-gateway runs authenticate with the per-run scoped token minted by the
+    // worker (pinned product + on-behalf-of team, per-run spend cap), not the
+    // run's per-team OAuth token, whose team has no gateway wallet. A routed
+    // product with no token therefore stays on the Python gateway.
+    const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
+    let target = resolveGatewayTarget({
+      product,
+      aiStage,
+      posthogHost: apiUrl,
+    });
+    if (target.isAiGateway && !gatewayToken) {
+      this.logger.warn(
+        `AI_GATEWAY_TOKEN missing for routed product ${target.aiProduct}; falling back to the Python gateway`,
+      );
+      target = resolveGatewayTarget({
+        product,
+        aiStage,
+        posthogHost: apiUrl,
+        env: { ...process.env, AI_GATEWAY_URL: undefined },
+      });
+    }
+    const { baseUrl: gatewayUrl, isAiGateway, aiProduct } = target;
+    const llmBearer = isAiGateway && gatewayToken ? gatewayToken : apiKey;
     const openaiBaseUrl = gatewayUrl.endsWith("/v1")
       ? gatewayUrl
       : `${gatewayUrl}/v1`;
@@ -4296,9 +4325,9 @@ ${commonInstructions}
     // gateway URL, auth token, or custom headers.
     return {
       anthropicBaseUrl: gatewayUrl,
-      anthropicAuthToken: apiKey,
+      anthropicAuthToken: llmBearer,
       openaiBaseUrl,
-      openaiApiKey: apiKey,
+      openaiApiKey: llmBearer,
       anthropicCustomHeaders: customHeaders,
       openaiCustomHeaders,
       posthogProjectId: String(projectId),
