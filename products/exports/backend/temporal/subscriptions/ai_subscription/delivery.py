@@ -216,8 +216,6 @@ SLACK_IMAGE_TITLE_LIMIT = 2000
 
 
 def build_chart_image_urls(charts: Any, *, team_id: int) -> list[dict]:
-    # Any, not list: this is raw JSONB read back from content_snapshot, where a row edited out of
-    # band can hold anything.
     if not isinstance(charts, list):
         return []
     urls: list[dict] = []

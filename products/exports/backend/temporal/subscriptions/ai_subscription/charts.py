@@ -12,7 +12,7 @@ from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 
-from products.exports.backend.facade.api import render_png_export
+from products.exports.backend.facade.api import RENDER_TIMEOUT, render_png_export
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     ALLOWED_CHART_DISPLAYS,
     CONTINUOUS_CHART_DISPLAYS,
@@ -29,7 +29,7 @@ AI_REPORT_CHARTS_FEATURE_FLAG_KEY = "ai-report-charts"
 
 _MAX_CONCURRENT_RENDERS = 3
 _RENDER_EXECUTOR = ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_RENDERS, thread_name_prefix="ai-report-chart")
-_RENDER_TIMEOUT_SECONDS = 75.0
+_RENDER_TIMEOUT_SECONDS = RENDER_TIMEOUT.total_seconds() + 10
 _CHART_PHASE_BUDGET_SECONDS = 210.0
 
 _NUMERIC_TYPE_FAMILIES = frozenset({"integer", "float", "decimal"})
@@ -52,8 +52,6 @@ class ChartFailureReason(StrEnum):
     BUDGET_EXHAUSTED = "budget_exhausted"
 
 
-# Reasons that mean the spec itself is wrong, so re-planning can produce a better one. Every other
-# reason describes this run's data or infrastructure and would recur on a frozen plan forever.
 SPEC_INVALID_DROP_REASONS = frozenset(
     {
         ChartFailureReason.MISSING_COLUMNS,
@@ -141,7 +139,6 @@ def validate_chart(
 
 
 def _numeric_column_names(types: Any) -> Optional[set[str]]:
-    # None means "cannot tell", so an unexpected `types` shape costs the check rather than every chart.
     if not isinstance(types, list) or not types:
         return None
     numeric: set[str] = set()
@@ -168,8 +165,6 @@ def build_export_context(chart: ValidatedChart) -> dict:
         "yAxis": [{"column": column} for column in chart.spec.y_columns],
     }
     if len(chart.spec.y_columns) > 1:
-        # The exporter's own legend paths are Trends-only, so a multi-series SQL chart without this
-        # draws unlabeled lines.
         chart_settings["showLegend"] = True
     return {
         "limit_context": "posthog_ai",
