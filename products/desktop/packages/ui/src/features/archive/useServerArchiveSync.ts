@@ -54,13 +54,19 @@ export function useServerArchiveSync(): void {
     (s) => s.pendingUnarchiveTaskIds,
   );
   const running = useRef(false);
-  // The drain loop re-reads these between passes, so sessions archived while
-  // it runs are picked up by the loop that's already going — the effect that
-  // fires for them lands on the `running` guard and is skipped.
   const archivedRef = useRef(archivedTaskIds);
-  archivedRef.current = archivedTaskIds;
   const clientRef = useRef(client);
-  clientRef.current = client;
+
+  // The drain loop re-reads these between passes, so a session archived while
+  // it runs is picked up by the loop that's already going, and the effect that
+  // fires for it lands on the `running` guard and is skipped. Written after the
+  // render rather than during it, and before the drain effect below, which runs
+  // later in the same commit — so the drain never reads a ref left behind by a
+  // render React went on to discard.
+  useEffect(() => {
+    archivedRef.current = archivedTaskIds;
+    clientRef.current = client;
+  });
 
   useEffect(() => {
     if (!client || running.current) return;
@@ -94,6 +100,9 @@ export function useServerArchiveSync(): void {
             archivedRef.current,
             new Set([...store.syncedTaskIds, ...attempted]),
           );
+          // No await stands between this read and the guard release below, so
+          // a trigger either lands early enough for the next pass to see it or
+          // late enough to start its own drain. There is no gap to lose one in.
           if (unarchive.length === 0 && archive.length === 0) break;
 
           // Restores lead: a session the server still has archived is
