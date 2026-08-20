@@ -128,25 +128,33 @@ class TestApplyFollowupModelOverride:
 
 
 class TestRunPreferenceState:
-    def test_pins_the_successor_run_to_the_resolved_triple(self):
+    @pytest.mark.parametrize(
+        "prefs,expected",
+        [
+            (
+                AIPreferences(runtime_adapter="codex", model="gpt-5.6-sol", reasoning_effort="high"),
+                {
+                    "runtime_adapter": "codex",
+                    "provider": "openai",
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "high",
+                },
+            ),
+            # What was never resolved is left out rather than written as None, so the
+            # agent server keeps its own default for it.
+            (
+                AIPreferences(runtime_adapter="claude", model="claude-fable-5", reasoning_effort=None),
+                {"runtime_adapter": "claude", "provider": "anthropic", "model": "claude-fable-5"},
+            ),
+        ],
+        ids=["full_triple", "no_effort_resolved"],
+    )
+    def test_pins_the_successor_run_to_what_resolved(self, prefs, expected):
         """A run created straight off a task writes these itself — without them the new
         sandbox falls back to whatever the agent server defaults to."""
         with patch(
             "products.slack_app.backend.facade.run_preferences.resolve_run_preferences",
-            return_value=AIPreferences(runtime_adapter="codex", model="gpt-5.6-sol", reasoning_effort="high"),
+            return_value=prefs,
         ):
             state = _run_preference_state(integration=None, slack_user_id="U1", model_override=None)
-        assert state == {
-            "runtime_adapter": "codex",
-            "provider": "openai",
-            "model": "gpt-5.6-sol",
-            "reasoning_effort": "high",
-        }
-
-    def test_omits_what_was_never_resolved(self):
-        with patch(
-            "products.slack_app.backend.facade.run_preferences.resolve_run_preferences",
-            return_value=AIPreferences(runtime_adapter="claude", model="claude-fable-5", reasoning_effort=None),
-        ):
-            state = _run_preference_state(integration=None, slack_user_id="U1", model_override=None)
-        assert "reasoning_effort" not in state
+        assert state == expected

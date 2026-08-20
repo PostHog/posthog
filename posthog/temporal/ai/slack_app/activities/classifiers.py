@@ -525,20 +525,31 @@ def classify_slack_app_model_override(
     return SlackAppModelOverride(model=choice.model if choice else None, reasoning_effort=reply.reasoning_effort)
 
 
-def classify_model_override_for_integration(
-    integration: Integration,
-    event_text: str,
-) -> SlackAppModelOverride | None:
-    """The model a Slack message asked for, gated on the flag and the live catalogue.
+@activity.defn
+@close_db_connections
+def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
+    """Resolve the model a message asked for, or ``None`` to use saved preferences.
 
-    Serves both the mention and the follow-up path, which reach it through the same
-    activity — the workflow classifies once, above the point where the two diverge.
+    Runs as its own activity rather than inside the activity that consumes it so the
+    choice is recorded in workflow history once: both task creation and follow-up
+    forwarding retry, and re-running a classifier there could hand the second attempt a
+    different model than the first one announced. The workflow calls it once, above the
+    point where the mention and follow-up paths diverge.
+
+    Every message behind the flag reaches the classifier. A keyword pre-filter would
+    save the Haiku call on the majority that name no model, but it also decides — on
+    a substring match — which phrasings can ever steer a run, and that judgement
+    belongs to the model reading the sentence, not to a word list. Blank text is not
+    that judgement: there is no sentence to read.
     """
-    if not event_text.strip():
-        # Nothing to read. Distinct from the keyword pre-filter the activity rejects:
-        # that one decides which phrasings may steer a run, this one is an empty page.
+    if not input.event_text.strip():
         return None
 
+    integration = Integration.objects.select_related("team").get(
+        id=input.integration_id,
+        kind="slack",
+        integration_id=input.slack_team_id,
+    )
     if not is_slack_app_model_classifier_enabled(integration):
         return None
 
@@ -549,7 +560,7 @@ def classify_model_override_for_integration(
         logger.info("slack_app_model_override_empty_catalogue", integration_id=integration.id)
         return None
 
-    override = classify_slack_app_model_override(event_text, choices)
+    override = classify_slack_app_model_override(input.event_text, choices)
     if override is None:
         return None
 
@@ -560,26 +571,3 @@ def classify_model_override_for_integration(
         reasoning_effort=override.reasoning_effort,
     )
     return override
-
-
-@activity.defn
-@close_db_connections
-def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
-    """Resolve the model a message asked for, or ``None`` to use saved preferences.
-
-    Runs as its own activity rather than inside the activity that consumes it so the
-    choice is recorded in workflow history once: both task creation and follow-up
-    forwarding retry, and re-running a classifier there could hand the second attempt a
-    different model than the first one announced.
-
-    Every message behind the flag reaches the classifier. A keyword pre-filter would
-    save the Haiku call on the majority that name no model, but it also decides — on
-    a substring match — which phrasings can ever steer a run, and that judgement
-    belongs to the model reading the sentence, not to a word list.
-    """
-    integration = Integration.objects.select_related("team").get(
-        id=input.integration_id,
-        kind="slack",
-        integration_id=input.slack_team_id,
-    )
-    return classify_model_override_for_integration(integration, input.event_text)

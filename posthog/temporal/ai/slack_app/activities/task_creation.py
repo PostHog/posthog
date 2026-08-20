@@ -1063,8 +1063,8 @@ def _apply_followup_model_override(
             slack,
             channel,
             thread_ts,
-            f"I can't move this task onto {describe_run_model(change.refused_model, None)} — the runtime is fixed "
-            "once an agent starts. Start a new thread to run on it.",
+            f"I can't move this task onto {describe_run_model(change.refused_model, None)}. The runtime is fixed "
+            "once an agent starts, so start a new thread to run on it.",
         )
         return
 
@@ -1269,12 +1269,10 @@ def _resume_task_with_new_run(
     if previous_state.get("slack_thread_url"):
         extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
 
-    # `create_run` builds a fresh state, so a run that says nothing about the model reaches
-    # the sandbox with none and the agent server picks its own — the thread then can't say
-    # what ran. A successor launches its own agent server, so the whole triple is open
-    # again, including the runtime a live run could never be moved onto. Resolved rather
-    # than carried over, like the keys above: a preference changed since the previous run
-    # is picked up too.
+    # A successor launches its own agent server, so the whole triple is open again —
+    # including the runtime a live run could never be moved onto. Resolved rather than
+    # carried over, like the keys above: a preference changed since the previous run is
+    # picked up too.
     extra_state.update(_run_preference_state(integration, slack_user_id, model_override))
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
