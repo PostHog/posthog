@@ -142,13 +142,13 @@ Same-weekday matters: most PostHog meters have a hard weekday/weekend shape, and
 
 **Group alias meters into families before testing concentration.** Several usage types are views or subsets of the same underlying usage, so counting them independently lets one real move put two series outside the tolerance and misread a localized billing change as a broad traffic story. Collapse each family to its primary meter and score the family once:
 
-| Family             | Members                                                                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Events             | `event_count_in_period`, `enhanced_persons_event_count_in_period`, `group_analytics`, `data_pipelines`                                      |
-| Logs               | `logs_mb_in_period`, `logs_retention_30d_mb_in_period`                                                                                      |
-| Warehouse rows in  | `rows_synced_in_period`, `free_historical_rows_synced_in_period`                                                                            |
+| Family             | Members                                                                                                                                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Events             | `event_count_in_period`, `enhanced_persons_event_count_in_period`, `group_analytics`, `data_pipelines`                                                                                                                          |
+| Logs               | `logs_mb_in_period`, `logs_retention_30d_mb_in_period`                                                                                                                                                                          |
+| Warehouse rows in  | `rows_synced_in_period`, `free_historical_rows_synced_in_period`                                                                                                                                                                |
 | PostHog Desktop    | `posthog_code_credits_used_in_period`, `posthog_code_token_credits_used_in_period`, `sandbox_compute_credits_used_in_period`, `sandbox_compute_cpu_millicore_seconds_in_period`, `sandbox_compute_memory_mib_seconds_in_period` |
-| Session recordings | `recording_count_in_period`, `mobile_recording_count_in_period`                                                                             |
+| Session recordings | `recording_count_in_period`, `mobile_recording_count_in_period`                                                                                                                                                                 |
 
 The Desktop credits meter is the sum of its parts — token credits plus sandbox compute credits — so any token or compute move necessarily moves the aggregate too, and scoring them apart guarantees two families out of tolerance on a single localized jump.
 
