@@ -54,6 +54,54 @@ pub struct NotificationsConfig {
         default = "error-tracking-lifecycle-task-queue"
     )]
     pub error_tracking_lifecycle_task_queue: String,
+
+    /// Redis backing the per-team lifecycle rate limit. An empty URL builds no
+    /// limiter, so every notification starts its workflow.
+    #[envconfig(from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_REDIS_URL", default = "")]
+    pub lifecycle_rate_limit_redis_url: String,
+
+    /// Workflow starts a team may make per hour, across all notification types.
+    /// Zero or less disables the limit.
+    #[envconfig(
+        from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_PER_HOUR",
+        default = "1000"
+    )]
+    pub lifecycle_rate_limit_per_hour: i64,
+
+    /// Key namespace. It must differ from the event limiter's prefix, or the two
+    /// limits share one bucket.
+    #[envconfig(
+        from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_KEY_PREFIX",
+        default = "@posthog/error-tracking-lifecycle-rate-limiter"
+    )]
+    pub lifecycle_rate_limit_key_prefix: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_BUCKET_TTL_SECONDS",
+        default = "3600"
+    )]
+    pub lifecycle_rate_limit_bucket_ttl_seconds: u64,
+
+    /// Comma-separated team ids the limit applies to. Empty means all teams.
+    #[envconfig(
+        from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_ENABLED_TEAM_IDS",
+        default = ""
+    )]
+    pub lifecycle_rate_limit_enabled_team_ids: String,
+
+    /// False charges the bucket and records the outcome, but starts every
+    /// workflow anyway. Deploy in this state to size the limit before it bites.
+    #[envconfig(
+        from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_ENFORCED",
+        default = "false"
+    )]
+    pub lifecycle_rate_limit_enforced: bool,
+
+    #[envconfig(default = "100")]
+    pub redis_response_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub redis_connection_timeout_ms: u64,
 }
 
 impl NotificationsConfig {

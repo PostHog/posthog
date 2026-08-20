@@ -30,7 +30,8 @@ use crate::{
 
 use crate::modes::processing::rules::bypass::BypassRule;
 use crate::modes::processing::rules::rate_limit::RateLimitSettings;
-pub use limiter::{RateLimitDecision, RedisRateLimiter, ScriptRunner, RATE_LIMIT_LUA};
+pub use crate::modes::shared::token_bucket::ScriptRunner;
+pub use limiter::{RateLimitDecision, RedisRateLimiter, RATE_LIMIT_LUA};
 
 /// Ceiling on concurrent Redis admits per batch — bounds the pathological tail (many
 /// tiny, all-distinct issues). Normal batches stay under it and fan out fully.

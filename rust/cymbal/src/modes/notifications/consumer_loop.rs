@@ -10,7 +10,7 @@ use crate::modes::notifications::handler::handle_notification;
 
 const NOTIFICATIONS_RECEIVED_TOTAL: &str = "cymbal_notifications_received_total";
 const NOTIFICATIONS_HANDLED_TOTAL: &str = "cymbal_notifications_handled_total";
-const NOTIFICATIONS_SKIPPED_TOTAL: &str = "cymbal_notifications_skipped_total";
+pub(super) const NOTIFICATIONS_SKIPPED_TOTAL: &str = "cymbal_notifications_skipped_total";
 const NOTIFICATIONS_KAFKA_ERRORS_TOTAL: &str = "cymbal_notifications_kafka_errors_total";
 const NOTIFICATIONS_HANDLE_ERRORS_TOTAL: &str = "cymbal_notifications_handle_errors_total";
 const NOTIFICATIONS_COMMIT_BATCH_SIZE: usize = 100;

@@ -9,7 +9,42 @@ pipeline, the `cymbal.resolution.v1` gRPC symbol-resolution service
 (`CYMBAL_MODE=resolution`), or the Kafka notification consumer
 (`CYMBAL_MODE=notifications`). The notification consumer starts the matching
 Temporal lifecycle workflow for every issue-created, issue-reopened, or
-issue-spiking notification.
+issue-spiking notification that stays within the team's hourly budget (see
+[Lifecycle rate limit](#lifecycle-rate-limit-notifications-mode)).
+
+## Lifecycle rate limit (notifications mode)
+
+Notifications mode caps issue lifecycle workflow starts per team per hour. One
+Redis token bucket per team is charged by every notification type, so a team
+that exhausts it gets no workflow, and therefore no embedding and no alert,
+until the bucket refills.
+
+The gate sits in the consumer rather than in processing mode, because the
+consumer is what starts the workflows. The Kafka payload carries no decision, so
+a replayed notification is judged the same way every time. `start_workflow` is
+idempotent on the workflow id, so a replay starts nothing and Temporal answers
+`Existing`. The handler then refunds the token, which is what keeps the charge
+idempotent across a consumer restart.
+
+Redis failures fail open: a limiter outage admits the notification and
+increments `cymbal_lifecycle_rate_limit_fail_open`.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_REDIS_URL` | empty | An empty URL builds no limiter, so every notification starts its workflow. |
+| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_PER_HOUR` | `1000` | Workflow starts a team may make per hour. Zero or less disables the limit. |
+| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-lifecycle-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
+| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. |
+| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_ENABLED_TEAM_IDS` | empty | Comma-separated allowlist. Empty covers all teams. |
+| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_ENFORCED` | `false` | `false` charges the bucket and records the outcome, but starts every workflow. |
+
+Deploy with `ENFORCED=false` first: the bucket drains for real, so
+`cymbal_lifecycle_rate_limit_outcomes{outcome="limited"}` sizes the limit before
+it cuts anything.
+
+The token bucket itself lives in
+[`src/modes/shared/token_bucket.rs`](src/modes/shared/token_bucket.rs), shared
+with the per-event limiter in processing mode.
 
 Symbol resolution runs in resolution-mode pods via the
 `cymbal.resolution.v1` contract. Processing has no inline fallback.
