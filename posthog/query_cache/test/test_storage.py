@@ -49,6 +49,9 @@ class FakeObjectStorage:
             raise ObjectStorageError("read failed")
         return self.objects[(bucket, key)]
 
+    def delete(self, bucket: str, key: str) -> None:
+        self.objects.pop((bucket, key), None)
+
 
 class TestS3PointerCodec(SimpleTestCase):
     def test_pointer_round_trips(self):
@@ -251,6 +254,8 @@ class TestQueryCacheS3Routing(BaseTest):
             assert self._redis_holds_pointer(cache_key)
             older_upload()
 
+        # The superseded upload deletes its own blob; only the winning upload's object remains.
+        assert len(self.storage.objects) == 1
         entry = cache.lookup().entry
         assert entry is not None
         assert entry.as_full_response() == newer
@@ -269,7 +274,7 @@ class TestQueryCacheS3Routing(BaseTest):
         assert entry is not None
         assert entry.as_full_response() == response
 
-    def test_each_upload_writes_a_fresh_object(self):
+    def test_replacing_a_pointer_entry_deletes_the_replaced_blob(self):
         cache_key = f"s3_fresh_object_{self.team.pk}"
         cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
         first = self._large_response()
@@ -279,8 +284,9 @@ class TestQueryCacheS3Routing(BaseTest):
             cache.store_result(response=first, target_age=None)
             cache.store_result(response=second, target_age=None)
 
-        # A shared object key would let overlapping recomputes overwrite each other's blob.
-        assert len(self.storage.objects) == 2
+        # The second store replaced the first store's pointer, which enqueued a delete for its
+        # blob (Celery runs eagerly under TEST); only the second store's object remains.
+        assert len(self.storage.objects) == 1
         entry = cache.lookup().entry
         assert entry is not None
         assert entry.as_full_response() == second

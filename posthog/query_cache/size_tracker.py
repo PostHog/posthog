@@ -94,6 +94,33 @@ redis.call('EXPIRE', total_key, tracking_ttl)
 return redis.call('GET', total_key)
 """
 
+# Lua script for the entry write: store the new value and hand back the value it replaced,
+# but only when that value is an S3 pointer record (ARGV[3] is the pointer magic). Capturing
+# atomically with the write guarantees a returned pointer is dereferenced, so its blob is
+# safe to delete; filtering server-side keeps multi-megabyte inline blobs off the wire.
+SET_ENTRY_RETURNING_OLD_POINTER_SCRIPT = """
+local old = redis.call('GET', KEYS[1])
+redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]))
+if old and string.sub(old, 1, string.len(ARGV[3])) == ARGV[3] then
+    return old
+end
+"""
+
+# Lua script for eviction: delete the entry and report what was there. Returns nil when the
+# key was already gone (TTL expiry), the old value when it was an S3 pointer (ARGV[1] is the
+# pointer magic), and 1 otherwise, again keeping inline blobs off the wire.
+DELETE_ENTRY_RETURNING_OLD_POINTER_SCRIPT = """
+local old = redis.call('GET', KEYS[1])
+if not old then
+    return nil
+end
+redis.call('DEL', KEYS[1])
+if string.sub(old, 1, string.len(ARGV[1])) == ARGV[1] then
+    return old
+end
+return 1
+"""
+
 # Lua script for the pointer swap: replace the entry only while it still holds the exact bytes
 # the caller wrote, so a swap that lost a race to a newer write skips instead of clobbering it.
 # Compares the full expected value rather than a redis.sha1hex digest because fakeredis's Lua
@@ -168,6 +195,8 @@ class TeamCacheSizeTracker:
 
         # redis-py's stubs omit register_script on RedisCluster; the runtime supports it.
         self._track_write_script = self.redis_client.register_script(TRACK_CACHE_WRITE_SCRIPT)  # type: ignore[union-attr]
+        self._set_entry_script = self.redis_client.register_script(SET_ENTRY_RETURNING_OLD_POINTER_SCRIPT)  # type: ignore[union-attr]
+        self._delete_entry_script = self.redis_client.register_script(DELETE_ENTRY_RETURNING_OLD_POINTER_SCRIPT)  # type: ignore[union-attr]
         self._replace_if_unchanged_script = self.redis_client.register_script(REPLACE_IF_UNCHANGED_SCRIPT)  # type: ignore[union-attr]
         self._remove_tracking_script = self.redis_client.register_script(REMOVE_TRACKING_SCRIPT)  # type: ignore[union-attr]
 
@@ -191,7 +220,11 @@ class TeamCacheSizeTracker:
         if size_before + data_size > limit:
             evicted = self.evict_until_under_limit(limit, data_size)
 
-        self.redis_client.set(storage.entry_redis_key(cache_key), data, ex=ttl)
+        old_pointer = self._set_entry_script(
+            keys=[storage.entry_redis_key(cache_key)],
+            args=[data, ttl, storage.S3_POINTER_MAGIC],
+        )
+        storage.schedule_blob_delete(old_pointer, team_id=self.team_id, cache_key=cache_key, trigger="replaced")
         self.track_cache_write(cache_key, data_size)
 
         total_size = self.get_total_size()
@@ -257,14 +290,18 @@ class TeamCacheSizeTracker:
             if isinstance(cache_key, bytes):
                 cache_key = cache_key.decode()
 
-            # Check if key still exists in cache (lazy cleanup for TTL-expired keys)
-            if not self.redis_client.exists(storage.entry_redis_key(cache_key)):
+            old_value = self._delete_entry_script(
+                keys=[storage.entry_redis_key(cache_key)],
+                args=[storage.S3_POINTER_MAGIC],
+            )
+            if old_value is None:
                 # Already expired via TTL, just clean up tracking
                 removed_size = self._remove_tracking(cache_key)
                 current_size -= removed_size
                 continue
 
-            self.redis_client.delete(storage.entry_redis_key(cache_key))
+            if isinstance(old_value, bytes):
+                storage.schedule_blob_delete(old_value, team_id=self.team_id, cache_key=cache_key, trigger="evicted")
             removed_size = self._remove_tracking(cache_key)
 
             current_size -= removed_size
