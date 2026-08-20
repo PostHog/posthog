@@ -620,6 +620,26 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_state",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
+    # TODO: product_analytics presentation wave — newly surfaced debt from the backend/api/ →
+    # backend/presentation/ rename (same situation as experiments below), not new coupling. The
+    # insight viewset renders dashboard tiles, alert state, cohort filters and annotation context
+    # in-process; these drain as those products expose facades (or the rendering moves behind
+    # product_analytics' own facade). backend:contract-check stays off until this list is empty.
+    "products.product_analytics.backend.presentation.insight -> products.alerts.backend.api.alert",
+    "products.product_analytics.backend.presentation.insight -> products.alerts.backend.models.alert",
+    "products.product_analytics.backend.presentation.insight -> products.cohorts.backend.models.cohort",
+    "products.product_analytics.backend.presentation.insight -> products.dashboards.backend.access",
+    "products.product_analytics.backend.presentation.insight -> products.dashboards.backend.models.dashboard",
+    "products.product_analytics.backend.presentation.insight -> products.dashboards.backend.models.dashboard_tile",
+    "products.product_analytics.backend.presentation.insight_ee -> products.dashboards.backend.models.dashboard",
+    "products.product_analytics.backend.presentation.insight_suggestions -> products.annotations.backend.api.annotation_context",
+    "products.product_analytics.backend.presentation.test.test_insight -> products.alerts.backend.models.alert",
+    "products.product_analytics.backend.presentation.test.test_insight -> products.cohorts.backend.models.cohort",
+    "products.product_analytics.backend.presentation.test.test_insight -> products.dashboards.backend.access",
+    "products.product_analytics.backend.presentation.test.test_insight -> products.dashboards.backend.models.dashboard",
+    "products.product_analytics.backend.presentation.test.test_insight -> products.dashboards.backend.models.dashboard_tile",
+    "products.product_analytics.backend.presentation.test.test_deprecated_dashboards_field -> products.dashboards.backend.models.dashboard",
+    "products.product_analytics.backend.presentation.test.test_deprecated_dashboards_field -> products.dashboards.backend.models.dashboard_tile",
     # TODO: experiments presentation wave — these were invisible to import-linter until
     # backend/presentation/ got its package marker, so they are newly surfaced debt, not new
     # coupling. experiments is not isolated, so nothing was being skipped on their account.

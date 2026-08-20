@@ -60,8 +60,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -81,7 +80,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     )
     def test_legacy_insight_endpoints_blocked_with_feature_flag(self, _name: str, path: str) -> None:
         with patch(
-            "products.product_analytics.backend.api.insight.feature_enabled_or_false", return_value=True
+            "products.product_analytics.backend.presentation.insight.feature_enabled_or_false", return_value=True
         ) as mock_feature_enabled:
             response = self.client.get(path.format(team_id=self.team.id))
 
@@ -94,7 +93,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_creating_legacy_filter_insight_blocked_with_feature_flag(self) -> None:
         with patch(
-            "products.product_analytics.backend.api.insight.feature_enabled_or_false", return_value=True
+            "products.product_analytics.backend.presentation.insight.feature_enabled_or_false", return_value=True
         ) as mock_feature_enabled:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights/",
@@ -113,7 +112,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_creating_query_insight_not_blocked_by_legacy_filter_flag(self) -> None:
         with patch(
-            "products.product_analytics.backend.api.insight.feature_enabled_or_false", return_value=True
+            "products.product_analytics.backend.presentation.insight.feature_enabled_or_false", return_value=True
         ) as mock_feature_enabled:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights/",
@@ -503,7 +502,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("forced_refresh", False, "force_blocking", False),
         ]
     )
-    @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
+    @patch("products.product_analytics.backend.presentation.insight.record_dashboard_cache_outcome")
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_dashboard_insight_records_cache_outcome(
         self,
@@ -561,7 +560,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             patch(
                 "posthog.caching.calculate_results.calculate_for_query_based_insight"
             ) as calculate_for_query_based_insight,
-            patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome") as record_outcome,
+            patch(
+                "products.product_analytics.backend.presentation.insight.record_dashboard_cache_outcome"
+            ) as record_outcome,
         ):
             self.client.get(valid_url)
             calculate_for_query_based_insight.assert_called_once_with(
@@ -1596,7 +1597,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ),
         ]
     )
-    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    @patch("products.product_analytics.backend.presentation.insight.report_user_action")
     def test_creating_insight_with_dashboard_fires_tile_added_event(
         self,
         _name: str,
@@ -1623,7 +1624,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
-    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    @patch("products.product_analytics.backend.presentation.insight.report_user_action")
     def test_adding_insight_to_dashboard_fires_tile_added_event(self, mock_report_user_action: mock.Mock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
         insight_id, _ = self.dashboard_api.create_insight({"filters": {"insight": "STICKINESS"}})
@@ -1639,7 +1640,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
-    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    @patch("products.product_analytics.backend.presentation.insight.report_user_action")
     def test_non_web_retrieve_fires_insight_read_event(self, mock_report_user_action: mock.Mock) -> None:
         insight_id, insight_json = self.dashboard_api.create_insight(
             {"query": DataVisualizationNode(source=HogQLQuery(query="select 1")).model_dump()}
@@ -1660,7 +1661,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
-    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    @patch("products.product_analytics.backend.presentation.insight.report_user_action")
     def test_removing_insight_from_dashboard_fires_tile_removed_event(self, mock_report_user_action: mock.Mock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
         insight_id, _ = self.dashboard_api.create_insight(
@@ -1678,7 +1679,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
-    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    @patch("products.product_analytics.backend.presentation.insight.report_user_action")
     def test_web_retrieve_does_not_fire_insight_read_event(self, mock_report_user_action: mock.Mock) -> None:
         insight_id, _ = self.dashboard_api.create_insight({})
         mock_report_user_action.reset_mock()
@@ -5136,7 +5137,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             ("HogVMException", "Global variable not found: variables"),
         ]
     )
-    @patch("products.product_analytics.backend.api.insight.process_query_dict")
+    @patch("products.product_analytics.backend.presentation.insight.process_query_dict")
     def test_trend_returns_400_for_exposed_errors(
         self, error_type: str, error_message: str, mock_process: mock.MagicMock
     ) -> None:
@@ -5168,7 +5169,7 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             ("HogVMException", "Global variable not found: variables"),
         ]
     )
-    @patch("products.product_analytics.backend.api.insight.process_query_dict")
+    @patch("products.product_analytics.backend.presentation.insight.process_query_dict")
     def test_funnel_returns_400_for_exposed_errors(
         self, error_type: str, error_message: str, mock_process: mock.MagicMock
     ) -> None:
@@ -5344,7 +5345,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         self.assertEqual(self._reloaded_source(needs_change)["filterTestAccounts"], enabled)
         self.assertEqual(self._reloaded_source(already_set)["filterTestAccounts"], enabled)
 
-    @patch("products.product_analytics.backend.api.insight.INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE", 2)
+    @patch("products.product_analytics.backend.presentation.insight.INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE", 2)
     def test_covers_every_insight_across_several_batches(self) -> None:
         insights = [self._create_query_insight(name=f"Trend {n}", filter_test_accounts=False) for n in range(5)]
 
@@ -5444,7 +5445,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
             ("a run that flips nothing", True, {"insights_updated": 0, "insights_unchanged": 1}),
         ]
     )
-    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    @patch("products.product_analytics.backend.presentation.insight.report_user_action")
     def test_reports_the_run_for_analytics(
         self,
         _name: str,
