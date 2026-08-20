@@ -148,7 +148,9 @@ class TestSrmCrossesAlertThreshold(TestCase):
         ]
     )
     def test_gate(self, _name, observed, expected, p_value, should_fire):
-        self.assertEqual(srm_crosses_alert_threshold(observed=observed, expected=expected, p_value=p_value), should_fire)
+        self.assertEqual(
+            srm_crosses_alert_threshold(observed=observed, expected=expected, p_value=p_value), should_fire
+        )
 
     def test_multiple_variant_excluded_from_total(self):
         # The configured variants sum to 900 (below the 1,000 floor), so the gate must stay quiet.
