@@ -9,6 +9,7 @@ import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
+  CHANNEL_REPORTS_FLAG,
   closeTab as closeTabLocal,
   closeTabs as closeTabsLocal,
   decideTabNavigation,
@@ -179,6 +180,9 @@ export function BrowserTabStrip() {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  // With channel reports on, a restored inbox tab lands on the spaces index
+  // (the inbox is gone as a destination).
+  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
 
@@ -595,7 +599,11 @@ export function BrowserTabStrip() {
       // case so the router types stay checked).
       switch (tab.appView) {
         case "inbox":
-          navigate({ to: "/code/inbox", state });
+          if (channelReportsEnabled) {
+            navigate({ to: "/website", state });
+          } else {
+            navigate({ to: "/code/inbox", state });
+          }
           break;
         case "agents":
           navigate({ to: "/code/agents", state });

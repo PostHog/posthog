@@ -402,7 +402,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   }, [pathname]);
   const activeReportId = useMemo(() => {
     const match = pathname.match(
-      /\/inbox\/(?:reports|pulls|dismissed)\/([^/]+)$/,
+      /\/(?:inbox\/(?:reports|pulls|dismissed)|website\/[^/]+\/reports)\/([^/]+)$/,
     );
     return match ? match[1] : null;
   }, [pathname]);

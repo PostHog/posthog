@@ -41,9 +41,14 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
     isFetching: false,
     isLoading: false,
     issues: [],
+    mode: "tasks",
     refetch,
+    reports: [],
     tasks: [],
   }),
+}));
+vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({
+  useOpenInboxReport: () => vi.fn(),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 

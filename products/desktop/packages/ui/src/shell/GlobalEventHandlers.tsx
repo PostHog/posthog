@@ -6,7 +6,7 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { useService, useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { CHANNEL_REPORTS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { toggleActivityPanel } from "@posthog/ui/features/canvas/toggleActivityPanel";
@@ -90,6 +90,9 @@ export function GlobalEventHandlers({
   );
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
+  // With channel reports on, the inbox is gone as a destination, so its
+  // shortcut goes with it.
+  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
   const channelsLayout = useChannelsLayout();
 
   const taskById = useMemo(() => {
@@ -220,7 +223,10 @@ export function GlobalEventHandlers({
     enabled: channelsLayout,
   });
   useHotkeys(SHORTCUTS.SHORTCUTS_SHEET, onToggleShortcutsSheet, globalOptions);
-  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, globalOptions);
+  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, {
+    ...globalOptions,
+    enabled: !channelReportsEnabled,
+  });
   useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, globalOptions, [
     handlePrevTask,
   ]);

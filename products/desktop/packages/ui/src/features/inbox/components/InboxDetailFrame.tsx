@@ -31,7 +31,7 @@ import { type ComponentType, type ReactNode, useState } from "react";
 interface InboxDetailFrameProps {
   report: SignalReport;
   /** List route for the back-link (e.g. "/code/inbox/pulls"). */
-  backTo: InboxListRoute;
+  backTo: InboxListRoute | (string & {});
   backLabel: string;
   /**
    * Whether to render the Dismiss button + dialog. Off for already-dismissed

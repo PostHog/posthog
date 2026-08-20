@@ -1,4 +1,8 @@
-import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  CHANNEL_REPORTS_FLAG,
+  LOOPS_FLAG,
+  PROJECT_BLUEBIRD_FLAG,
+} from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type SidebarNavItem,
@@ -68,6 +72,9 @@ export function SidebarNavSection({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  // With channel reports on, spaces own reports (sidebar tab + feed) and the
+  // inbox disappears as a destination.
+  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
   // When this section renders inside the Channels space, the destinations that
   // have a /website mirror stay in that space; everything else (and the whole
   // section in the Code space) uses the canonical routes. Inbox and New task
@@ -134,7 +141,7 @@ export function SidebarNavSection({
     ),
   );
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
-    inbox: true,
+    inbox: !channelReportsEnabled,
     "command-center": true,
     activity: bluebirdEnabled,
     configure: true,

@@ -1,12 +1,14 @@
 import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
 import { isInboxDetailPath } from "@posthog/core/inbox/reportMembership";
+import { CHANNEL_REPORTS_FLAG } from "@posthog/shared";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { InboxPageHeader } from "@posthog/ui/features/inbox/components/InboxPageHeader";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { resetReportOpenTrackerHistory } from "@posthog/ui/features/inbox/hooks/useReportOpenTracker";
 import { useTrackInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackInboxViewed";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Flex, Text } from "@radix-ui/themes";
-import { Outlet, useRouterState } from "@tanstack/react-router";
+import { Navigate, Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 
 /**
@@ -43,6 +45,15 @@ export function InboxView() {
   const { counts } = useInboxAllReports();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isDetailView = isInboxDetailPath(pathname);
+
+  // With channel reports on, spaces replace the inbox as the home for reports.
+  // List tabs reached through stale history or bookmarks land on the spaces
+  // index; detail URLs keep working (deep links and old history still carry
+  // them, and the in-space route can't be derived from a bare report URL here).
+  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  if (channelReportsEnabled && !isDetailView) {
+    return <Navigate replace to="/website" />;
+  }
 
   return (
     <Flex direction="column" className="h-full min-h-0">

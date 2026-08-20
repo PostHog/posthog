@@ -28,7 +28,11 @@ import {
   Kbd,
   KbdGroup,
 } from "@posthog/quill";
-import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  CHANNEL_REPORTS_FLAG,
+  LOOPS_FLAG,
+  PROJECT_BLUEBIRD_FLAG,
+} from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type CommandMenuAction,
@@ -217,6 +221,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     import.meta.env.DEV,
   );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  // With channel reports on, spaces own reports and the inbox entry goes away.
+  const channelReportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
@@ -352,18 +358,22 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         shortcut: SHORTCUTS.SETTINGS,
         onRun: () => openSettingsDialog(),
       },
-      {
-        id: "inbox",
-        label: "Inbox",
-        keywords: "reports pull requests agents notifications",
-        icon: <EnvelopeSimple size={12} className="text-gray-11" />,
-        action: "open-inbox",
-        shortcut: SHORTCUTS.INBOX,
-        onRun: () => {
-          closeSettingsDialog();
-          navigateToInbox();
-        },
-      },
+      ...(channelReportsEnabled
+        ? []
+        : [
+            {
+              id: "inbox",
+              label: "Inbox",
+              keywords: "reports pull requests agents notifications",
+              icon: <EnvelopeSimple size={12} className="text-gray-11" />,
+              action: "open-inbox",
+              shortcut: SHORTCUTS.INBOX,
+              onRun: () => {
+                closeSettingsDialog();
+                navigateToInbox();
+              },
+            } satisfies Command,
+          ]),
       {
         id: "archived",
         label: "Archived",
@@ -572,6 +582,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
+    channelReportsEnabled,
   ]);
 
   const taskSections = useMemo<CommandSection[]>(() => {

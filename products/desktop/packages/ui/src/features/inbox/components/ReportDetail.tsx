@@ -17,31 +17,54 @@ import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxR
 interface ReportDetailProps {
   reportId: string;
   cachedReport?: SignalReport | null;
+  /** Where the back link points; the inbox Reports tab unless re-homed. */
+  backTo?: string;
+  backLabel?: string;
+  /** Off when hosted on the in-space route, which has no per-status URLs. */
+  statusRedirect?: boolean;
 }
 
 export function ReportDetail({
   reportId,
   cachedReport = null,
+  backTo = "/code/inbox/reports",
+  backLabel = "Back to reports",
+  statusRedirect = true,
 }: ReportDetailProps) {
   return (
     <InboxReportDetailGate
       reportId={reportId}
       cachedReport={cachedReport}
-      backTo="/code/inbox/reports"
-      backLabel="Back to reports"
+      backTo={backTo}
+      backLabel={backLabel}
+      statusRedirect={statusRedirect}
       missingCopy="This report couldn't be found. It may have been deleted."
     >
-      {(report) => <ReportDetailContent report={report} />}
+      {(report) => (
+        <ReportDetailContent
+          report={report}
+          backTo={backTo}
+          backLabel={backLabel}
+        />
+      )}
     </InboxReportDetailGate>
   );
 }
 
-function ReportDetailContent({ report }: { report: SignalReport }) {
+function ReportDetailContent({
+  report,
+  backTo,
+  backLabel,
+}: {
+  report: SignalReport;
+  backTo: string;
+  backLabel: string;
+}) {
   return (
     <InboxDetailFrame
       report={report}
-      backTo="/code/inbox/reports"
-      backLabel="Back to reports"
+      backTo={backTo}
+      backLabel={backLabel}
       fallbackTitle="Untitled report"
       primaryAction={
         <>
