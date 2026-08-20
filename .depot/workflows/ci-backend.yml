@@ -1446,15 +1446,13 @@ jobs:
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  # "One migration per PR" means one relative to the PR's own base. A stacked
-                  # PR sits on a feature branch, so measuring against master would also count
-                  # the migrations the layers below it added and no stack could ever be green.
+                  # Count only migrations this PR adds; a stacked PR's base branch already carries the lower layers'.
                   DIFF_BASE=upstream/master
                   if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
                       if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
                           DIFF_BASE="origin/$BASE_REF"
                       else
-                          echo "::warning::Could not fetch base ref $BASE_REF — counting CH migrations against master instead"
+                          echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
                       fi
                   fi
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/

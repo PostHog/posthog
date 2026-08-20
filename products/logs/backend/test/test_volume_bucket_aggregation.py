@@ -7,8 +7,11 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV
 
 from products.logs.backend.temporal.volume_tick.aggregation import (
+    _ENVIRONMENT_KEYS,
+    _NAMESPACE_KEY,
     RollupPreview,
     _rollup_parameters,
     _rollup_sql,
@@ -197,3 +200,13 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
         self._insert_logs([self._log(_START), {**self._log(_START), "team_id": self.team.id + 10_000}])
 
         self.assertEqual(self._preview().rollup_rows, 1)
+
+
+def test_mv_matches_the_detector_grid_and_dimension_keys() -> None:
+    sql = LOGS34_TO_VOLUME_BUCKETS_MV()
+
+    assert f"toIntervalSecond({BUCKET_SECONDS})" in sql
+    assert f"'{_NAMESPACE_KEY}'" in sql
+    assert "lower(severity_text)" in sql
+    first_seen = [sql.index(f"'{key}'") for key in _ENVIRONMENT_KEYS]
+    assert first_seen == sorted(first_seen)

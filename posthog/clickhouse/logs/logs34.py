@@ -400,23 +400,12 @@ AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
 
 def LOGS34_TO_VOLUME_BUCKETS_MV():
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
-    # The 5-minute grid is duplicated here as a literal because MV DDL freezes it
-    # at migration time; BUCKET_SECONDS in
-    # products/logs/backend/temporal/volume_tick/constants.py must stay equal to it
-    # or the detector reads buckets the MV never writes.
-    #
-    # The bucket edges pin UTC explicitly so they cannot follow a session or
-    # server timezone: bucket identity must be stable across every reader.
-    #
-    # environment is the one resource attribute OTel renamed
-    # (deployment.environment became deployment.environment.name in semantic
-    # conventions 1.27), and `env` is where a Datadog `env:` tag lands because
-    # that ingest path stores tags verbatim. First non-empty wins. Map access
-    # yields '' for a missing key, never NULL, so coalesce cannot express this.
-    #
-    # severity_text is lowercased because an issue's identity will include it,
-    # so a service emitting ERROR one week and error the next would file two
-    # issues for one problem.
+    # Groups rows exactly like _rollup_sql in
+    # products/logs/backend/temporal/volume_tick/aggregation.py, which carries
+    # the reasoning for the environment fallback and severity lowercasing. The
+    # 300s grid literal is frozen into the DDL at migration time; BUCKET_SECONDS
+    # there must stay equal to it or the detector reads buckets this MV never
+    # writes.
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.logs_volume_buckets
 (
