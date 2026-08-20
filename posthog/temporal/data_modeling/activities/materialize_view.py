@@ -61,7 +61,7 @@ from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, Q
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
-from products.warehouse_sources.backend.facade.pipelines import CDPProducer
+from products.warehouse_sources.backend.facade.pipelines import CDPProducer, CDPStagingAccessDeniedError
 from products.warehouse_sources.backend.facade.temporal import PersonPropertyRowSink
 
 LOGGER = get_logger(__name__)
@@ -182,6 +182,12 @@ class _CDPRowSink:
             self.enabled = await self._producer.should_run()
             if self.enabled:
                 await self._producer.clear()
+        except CDPStagingAccessDeniedError as e:
+            # The worker has no S3 grant on the staging bucket. This fault recurs on every run. Log
+            # it so it stays visible, but keep it out of error tracking. One missing grant must not
+            # flood error tracking with a captured exception per materialization.
+            self.enabled = False
+            await self._logger.awarning(f"CDP row staging disabled: no S3 access to the staging bucket: {e}")
         except Exception as e:
             capture_exception(e)
             await self._logger.awarning(f"Could not prepare CDP row staging; skipping it for this run: {e}")

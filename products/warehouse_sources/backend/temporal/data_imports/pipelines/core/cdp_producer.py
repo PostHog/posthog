@@ -45,6 +45,15 @@ CDP_PRODUCER_ROWS_TOTAL = Counter(
     labelnames=["team_id"],
 )
 
+class CDPStagingAccessDeniedError(PermissionError):
+    """The worker has no S3 grant on the CDP staging bucket.
+
+    This is a configuration gap, not a runtime fault. The fix is an infrastructure grant, not a
+    retry. Callers disable the sink and report the gap once. They do not capture an exception on
+    every run.
+    """
+
+
 TableKind = typing.Literal["source", "view"]
 
 # Trigger identifiers a HogFunction's `filters.source` or a HogFlow's `trigger.type` carries,
@@ -135,6 +144,10 @@ class CDPProducer:
                 return files
             except FileNotFoundError:
                 return []
+            except PermissionError as e:
+                # AccessDenied on the staging prefix surfaces here as PermissionError. Translate it
+                # so callers can tell a configuration gap apart from a transient S3 fault.
+                raise CDPStagingAccessDeniedError(str(e)) from e
 
     def _serialize_json(self, record: object, *, sort_keys: bool = False) -> bytes:
         try:
