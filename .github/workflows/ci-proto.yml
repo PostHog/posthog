@@ -15,7 +15,7 @@ permissions:
 
 jobs:
     changes:
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run proto checks
@@ -174,7 +174,7 @@ jobs:
     proto_checks:
         needs: [changes, lint, breaking, python-codegen, node-codegen]
         name: Proto Checks Pass
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: always()
         steps:
