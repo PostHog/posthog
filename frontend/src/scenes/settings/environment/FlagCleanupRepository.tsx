@@ -8,7 +8,27 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { githubIntegrationLogic } from 'lib/integrations/githubIntegrationLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
+import { IntegrationType } from '~/types'
+
 import { experimentsConfigLogic } from './experimentsConfigLogic'
+
+// Must pick the same integration as the backend's resolve_team_github_integration (org accounts
+// first, then oldest; broken installs skipped), or the dropdown offers repositories the
+// server-side validation then rejects.
+function resolveCleanupIntegration(integrations: IntegrationType[]): IntegrationType | undefined {
+    return integrations
+        .filter(
+            (integration) =>
+                integration.errors !== 'TOKEN_REFRESH_FAILED' && !integration.config?.installation_unavailable_since
+        )
+        .sort(
+            (a, b) =>
+                // Missing account type sorts last, like Postgres NULLS LAST.
+                (a.config?.account?.type ?? '\uffff').localeCompare(b.config?.account?.type ?? '\uffff') ||
+                a.created_at.localeCompare(b.created_at) ||
+                a.id - b.id
+        )[0]
+}
 
 export function FlagCleanupRepository(): JSX.Element {
     const { experimentsConfig, experimentsConfigUpdating } = useValues(experimentsConfigLogic)
@@ -21,7 +41,7 @@ export function FlagCleanupRepository(): JSX.Element {
     })
 
     const savedValue = experimentsConfig?.flag_cleanup_repository ?? null
-    const integration = githubIntegrations[0]
+    const integration = resolveCleanupIntegration(githubIntegrations)
 
     if (!integration) {
         if (integrationsLoading) {
