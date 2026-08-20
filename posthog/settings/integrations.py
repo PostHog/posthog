@@ -118,6 +118,11 @@ CLICKUP_APP_CLIENT_SECRET = get_from_env("CLICKUP_APP_CLIENT_SECRET", "")
 ATLASSIAN_APP_CLIENT_ID = get_from_env("ATLASSIAN_APP_CLIENT_ID", "")
 ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 
+# Empty defaults keep the app importable and the Xero connect flow dormant until the OAuth 2.0 app
+# is registered in the Xero developer portal and its credentials are deployed.
+XERO_APP_CLIENT_ID = get_from_env("XERO_APP_CLIENT_ID", "")
+XERO_APP_CLIENT_SECRET = get_from_env("XERO_APP_CLIENT_SECRET", "")
+
 # Stripe requires a more complex OAuth setup: we authenticate with Stripe, then exchange tokens
 # with our internal OAuth system to allow the Stripe app to make API calls to users' PostHog instances.
 # We also support their agentic provisioning protocol which requires us to check even more stuff

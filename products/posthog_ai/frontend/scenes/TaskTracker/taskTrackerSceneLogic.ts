@@ -165,6 +165,7 @@ export interface taskTrackerSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
         }[],
         payload?: any
@@ -219,6 +220,7 @@ export interface taskTrackerSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
         }[]
         payload?: any

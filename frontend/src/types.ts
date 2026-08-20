@@ -5528,6 +5528,7 @@ export const INTEGRATION_KINDS = [
     'aws-s3',
     's3-compatible',
     'snowflake',
+    'xero',
     'youtube-analytics',
 ] as const
 

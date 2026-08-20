@@ -101,6 +101,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
         }[],
         payload?: any
@@ -155,6 +156,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
         }[]
         payload?: any

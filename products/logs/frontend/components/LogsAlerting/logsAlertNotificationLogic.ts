@@ -112,6 +112,7 @@ export interface logsAlertNotificationLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
         }[],
         payload?: any
@@ -166,6 +167,7 @@ export interface logsAlertNotificationLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
         }[]
         payload?: any

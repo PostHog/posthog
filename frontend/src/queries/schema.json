@@ -29588,6 +29588,7 @@
                 "aws-s3",
                 "s3-compatible",
                 "snowflake",
+                "xero",
                 "youtube-analytics"
             ],
             "type": "string"

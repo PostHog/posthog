@@ -92,6 +92,7 @@ export interface integrationsLogicValues {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'xero'
             | 'youtube-analytics'
         )[]
     ) => IntegrationType[]
@@ -175,6 +176,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'xero'
             | 'youtube-analytics'
         searchParams: any
     }
@@ -289,6 +291,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
         }[],
         payload?: any
@@ -343,6 +346,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
         }[]
         payload?: any
@@ -414,6 +418,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
         }[],
         payload?: {
@@ -472,6 +477,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
         }[]
         payload?: {
@@ -523,6 +529,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'xero'
             | 'youtube-analytics'
     }
     openSetupModal: (
@@ -585,6 +592,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'xero'
             | 'youtube-analytics',
         payload?: {
             kind: IntegrationKind
@@ -632,6 +640,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'xero'
             | 'youtube-analytics'
         payload?: {
             kind: IntegrationKind
@@ -698,6 +707,7 @@ export interface integrationsLogicMeta {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'xero'
                 | 'youtube-analytics'
             )[]
         ) => IntegrationType[]
