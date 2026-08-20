@@ -82,24 +82,22 @@ export function PersonalizationSettingsView({
             }
             disabled={syncFromFile}
           />
-          {syncFromFile ? (
-            synced && (
-              <span className="text-right text-[12px] text-gray-10">
-                Using{" "}
-                <span className="font-mono text-[11px]">
-                  {synced.displayPath}
+          {syncFromFile
+            ? synced && (
+                <span className="text-right text-[12px] text-gray-10">
+                  Using{" "}
+                  <span className="font-mono text-[11px]">
+                    {synced.displayPath}
+                  </span>
+                  {synced.truncated ? " (truncated)" : ""}. Edit that file to
+                  change your personalization.
                 </span>
-                {synced.truncated ? " (truncated)" : ""}. Edit that file to
-                change your personalization.
-              </span>
-            )
-          ) : (
-            instructions.length >= COUNTER_VISIBLE_FROM && (
-              <span className="text-right text-[12px] text-gray-10 tabular-nums">
-                {instructions.length}/{MAX_INSTRUCTIONS_LENGTH}
-              </span>
-            )
-          )}
+              )
+            : instructions.length >= COUNTER_VISIBLE_FROM && (
+                <span className="text-right text-[12px] text-gray-10 tabular-nums">
+                  {instructions.length}/{MAX_INSTRUCTIONS_LENGTH}
+                </span>
+              )}
         </div>
       </SettingsCard>
     </SettingsSection>
