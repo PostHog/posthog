@@ -65,6 +65,14 @@ if TYPE_CHECKING:
     from products.customer_analytics.backend.models.account import Account
     from products.customer_analytics.backend.models.custom_property_definition import CustomPropertyDefinition
     from products.customer_analytics.backend.models.custom_property_value import CustomPropertyValue
+    from products.customer_analytics.backend.models.feature_request import (
+        FeatureRequest,
+        FeatureRequestAccountLink,
+        FeatureRequestEvidence,
+        FeatureRequestHistory,
+        FeatureRequestProductArea,
+        FeatureRequestProductAreaLink,
+    )
     from products.customer_analytics.backend.models.relationship import (
         AccountRelationship,
         AccountRelationshipDefinition,
@@ -83,6 +91,12 @@ else:
     Account = apps.get_model("customer_analytics", "Account")
     CustomPropertyDefinition = apps.get_model("customer_analytics", "CustomPropertyDefinition")
     CustomPropertyValue = apps.get_model("customer_analytics", "CustomPropertyValue")
+    FeatureRequest = apps.get_model("customer_analytics", "FeatureRequest")
+    FeatureRequestAccountLink = apps.get_model("customer_analytics", "FeatureRequestAccountLink")
+    FeatureRequestEvidence = apps.get_model("customer_analytics", "FeatureRequestEvidence")
+    FeatureRequestHistory = apps.get_model("customer_analytics", "FeatureRequestHistory")
+    FeatureRequestProductArea = apps.get_model("customer_analytics", "FeatureRequestProductArea")
+    FeatureRequestProductAreaLink = apps.get_model("customer_analytics", "FeatureRequestProductAreaLink")
     AccountRelationship = apps.get_model("customer_analytics", "AccountRelationship")
     AccountRelationshipDefinition = apps.get_model("customer_analytics", "AccountRelationshipDefinition")
     ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
@@ -250,6 +264,50 @@ def _create_account_relationship(team: Team, label: str) -> "AccountRelationship
 
 def _create_account_relationship_definition(team: Team, label: str) -> "AccountRelationshipDefinition":
     return AccountRelationshipDefinition.objects.unscoped().create(team=team, name=f"rel_def_{label}")
+
+
+def _create_feature_request(team: Team, label: str) -> "FeatureRequest":
+    account = Account.objects.unscoped().create(team=team, name=f"feature_request_account_{label}")
+    feature_request = FeatureRequest.objects.unscoped().create(team=team, title=f"feature_request_{label}")
+    FeatureRequestAccountLink.objects.unscoped().create(team=team, feature_request=feature_request, account=account)
+    return feature_request
+
+
+def _create_feature_request_product_area(team: Team, label: str) -> "FeatureRequestProductArea":
+    return FeatureRequestProductArea.objects.unscoped().create(team=team, name=f"product_area_{label}")
+
+
+def _create_feature_request_account_link(team: Team, label: str) -> "FeatureRequestAccountLink":
+    account = Account.objects.unscoped().create(team=team, name=f"linked_account_{label}")
+    feature_request = FeatureRequest.objects.unscoped().create(team=team, title=f"linked_request_{label}")
+    return FeatureRequestAccountLink.objects.unscoped().create(
+        team=team, feature_request=feature_request, account=account
+    )
+
+
+def _create_feature_request_evidence(team: Team, label: str) -> "FeatureRequestEvidence":
+    account_link = _create_feature_request_account_link(team, label)
+    return FeatureRequestEvidence.objects.unscoped().create(
+        team=team, account_link=account_link, source="conversation", summary=f"evidence_{label}"
+    )
+
+
+def _create_feature_request_product_area_link(team: Team, label: str) -> "FeatureRequestProductAreaLink":
+    feature_request = _create_feature_request(team, label)
+    product_area = _create_feature_request_product_area(team, label)
+    return FeatureRequestProductAreaLink.objects.unscoped().create(
+        team=team, feature_request=feature_request, product_area=product_area
+    )
+
+
+def _create_feature_request_history(team: Team, label: str) -> "FeatureRequestHistory":
+    feature_request = _create_feature_request(team, label)
+    return FeatureRequestHistory.objects.unscoped().create(
+        team=team,
+        feature_request=feature_request,
+        changes=[],
+        changed_at=timezone.now(),
+    )
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -845,6 +903,12 @@ SYSTEM_TABLE_FACTORIES = [
     ("experiments", _create_experiment),
     ("exports", _create_export),
     ("feature_flags", _create_feature_flag),
+    ("feature_request_account_links", _create_feature_request_account_link),
+    ("feature_request_evidence", _create_feature_request_evidence),
+    ("feature_request_history", _create_feature_request_history),
+    ("feature_request_product_area_links", _create_feature_request_product_area_link),
+    ("feature_request_product_areas", _create_feature_request_product_area),
+    ("feature_requests", _create_feature_request),
     ("file_system", _create_file_system),
     ("groups", _create_group),
     ("group_type_mappings", _create_group_type_mapping),
