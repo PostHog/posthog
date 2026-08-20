@@ -669,7 +669,9 @@ def insert_rows_to_clickhouse(table_name: str, rows: list[dict], batch_size: int
     total_inserted = 0
     for i in range(0, len(transformed), batch_size):
         batch = transformed[i : i + batch_size]
-        data = [tuple(row.get(col) for col in cfg.select_columns) for row in batch]
+        # row[col], not row.get(col): a missing configured column is a bug (transform drift, config
+        # typo), and a KeyError naming the column beats inserting NULL into a required field.
+        data = [tuple(row[col] for col in cfg.select_columns) for row in batch]
         sync_execute(insert_sql, data, with_column_types=False)
         total_inserted += len(batch)
     return total_inserted

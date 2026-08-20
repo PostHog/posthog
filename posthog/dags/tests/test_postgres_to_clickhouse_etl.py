@@ -244,6 +244,23 @@ class TestFetchRowsInBatches:
         assert conn.cursor.call_args[1].get("name") is not None
 
 
+def _org_row(**overrides):
+    """A full org row, as the SELECT always returns every configured column."""
+    row = dict.fromkeys(TABLE_CONFIGS["posthog_organization"].select_columns)
+    row.update(
+        {
+            "id": 1,
+            "name": "Org",
+            "is_member_join_email_enabled": True,
+            "available_product_features": "[]",
+            "created_at": datetime(2024, 1, 1),
+            "updated_at": datetime(2024, 1, 2),
+        }
+    )
+    row.update(overrides)
+    return row
+
+
 class TestInsertRowsToClickHouse:
     @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
     def test_empty_rows_returns_zero(self, mock_sync_execute):
@@ -252,16 +269,7 @@ class TestInsertRowsToClickHouse:
 
     @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
     def test_insert_targets_models_db_with_parameterized_values(self, mock_sync_execute):
-        row = {
-            "id": 1,
-            "name": "Org",
-            "is_member_join_email_enabled": True,
-            "available_product_features": "[]",
-            "created_at": datetime(2024, 1, 1),
-            "updated_at": datetime(2024, 1, 2),
-        }
-
-        n = insert_rows_to_clickhouse("posthog_organization", [row], batch_size=10)
+        n = insert_rows_to_clickhouse("posthog_organization", [_org_row()], batch_size=10)
 
         assert n == 1
         call = mock_sync_execute.call_args[0]
@@ -272,17 +280,19 @@ class TestInsertRowsToClickHouse:
         assert call[1] is not None
 
     @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    def test_insert_raises_on_missing_configured_column(self, mock_sync_execute):
+        # A row missing a configured column is a bug upstream (transform drift, config typo);
+        # the insert must raise naming the column, not silently write NULL into a required field.
+        row = _org_row()
+        del row["id"]
+
+        with pytest.raises(KeyError, match="id"):
+            insert_rows_to_clickhouse("posthog_organization", [row], batch_size=10)
+        mock_sync_execute.assert_not_called()
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
     def test_insert_batches_by_batch_size(self, mock_sync_execute):
-        rows = [
-            {
-                "id": i,
-                "name": f"Org {i}",
-                "is_member_join_email_enabled": True,
-                "created_at": datetime(2024, 1, 1),
-                "updated_at": datetime(2024, 1, 1),
-            }
-            for i in range(25)
-        ]
+        rows = [_org_row(id=i, name=f"Org {i}") for i in range(25)]
 
         n = insert_rows_to_clickhouse("posthog_organization", rows, batch_size=10)
 
