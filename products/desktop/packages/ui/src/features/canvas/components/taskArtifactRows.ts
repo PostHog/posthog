@@ -60,6 +60,12 @@ export type ArtifactRow =
  */
 export type CommentSource =
   | { kind: "file"; target: CommentTarget; name: string; runId: string | null }
+  | {
+      kind: "posthog_object";
+      target: CommentTarget;
+      name: string;
+      runId: string;
+    }
   | { kind: "canvas"; target: CommentTarget; name: string; url: string | null }
   | { kind: "task"; target: CommentTarget; name: string };
 
@@ -81,6 +87,13 @@ export function commentSources(
     seen.add(commentTargetKey(target));
     if (row.kind === "file") {
       sources.push({ kind: "file", target, name: row.name, runId: row.runId });
+    } else if (row.kind === "posthog_object") {
+      sources.push({
+        kind: "posthog_object",
+        target,
+        name: row.name,
+        runId: row.runId,
+      });
     } else if (row.kind === "canvas") {
       sources.push({ kind: "canvas", target, name: row.name, url: row.url });
     }
