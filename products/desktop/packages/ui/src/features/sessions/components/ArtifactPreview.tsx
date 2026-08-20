@@ -49,11 +49,24 @@ import { useCompletedArtifactUploads } from "./countArtifactUploads";
 import { useArtifactEditing } from "./useArtifactEditing";
 import {
   editorFilePath,
+  type PostHogObjectPreview,
+  type PreviewData,
   useArtifactPreviewData,
 } from "./useArtifactPreviewData";
 import { useCommentsQuery, useCreateComment } from "./useComments";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
+
+function isPostHogObjectPreview(
+  previewData: PreviewData | undefined,
+): previewData is PostHogObjectPreview {
+  return (
+    !!previewData &&
+    typeof previewData === "object" &&
+    !(previewData instanceof Blob) &&
+    previewData.kind === "posthog-object"
+  );
+}
 
 type ArtifactVersion = TaskRunArtifact & { runId: string };
 
@@ -148,6 +161,9 @@ export function ArtifactPreview({
     artifactId: activeArtifactId,
     name,
   });
+  // An object reference renders its own page below and uses none of the
+  // file-only comment data, so its tab shouldn't run the comments poll.
+  const isObjectPreview = isPostHogObjectPreview(previewData);
   const displayedArtifactId = artifactResult?.artifact.id ?? activeArtifactId;
   const versionIndex = versions.findIndex(
     (version) => version.id === displayedArtifactId,
@@ -158,7 +174,9 @@ export function ArtifactPreview({
     () => ({ scope: "task_artifact", itemId: displayedArtifactId }),
     [displayedArtifactId],
   );
-  const commentsQuery = useCommentsQuery(commentTarget, taskId);
+  const commentsQuery = useCommentsQuery(commentTarget, taskId, {
+    enabled: !isObjectPreview,
+  });
   const { members } = useOrgMembers();
   const createComment = useCreateComment(commentTarget, taskId);
   const requestCommentFocus = useCommentNavigationStore(
@@ -312,12 +330,7 @@ export function ArtifactPreview({
   }
   if (isError || imageError) return <ArtifactPreviewError />;
 
-  if (
-    previewData &&
-    typeof previewData === "object" &&
-    !(previewData instanceof Blob) &&
-    previewData.kind === "posthog-object"
-  ) {
+  if (isPostHogObjectPreview(previewData)) {
     return (
       <PostHogObjectPage metadata={previewData.metadata} fallbackName={name} />
     );
