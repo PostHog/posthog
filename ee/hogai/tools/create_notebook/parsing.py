@@ -146,15 +146,21 @@ def parse_notebook_content_for_streaming(
 
 def _strip_incomplete_insight_tags(content: str) -> str:
     """
-    Strip incomplete insight tags at the end of content (for streaming support).
+    Strip an incomplete insight tag at the end of content (for streaming support).
+
+    Covers every dialect INSIGHT_TAG_PATTERN accepts (element, attribute, equals; any letter
+    case), so a half-streamed tag never flashes as raw markdown before the next chunk completes
+    it. IGNORECASE mirrors the parser, which also matches tags case-insensitively.
     """
     cleaned = content
-    # Remove partial opening tags: <i, <in, <ins, etc.
-    cleaned = re.sub(r"<i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned)
-    # Remove <insight> tags without complete closing tag
-    cleaned = re.sub(r"<insight>[^<]*$", "", cleaned)
-    # Remove partial closing tags: </i, </in, etc.
-    cleaned = re.sub(r"</i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned)
-    # Remove <insight> with partial closing tag
-    cleaned = re.sub(r"<insight>[^<]*</i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned)
+    # Partial opening tag name: <i, <in, ... <insight (any case).
+    cleaned = re.sub(r"<i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned, flags=re.IGNORECASE)
+    # Element form still streaming its id: <insight>partial, with no closing tag yet.
+    cleaned = re.sub(r"<insight>[^<]*$", "", cleaned, flags=re.IGNORECASE)
+    # Attribute or equals form that has not reached its closing '>' yet: <insight id="ab, <insight=ab.
+    cleaned = re.sub(r"<insight(?:\s+[^<>]*|\s*=[^<>]*)$", "", cleaned, flags=re.IGNORECASE)
+    # Partial closing tag: </i, </in, ... </insight.
+    cleaned = re.sub(r"</i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned, flags=re.IGNORECASE)
+    # Element form with content but only a partial closing tag: <insight>abc</insig.
+    cleaned = re.sub(r"<insight>[^<]*</i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", cleaned, flags=re.IGNORECASE)
     return cleaned

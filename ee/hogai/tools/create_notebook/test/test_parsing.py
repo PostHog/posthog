@@ -188,6 +188,30 @@ class TestStripIncompleteInsightTags(BaseTest):
         result = _strip_incomplete_insight_tags(input_str)
         assert result == expected
 
+    @parameterized.expand(
+        [
+            ("uppercase partial opening", "text<Insight", "text"),
+            ("attribute name and space", "text<insight ", "text"),
+            ("attribute form partial id", 'text<Insight id="XuCZ', "text"),
+            ("attribute form extra prop", 'text<Insight id="XuCZnclZ" view="res', "text"),
+            ("attribute form before close", 'text<Insight id="XuCZnclZ" view="results" /', "text"),
+            ("equals form partial id", "text<insight=v6B", "text"),
+        ]
+    )
+    def test_partial_new_dialect_tags_stripped(self, _label: str, input_str: str, expected: str):
+        result = _strip_incomplete_insight_tags(input_str)
+        assert result == expected
+
+    @parameterized.expand(
+        [
+            ("attribute form with extra props", 'text<Insight id="XuCZnclZ" view="results" />'),
+            ("equals form", "text<insight=v6BHXh2n>"),
+        ]
+    )
+    def test_complete_new_dialect_tags_not_stripped(self, _label: str, content: str):
+        result = _strip_incomplete_insight_tags(content)
+        assert result == content
+
     def test_complete_tag_not_stripped(self):
         content = "text<insight>abc123</insight>more text"
         result = _strip_incomplete_insight_tags(content)
