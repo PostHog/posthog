@@ -5,7 +5,7 @@ import {
   parseDailyReportLimit,
 } from "@posthog/core/inbox/dailyReportLimit";
 import { CaretRight } from "phosphor-react-native";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
 import { SheetContainer } from "@/components/SheetContainer";
 import {
@@ -19,14 +19,44 @@ export function DailyReportLimitRow() {
   const { data: config, isLoading } = useSignalTeamConfig();
   const updateLimit = useUpdateMaxReportsPerDay();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const status = describeDailyReportLimit(config);
+  const savedValue = dailyReportLimitFieldValue(config);
   const rightLabel = status.limit === null ? "No limit" : String(status.limit);
+
+  // Reset the field from the saved value when the sheet opens (an event, not a
+  // prop-sync effect).
+  const openSheet = () => {
+    setDraft(savedValue);
+    setError(null);
+    setSheetOpen(true);
+  };
+
+  const save = async (limit: number | null) => {
+    setError(null);
+    try {
+      await updateLimit.mutateAsync(limit);
+      setSheetOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save the limit.");
+    }
+  };
+
+  const handleSave = () => {
+    const parsed = parseDailyReportLimit(draft);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    void save(parsed.value);
+  };
 
   return (
     <>
       <Pressable
-        onPress={() => setSheetOpen(true)}
+        onPress={openSheet}
         disabled={isLoading}
         className={`active:bg-gray-2 ${isLoading ? "opacity-50" : ""}`}
       >
@@ -53,13 +83,17 @@ export function DailyReportLimitRow() {
 
       <DailyReportLimitSheet
         open={sheetOpen}
-        initialValue={dailyReportLimitFieldValue(config)}
+        draft={draft}
+        error={error}
         isSaving={updateLimit.isPending}
-        onClose={() => setSheetOpen(false)}
-        onSave={async (limit) => {
-          await updateLimit.mutateAsync(limit);
-          setSheetOpen(false);
+        hasSavedValue={savedValue !== ""}
+        onChangeDraft={(text) => {
+          setDraft(text);
+          setError(null);
         }}
+        onClose={() => setSheetOpen(false)}
+        onSave={handleSave}
+        onClear={() => void save(null)}
       />
     </>
   );
@@ -67,48 +101,28 @@ export function DailyReportLimitRow() {
 
 interface DailyReportLimitSheetProps {
   open: boolean;
-  initialValue: string;
+  draft: string;
+  error: string | null;
   isSaving: boolean;
+  hasSavedValue: boolean;
+  onChangeDraft: (text: string) => void;
   onClose: () => void;
-  onSave: (limit: number | null) => Promise<void>;
+  onSave: () => void;
+  onClear: () => void;
 }
 
 function DailyReportLimitSheet({
   open,
-  initialValue,
+  draft,
+  error,
   isSaving,
+  hasSavedValue,
+  onChangeDraft,
   onClose,
   onSave,
+  onClear,
 }: DailyReportLimitSheetProps) {
   const themeColors = useThemeColors();
-  const [draft, setDraft] = useState(initialValue);
-  const [error, setError] = useState<string | null>(null);
-
-  // Reset the field to the saved value each time the sheet opens.
-  useEffect(() => {
-    if (open) {
-      setDraft(initialValue);
-      setError(null);
-    }
-  }, [open, initialValue]);
-
-  const submit = async (limit: number | null) => {
-    setError(null);
-    try {
-      await onSave(limit);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save the limit.");
-    }
-  };
-
-  const handleSave = () => {
-    const parsed = parseDailyReportLimit(draft);
-    if (!parsed.ok) {
-      setError(parsed.error);
-      return;
-    }
-    void submit(parsed.value);
-  };
 
   return (
     <SheetContainer open={open} onClose={onClose}>
@@ -123,10 +137,7 @@ function DailyReportLimitSheet({
 
         <TextInput
           value={draft}
-          onChangeText={(text) => {
-            setDraft(text);
-            setError(null);
-          }}
+          onChangeText={onChangeDraft}
           keyboardType="number-pad"
           placeholder="No limit"
           placeholderTextColor={themeColors.gray[9]}
@@ -140,7 +151,7 @@ function DailyReportLimitSheet({
 
         <View className="flex-row gap-2">
           <Pressable
-            onPress={handleSave}
+            onPress={onSave}
             disabled={isSaving}
             className={`flex-1 flex-row items-center justify-center rounded-lg bg-accent-9 py-3 ${isSaving ? "opacity-60" : "active:opacity-80"}`}
           >
@@ -152,9 +163,9 @@ function DailyReportLimitSheet({
               </Text>
             )}
           </Pressable>
-          {initialValue !== "" ? (
+          {hasSavedValue ? (
             <Pressable
-              onPress={() => void submit(null)}
+              onPress={onClear}
               disabled={isSaving}
               className={`flex-row items-center justify-center rounded-lg border border-gray-6 px-4 py-3 ${isSaving ? "opacity-60" : "active:bg-gray-2"}`}
             >
