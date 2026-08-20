@@ -137,9 +137,9 @@ const PROTO = 'proto'
 // from its path, so it cannot be expressed as a static domain here.
 const SEMGREP = 'semgrep'
 
-// rust/Cargo.lock, resolved from the diff between the two resolutions rather
-// than from the path. Its own domain because the answer is a crate list, not a
-// fixed set of lanes, and it degrades to RUST when that list cannot be built.
+// rust/Cargo.lock, answered by the cargo determinator rather than by the path.
+// Its own domain because the answer is a crate list rather than a fixed set of
+// lanes, and it degrades to RUST when that list is absent.
 const CARGO_LOCK = 'cargo-lock'
 
 const TRIPWIRE_RULES = [
@@ -257,12 +257,12 @@ const TRIPWIRE_RULES = [
     // edit claiming those lanes above.
     //
     // The lockfile narrows further than the manifest, because it states the
-    // resolution rather than the request: CARGO_LOCK diffs the two resolutions
-    // and keeps the workspace members whose own closure moved. rust/Cargo.toml
-    // stays on the whole domain, since a workspace-wide feature or version
-    // request can change how a shared dependency compiles for every crate,
-    // and a manifest edit that changes no resolution leaves no lockfile diff
-    // for CARGO_LOCK to read.
+    // resolution rather than the request. CARGO_LOCK takes the crate list from
+    // the same determinator ci-rust.yml runs, so a dependency added for one
+    // crate stops claiming the whole workspace. rust/Cargo.toml stays on the
+    // whole domain: a workspace-wide feature or version request can change how
+    // a shared dependency compiles for every crate, and a manifest edit that
+    // moves no resolution leaves no lockfile diff for the determinator to read.
     ['rust/Cargo.lock', CARGO_LOCK],
     ['rust/Cargo.toml', RUST],
     ['rust/.sqlx/**', RUST],
@@ -970,27 +970,13 @@ function discoverRustCrates(repoRoot) {
                     // A package.json beside the Cargo.toml means the crate also
                     // builds an npm package, so its lane extends past rust/.
                     const publishesNpmPackage = fs.existsSync(path.join(dir, 'package.json'))
-                    crates.push({
-                        dir: relative,
-                        name,
-                        text,
-                        publishesNpmPackage,
-                        ownWorkspace: declaresWorkspace(text),
-                    })
+                    crates.push({ dir: relative, name, text, publishesNpmPackage })
                 }
             }
         }
     }
     walk(path.join(repoRoot, 'rust'), 0)
     return crates
-}
-
-// A crate with its own `[workspace]` table is not a member of the rust/ one, so
-// rust/Cargo.lock does not resolve it and cannot move it. hogvm-node is the only
-// one today. Its path dependency on a member still reaches it, through the
-// crate graph's reverse closure rather than through the lockfile.
-function declaresWorkspace(tomlText) {
-    return tomlText.split(/^\s*\[/m).some((section) => section.startsWith('workspace]'))
 }
 
 function parseCrateName(tomlText) {
@@ -1127,13 +1113,12 @@ function loadRustGraph(repoRoot) {
             dependsOn.set(spawner, [...new Set([...dependsOn.get(spawner), ...spawned])])
         }
         const nativeBindings = new Set(crates.filter((crate) => crate.publishesNpmPackage).map((crate) => crate.name))
-        const lockfileMembers = crates.filter((crate) => !crate.ownWorkspace).map((crate) => crate.name)
         // Longest directory first so rust/common/hogvm resolves to its own crate
         // rather than to rust/common.
         const byDir = crates
             .map((crate) => ({ dir: crate.dir, name: crate.name }))
             .sort((a, b) => b.dir.length - a.dir.length)
-        return { dependsOn, byDir, nativeBindings, lockfileMembers }
+        return { dependsOn, byDir, nativeBindings }
     } catch (error) {
         console.error(`Rust crate graph unavailable (${error.message}); widening to every target`)
         return null
@@ -1163,234 +1148,6 @@ function reverseClosure(seeds, dependsOn) {
         }
     }
     return [...reached]
-}
-
-// --- Cargo.lock resolution diff ---
-
-// Reading a lockfile touch as "every crate" costs the whole rust half of the
-// queue: one added dev-dependency serializes every rust PR behind the PR that
-// added it, however little either touched. But the lockfile states the resolved
-// graph, so the crates a resolution change can reach are computable from the
-// two versions of the file, and only the members whose own closure moved have
-// to claim a lane.
-//
-// rust/affected-services/determinator-rules.toml already makes this call on the
-// CI side, where Cargo.lock keeps guppy's default `mark-changed = []` and the
-// graph diff covers it. Its warning against re-adding `mark-changed = "all"`
-// is the same finding from the test-selection direction. This is that reasoning
-// without a cargo toolchain, which the compute job deliberately does not have.
-//
-// Every step is fail-closed. An entry that does not parse, a dependency that
-// does not resolve, or a workspace member the lockfile does not name returns
-// null, which the caller reads as unknown and widens to every crate.
-
-// One `[[package]]` block. `scalars` and `arrays` hold every key verbatim rather
-// than the four that matter today, so a key cargo adds later still participates
-// in the comparison instead of being dropped from it.
-function parseCargoLock(text) {
-    const byKey = new Map()
-    const byName = new Map()
-    let current = null
-    let openArray = null
-
-    const closePackage = () => {
-        if (!current) {
-            return true
-        }
-        if (openArray || !current.name || !current.version) {
-            return false
-        }
-        const key = `${current.name} ${current.version}`
-        // Cargo cannot resolve one name and version twice, so a duplicate means
-        // this parser has misread the file rather than that the file says it.
-        if (byKey.has(key)) {
-            return false
-        }
-        byKey.set(key, current)
-        byName.set(current.name, [...(byName.get(current.name) || []), key])
-        current = null
-        return true
-    }
-
-    for (const raw of text.split('\n')) {
-        const line = raw.trim()
-
-        if (openArray) {
-            if (line === ']') {
-                openArray = null
-                continue
-            }
-            const entry = line.match(/^"([^"]*)",?$/)
-            if (!entry) {
-                return null
-            }
-            current.arrays[openArray].push(entry[1])
-            continue
-        }
-
-        if (line === '[[package]]') {
-            if (!closePackage()) {
-                return null
-            }
-            current = { name: null, version: null, scalars: [], arrays: {} }
-            continue
-        }
-
-        // Any other table header ends the package block. `[metadata]` and the
-        // `[[patch.unused]]` entries both sit at the end of a lockfile.
-        if (line.startsWith('[')) {
-            if (!closePackage()) {
-                return null
-            }
-            continue
-        }
-
-        if (!current || line === '' || line.startsWith('#')) {
-            continue
-        }
-
-        const assignment = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.*)$/)
-        if (!assignment) {
-            return null
-        }
-        const [, key, value] = assignment
-        if (value === '[') {
-            current.arrays[key] = []
-            openArray = key
-            continue
-        }
-        const inlineArray = value.match(/^\[(.*)\]$/)
-        if (inlineArray) {
-            current.arrays[key] = inlineArray[1]
-                .split(',')
-                .map((item) => item.trim().replace(/^"|"$/g, ''))
-                .filter(Boolean)
-            continue
-        }
-        const quoted = value.match(/^"(.*)"$/)
-        if (quoted && (key === 'name' || key === 'version')) {
-            current[key] = quoted[1]
-        }
-        current.scalars.push(line)
-    }
-
-    if (!closePackage()) {
-        return null
-    }
-    return { byKey, byName }
-}
-
-// A dependency reads as `name`, `name version`, or `name version (source)`.
-// The bare form is only legal when the lockfile holds one version of that name,
-// so anything else is unresolvable rather than a choice this can make.
-function resolveLockDependency(entry, lock) {
-    const parts = entry.split(' ')
-    if (parts.length === 1) {
-        const keys = lock.byName.get(parts[0])
-        return keys && keys.length === 1 ? keys[0] : null
-    }
-    const key = `${parts[0]} ${parts[1]}`
-    return lock.byKey.has(key) ? key : null
-}
-
-function cargoLockClosure(startKey, lock) {
-    const reached = new Set([startKey])
-    const queue = [startKey]
-    while (queue.length > 0) {
-        const pkg = lock.byKey.get(queue.shift())
-        for (const entry of pkg.arrays.dependencies || []) {
-            const key = resolveLockDependency(entry, lock)
-            if (key === null) {
-                return null
-            }
-            if (!reached.has(key)) {
-                reached.add(key)
-                queue.push(key)
-            }
-        }
-    }
-    return reached
-}
-
-const lockPackageFingerprint = (pkg) => JSON.stringify([pkg.scalars, pkg.arrays])
-
-// The workspace members whose resolution the lockfile edit moved. Returns null
-// when the answer cannot be computed, which the caller widens on.
-function cargoLockAffectedCrates(baseText, headText, workspaceCrates) {
-    const base = parseCargoLock(baseText)
-    const head = parseCargoLock(headText)
-    if (!base || !head) {
-        return null
-    }
-
-    const changed = new Set()
-    for (const key of new Set([...base.byKey.keys(), ...head.byKey.keys()])) {
-        const before = base.byKey.get(key)
-        const after = head.byKey.get(key)
-        if (!before || !after || lockPackageFingerprint(before) !== lockPackageFingerprint(after)) {
-            changed.add(key)
-        }
-    }
-
-    const affected = []
-    for (const crate of workspaceCrates) {
-        const headKeys = head.byName.get(crate)
-        // A member the lockfile does not name once, and only once, means the
-        // crate graph and the lockfile disagree about the workspace.
-        if (!headKeys || headKeys.length !== 1) {
-            return null
-        }
-        const baseKeys = base.byName.get(crate)
-        if (!baseKeys || baseKeys.length !== 1) {
-            affected.push(crate)
-            continue
-        }
-        const headClosure = cargoLockClosure(headKeys[0], head)
-        const baseClosure = cargoLockClosure(baseKeys[0], base)
-        if (!headClosure || !baseClosure) {
-            return null
-        }
-        // The membership comparison is redundant with the changed-package test,
-        // because dropping a package edits the parent that named it. It is kept
-        // because the cost of being wrong here is a lane nobody claims.
-        const moved =
-            [...headClosure].some((key) => changed.has(key)) ||
-            headClosure.size !== baseClosure.size ||
-            [...headClosure].some((key) => !baseClosure.has(key))
-        if (moved) {
-            affected.push(crate)
-        }
-    }
-    return affected
-}
-
-// The workflow writes the merge base's lockfile here. Without it there is no
-// diff to take, which is the state every caller outside CI is in.
-const BASE_CARGO_LOCK_ENV = 'BASE_CARGO_LOCK'
-
-function loadCargoLockCrates(repoRoot, rustGraph) {
-    if (!rustGraph) {
-        return null
-    }
-    const basePath = process.env[BASE_CARGO_LOCK_ENV]
-    if (!basePath) {
-        console.error(`${BASE_CARGO_LOCK_ENV} is unset; a lockfile change claims every crate`)
-        return null
-    }
-    try {
-        const affected = cargoLockAffectedCrates(
-            fs.readFileSync(basePath, 'utf8'),
-            fs.readFileSync(path.join(repoRoot, 'rust', 'Cargo.lock'), 'utf8'),
-            rustGraph.lockfileMembers || []
-        )
-        if (affected === null) {
-            console.error('Could not diff the two cargo resolutions; a lockfile change claims every crate')
-        }
-        return affected
-    } catch (error) {
-        console.error(`Cargo.lock unreadable (${error.message}); a lockfile change claims every crate`)
-        return null
-    }
 }
 
 // --- Target computation ---
@@ -1533,12 +1290,19 @@ function addRustLanes(targets, context) {
     return true
 }
 
-// The crates whose resolution the lockfile edit moved, or every crate when that
-// could not be worked out. computeTargets runs its reverse closure over whatever
-// lands here, so the seeds are the direct movers rather than their dependents.
+// The crates the determinator says the change set moved, or every crate when it
+// could not say. computeTargets runs its reverse closure over whatever lands
+// here, so these are seeds rather than a finished answer.
+//
+// An answer naming no crate is a real verdict on a lockfile edit that moved no
+// resolution, but claiming nothing for it costs more than it saves. A change set
+// of only rust/Cargo.lock would then reach computeTargets' empty-set guard,
+// which reads a target-less set as a path no rule claimed and widens to every
+// lane in the repo — worse than the every-crate fallback, for a case rare enough
+// not to be worth the lanes.
 function addCargoLockLanes(targets, context) {
     const crates = context.cargoLockCrates
-    if (!crates) {
+    if (!crates || crates.length === 0) {
         return addRustLanes(targets, context)
     }
     for (const crate of crates) {
@@ -2033,13 +1797,52 @@ function listServices(repoRoot) {
     }
 }
 
+// The crate list rust-compute-affected produced for this diff, as a JSON array.
+// The workflow only runs the determinator when the change set holds
+// rust/Cargo.lock, so on every other PR this is unset and never read.
+const CARGO_LOCK_CRATES_ENV = 'CARGO_LOCK_CRATES'
+
+// Returns null for unknown, which the caller widens on. The determinator answers
+// for the whole diff rather than for the lockfile alone, so this is a superset
+// of the lockfile's own contribution — the safe direction, and the union with
+// the path rules is what lands either way.
+//
+// A name the crate graph does not know means the two disagree about the
+// workspace, and a disagreement resolves to unknown rather than to a lane list
+// built from half of it.
+function parseCargoLockCrates(raw, rustGraph) {
+    if (!rustGraph || !raw) {
+        return null
+    }
+    let crates
+    try {
+        crates = JSON.parse(raw)
+    } catch (error) {
+        console.error(`${CARGO_LOCK_CRATES_ENV} is not JSON (${error.message}); a lockfile change claims every crate`)
+        return null
+    }
+    if (!Array.isArray(crates) || crates.some((crate) => typeof crate !== 'string')) {
+        console.error(`${CARGO_LOCK_CRATES_ENV} is not a list of crate names; a lockfile change claims every crate`)
+        return null
+    }
+    const unknown = crates.filter((crate) => !rustGraph.dependsOn.has(crate))
+    if (unknown.length > 0) {
+        console.error(
+            `The determinator named crates the graph does not hold (${unknown.join(', ')}); ` +
+                'a lockfile change claims every crate'
+        )
+        return null
+    }
+    return crates
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
     const rustGraph = loadRustGraph(repoRoot)
     return {
         products,
-        cargoLockCrates: loadCargoLockCrates(repoRoot, rustGraph),
+        cargoLockCrates: parseCargoLockCrates(process.env[CARGO_LOCK_CRATES_ENV], rustGraph),
         services: listServices(repoRoot),
         isolatedProducts: listIsolatedProducts(repoRoot, products),
         contractSurfaces: loadContractSurfaces(repoRoot, products),
@@ -2056,8 +1859,6 @@ module.exports = {
     computeTargets,
     allKnownTargets,
     buildContext,
-    cargoLockAffectedCrates,
-    parseCargoLock,
     compileContractMatcher,
     compileWorkspaceMatcher,
     globToRegExp,
@@ -2072,6 +1873,7 @@ module.exports = {
     semgrepDomain,
     stripJsonComments,
     tripwireDomain,
+    parseCargoLockCrates,
     ALL,
     CARGO_LOCK,
     JAVASCRIPT,

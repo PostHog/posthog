@@ -16,8 +16,7 @@ const {
     computeTargets,
     allKnownTargets,
     buildContext,
-    cargoLockAffectedCrates,
-    parseCargoLock,
+    parseCargoLockCrates,
     compileContractMatcher,
     compileWorkspaceMatcher,
     globToRegExp,
@@ -727,11 +726,11 @@ test('a crate that builds an npm package claims the lanes importing it', () => {
     assert.deepEqual(unrelated, ['rust:crate:unrelated'])
 })
 
-// The cargo manifest and the sqlx offline data resolve nothing outside the
-// cargo workspace, so the lanes they can break are the rust ones plus whatever
-// reaches them through a native module, rather than every lane in the repo.
-// rust/Cargo.lock is in the list on its fallback: this context carries no
-// resolution diff, so it claims the same set. The narrowed case is below.
+// The cargo lockfile, the manifest, and the sqlx offline data resolve nothing
+// outside the cargo workspace, so the lanes they can break are the rust ones
+// plus whatever reaches them through a native module, rather than every lane in
+// the repo. rust/Cargo.lock is in the list on its fallback: this context carries
+// no determinator answer, so it claims the same set. The narrowed case is below.
 test('the cargo workspace tripwires claim the rust lanes rather than every lane', () => {
     const bindingContext = {
         ...CONTEXT,
@@ -751,124 +750,10 @@ test('the cargo workspace tripwires claim the rust lanes rather than every lane'
     }
 })
 
-// --- Cargo.lock resolution diff ---
-
-const LOCK_ALPHA_BETA = `version = 4
-
-[[package]]
-name = "alpha"
-version = "0.1.0"
-dependencies = [
- "shared-dep",
-]
-
-[[package]]
-name = "beta"
-version = "0.1.0"
-dependencies = [
- "other-dep",
-]
-
-[[package]]
-name = "shared-dep"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aaa"
-
-[[package]]
-name = "other-dep"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbb"
-
-[metadata]
-"checksum legacy" = "ccc"
-`
-
-const MEMBERS = ['alpha', 'beta']
-
-test('the lockfile parser reads every package and its dependencies', () => {
-    const lock = parseCargoLock(LOCK_ALPHA_BETA)
-    assert.deepEqual([...lock.byKey.keys()].sort(), [
-        'alpha 0.1.0',
-        'beta 0.1.0',
-        'other-dep 2.0.0',
-        'shared-dep 1.0.0',
-    ])
-    assert.deepEqual(lock.byKey.get('alpha 0.1.0').arrays.dependencies, ['shared-dep'])
-})
-
-// A parse this cannot complete has to read as unknown. Returning the packages it
-// did manage would drop a dependency edge, and a dropped edge is a crate that
-// merges in parallel with one it resolves against.
-test('the lockfile parser refuses a file it cannot read whole', () => {
-    for (const [name, text] of [
-        [
-            'an unterminated dependency array',
-            '[[package]]\nname = "alpha"\nversion = "0.1.0"\ndependencies = [\n "x",\n',
-        ],
-        ['a package with no version', '[[package]]\nname = "alpha"\n'],
-        ['a line that is not an assignment', '[[package]]\nname = "alpha"\nversion = "0.1.0"\nnonsense\n'],
-        ['the same package twice', `${LOCK_ALPHA_BETA}\n[[package]]\nname = "alpha"\nversion = "0.1.0"\n`],
-    ]) {
-        assert.equal(parseCargoLock(text), null, `${name} should read as unknown`)
-    }
-})
-
-// The whole point of the diff: one member gaining a dependency must not claim
-// the members that gained nothing.
-test('a dependency added for one member claims only that member', () => {
-    const head = LOCK_ALPHA_BETA.replace(' "shared-dep",\n]', ' "extra-dep",\n "shared-dep",\n]').replace(
-        '[metadata]',
-        '[[package]]\nname = "extra-dep"\nversion = "3.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "ddd"\n\n[metadata]'
-    )
-    assert.deepEqual(cargoLockAffectedCrates(LOCK_ALPHA_BETA, head, MEMBERS), ['alpha'])
-})
-
-test('a resolution change in a shared package claims every member that reaches it', () => {
-    const head = LOCK_ALPHA_BETA.replace('checksum = "aaa"', 'checksum = "aaa-bumped"').replace(
-        'checksum = "bbb"',
-        'checksum = "bbb-bumped"'
-    )
-    assert.deepEqual(cargoLockAffectedCrates(LOCK_ALPHA_BETA, head, MEMBERS), ['alpha', 'beta'])
-})
-
-test('a member the base lockfile does not name is affected', () => {
-    const base = LOCK_ALPHA_BETA.replace(
-        '[[package]]\nname = "beta"\nversion = "0.1.0"\ndependencies = [\n "other-dep",\n]\n\n',
-        ''
-    )
-    assert.deepEqual(cargoLockAffectedCrates(base, LOCK_ALPHA_BETA, MEMBERS), ['beta'])
-})
-
-test('a lockfile edit that moves no resolution claims nothing', () => {
-    assert.deepEqual(cargoLockAffectedCrates(LOCK_ALPHA_BETA, LOCK_ALPHA_BETA, MEMBERS), [])
-})
-
-// Each of these is a way for the answer to be narrower than reality, which is
-// the direction that breaks master, so each has to read as unknown instead.
-test('the resolution diff reads as unknown rather than narrow', () => {
-    const unresolvable = LOCK_ALPHA_BETA.replace(' "shared-dep",', ' "ghost-dep",')
-    assert.equal(
-        cargoLockAffectedCrates(LOCK_ALPHA_BETA, unresolvable, MEMBERS),
-        null,
-        'a dependency naming no package should read as unknown'
-    )
-    assert.equal(
-        cargoLockAffectedCrates(LOCK_ALPHA_BETA, LOCK_ALPHA_BETA, [...MEMBERS, 'gamma']),
-        null,
-        'a member the lockfile does not name should read as unknown'
-    )
-    assert.equal(
-        cargoLockAffectedCrates(LOCK_ALPHA_BETA, 'nonsense', MEMBERS),
-        null,
-        'an unparseable lockfile should read as unknown'
-    )
-})
-
-// The seeds are the movers; computeTargets owns the closure over them. Without
-// this, a change to a crate every other crate depends on would claim one lane.
-test('a narrowed lockfile change still claims the dependents of the crates it moved', () => {
+// The seeds are the crates the determinator named; computeTargets owns the
+// closure over them. Without it, a resolution change in a crate every other
+// crate depends on would claim one lane.
+test('a narrowed lockfile change still claims the dependents of the crates it named', () => {
     const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, cargoLockCrates: ['shared'] })
     assert.deepEqual(
         targets.filter((target) => target.startsWith('rust:crate:')),
@@ -877,21 +762,53 @@ test('a narrowed lockfile change still claims the dependents of the crates it mo
     assert.equal(targets.includes('rust:crate:unrelated'), false, 'a crate the resolution did not move keeps its lane')
 })
 
-// The crate graph and the lockfile have to agree on who the members are, or
-// every lockfile change falls back to claiming all of them. hogvm-node carries
-// its own [workspace] table and is excluded for that reason; a second nested
-// workspace has to be excluded the same way rather than silently disabling the
-// narrowing. Reads the real workspace, which is the only place that can drift.
-test('every crate treated as a lockfile member appears in rust/Cargo.lock', () => {
-    const { rustGraph } = buildContext(REPO_ROOT)
-    const lock = parseCargoLock(fs.readFileSync(path.join(REPO_ROOT, 'rust/Cargo.lock'), 'utf8'))
-    assert.notEqual(lock, null, 'the real lockfile should parse')
-    const missing = rustGraph.lockfileMembers.filter((crate) => (lock.byName.get(crate) || []).length !== 1)
+// An answer naming no crate falls back rather than claiming nothing, because a
+// lockfile-only change set would otherwise reach the empty-set guard and widen
+// past the rust lanes entirely. This pins the fallback against that.
+test('a determinator answer naming no crate claims every crate, not every lane', () => {
+    const targets = computeTargets(['rust/Cargo.lock'], { ...CONTEXT, cargoLockCrates: [] })
     assert.deepEqual(
-        missing,
-        [],
-        'these crates are not resolved by rust/Cargo.lock and should not be treated as members'
+        targets.filter((target) => target.startsWith('rust:crate:')),
+        ['rust:crate:consumer', 'rust:crate:shared', 'rust:crate:unrelated']
     )
+    assert.equal(targets.includes('py:core'), false, 'the empty-set guard should not have fired')
+})
+
+// Each of these is a way for the answer to arrive unusable, and reading one as
+// "no crate" would be narrower than reality, which is the direction that breaks
+// master. All of them have to read as unknown so the caller widens.
+test('an unusable determinator answer reads as unknown', () => {
+    for (const [name, raw] of [
+        ['a skipped or failed step', ''],
+        ['an unset variable', undefined],
+        ['output that is not JSON', 'shared,consumer'],
+        ['JSON that is not a list', '{"crates":["shared"]}'],
+        ['a list holding something other than a name', '["shared", 7]'],
+        ['a crate the graph does not hold', '["shared", "ghost"]'],
+    ]) {
+        assert.equal(parseCargoLockCrates(raw, CONTEXT.rustGraph), null, `${name} should read as unknown`)
+    }
+})
+
+test('a determinator answer the graph agrees with is used as it stands', () => {
+    assert.deepEqual(parseCargoLockCrates('["shared"]', CONTEXT.rustGraph), ['shared'])
+})
+
+// The determinator's workspace and this script's crate graph are built from the
+// same manifests by different code, so a name in one and not the other means one
+// of them is wrong. Reads the real graph, which is the only place that can drift.
+test('the crate graph holds every crate the determinator can name', () => {
+    const { rustGraph } = buildContext(REPO_ROOT)
+    const members = fs
+        .readFileSync(path.join(REPO_ROOT, 'rust/Cargo.toml'), 'utf8')
+        .split(/^\s*\[/m)
+        .find((section) => section.startsWith('workspace]'))
+        .match(/members\s*=\s*\[([^\]]*)\]/)[1]
+        .split(',')
+        .map((entry) => entry.trim().replace(/^"|"$/g, ''))
+        .filter(Boolean)
+    const missing = members.filter((dir) => !rustGraph.byDir.some((crate) => crate.dir === dir))
+    assert.deepEqual(missing, [], 'these workspace members are absent from the crate graph')
 })
 
 // The two lists below are the same rule written twice, once for the merge queue
