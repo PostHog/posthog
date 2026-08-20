@@ -6180,6 +6180,10 @@ snapshots:
         hash: v1.k794b7964.8af7a7f552f592c9bea2a3bf7bd687bace89246404cac7991973d2c760104f9d.DO0DLDoxcYidQZT32FkkgnuXCRQsmRuOUC3JR-TG8hI
     scenes-app-errortracking--group-page-empty-with-filter--light:
         hash: v1.k794b7964.50372c3554997af22c6286d29899ed2dee7286543f9854a24369c82594827b4f.hm-F4CK6jtHzTcU9SNds3hfdGHucHAvoKl2inMnQA-A
+    scenes-app-errortracking--group-page-fingerprint-map--dark:
+        hash: v1.k794b7964.c2371b61c82d78840a898f65a5d5056500445f4f58ee5c66cecfba5b58332963.18BW2E8eIlCmRO_44KTj9DdGo4b-mKrYmVN71UR6cnU
+    scenes-app-errortracking--group-page-fingerprint-map--light:
+        hash: v1.k794b7964.40458b483fe451732ea55a59cc6a8e1791f7bef20e423ae84f64f9475e6fe56d.eb1v7v97E17EKC7HUbObCd3YpY9FqZPCzTZBpeUfRIk
     scenes-app-errortracking--group-page-loading--dark:
         hash: v1.k794b7964.211fa2dc218f0004b4f6fb90be5accfd1cec678d8cf5d75f2aa0c06167dc9b8b.ZF3VTqeZ0v_HQxJZyMnn70EScvoUGGyQ-fjz4dw-ExA
     scenes-app-errortracking--group-page-loading--light:

@@ -20,7 +20,7 @@ from posthog.event_usage import groups
 from posthog.llm.completions import hit_openai
 from posthog.models import Team
 
-from products.product_analytics.backend.api.ai_billing import billable_ai_properties
+from products.product_analytics.backend.presentation.ai_billing import billable_ai_properties
 
 
 class InsightMetadata(BaseModel):
