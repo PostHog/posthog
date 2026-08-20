@@ -236,7 +236,7 @@ def query_time_to_green_window(
 ) -> TimeToGreenWindow:
     """Window-level time-to-green medians for [date_from, date_to] and [prev_from, date_from], one
     scan, keyed on the bucketless equivalent of the series' round_start."""
-    cur, prev = window_pair_predicates("round_start", date_to=date_to)
+    windows = window_pair_predicates("round_start", date_to=date_to)
     placeholders: dict[str, ast.Expr] = {
         "scan_from": ast.Constant(value=prev_from),
         "date_from": ast.Constant(value=date_from),
@@ -247,8 +247,8 @@ def query_time_to_green_window(
     sql = (
         _TIME_TO_GREEN_WINDOW_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
-        .replace("__CUR__", cur)
-        .replace("__PREV__", prev)
+        .replace("__CUR__", windows.current)
+        .replace("__PREV__", windows.previous)
     )
     response = curated.run(sql, query_type="engineering_analytics.time_to_green_window", placeholders=placeholders)
     p50_cur, p50_prev = response.results[0] if response.results else (None, None)

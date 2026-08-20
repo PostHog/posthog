@@ -381,7 +381,7 @@ def query_workflow_window_costs_with_prev(
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
     }
-    cur, prev = window_pair_predicates("c.run_started_at", date_to=date_to)
+    windows = window_pair_predicates("c.run_started_at", date_to=date_to)
     date_to_clause = ""
     if date_to is not None:
         date_to_clause = "AND c.run_started_at <= {date_to}"
@@ -392,13 +392,13 @@ def query_workflow_window_costs_with_prev(
     # questions, so don't unify them casually.
     queue = merge_queue_branch_predicate("c.head_branch")
     queue_agg = (
-        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {cur}) AS queue_billable_seconds, "
-        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {prev}) AS queue_billable_seconds_prev"
+        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.current}) AS queue_billable_seconds, "
+        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.previous}) AS queue_billable_seconds_prev"
     )
     sql = (
         _WINDOW_COST_WITH_PREV_SELECT.replace("__COST_SOURCE__", cost_source)
-        .replace("__CUR_AGG__", _cost_aggregates(when=cur))
-        .replace("__PREV_AGG__", _cost_aggregates(when=prev, suffix="_prev"))
+        .replace("__CUR_AGG__", _cost_aggregates(when=windows.current))
+        .replace("__PREV_AGG__", _cost_aggregates(when=windows.previous, suffix="_prev"))
         .replace("__QUEUE_AGG__", queue_agg)
         .replace("__DATE_TO__", date_to_clause)
     )

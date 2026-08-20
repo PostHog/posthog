@@ -334,7 +334,7 @@ def query_repo_overview(
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
     date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
-    cur, prev = window_pair_predicates("run_started_at", date_to=date_to)
+    run_windows = window_pair_predicates("run_started_at", date_to=date_to)
 
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
@@ -347,8 +347,8 @@ def query_repo_overview(
         placeholders["date_to"] = ast.Constant(value=date_to)
 
     runs_sql = (
-        _RUNS_SELECT.replace("__CUR__", cur)
-        .replace("__PREV__", prev)
+        _RUNS_SELECT.replace("__CUR__", run_windows.current)
+        .replace("__PREV__", run_windows.previous)
         .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
     )
@@ -359,14 +359,14 @@ def query_repo_overview(
     run_count, run_count_prev, success_rate, success_rate_prev, reruns, reruns_prev, master_runs, main_runs = row
     default_branch = "main" if (main_runs or 0) > (master_runs or 0) else "master"
 
-    pr_cur, pr_prev = window_pair_predicates("merged_at", date_to=date_to)
+    merge_windows = window_pair_predicates("merged_at", date_to=date_to)
     ready = curated.ready_to_merge_sql()
     pr_sql = ready.with_clause + (
-        _PR_SELECT.replace("__READY_MEDIAN_CUR__", ready.median(scope=f"{pr_cur} AND {_HUMAN_MERGES}"))
-        .replace("__READY_MEDIAN_PREV__", ready.median(scope=f"{pr_prev} AND {_HUMAN_MERGES}"))
+        _PR_SELECT.replace("__READY_MEDIAN_CUR__", ready.median(scope=f"{merge_windows.current} AND {_HUMAN_MERGES}"))
+        .replace("__READY_MEDIAN_PREV__", ready.median(scope=f"{merge_windows.previous} AND {_HUMAN_MERGES}"))
         .replace("__READY_JOIN__", ready.join)
-        .replace("__CUR_MERGED__", pr_cur)
-        .replace("__PREV_MERGED__", pr_prev)
+        .replace("__CUR_MERGED__", merge_windows.current)
+        .replace("__PREV_MERGED__", merge_windows.previous)
         .replace("__PR_SOURCE__", curated.pr_source())
     )
     pr_response = curated.run(pr_sql, query_type="engineering_analytics.repo_overview_prs", placeholders=placeholders)
