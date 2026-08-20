@@ -73,7 +73,7 @@ const SUMMARY_OPTIONS: { value: MetricSummary; label: string }[] = [
 const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'sum', label: 'Sum' },
     { value: 'avg', label: 'Average' },
-    { value: 'count', label: 'Count' },
+    { value: 'count', label: 'Series count' },
     { value: 'p95', label: 'p95' },
     { value: 'rate', label: 'Rate (/s)' },
     { value: 'increase', label: 'Increase' },

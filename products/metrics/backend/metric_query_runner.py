@@ -6,6 +6,11 @@ range, with a choice of aggregation. Modelled after the logs
 `AnalyticsQueryRunner[LogsQueryResponse]` infrastructure since this product
 isn't going through HogQL `DataNode` caching, schema-gen or the data-viz
 pipeline yet.
+
+Every aggregation resolves per physical series (`_series_key_exprs`) before
+combining across series: instant aggregations reduce each series to its last
+sample in the bucket, counter functions diff within a series. Aggregating raw
+samples instead would weight a series by how often it was scraped.
 """
 
 import re
@@ -102,23 +107,50 @@ def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
     )
 
 
-def _aggregation_expr(name: str) -> ast.Expr:
-    """Build the HogQL AST for the supported aggregations.
+def _series_key_exprs() -> list[ast.Expr]:
+    """Identifies the physical series a row belongs to.
+
+    Every aggregation resolves per series before combining across series, so
+    all three query builders share this definition rather than restating it.
+
+    `metric_type` belongs to the identity, not just to filtering: one name can
+    be ingested as both a counter and a gauge, and `metric_type` is optional on
+    the query, so an unconstrained query sees both sets of rows at once.
+
+    The attribute maps appear here rather than their `toString`/`cityHash64`
+    digests so that a grouping query can also select them — ClickHouse matches
+    a selected column against GROUP BY by exact expression, and would reject a
+    bare `attributes` next to a `toString(attributes)` key.
+    """
+    return [
+        ast.Field(chain=["service_name"]),
+        ast.Field(chain=["resource_attributes"]),
+        ast.Field(chain=["attributes"]),
+        ast.Field(chain=["metric_type"]),
+    ]
+
+
+def _aggregation_expr(name: str, value: ast.Expr) -> ast.Expr:
+    """Build the HogQL AST for the cross-series aggregations.
+
+    `value` is the per-series value the inner query produced, never the raw
+    `value` column: aggregating raw rows counts each series once per sample, so
+    the result scales with the scrape rate. `count` takes no argument for the
+    same reason — one inner row per series means it counts series.
 
     Kept as AST nodes (rather than string interpolation) so the
     `hogql-no-fstring` semgrep rule doesn't have to special-case this
     runner — the function name and percentile literal travel as a
     typed expression, not as substituted text.
     """
-    value_field = ast.Field(chain=["value"])
     if name == "sum":
-        return ast.Call(name="sum", args=[value_field])
+        return ast.Call(name="sum", args=[value])
     if name == "avg":
-        return ast.Call(name="avg", args=[value_field])
+        return ast.Call(name="avg", args=[value])
     if name == "count":
         return ast.Call(name="count", args=[])
     if name == "p95":
-        return ast.Call(name="quantile", params=[ast.Constant(value=0.95)], args=[value_field])
+        return ast.Call(name="quantile", params=[ast.Constant(value=0.95)], args=[value])
     raise ValueError(f"Unsupported aggregation: {name!r}")
 
 
@@ -379,7 +411,13 @@ class MetricQueryRunner:
 
     def _splice_group_columns(self, query: ast.SelectQuery) -> None:
         """Insert the group_by label columns between `time` and `value` —
-        parse_select placeholders can't express a variable column count."""
+        parse_select placeholders can't express a variable column count.
+
+        `attribute_field` resolves against the outermost query's scope, so
+        every builder must expose `service_name`, `attributes` and
+        `resource_attributes` under those names — read straight off
+        `posthog.metrics`, or re-exported from a subquery.
+        """
         assert query.group_by is not None
         for index, group in enumerate(self.group_by):
             label_expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
@@ -390,26 +428,52 @@ class MetricQueryRunner:
         return type_filter_expr(self.metric_type)
 
     def _build_simple_query(self) -> ast.SelectQuery:
+        """sum/avg/count/p95: collapse each series to one value per bucket,
+        then aggregate across series — PromQL instant-vector semantics.
+
+        The inner query takes each series' last sample in the bucket, so a
+        metric scraped ten times contributes once rather than ten times.
+        Aggregating raw rows instead multiplied the cross-series total by the
+        scrape count, and the multiplier moved with partial buckets and
+        dropped scrapes.
+
+        Two samples of one series sharing a timestamp (a duplicate scrape)
+        make `argMax` pick between them arbitrarily; they are the same
+        reading, so either answer is right.
+
+        The series key columns pass through unaggregated so
+        `_splice_group_columns` can resolve group-by labels against them at
+        the outer level.
+        """
         # `metrics` is only registered under the `posthog.` HogQL namespace
         # (see posthog/hogql/database/database.py).
         query = parse_select(
             """
                 SELECT
-                    toStartOfInterval(timestamp, {interval}) AS time,
+                    time AS time,
                     {aggregation} AS value
-                FROM posthog.metrics
-                WHERE metric_name = {metric_name}
-                  AND timestamp >= {date_from}
-                  AND timestamp < {date_to}
-                  AND {filters}
-                  AND {type_filter}
+                FROM (
+                    SELECT
+                        toStartOfInterval(timestamp, {interval}) AS time,
+                        service_name AS service_name,
+                        attributes AS attributes,
+                        resource_attributes AS resource_attributes,
+                        argMax(value, timestamp) AS series_value
+                    FROM posthog.metrics
+                    WHERE metric_name = {metric_name}
+                      AND timestamp >= {date_from}
+                      AND timestamp < {date_to}
+                      AND {filters}
+                      AND {type_filter}
+                    GROUP BY time
+                )
                 GROUP BY time
                 ORDER BY time ASC
                 LIMIT {row_limit}
             """,
             placeholders={
                 "interval": _interval_expr(self.interval),
-                "aggregation": _aggregation_expr(self.aggregation),
+                "aggregation": _aggregation_expr(self.aggregation, ast.Field(chain=["series_value"])),
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
@@ -419,6 +483,13 @@ class MetricQueryRunner:
             },
         )
         assert isinstance(query, ast.SelectQuery)
+        # Appended rather than written into the template so the key stays
+        # defined in exactly one place; a placeholder can only carry one
+        # expression, and a tuple key would stop ClickHouse matching the
+        # selected columns against it.
+        inner = query.select_from.table if query.select_from else None
+        assert isinstance(inner, ast.SelectQuery) and inner.group_by is not None
+        inner.group_by.extend(_series_key_exprs())
         self._splice_group_columns(query)
         return query
 
@@ -467,7 +538,7 @@ class MetricQueryRunner:
                             attributes,
                             resource_attributes,
                             lagInFrame(toNullable(value)) OVER (
-                                PARTITION BY service_name, resource_fingerprint, toString(attributes)
+                                PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_value
@@ -486,6 +557,7 @@ class MetricQueryRunner:
             placeholders={
                 "interval": _interval_expr(self.interval),
                 "divisor": ast.Constant(value=divisor),
+                "series_key": ast.Tuple(exprs=_series_key_exprs()),
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
@@ -533,7 +605,7 @@ class MetricQueryRunner:
                             histogram_bounds,
                             arrayMap(x -> toFloat(x), histogram_counts) AS counts_f,
                             lagInFrame(arrayMap(x -> toFloat(x), histogram_counts)) OVER (
-                                PARTITION BY service_name, resource_fingerprint, toString(attributes)
+                                PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_counts
@@ -552,6 +624,7 @@ class MetricQueryRunner:
             """,
             placeholders={
                 "interval": _interval_expr(self.interval),
+                "series_key": ast.Tuple(exprs=_series_key_exprs()),
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
