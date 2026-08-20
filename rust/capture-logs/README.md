@@ -50,7 +50,8 @@ The token is your PostHog project token.
 | 200 | Accepted | — |
 | 400 | Body could not be decoded as OTLP protobuf or JSON | Permanent |
 | 401 | No token, or a token that cannot be a project API key (for example a `phx_` personal API key) | Permanent, so the client stops and surfaces the misconfiguration |
-| 413 | Body over `MAX_REQUEST_BODY_SIZE_BYTES` | Permanent |
+| 413 | Body over `MAX_REQUEST_BODY_SIZE_BYTES`, or a batch Kafka refuses as over its message size limit | Permanent, and the client should send smaller batches |
+| 500 | The records could not be written to Kafka | Retry |
 
 The 401 covers shape only: empty, over 64 characters, non-ASCII, containing a null byte, or
 prefixed `phx_`. None of those can be a project API key, so answering 200 and dropping the
@@ -66,6 +67,10 @@ A project over its billing quota is also still answered 200 and dropped by the c
 
 Rejections are counted on `capture_logs_requests_rejected_total{reason, signal}`, where `reason`
 is one of `missing_token`, `dropped_token` or `invalid_token`.
+
+Failures to write to Kafka are counted on `capture_logs_sink_errors_total{reason, signal}`, where
+`reason` is `message_size_too_large` for the batches answered 413, and the Kafka error code for
+the rest.
 
 ## Running the Service
 
