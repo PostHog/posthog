@@ -15,7 +15,12 @@ from clickhouse_driver.errors import ErrorCodes
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.errors import InternalCHQueryError
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseConnectionError,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 
 from .config import Config
 
@@ -297,11 +302,15 @@ class PostHogClient:
                 except (
                     InternalCHQueryError,
                     # wrap_clickhouse_query_error() converts TOO_MANY_SIMULTANEOUS_QUERIES,
-                    # TIMEOUT_EXCEEDED, and MEMORY_LIMIT_EXCEEDED into APIException subclasses
-                    # (not InternalCHQueryError), so we must catch them explicitly.
+                    # TIMEOUT_EXCEEDED, MEMORY_LIMIT_EXCEEDED, and mid-query socket drops into
+                    # APIException subclasses (not InternalCHQueryError), so we must catch them
+                    # explicitly. ClickHouseConnectionError is the socket-drop case: sync_execute
+                    # wraps the raw ConnectionResetError/EOFError/socket.timeout frames into it, so
+                    # without it here a reset would abort the poll instead of being retried.
                     ClickHouseAtCapacity,
                     ClickHouseQueryTimeOut,
                     ClickHouseQueryMemoryLimitExceeded,
+                    ClickHouseConnectionError,
                     EOFError,
                     ConnectionError,
                     OSError,
