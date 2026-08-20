@@ -74,6 +74,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         Materializes views by default.
         """
         # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
+        from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError  # noqa: PLC0415
+        from products.data_modeling.backend.logic.node_frequency import clamp_target_to_bounds  # noqa: PLC0415
         from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
         from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag  # noqa: PLC0415
 
@@ -224,7 +226,24 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
         for saved_query in saved_queries_to_schedule:
             try:
+                # A daily or weekly upstream source puts the 12h target below the node's floor, where
+                # schedule_materialization raises UnsatisfiableFrequencyError. Coarsen the target to
+                # what the node's bounds allow so the view still gets scheduled.
+                desired = saved_query.sync_frequency_interval
+                clamped = clamp_target_to_bounds(self.team_id, saved_query.id, desired) if desired else None
+                if clamped is not None and clamped != desired:
+                    saved_query.sync_frequency_interval = clamped
+                    saved_query.save(update_fields=["sync_frequency_interval"])
                 saved_query.schedule_materialization(reconcile=False)
+            except UnsatisfiableFrequencyError as e:
+                # Crossed bounds (a consumer demands fresher than the source can deliver): a config
+                # mismatch, not an application error, so log it instead of capturing an exception.
+                logger.warning(
+                    "managed_view_frequency_unsatisfiable",
+                    team_id=self.team_id,
+                    view_name=saved_query.name,
+                    error=str(e),
+                )
             except Exception as e:
                 capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                 logger.warning(

@@ -14,6 +14,7 @@ from products.data_modeling.backend.logic.freshness import (
 )
 from products.data_modeling.backend.logic.node_frequency import (
     build_frequency_graph,
+    clamp_target_to_bounds,
     get_declared_anchor,
     get_declared_target,
     persist_seed_targets,
@@ -37,6 +38,7 @@ M30 = timedelta(minutes=30)
 M45 = timedelta(minutes=45)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
+H12 = timedelta(hours=12)
 DAY = timedelta(days=1)
 
 
@@ -159,6 +161,42 @@ class TestBuildFrequencyGraph(BaseTest):
                 declared_targets=graph.declared_targets,
                 source_intervals=graph.source_intervals,
             )
+
+
+@pytest.mark.django_db
+class TestClampTargetToBounds(BaseTest):
+    def test_keeps_desired_when_the_source_delivers_fast_enough(self):
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
+
+        self.assertEqual(clamp_target_to_bounds(self.team.id, matview.saved_query_id, H12), H12)
+
+    def test_coarsens_to_the_source_floor_when_desired_is_too_fast(self):
+        dag = DAG.get_or_create_default(self.team)
+        source = _warehouse_source_node(self.team, dag, sync_frequency_interval=DAY)
+        matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
+
+        self.assertEqual(clamp_target_to_bounds(self.team.id, matview.saved_query_id, H12), DAY)
+
+    def test_returns_none_when_bounds_cross(self):
+        dag = DAG.get_or_create_default(self.team)
+        source = _warehouse_source_node(self.team, dag, sync_frequency_interval=DAY)
+        matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
+        Edge.objects.create(team=self.team, dag=dag, source=matview, target=endpoint)
+        set_declared_target(endpoint, H1)  # consumer wants fresher than the daily source can deliver
+
+        self.assertIsNone(clamp_target_to_bounds(self.team.id, matview.saved_query_id, H12))
+
+    def test_returns_none_when_no_node_carries_the_saved_query(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="unscheduled", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        self.assertIsNone(clamp_target_to_bounds(self.team.id, saved_query.id, H12))
 
 
 @pytest.mark.django_db
