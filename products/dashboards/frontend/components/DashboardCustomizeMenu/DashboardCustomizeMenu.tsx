@@ -24,30 +24,30 @@ const GRID_COMPACTION_OPTIONS: {
     label: JSX.Element
 }[] = [
     {
-        value: 'vertical',
+        value: DashboardGridCompaction.Vertical,
         label: (
             <span className="flex items-center gap-2">
-                <span className="text-xs font-medium">{DASHBOARD_GRID_COMPACTION_LABELS.vertical}</span>
+                <span className="text-xs font-medium">{DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Vertical]}</span>
                 <LemonTag type="success">Recommended</LemonTag>
-                <DashboardTileMovementPreview mode="vertical" />
+                <DashboardTileMovementPreview mode={DashboardGridCompaction.Vertical} />
             </span>
         ),
     },
     {
-        value: 'horizontal',
+        value: DashboardGridCompaction.Horizontal,
         label: (
             <span className="flex items-center gap-2">
-                <span className="text-xs font-medium">{DASHBOARD_GRID_COMPACTION_LABELS.horizontal}</span>
-                <DashboardTileMovementPreview mode="horizontal" />
+                <span className="text-xs font-medium">{DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Horizontal]}</span>
+                <DashboardTileMovementPreview mode={DashboardGridCompaction.Horizontal} />
             </span>
         ),
     },
     {
-        value: 'stable',
+        value: DashboardGridCompaction.Stable,
         label: (
             <span className="flex items-center gap-2">
-                <span className="text-xs font-medium">{DASHBOARD_GRID_COMPACTION_LABELS.stable}</span>
-                <DashboardTileMovementPreview mode="stable" />
+                <span className="text-xs font-medium">{DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Stable]}</span>
+                <DashboardTileMovementPreview mode={DashboardGridCompaction.Stable} />
             </span>
         ),
     },
@@ -63,7 +63,7 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
     }
 
     const tileSpacing = dashboard.customization?.tile_spacing ?? 'standard'
-    const layoutCompaction = dashboard.customization?.layout_compaction ?? 'vertical'
+    const layoutCompaction = dashboard.customization?.layout_compaction ?? DashboardGridCompaction.Vertical
     const setTileSpacing = (value: DashboardTileSpacing): void => {
         if (value === tileSpacing) {
             return

@@ -10,6 +10,7 @@ import {
 } from 'scenes/dashboard/dashboardResizeCompactor'
 import type { ResizeNeighbors } from 'scenes/dashboard/dashboardResizeCompactor'
 
+import { DashboardGridCompaction } from '~/types'
 import type { DashboardLayoutSize } from '~/types'
 
 import {
@@ -21,7 +22,7 @@ type InteractionKind = 'drag' | 'resize'
 
 interface UseDashboardLayoutInteractionProps {
     layoutEditMode: boolean
-    layoutCompaction?: string
+    layoutCompaction?: DashboardGridCompaction
     updateLayouts: (layouts: Partial<Record<DashboardLayoutSize, Layout>>) => void
 }
 
@@ -47,7 +48,7 @@ export function useDashboardLayoutInteraction({
     const interactionKind = useRef<InteractionKind | null>(null)
 
     const gridCompactor = useMemo<Compactor>(() => {
-        const selectedCompaction = layoutCompaction ?? 'vertical'
+        const selectedCompaction = layoutCompaction ?? DashboardGridCompaction.Vertical
         const compactor = getDashboardGridCompactor(selectedCompaction)
 
         return {
@@ -60,11 +61,11 @@ export function useDashboardLayoutInteraction({
                 }
 
                 const restoredLayout = restoreUnmovedItemPositions(layout, baseline, activeTileId, baselineById.current)
-                if (selectedCompaction === 'stable') {
+                if (selectedCompaction === DashboardGridCompaction.Stable) {
                     return resolveFreePlacementCollisions(restoredLayout, cols, activeTileId)
                 }
                 const layoutForCompaction =
-                    selectedCompaction === 'vertical' && interactionKind.current === 'resize'
+                    selectedCompaction === DashboardGridCompaction.Vertical && interactionKind.current === 'resize'
                         ? resizeNeighborToFitRow(restoredLayout, baseline, activeTileId, resizeNeighbors.current)
                         : restoredLayout
                 return compactor.compact(layoutForCompaction, cols)

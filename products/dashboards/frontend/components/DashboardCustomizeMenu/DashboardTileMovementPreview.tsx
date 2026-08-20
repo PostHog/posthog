@@ -1,6 +1,6 @@
 import './DashboardTileMovementPreview.scss'
 
-import type { DashboardGridCompaction } from '~/types'
+import { DashboardGridCompaction } from '~/types'
 
 const GRID_STROKE = 'var(--color-border-primary)'
 const EXISTING_TILE = 'var(--data-color-3)'
@@ -16,7 +16,7 @@ function Tile({ x, y, fill, className }: { x: number; y: number; fill: string; c
 }
 
 function MovementTiles({ mode }: DashboardTileMovementPreviewProps): JSX.Element {
-    if (mode === 'vertical') {
+    if (mode === DashboardGridCompaction.Vertical) {
         return (
             <>
                 <Tile x={0} y={0} fill={EXISTING_TILE} />
@@ -28,7 +28,7 @@ function MovementTiles({ mode }: DashboardTileMovementPreviewProps): JSX.Element
         )
     }
 
-    if (mode === 'horizontal') {
+    if (mode === DashboardGridCompaction.Horizontal) {
         return (
             <>
                 <Tile x={0} y={0} fill={EXISTING_TILE} />

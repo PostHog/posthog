@@ -3756,7 +3756,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                     {
                         grid_spacing: tileSpacing,
-                        layout_compaction: values.dashboard?.customization?.layout_compaction ?? 'vertical',
+                        layout_compaction:
+                            values.dashboard?.customization?.layout_compaction ?? DashboardGridCompaction.Vertical,
                     }
                 )
                 dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
@@ -3792,8 +3793,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const persistedDashboard = dashboardsModel.values.rawDashboards[props.id]
             const persistedLayoutCompaction =
                 persistedDashboard && 'customization' in persistedDashboard
-                    ? (persistedDashboard.customization?.layout_compaction ?? 'vertical')
-                    : 'vertical'
+                    ? (persistedDashboard.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
+                    : DashboardGridCompaction.Vertical
             cache.dashboardGridCompactionSaveInFlight = true
             try {
                 const dashboard = await api.update<DashboardType<QueryBasedInsightModel>>(

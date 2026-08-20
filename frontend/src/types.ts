@@ -2710,7 +2710,11 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
 }
 
 export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
-export type DashboardGridCompaction = 'vertical' | 'horizontal' | 'stable'
+export enum DashboardGridCompaction {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
+    Stable = 'stable',
+}
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',

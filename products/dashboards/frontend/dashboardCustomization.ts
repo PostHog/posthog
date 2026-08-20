@@ -2,7 +2,8 @@ import { cloneLayoutItem, horizontalCompactor, noCompactor } from 'react-grid-la
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 import { fastVerticalCompactor } from 'react-grid-layout/extras'
 
-import type { DashboardGridCompaction, DashboardTileSpacing } from '~/types'
+import { DashboardGridCompaction } from '~/types'
+import type { DashboardTileSpacing } from '~/types'
 
 export const DASHBOARD_TILE_SPACING_GAPS: Record<DashboardTileSpacing, number> = {
     tight: 8,
@@ -21,9 +22,9 @@ export const DASHBOARD_TILE_SPACING_LABELS: Record<DashboardTileSpacing, string>
 }
 
 export const DASHBOARD_GRID_COMPACTION_LABELS: Record<DashboardGridCompaction, string> = {
-    vertical: 'Stack tiles upward',
-    horizontal: 'Stack tiles to the left',
-    stable: 'Free-form placement',
+    [DashboardGridCompaction.Vertical]: 'Stack tiles upward',
+    [DashboardGridCompaction.Horizontal]: 'Stack tiles to the left',
+    [DashboardGridCompaction.Stable]: 'Free-form placement',
 }
 
 type GridOccupancy = Map<number, Array<LayoutItem | undefined>>
@@ -97,11 +98,11 @@ export function getDashboardTileSpacingGap(tileSpacing?: string): number {
     return DASHBOARD_TILE_SPACING_GAPS[tileSpacing as DashboardTileSpacing] ?? DASHBOARD_TILE_SPACING_GAPS.standard
 }
 
-export function getDashboardGridCompactor(layoutCompaction?: string): Compactor {
+export function getDashboardGridCompactor(layoutCompaction?: DashboardGridCompaction): Compactor {
     switch (layoutCompaction) {
-        case 'horizontal':
+        case DashboardGridCompaction.Horizontal:
             return makeRoomInRowCompactor
-        case 'stable':
+        case DashboardGridCompaction.Stable:
             return freePlacementCompactor
         default:
             return fastVerticalCompactor

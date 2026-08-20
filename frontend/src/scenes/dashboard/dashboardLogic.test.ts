@@ -32,6 +32,7 @@ import { initKeaTests } from '~/test/init'
 import {
     DashboardMode,
     DashboardPlacement,
+    DashboardGridCompaction,
     DashboardTile,
     DashboardType,
     InsightColor,
@@ -387,7 +388,7 @@ describe('dashboardLogic', () => {
 
                 expect(api.update).toHaveBeenCalledTimes(1)
                 expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
-                    layout_compaction: 'vertical',
+                    layout_compaction: DashboardGridCompaction.Vertical,
                     grid_spacing: 'relaxed',
                 })
                 expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
@@ -422,12 +423,12 @@ describe('dashboardLogic', () => {
             jest.useFakeTimers()
 
             try {
-                logic.actions.setDashboardGridCompaction('vertical')
-                logic.actions.saveDashboardGridCompaction('vertical')
-                logic.actions.setDashboardGridCompaction('horizontal')
-                logic.actions.saveDashboardGridCompaction('horizontal')
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Vertical)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Vertical)
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
 
-                expect(logic.values.dashboard?.customization?.layout_compaction).toBe('horizontal')
+                expect(logic.values.dashboard?.customization?.layout_compaction).toBe(DashboardGridCompaction.Horizontal)
                 expect(api.update).not.toHaveBeenCalled()
 
                 await jest.advanceTimersByTimeAsync(750)
@@ -435,7 +436,7 @@ describe('dashboardLogic', () => {
 
                 expect(api.update).toHaveBeenCalledTimes(1)
                 expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
-                    layout_compaction: 'horizontal',
+                    layout_compaction: DashboardGridCompaction.Horizontal,
                     grid_spacing: 'standard',
                 })
             } finally {
@@ -455,12 +456,12 @@ describe('dashboardLogic', () => {
             jest.useFakeTimers()
 
             try {
-                logic.actions.setDashboardGridCompaction('horizontal')
-                logic.actions.saveDashboardGridCompaction('horizontal')
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
                 await jest.advanceTimersByTimeAsync(750)
 
-                logic.actions.setDashboardGridCompaction('stable')
-                logic.actions.saveDashboardGridCompaction('stable')
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Stable)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Stable)
                 await jest.advanceTimersByTimeAsync(750)
 
                 resolveFirstSave(logic.values.dashboard!)
@@ -468,7 +469,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 expect(api.update).toHaveBeenLastCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
-                    layout_compaction: 'stable',
+                    layout_compaction: DashboardGridCompaction.Stable,
                     grid_spacing: 'standard',
                 })
             } finally {
@@ -1252,10 +1253,10 @@ describe('dashboardLogic', () => {
 
             it('changes the movement mode without a prompt when the layout is saved', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.changeDashboardGridCompaction('horizontal')
+                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
                 }).toDispatchActions([
-                    logic.actionCreators.setDashboardGridCompaction('horizontal'),
-                    logic.actionCreators.saveDashboardGridCompaction('horizontal'),
+                    logic.actionCreators.setDashboardGridCompaction(DashboardGridCompaction.Horizontal),
+                    logic.actionCreators.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal),
                 ])
 
                 expect(dialogOpenSpy).not.toHaveBeenCalled()
@@ -1266,10 +1267,10 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, moveFirstTile).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.changeDashboardGridCompaction('horizontal')
+                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
                 }).toNotHaveDispatchedActions([
-                    logic.actionCreators.setDashboardGridCompaction('horizontal'),
-                    logic.actionCreators.saveDashboardGridCompaction('horizontal'),
+                    logic.actionCreators.setDashboardGridCompaction(DashboardGridCompaction.Horizontal),
+                    logic.actionCreators.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal),
                 ])
 
                 expect(dialogOpenSpy).toHaveBeenCalledWith(
