@@ -64,10 +64,10 @@ export function MetricBreakdowns({
                                 Which funnel step the breakdown value is read from for each user:
                                 <ul className="list-disc pl-4">
                                     <li>
-                                        <strong>First touchpoint</strong>: value at the user's first step
+                                        <strong>First touchpoint</strong>: the first property value seen in any step
                                     </li>
                                     <li>
-                                        <strong>Last touchpoint</strong>: value at the user's last step
+                                        <strong>Last touchpoint</strong>: the last property value seen across all steps
                                     </li>
                                     <li>
                                         <strong>All steps</strong>: The property value must appear on all steps
