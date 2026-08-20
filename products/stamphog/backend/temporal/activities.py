@@ -6,11 +6,12 @@ policy files, raw reviewer output) is persisted on ``ReviewRun.output`` between 
 rather than threaded through the workflow, keeping every Temporal payload well under the
 ~2 MiB limit.
 
-The whole review engine — hard gates, tier classification, git-blame familiarity, and
-the LLM reviewer — runs inside the sandbox via the Action's own modules
-(``tools/pr-approval-agent/review_local.py``). The server never processes repo content:
-it fetches PR data and the trusted default-branch policy over the API, ships the engine
-and injects the policy into the sandbox, and only ever reads back a single verdict JSON.
+The whole review engine (hard gates, tier classification, git-blame familiarity, and
+the LLM reviewer) runs inside the sandbox via the engine's own modules
+(``products/stamphog/packages/pr-approval-agent/review_local.py``). The server never
+processes repo content. It fetches PR data and the trusted default-branch policy over
+the API, ships the engine and injects the policy into the sandbox, and reads back only a
+single verdict JSON.
 """
 
 from __future__ import annotations
@@ -69,11 +70,11 @@ from products.tasks.backend.facade.sandbox import (
     get_sandbox_class_for_backend,
 )
 
-# The Action's review engine on the server's own checkout. Read as data files at
-# runtime (never imported — the directory is hyphenated and lives outside the
-# import graph) and shipped into the sandbox checkout. activities.py is at
-# products/stamphog/backend/temporal/activities.py, so the repo root is five parents up.
-_SERVER_ENGINE_DIR = Path(__file__).resolve().parents[4] / "tools" / "pr-approval-agent"
+# The review engine on the server's own checkout. The server reads these as data files at runtime
+# and ships them into the sandbox checkout. It never imports them, because the directory is
+# hyphenated and sits outside the import graph. activities.py is at
+# products/stamphog/backend/temporal/activities.py, so the product root is three parents up.
+_SERVER_ENGINE_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent"
 
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
@@ -236,6 +237,13 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     # familiarity section from the reviewer prompt; the review itself proceeds normally.
     is_inbox_review = bool((run.output or {}).get("inbox_review"))
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
+    # The engine cannot resolve which of the owning teams the author belongs to. The sandbox holds
+    # no token, and the engine learns the owning teams only after it reads the checkout's ownership
+    # sources. One bulk lookup here gives the engine every team that the author belongs to, and the
+    # engine intersects that list with the teams that own the changed paths. Inbox reviews skip this
+    # lookup for the same reason that they skip author_pr_numbers: the author is the App machine
+    # user, so its team membership says nothing about who wrote the diff.
+    author_team_slugs = client.get_user_team_slugs(repo.split("/")[0], author) if author and not is_inbox_review else []
 
     policy_files: dict[str, str] = {}
     for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
@@ -254,6 +262,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "pr_reactions": client.get_pr_reactions(repo, pull_request.pr_number),
         "policy_files": policy_files,
         "author_pr_numbers": author_pr_numbers,
+        "author_team_slugs": author_team_slugs,
     }
     run.save(update_fields=["output", "updated_at"])
 
@@ -400,6 +409,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     pr_reactions = output.get("pr_reactions", [])
     policy_files = output.get("policy_files", {})
     author_pr_numbers = output.get("author_pr_numbers", [])
+    author_team_slugs = output.get("author_team_slugs", [])
 
     # The trusted source for each policy file is the repo's default branch layered over the
     # server-shipped defaults (see _effective_policy_files): policy.yml is a section overlay, the
@@ -440,6 +450,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         check_runs=check_runs,
         pr_reactions=pr_reactions,
         author_pr_numbers=author_pr_numbers,
+        author_team_slugs=author_team_slugs,
         base_sha=base_sha,
         head_sha=run.head_sha,
         repo=repo,
@@ -1150,11 +1161,14 @@ def _ship_owners_package(sandbox: SandboxBase) -> None:
     """Ship the posthog-owners resolver package the engine's ownership format imports.
 
     The default policy declares a ``hogli-resolver`` ownership source, and gates.py imports
-    ``posthog_owners`` from ``tools/owners`` next to the engine dir. Same trust posture as the
-    engine: always our copy, wiping whatever the PR head carried at that path. Repos without
+    ``posthog_owners`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust
+    posture as the engine: always our copy, which overwrites whatever the PR head carried at that
+    path. Repos without
     owners.yaml/product.yaml files simply resolve to "no ownership-source match".
     """
-    package_dir = _SERVER_ENGINE_DIR.parent / "owners" / "posthog_owners"
+    # Repo root rather than a sibling of the engine. posthog_owners is a shared tool, so it stays
+    # under tools/ while the engine lives in the product.
+    package_dir = Path(__file__).resolve().parents[4] / "tools" / "owners" / "posthog_owners"
     if not package_dir.is_dir():
         raise RuntimeError(f"owners package source dir not found: {package_dir}")
     target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/posthog_owners"

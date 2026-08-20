@@ -1,13 +1,21 @@
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { insertHogFunction as _insertHogFunction, createInternalEvent, createKafkaMessage } from '../_tests/fixtures'
+import {
+    insertHogFunction as _insertHogFunction,
+    createInternalEvent,
+    createKafkaMessage,
+    insertIntegration,
+} from '../_tests/fixtures'
+import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionType } from '../types'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
@@ -44,7 +52,10 @@ describe('CDP Internal Events Consumer', () => {
         jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
 
         const mockJobQueue = createMockJobQueue()
-        processor = new CdpInternalEventsConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
+        processor = new CdpInternalEventsConsumer(hub, createCdpConsumerDeps(hub), {
+            hogQueue: mockJobQueue,
+            hogflowQueue: mockJobQueue,
+        })
 
         // Don't actually connect Kafka — test the core logic only
         processor['kafkaConsumer'] = {
@@ -287,6 +298,106 @@ describe('CDP Internal Events Consumer', () => {
             const { invocations } = await processor.processBatch(globals)
 
             expect(invocations.map((invocation) => invocation.functionId)).toEqual([fn.id])
+        })
+    })
+
+    describe('hog flow invocations', () => {
+        const buildHogFlow = (teamId: number, trigger: any): HogFlow =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(teamId)
+                // Always-true bytecode (return true), so the test is about eligibility, not filters
+                .withSimpleWorkflow({ trigger: { ...trigger, filters: { properties: [], bytecode: ['_h', 29] } } })
+                .build()
+
+        const slackMessage = (teamId: number, properties: Record<string, any> = {}) =>
+            createInternalEvent(teamId, {
+                event: {
+                    timestamp: '2026-08-17T12:00:00.000Z',
+                    uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                    event: '$slack_message_received',
+                    distinct_id: 'U123',
+                    properties: { channel: 'C0ALERTS', text: 'database is on fire', ...properties },
+                },
+            })
+
+        it('should start a workflow whose trigger is a slack message', async () => {
+            const hogFlow = await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'slack-message' }))
+
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(slackMessage(team.id))])
+            expect(globals).toHaveLength(1)
+
+            const { invocations } = await processor.processBatch(globals)
+            const hogFlowInvocations = invocations.filter((i: any) => i.hogFlow)
+            expect(hogFlowInvocations).toHaveLength(1)
+            expect(hogFlowInvocations[0].functionId).toBe(hogFlow.id)
+        })
+
+        it('should not start a slack workflow from another signal on this topic', async () => {
+            // Eligibility has to match the event as well as the trigger type. Error tracking, alerts
+            // and activity logs all arrive here, and a workflow whose stored filters are empty (which
+            // the API accepts) matches whatever it is handed — so trigger type alone fires on all of
+            // them, with no channel or ts for a reply step to use.
+            await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'slack-message' }))
+
+            const globals = await processor._parseKafkaBatch([
+                createKafkaMessage(
+                    createInternalEvent(team.id, {
+                        event: {
+                            timestamp: '2026-08-17T12:00:00.000Z',
+                            uuid: 'aaaaaaaa-bbbb-cccc-dddd-ffffffffffff',
+                            event: '$insight_alert_firing',
+                            distinct_id: 'U123',
+                            properties: { alert_id: 'abc' },
+                        },
+                    })
+                ),
+            ])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(0)
+        })
+
+        it('should not start an event-triggered workflow', async () => {
+            // Internal events share this topic with error tracking and activity log signals. An
+            // event-triggered workflow expects those from analytics capture, so widening eligibility
+            // to 'event' would fire every one of them.
+            await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'event' }))
+
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(slackMessage(team.id))])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(0)
+        })
+
+        it.each([
+            ['PostHog posted the message', 'A0POSTHOG', 0],
+            ['another app posted the message', 'A0OTHER', 1],
+        ])('starts a workflow only when it did not post the message: %s', async (_name, appId, expected) => {
+            // A workflow that replies in Slack sees its own reply arrive back on this topic. The
+            // guard is part of eligibility, not the trigger's stored filters, so a workflow created
+            // through the API or MCP still has it.
+            const integration = await insertIntegration(hub.postgres, team.id, {
+                kind: 'slack',
+                config: { app_id: 'A0POSTHOG' },
+            })
+            await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'slack-message' }))
+
+            const globals = await processor._parseKafkaBatch([
+                createKafkaMessage(slackMessage(team.id, { app_id: appId, integration_id: integration.id })),
+            ])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(expected)
+        })
+
+        it('should parse a message for a team that has a hog flow but no hog functions', async () => {
+            // The parse step used to drop any team with no internal_destination functions, which
+            // would discard the event before the flow pipeline ever saw it.
+            await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'slack-message' }))
+
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(slackMessage(team.id))])
+
+            expect(globals).toHaveLength(1)
         })
     })
 })

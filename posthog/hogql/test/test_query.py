@@ -6,7 +6,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    NewEventsSchemaSnapshotExtension,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 from unittest.mock import patch
 
 from django.conf import settings
@@ -63,7 +70,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
         self._new_events_schema_snapshot_index = snapshot_index + 1
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
-        return self.snapshot(name=snapshot_name)
+        return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
 
     def assertResponseMatchesSnapshot(self, response) -> None:
         snapshot_value = pretty_print_response_in_tests(response, self.team.pk)
