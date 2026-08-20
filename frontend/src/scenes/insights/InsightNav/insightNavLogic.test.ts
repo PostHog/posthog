@@ -1265,6 +1265,36 @@ describe('insightNavLogic', () => {
                 })
             })
 
+            it('normalizes the ActionsStackedBar alias when switching from trends to stickiness', async () => {
+                const trendsQueryWithAlias: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        // ActionsStackedBar reaches this path only via the API/MCP; the UI never emits it.
+                        trendsFilter: { display: ChartDisplayType.ActionsStackedBar },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithAlias)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.STICKINESS)
+                }).toFinishAllListeners()
+
+                const stickinessSource = (builtInsightDataLogic.values.query as InsightVizNode)
+                    .source as StickinessQuery
+                expect(stickinessSource.stickinessFilter?.display).toEqual(ChartDisplayType.ActionsBar)
+            })
+
             const dataWarehouseTestCases: {
                 label: string
                 source: InsightVizNode['source']

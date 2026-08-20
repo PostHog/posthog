@@ -67,6 +67,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
+    normalizeDisplay,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -443,6 +444,9 @@ function getCommonVisualizationProperties(
     | Partial<FunnelsCommonVisualizationProperties>
     | Partial<LifecycleCommonVisualizationProperties>
     | Partial<EmptyCommonVisualizationProperties> {
+    // ActionsStackedBar is a deprecated alias of ActionsBar the API/MCP still accept, so normalize it
+    // before the allowlist check — otherwise a carried-over alias fails the check and resets the chart.
+    const display = normalizeDisplay(commonFilter.display)
     const sharedProperties = {
         ...((isLifecycleQuery(query) || isStickinessQuery(query) || isTrendsQuery(query) || isFunnelsQuery(query)) &&
         commonFilter.showValuesOnSeries
@@ -451,9 +455,9 @@ function getCommonVisualizationProperties(
         ...(isTrendsQuery(query) && commonFilter.showPercentStackView
             ? { showPercentStackView: commonFilter.showPercentStackView }
             : {}),
-        ...(commonFilter.display &&
-        (isTrendsQuery(query) || (isStickinessQuery(query) && STICKINESS_DISPLAY_TYPES.includes(commonFilter.display)))
-            ? { display: commonFilter.display }
+        ...(display &&
+        (isTrendsQuery(query) || (isStickinessQuery(query) && STICKINESS_DISPLAY_TYPES.includes(display)))
+            ? { display }
             : {}),
     }
 
