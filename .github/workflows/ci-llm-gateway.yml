@@ -13,6 +13,12 @@ on:
         branches:
             - master
     pull_request:
+    # The live-provider integration suite runs here, off the per-PR path. A daily run
+    # catches provider regressions; workflow_dispatch and the run-llm-gateway-integration
+    # label cover on-demand runs.
+    schedule:
+        - cron: '0 6 * * *'
+    workflow_dispatch:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -27,7 +33,7 @@ env:
 
 jobs:
     changes:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run LLM Services checks
         outputs:
@@ -43,7 +49,9 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Only diff on PRs. push, schedule, and workflow_dispatch have no PR base, so
+              # the output defaults to 'true' and the tests run.
+              if: github.event_name == 'pull_request'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -55,7 +63,7 @@ jobs:
         name: LLM Gateway Tests
         needs: changes
         if: needs.changes.outputs.llm_gateway == 'true'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         defaults:
             run:
@@ -83,15 +91,10 @@ jobs:
               # continue-on-error so the quarantine gate below is the verdict — it passes when
               # every failure is an already-quarantined flake, fails otherwise.
               continue-on-error: true
-              env:
-                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-                  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-                  FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
-                  AWS_DEFAULT_REGION: us-east-1
-                  CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_LLM_GATEWAY_TOKEN }}
-                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-              run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
+              # The live-provider integration suite is excluded here — it runs in the
+              # llm-gateway-integration job on a schedule and on demand. -n auto spreads the
+              # mocked unit tests across the runner's cores.
+              run: uv run pytest tests/ --ignore=tests/integration -n auto -v --tb=short --junitxml=junit.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -124,12 +127,66 @@ jobs:
               shell: bash
               run: exit 1
 
+    # Live-provider integration suite. It makes real calls to LLM providers, whose latency
+    # is high-variance and outside our control, so it stays off the per-PR path. It runs on
+    # the daily schedule, on manual dispatch, and on a PR that carries the
+    # run-llm-gateway-integration label (the label is read on the next push). It is not part
+    # of the required llm_services_tests gate.
+    llm-gateway-integration:
+        name: LLM Gateway Integration Tests
+        if: >-
+            github.event_name == 'schedule'
+            || github.event_name == 'workflow_dispatch'
+            || (github.event_name == 'pull_request'
+                && github.event.pull_request.head.repo.full_name == github.repository
+                && contains(github.event.pull_request.labels.*.name, 'run-llm-gateway-integration'))
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 20
+        defaults:
+            run:
+                working-directory: services/llm-gateway
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.13.13'
+                  token: ${{ github.token }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+
+            - name: Install dependencies
+              run: uv sync --frozen --dev
+
+            - name: Run integration tests
+              env:
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+                  FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+                  AWS_DEFAULT_REGION: us-east-1
+                  CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_LLM_GATEWAY_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+              run: uv run pytest tests/integration -v --tb=short --junitxml=junit-integration.xml
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-llm-gateway-integration
+                  path: services/llm-gateway/junit-integration.xml
+
     # Single required status check for branch protection. Add future LLM
     # services test jobs to `needs` here rather than reconfiguring GitHub.
     llm_services_tests:
         needs: [changes, llm-gateway]
         name: LLM Services Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         # always(), not !cancelled(): a skipped required check is treated as a pass by
         # branch protection, so on cancellation the gate must run and emit an explicit
