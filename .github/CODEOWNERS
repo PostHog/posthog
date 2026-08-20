@@ -74,3 +74,10 @@ products/mcp_store/backend/catalog.py @PostHog/team-self-driving @cvolzer3
 # `hogli product:bootstrap` scaffolds a sealed product, so a new one should never need an
 # entry. Removals are the mechanical result of a product sealing and are a rubber stamp.
 products/isolation_baseline.txt @PostHog/team-devex
+
+# The model-crossing ratchet. The file is the only thing standing between the isolation doctrine
+# and a product quietly growing a new query, serializer or write against another product's model:
+# add a line and the check goes green again. There is no way to express "this line may not be added"
+# in a lint, because the lint is the file. Review is the gate.
+products/model_crossing_uses_baseline.txt @PostHog/team-devex
+
