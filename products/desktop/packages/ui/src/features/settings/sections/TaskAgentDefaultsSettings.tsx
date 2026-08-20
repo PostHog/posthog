@@ -117,6 +117,17 @@ function MyDefaultPicker({
         isDefaultSelection={isInherited}
         onModelChange={handleModelChange}
         onChange={handleEffortChange}
+        // A slider notch changes model and effort at once. Save them as one
+        // preference so the effort can't land on the previously-shown model.
+        onNotchSelect={({ model, effort }) => {
+          if (modelOption) setConfigOption(modelOption.id, model);
+          if (thoughtOption) setConfigOption(thoughtOption.id, effort);
+          onSave({
+            runtime_adapter: adapter,
+            model,
+            reasoning_effort: effort || null,
+          });
+        }}
         onAdapterChange={(next) => {
           // Switching harness clears the pair; the next model pick supplies the new one.
           seeded.current = null;

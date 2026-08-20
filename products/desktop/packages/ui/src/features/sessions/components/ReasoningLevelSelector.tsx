@@ -63,6 +63,14 @@ interface ReasoningLevelSelectorProps {
   fastModeOption?: SessionConfigOption;
   onChange?: (value: string) => void;
   onModelChange?: (value: string) => void;
+  /**
+   * A ladder notch carries a model and an effort together. When one drag moves
+   * both, the split onModelChange/onChange callbacks fire back to back with no
+   * render between them, so a caller that reads the model from render props in
+   * its effort handler sees the old value. Callers that persist the pair as a
+   * single value pass this to receive the notch atomically instead.
+   */
+  onNotchSelect?: (selection: { model: string; effort: string }) => void;
   onAdapterChange?: (adapter: AgentAdapter) => void;
   onHarnessChange?: (harness: AgentHarness) => void;
   /**
@@ -136,6 +144,7 @@ export function ReasoningLevelSelector({
   fastModeOption,
   onChange,
   onModelChange,
+  onNotchSelect,
   onAdapterChange,
   onHarnessChange,
   onHarnessModelChange,
@@ -319,6 +328,19 @@ export function ReasoningLevelSelector({
   const handleStopSelect = (key: string) => {
     if (key.includes(STOP_SEPARATOR)) {
       const [model, effort] = key.split(STOP_SEPARATOR);
+      // A notch moves model and effort as one; deliver them together when the
+      // caller wants the pair, so it never has to read the model back from
+      // render props that this handler has not let re-render yet.
+      if (onNotchSelect) {
+        if (
+          model &&
+          effort &&
+          (model !== currentModel || effort !== currentEffort)
+        ) {
+          onNotchSelect({ model, effort });
+        }
+        return;
+      }
       if (model && model !== currentModel) changeModel(model);
       if (effort && effort !== currentEffort) onChange?.(effort);
       return;
