@@ -117,9 +117,16 @@ def _lint_channel_ids(root: Path) -> list[str]:
         if not channel_id:
             continue
         try:
-            uuid.UUID(channel_id)
+            parsed = uuid.UUID(channel_id)
         except ValueError:
             errors.append(f"{path.relative_to(root)}: `channel_id` must be a UUID")
+            continue
+        # Resolution looks the page up by the channel's canonical UUID string, so a
+        # non-canonical spelling (uppercase, braces, urn: prefix, unhyphenated) would
+        # land clean yet never match its own channel — and slip past the uniqueness
+        # check below, which keys on the raw text. Require the canonical form instead.
+        if channel_id != str(parsed):
+            errors.append(f"{path.relative_to(root)}: `channel_id` must be the canonical UUID form `{parsed}`")
             continue
         paths_by_id.setdefault(channel_id, []).append(path)
     for channel_id, paths in paths_by_id.items():

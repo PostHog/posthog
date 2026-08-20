@@ -50,6 +50,12 @@ def _channel_page_with_empty_channel_id(root: Path) -> None:
     (root / "channels" / "general.md").write_text("---\nchannel_id:   \n---\n# general")
 
 
+def _channel_page_with_noncanonical_channel_id(root: Path) -> None:
+    (root / "channels").mkdir(exist_ok=True)
+    # A valid UUID in a spelling Django never serves; resolution would never match it.
+    (root / "channels" / "general.md").write_text(f"---\nchannel_id: {str(uuid.uuid4()).upper()}\n---\n# general")
+
+
 def _stray_symlink(root: Path) -> None:
     (root / "areas").mkdir(exist_ok=True)
     (root / "areas" / "alias.md").symlink_to("../AGENTS.md")
@@ -120,6 +126,7 @@ class TestRepoLint(SimpleTestCase):
             ("misnamed_decision", _misnamed_decision),
             ("channel_page_without_channel_id", _channel_page_without_channel_id),
             ("channel_page_with_empty_channel_id", _channel_page_with_empty_channel_id),
+            ("channel_page_with_noncanonical_channel_id", _channel_page_with_noncanonical_channel_id),
             ("stray_symlink", _stray_symlink),
             ("oversized_page", _oversized_page),
             ("scripts_symlink", _scripts_symlink),
