@@ -1054,35 +1054,47 @@ class TestLogsAlertAPI(APIBaseTest):
             },
         )
 
-    def test_list_destinations_returns_slack_ids_unredacted(self):
+    @parameterized.expand(
+        [
+            (
+                "slack_returns_config_whole_but_omits_channel_name",
+                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"},
+                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123"},
+                ["slack_channel_name"],
+            ),
+            (
+                "webhook_url_redacted_to_scheme_and_host",
+                {"type": "webhook", "webhook_url": "https://example.com/hook?token=s3cret"},
+                {"type": "webhook", "webhook_url": "https://example.com/…"},
+                [],
+            ),
+            (
+                "teams_webhook_url_redacted_to_scheme_and_host",
+                {
+                    "type": "teams",
+                    "webhook_url": "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+                },
+                {"type": "teams", "webhook_url": "https://prod-00.westus.logic.azure.com:443/…"},
+                [],
+            ),
+        ]
+    )
+    def test_list_destinations_exposes_expected_config_per_type(
+        self, _name: str, payload: dict, expected: dict, absent: list[str]
+    ) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
-        self._create_destination(
-            created["id"],
-            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123"},
-        )
+        self._create_destination(created["id"], payload)
 
         response = self.client.get(self._destinations_url(created["id"]))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         destinations = response.json()["results"]
         assert len(destinations) == 1
-        assert destinations[0]["type"] == "slack"
-        assert destinations[0]["slack_workspace_id"] == 42
-        assert destinations[0]["slack_channel_id"] == "C123"
-
-    def test_list_destinations_omits_slack_channel_name(self):
-        self._sync_destination_templates()
-        created = self._create_via_api()
-        self._create_destination(
-            created["id"],
-            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"},
-        )
-
-        response = self.client.get(self._destinations_url(created["id"]))
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert "slack_channel_name" not in response.json()["results"][0]
+        for key, value in expected.items():
+            assert destinations[0][key] == value
+        for key in absent:
+            assert key not in destinations[0]
 
     def test_list_destinations_pages_in_creation_order_without_overlap(self):
         self._sync_destination_templates()
@@ -1111,35 +1123,6 @@ class TestLogsAlertAPI(APIBaseTest):
         assert first_page["previous"] is None
         assert second_page["next"] is None
         assert second_page["previous"] is not None
-
-    def test_list_destinations_redacts_webhook_url(self):
-        self._sync_destination_templates()
-        created = self._create_via_api()
-        self._create_destination(
-            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook?token=s3cret"}
-        )
-
-        response = self.client.get(self._destinations_url(created["id"]))
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        destinations = response.json()["results"]
-        assert len(destinations) == 1
-        assert destinations[0]["type"] == "webhook"
-        assert destinations[0]["webhook_url"] == "https://example.com/…"
-
-    def test_list_destinations_redacts_teams_webhook_url(self):
-        self._sync_destination_templates()
-        created = self._create_via_api()
-        teams_url = "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
-        self._create_destination(created["id"], {"type": "teams", "webhook_url": teams_url})
-
-        response = self.client.get(self._destinations_url(created["id"]))
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        destinations = response.json()["results"]
-        assert len(destinations) == 1
-        assert destinations[0]["type"] == "teams"
-        assert destinations[0]["webhook_url"] == "https://prod-00.westus.logic.azure.com:443/…"
 
     def test_list_destinations_reports_disabled_when_one_hog_function_is_disabled(self):
         self._sync_destination_templates()
