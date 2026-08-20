@@ -42,7 +42,6 @@ from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
@@ -50,6 +49,8 @@ from posthog.cache_utils import cache_for
 from posthog.credentials import AWSKeyPair
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.slack.client import SlackWebClient as WebClient
+from posthog.egress.slack.observability import record_slack_api_response
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
@@ -1538,6 +1539,16 @@ class OauthIntegration:
                 allow_redirects=False,
             )
 
+        if kind == "slack":
+            record_slack_api_response(
+                res,
+                source="oauth",
+                workspace_id=None,
+                app_id="posthog",
+                method="POST",
+                endpoint="oauth.v2.access",
+            )
+
         try:
             config: dict = res.json()
         except ValueError:
@@ -2162,14 +2173,25 @@ class SlackIntegration:
 
     @property
     def client(self) -> WebClient:
-        return WebClient(self.integration.sensitive_config["access_token"])
+        return WebClient(
+            self.integration.sensitive_config["access_token"],
+            source="integration",
+            workspace_id=self.integration.integration_id,
+            app_id="posthog",
+        )
 
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
         # slack_sdk's async client imports aiohttp at module scope; this is a models module,
         # so a top-level import would put aiohttp on the django.setup() path
-        from slack_sdk.web.async_client import AsyncWebClient  # noqa: PLC0415
+        from posthog.egress.slack.async_client import SlackAsyncWebClient  # noqa: PLC0415
 
-        return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
+        return SlackAsyncWebClient(
+            self.integration.sensitive_config["access_token"],
+            source="integration",
+            workspace_id=self.integration.integration_id,
+            app_id="posthog",
+            session=session,
+        )
 
     def granted_scopes(self) -> frozenset[str]:
         """OAuth scopes Slack granted this install, stored on Integration.config["scope"]."""
@@ -2953,7 +2975,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202607",
             },
             timeout=10,
         )
@@ -2968,7 +2990,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202607",
             },
             timeout=10,
         )
@@ -3247,7 +3269,26 @@ class LinearIntegration:
             variables={"title": title, "description": description, "teamId": linear_team_id},
         )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
+        # Linear reports failures in a 200 body; without this check a failed create would
+        # persist a reference with id None. Nothing was created, so raising is safe.
+        if body.get("errors") or not linear_issue_id:
+            raise ValidationError("Failed to create the Linear issue")
 
+        # Best-effort: the Linear issue already exists at this point, so failing the whole
+        # create over a missing back-link would produce duplicate issues on retry.
+        try:
+            self.create_attachment(linear_issue_id, attachment_url)
+        except ValidationError:
+            logger.warning("linear_issue_attachment_failed", issue_id=linear_issue_id)
+
+        return {"id": linear_issue_id}
+
+    def create_attachment(self, issue_id: str, url: str) -> None:
+        """Attach a PostHog issue link to a Linear issue (shows as a back-link in Linear).
+
+        Raises on failure: Linear reports errors in the GraphQL body with HTTP 200,
+        and the mutation itself can report success=false.
+        """
         link_attachment_query = """
         mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!) {
             attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {
@@ -3255,12 +3296,41 @@ class LinearIntegration:
             }
         }
         """
-        self.query(
+        body = self.query(
             link_attachment_query,
-            variables={"issueId": linear_issue_id, "title": "PostHog issue", "url": attachment_url},
+            variables={"issueId": issue_id, "title": "PostHog issue", "url": url},
         )
+        if body.get("errors") or not dot_get(body, "data.attachmentCreate.success"):
+            raise ValidationError("Failed to attach the PostHog link to the Linear issue")
 
-        return {"id": linear_issue_id}
+    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing Linear issues by title / identifier for the link-existing flow."""
+        search_query = """
+        query SearchIssues($term: String!, $first: Int!) {
+            searchIssues(term: $term, first: $first) {
+                nodes { identifier title url }
+            }
+        }
+        """
+        body = self.query(search_query, variables={"term": query, "first": limit})
+        if body.get("errors") or dot_get(body, "data.searchIssues") is None:
+            raise ValidationError("Failed to search Linear issues")
+        nodes = dot_get(body, "data.searchIssues.nodes") or []
+        results: list[dict[str, Any]] = []
+        for node in nodes:
+            identifier = node.get("identifier")
+            if not identifier:
+                continue
+            results.append(
+                {
+                    "id": identifier,
+                    "title": node.get("title") or identifier,
+                    "url": node.get("url") or "",
+                    # Matches the shape LinearIntegration.create_issue stores.
+                    "external_context": {"id": identifier},
+                }
+            )
+        return results
 
     def query(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         response = requests.post(
@@ -3416,6 +3486,55 @@ class JiraIntegration:
             self._raise_create_issue_error(response, issue)
 
         return {"key": issue["key"], "id": issue.get("id", "")}
+
+    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing Jira issues for the link-existing flow.
+
+        Uses Jira's purpose-built issue picker endpoint, which matches on summary and
+        issue key without us having to build (and escape) a JQL string from user input.
+        """
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        response = requests.get(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue/picker",
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+            },
+            # Without currentJQL the picker only returns history suggestions (issues the
+            # user recently viewed); this constant JQL makes it search all accessible issues.
+            params={"query": query, "currentJQL": "order by created DESC", "showSubTasks": "true"},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            raise ValidationError(f"Failed to search Jira issues (status {response.status_code})")
+        body = response.json()
+
+        site_url = self.site_url()
+        results: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        for section in body.get("sections", []) or []:
+            for issue in section.get("issues", []) or []:
+                key = issue.get("key")
+                if not key or key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                results.append(
+                    {
+                        "id": str(issue.get("id", "")),
+                        "title": issue.get("summaryText") or issue.get("summary") or key,
+                        "url": f"{site_url}/browse/{key}" if site_url else "",
+                        # Matches the shape JiraIntegration.create_issue stores.
+                        "external_context": {"key": key, "id": str(issue.get("id", ""))},
+                    }
+                )
+                if len(results) >= limit:
+                    return results
+        return results
 
 
 # Default branches change rarely; a multi-hour TTL is plenty to avoid hitting
@@ -3736,6 +3855,58 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         return {"number": issue["number"], "repository": repository}
 
+    def search_issues(self, repository: str, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing GitHub issues in a repository for the link-existing flow."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path):
+            raise GitHubIntegrationError(f"GitHubIntegration: invalid repository path {repo_path!r}")
+
+        # `repository` is stored bare in external_context so build_external_issue_url can re-prefix
+        # the org, matching what create_issue persists.
+        repository_name = repo_path.split("/", 1)[1]
+
+        # Quote the user's text so search syntax in it (qualifiers like repo:, operators like OR)
+        # is matched literally instead of rewriting the query, which would fill the result page
+        # with foreign matches and hide valid ones.
+        search_term = query.replace("\\", " ").replace('"', " ").strip()
+        q = f'repo:{repo_path} "{search_term}" in:title type:issue' if search_term else f"repo:{repo_path} type:issue"
+
+        response = self.api_request(
+            "GET",
+            "/search/issues",
+            endpoint="/search/issues",
+            params={"q": q, "per_page": limit},
+        )
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to search issues in {repo_path}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+
+        results: list[dict[str, Any]] = []
+        for issue in response.json().get("items", []) or []:
+            number = issue.get("number")
+            if number is None:
+                continue
+            # The issues search API returns pull requests too; those aren't linkable issues.
+            if issue.get("pull_request"):
+                continue
+            # Search-syntax operators in the user's query (e.g. "foo OR bar") can escape the
+            # repo: qualifier, so drop anything that isn't actually from the chosen repository.
+            repository_url = issue.get("repository_url") or ""
+            if not repository_url.lower().endswith(f"/repos/{repo_path.lower()}"):
+                continue
+            results.append(
+                {
+                    "id": str(number),
+                    "title": issue.get("title") or f"#{number}",
+                    "url": issue.get("html_url") or "",
+                    # Matches the shape GitHubIntegration.create_issue stores.
+                    "external_context": {"repository": repository_name, "number": number},
+                }
+            )
+        return results
+
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""
         org = self.organization()
@@ -3784,6 +3955,213 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "error": f"Failed to create branch: {response.text}",
                 "status_code": response.status_code,
             }
+
+    def commit_files_to_branch(
+        self,
+        repository: str,
+        branch_name: str,
+        base_branch: str,
+        files: Mapping[str, str],
+        commit_message: str,
+        replace_directory: str | None = None,
+    ) -> dict[str, Any]:
+        """Point ``branch_name`` at a single commit on top of ``base_branch`` writing every file in
+        ``files`` (repo-relative path → text content).
+
+        Prefer this over ``create_branch`` plus one ``update_file`` per file when the files only make
+        sense together: the commit object is built before the branch reference exists, so a failure
+        part way through leaves nothing in the repository, and reviewers get one commit rather than
+        one per file. An existing branch is force-updated to the new commit, discarding whatever was
+        on it — callers republishing generated content want exactly that, callers collaborating on a
+        branch do not.
+
+        ``replace_directory`` makes the commit *replace* that directory with exactly the files given
+        under it, instead of merging them into whatever ``base_branch`` already holds there. Without
+        it a path that existed on the base and is absent from ``files`` survives, because the tree is
+        built on the base tree: a caller republishing a generated directory would keep shipping files
+        it has since deleted or renamed. Files outside the directory are still merged as usual.
+        """
+        if not files:
+            return {"success": False, "error": "No files to commit"}
+
+        org = self.organization()
+
+        base_ref_response = self.api_request(
+            "GET",
+            f"/repos/{org}/{repository}/git/ref/heads/{base_branch}",
+            endpoint="/repos/{owner}/{repo}/git/ref/heads/{branch}",
+        )
+        if base_ref_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to get base branch {base_branch}: {base_ref_response.text}",
+                "status_code": base_ref_response.status_code,
+            }
+        base_sha = base_ref_response.json()["object"]["sha"]
+
+        base_commit_response = self.api_request(
+            "GET",
+            f"/repos/{org}/{repository}/git/commits/{base_sha}",
+            endpoint="/repos/{owner}/{repo}/git/commits/{commit_sha}",
+        )
+        if base_commit_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to read base commit {base_sha}: {base_commit_response.text}",
+                "status_code": base_commit_response.status_code,
+            }
+        base_tree_sha = base_commit_response.json()["tree"]["sha"]
+
+        # Inline `content` lets GitHub create the blobs as part of the tree, so no separate blob
+        # round trip per file. 100644 is a non-executable file.
+        def blob_entries(paths: Mapping[str, str]) -> list[dict[str, str]]:
+            return [
+                {"path": path, "mode": "100644", "type": "blob", "content": content} for path, content in paths.items()
+            ]
+
+        entries: list[dict[str, str]] = []
+        if replace_directory:
+            prefix = replace_directory.rstrip("/") + "/"
+            inside = {path[len(prefix) :]: content for path, content in files.items() if path.startswith(prefix)}
+            # Built with no base_tree, so this tree holds the given files and nothing else. Pointing
+            # the directory entry at it swaps the whole subtree in one step, which is what makes a
+            # path the caller dropped disappear rather than survive from the base tree.
+            subtree_response = self.api_request(
+                "POST",
+                f"/repos/{org}/{repository}/git/trees",
+                endpoint="/repos/{owner}/{repo}/git/trees",
+                json_body={"tree": blob_entries(inside)},
+            )
+            if subtree_response.status_code != 201:
+                return {
+                    "success": False,
+                    "error": f"Failed to create tree for {replace_directory}: {subtree_response.text}",
+                    "status_code": subtree_response.status_code,
+                }
+            entries.append(
+                {
+                    "path": replace_directory.rstrip("/"),
+                    "mode": "040000",
+                    "type": "tree",
+                    "sha": subtree_response.json()["sha"],
+                }
+            )
+            entries.extend(blob_entries({p: c for p, c in files.items() if not p.startswith(prefix)}))
+        else:
+            entries = blob_entries(files)
+
+        tree_response = self.api_request(
+            "POST",
+            f"/repos/{org}/{repository}/git/trees",
+            endpoint="/repos/{owner}/{repo}/git/trees",
+            json_body={"base_tree": base_tree_sha, "tree": entries},
+        )
+        if tree_response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to create tree: {tree_response.text}",
+                "status_code": tree_response.status_code,
+            }
+
+        commit_response = self.api_request(
+            "POST",
+            f"/repos/{org}/{repository}/git/commits",
+            endpoint="/repos/{owner}/{repo}/git/commits",
+            json_body={
+                "message": commit_message,
+                "tree": tree_response.json()["sha"],
+                "parents": [base_sha],
+            },
+        )
+        if commit_response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to create commit: {commit_response.text}",
+                "status_code": commit_response.status_code,
+            }
+        commit_sha = commit_response.json()["sha"]
+
+        create_ref_response = self.api_request(
+            "POST",
+            f"/repos/{org}/{repository}/git/refs",
+            endpoint="/repos/{owner}/{repo}/git/refs",
+            json_body={"ref": f"refs/heads/{branch_name}", "sha": commit_sha},
+        )
+        if create_ref_response.status_code == 201:
+            return {"success": True, "branch_name": branch_name, "commit_sha": commit_sha, "created_branch": True}
+
+        # 422 is what GitHub returns for a reference that already exists; move it instead.
+        if create_ref_response.status_code != 422:
+            return {
+                "success": False,
+                "error": f"Failed to create branch {branch_name}: {create_ref_response.text}",
+                "status_code": create_ref_response.status_code,
+            }
+
+        update_ref_response = self.api_request(
+            "PATCH",
+            f"/repos/{org}/{repository}/git/refs/heads/{branch_name}",
+            endpoint="/repos/{owner}/{repo}/git/refs/heads/{branch}",
+            json_body={"sha": commit_sha, "force": True},
+        )
+        if update_ref_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to update branch {branch_name}: {update_ref_response.text}",
+                "status_code": update_ref_response.status_code,
+            }
+        return {"success": True, "branch_name": branch_name, "commit_sha": commit_sha, "created_branch": False}
+
+    def delete_branch(self, repository: str, branch_name: str, expected_sha: str | None = None) -> dict[str, Any]:
+        """Delete a branch reference. A branch that is already gone counts as success.
+
+        ``expected_sha`` makes the delete conditional: the ref is read first and left alone when it
+        has moved on, which is what a caller cleaning up its own failed write wants on a branch name
+        that is shared by construction. GitHub has no conditional delete, so this narrows the race
+        rather than closing it.
+        """
+        org = self.organization()
+
+        if expected_sha is not None:
+            head_response = self.api_request(
+                "GET",
+                f"/repos/{org}/{repository}/git/ref/heads/{branch_name}",
+                endpoint="/repos/{owner}/{repo}/git/ref/heads/{branch}",
+            )
+            if head_response.status_code == 404:
+                return {"success": True, "branch_name": branch_name}
+            if head_response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Failed to read branch {branch_name}: {head_response.text}",
+                    "status_code": head_response.status_code,
+                }
+            if head_response.json()["object"]["sha"] != expected_sha:
+                return {"success": True, "branch_name": branch_name, "skipped": True}
+
+        response = self.api_request(
+            "DELETE",
+            f"/repos/{org}/{repository}/git/refs/heads/{branch_name}",
+            endpoint="/repos/{owner}/{repo}/git/refs/heads/{branch}",
+        )
+        if response.status_code in (204, 404):
+            return {"success": True, "branch_name": branch_name}
+        # GitHub answers a delete with 422 both for a reference that is already gone and for one it
+        # refused to remove, so the status alone can't tell "done" from "still there". Read the ref
+        # back: absent is the success the caller wanted, present is a branch it has to hear about.
+        if response.status_code == 422:
+            recheck_response = self.api_request(
+                "GET",
+                f"/repos/{org}/{repository}/git/ref/heads/{branch_name}",
+                endpoint="/repos/{owner}/{repo}/git/ref/heads/{branch}",
+            )
+            if recheck_response.status_code == 404:
+                return {"success": True, "branch_name": branch_name}
+        return {
+            "success": False,
+            "error": f"Failed to delete branch {branch_name}: {response.text}",
+            "status_code": response.status_code,
+        }
 
     def get_diff(
         self,
@@ -4121,6 +4499,49 @@ class GitLabIntegration:
         )
 
         return {"issue_id": issue["iid"]}
+
+    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing GitLab issues in the connected project for the link-existing flow."""
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("access_token")
+
+        url = f"{hostname}/api/v4/projects/{project_id}/issues"
+        allowed, error = is_url_allowed(url)
+        if not allowed:
+            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
+        params: dict[str, str | int] = {"search": query, "per_page": limit, "in": "title"}
+        response = requests.get(
+            url,
+            headers={"PRIVATE-TOKEN": access_token},
+            params=params,
+            allow_redirects=False,
+            timeout=10,
+        )
+        if response.status_code != 200:
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to search issues: {response.text[:300]}",
+            )
+        issues = response.json()
+        if not isinstance(issues, list):
+            return []
+
+        results: list[dict[str, Any]] = []
+        for issue in issues:
+            iid = issue.get("iid")
+            if iid is None:
+                continue
+            results.append(
+                {
+                    "id": str(iid),
+                    "title": issue.get("title") or f"#{iid}",
+                    "url": issue.get("web_url") or "",
+                    # Matches the shape GitLabIntegration.create_issue stores.
+                    "external_context": {"issue_id": iid},
+                }
+            )
+        return results
 
 
 class MetaGraphIntegration:

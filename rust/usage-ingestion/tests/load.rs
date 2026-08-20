@@ -72,7 +72,7 @@ fn percentile(sorted: &[Duration], fraction: f64) -> Duration {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "load test: needs a local Kafka and ClickHouse with migration 0301; run with --ignored --nocapture"]
+#[ignore = "load test: needs a local Kafka and ClickHouse with migration 0302; run with --ignored --nocapture"]
 async fn sustains_thousands_of_concurrent_requests() {
     let requests = env_usize("USAGE_INGESTION_E2E_LOAD_REQUESTS", 5_000);
     let concurrency = env_usize("USAGE_INGESTION_E2E_LOAD_CONCURRENCY", 128);

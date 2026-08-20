@@ -19,7 +19,7 @@ for cold or stale mappings.
 ## End-to-end tests
 
 Both tests run the service in-process and need the local dev stack for Kafka and
-ClickHouse (with migration `0301_usage_records` applied), so both are
+ClickHouse (with migration `0302_usage_records` applied), so both are
 `#[ignore]`d by default.
 `ci-rust.yml` runs them with `--run-ignored only` against the Django test
 schema, so they gate PRs that touch this crate.

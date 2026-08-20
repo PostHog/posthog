@@ -35,7 +35,7 @@ fn record(record_id: &str, organization_id: Uuid, event_timestamp_ms: i64) -> Us
 }
 
 #[tokio::test]
-#[ignore = "requires a local Kafka and ClickHouse with migration 0301; run with --ignored"]
+#[ignore = "requires a local Kafka and ClickHouse with migration 0302; run with --ignored"]
 async fn retried_record_deduplicates_to_the_latest_event_timestamp() {
     let clickhouse_url = clickhouse_url();
     let table = table();

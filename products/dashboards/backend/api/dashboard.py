@@ -115,8 +115,8 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
-from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.feature_flags import dashboard_customization_enabled, dashboard_widgets_enabled
+from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_SPACING_GAPS, Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import (
@@ -162,6 +162,11 @@ from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.hogai.utils.aio import async_to_sync
+
+
+def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
+    return customization.copy() if isinstance(customization, dict) else {}
+
 
 logger = structlog.get_logger(__name__)
 
@@ -236,6 +241,8 @@ DASHBOARD_SHARED_FIELDS = [
     "persisted_variables",
     "team_id",
     "quick_filter_ids",
+    "customization",
+    "grid_spacing",
 ]
 
 
@@ -1167,6 +1174,14 @@ class DashboardBasicSerializer(
         return entry.path if entry else None
 
 
+class DashboardCustomizationSerializer(serializers.Serializer):
+    tile_spacing = serializers.ChoiceField(
+        choices=tuple(DASHBOARD_GRID_SPACING_GAPS),
+        required=False,
+        help_text="Named tile density preset.",
+    )
+
+
 class DashboardMetadataSerializer(DashboardBasicSerializer):
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
@@ -1185,6 +1200,13 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         allow_null=True,
         help_text="List of quick filter IDs associated with this dashboard",
     )
+    customization = serializers.SerializerMethodField(help_text="Dashboard display settings.")
+    grid_spacing = serializers.ChoiceField(
+        choices=tuple(DASHBOARD_GRID_SPACING_GAPS),
+        required=False,
+        write_only=True,
+        help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
+    )
     persisted_filters = serializers.SerializerMethodField()
     persisted_variables = serializers.SerializerMethodField()
 
@@ -1197,6 +1219,13 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         request = self.context.get("request")
         is_shared = self.context.get("is_shared", False)
         return filters_override_requested_by_client(request, dashboard, is_shared=is_shared)
+
+    @extend_schema_field(DashboardCustomizationSerializer)
+    def get_customization(self, dashboard: Dashboard) -> dict[str, str]:
+        tile_spacing = _normalize_dashboard_customization(dashboard.customization).get("tile_spacing")
+        if isinstance(tile_spacing, str) and tile_spacing in DASHBOARD_GRID_SPACING_GAPS:
+            return {"tile_spacing": tile_spacing}
+        return {}
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")
@@ -1465,6 +1494,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         validated_data["created_by"] = request.user
         team_id = self.context["team_id"]
         team = self.context["get_team"]()
+        grid_spacing = validated_data.pop("grid_spacing", None)
+        if grid_spacing is not None and not dashboard_customization_enabled(team=team, user=request.user):
+            raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
         check_count_limit(
             team=team,
@@ -1513,6 +1545,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["quick_filter_ids"] = self._filter_out_non_existing_quick_filter_ids(
                 existing_dashboard.quick_filter_ids, team_id
             )
+
+        if existing_dashboard:
+            validated_data["customization"] = _normalize_dashboard_customization(existing_dashboard.customization)
+
+        if grid_spacing is not None:
+            validated_data["customization"] = {
+                **validated_data.get("customization", {}),
+                "tile_spacing": grid_spacing,
+            }
 
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
@@ -1708,6 +1749,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
+        grid_spacing = validated_data.pop("grid_spacing", None)
+        if grid_spacing is not None and not dashboard_customization_enabled(
+            team=instance.team, user=cast(User, self.context["request"].user)
+        ):
+            raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
+        if grid_spacing is not None:
+            validated_data["customization"] = {
+                **_normalize_dashboard_customization(instance.customization),
+                "tile_spacing": grid_spacing,
+            }
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
         if being_undeleted:

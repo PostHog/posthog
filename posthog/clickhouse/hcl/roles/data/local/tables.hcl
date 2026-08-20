@@ -1,8 +1,9 @@
 database "posthog" {
   # Mirrors the events column set minus events' materialized property columns, with
-  # the full properties JSON kept as the source of truth. The materialized columns
-  # below carry their expression only on sharded_flag_evaluations; the Distributed
-  # proxy repeats them plain, because a Distributed engine computes nothing.
+  # the full properties JSON kept as the source of truth. The typed property columns
+  # below carry their DEFAULT expression only on sharded_flag_evaluations; the
+  # Distributed proxy repeats them plain, because a Distributed engine computes
+  # nothing.
   table "_flag_evaluations_columns" {
     abstract = true
     column "uuid" {
@@ -3474,31 +3475,31 @@ database "posthog" {
     }
     extend = "_flag_evaluations_columns"
     patch_column "$group_0" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
     }
     patch_column "$group_1" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
     }
     patch_column "$group_2" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
     }
     patch_column "$group_3" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
     }
     patch_column "$group_4" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
     }
     patch_column "flag_key" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', '')"
     }
     patch_column "response" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^\"|\"$', '')"
     }
     patch_column "session_id" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
     }
     patch_column "request_id" {
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
     }
     index "distinct_id_idx" {
       expr        = "distinct_id"

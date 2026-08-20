@@ -2703,7 +2703,12 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     breakdown_colors?: BreakdownColorConfig[]
     data_color_theme_id?: number | null
     quick_filter_ids?: string[] | null
+    customization?: {
+        tile_spacing?: DashboardTileSpacing
+    }
 }
+
+export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',
@@ -7214,7 +7219,7 @@ export type OnboardingProduct = {
     capabilities?: string[]
     /** Title + problem pairs shown in the post-onboarding modal. Falls back to capabilities if absent. */
     valueProps?: { title: string; problem: string }[]
-    /** Hedgehog illustration for the post-onboarding modal. Falls back to SupermanHog if absent. */
+    /** Hedgehog illustration for the post-onboarding modal. Falls back to HedgehogSuperhero if absent. */
     hedgehog?: React.ComponentType<{ className?: string }>
 }
 

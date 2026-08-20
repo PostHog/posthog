@@ -114,6 +114,46 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.isAutoSave).toBe(false)
             expect(updateCalls).toBe(1)
         })
+
+        it('keeps edits made while the save request is in flight and saves them next', async () => {
+            jest.useFakeTimers()
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => {
+                        updateCalls += 1
+                        return [200, { ...workflow, name: 'Edit 1' }]
+                    },
+                },
+            })
+
+            logic.actions.setWorkflowValue('name', 'Edit 1')
+            await expectLogic(logic, () => {
+                logic.actions.markAutoSave(true)
+                logic.actions.saveWorkflow(logic.values.workflow)
+                // Typed while the request is still in flight: the response won't carry it.
+                logic.actions.setWorkflowValue('name', 'Edit 1 and more')
+            }).toDispatchActions(['saveWorkflowSuccess'])
+            expect(updateCalls).toBe(1)
+
+            expect(logic.values.workflow.name).toBe('Edit 1 and more')
+            expect(logic.values.workflowChanged).toBe(true)
+
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflow', 'saveWorkflowSuccess'])
+            expect(updateCalls).toBe(2)
+        })
+
+        it('does not re-save when nothing changed during the round-trip', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowValue('name', 'Edited')
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            await jest.advanceTimersByTimeAsync(3500)
+            expect(updateCalls).toBe(1)
+            expect(logic.values.workflowChanged).toBe(false)
+        })
     })
 
     describe('skip cases', () => {
