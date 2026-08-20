@@ -21,10 +21,13 @@ export function useTrackInboxViewed(): void {
     counts,
     scope,
     isSuccess,
+    countsReady,
     sourceProductFilter,
     priorityFilter,
     searchQuery,
-  } = useInboxAllReports();
+    // The badge counts come from their own requests, so opt in here too or the
+    // event records a zero the user never saw.
+  } = useInboxAllReports({ withReportsCount: true });
 
   const firedRef = useRef(false);
   useEffect(() => {
@@ -33,6 +36,9 @@ export function useTrackInboxViewed(): void {
     // request also leaves `isLoading` false with an empty list, and `firedRef`
     // would then lock in a bogus empty-inbox view that a later refetch can't fix.
     if (!isSuccess) return;
+    // The event carries the tab badges and fires once, so a list that settles
+    // ahead of the count requests would lock in counts of zero.
+    if (!countsReady) return;
     firedRef.current = true;
     track(
       ANALYTICS_EVENTS.INBOX_VIEWED,
@@ -51,6 +57,7 @@ export function useTrackInboxViewed(): void {
     );
   }, [
     isSuccess,
+    countsReady,
     scopedReports,
     totalCount,
     counts,
