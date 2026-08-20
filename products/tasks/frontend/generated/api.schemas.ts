@@ -1550,6 +1550,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `loop` - Loop
  * * `mcp_analytics` - MCP Analytics
  * * `signals_chat` - Signals Chat
+ * * `workflow` - Workflow
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -1572,6 +1573,7 @@ export const OriginProductEnumApi = {
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     SignalsChat: 'signals_chat',
+    Workflow: 'workflow',
 } as const
 
 /**
@@ -1610,7 +1612,8 @@ export interface TaskCreateApi {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
-     * * `signals_chat` - Signals Chat */
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1751,7 +1754,8 @@ export interface TaskWriteApi {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
-     * * `signals_chat` - Signals Chat */
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1877,7 +1881,8 @@ export interface PatchedTaskWriteApi {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
-     * * `signals_chat` - Signals Chat */
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
