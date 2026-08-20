@@ -293,6 +293,58 @@ class TestSaveNotebookToDb(BaseTest):
             },
         )
 
+    def test_save_notebook_reports_unresolved_refs_on_markdown_v2_update(self):
+        # Updating a saved markdown notebook takes the early-return branch, which stores raw
+        # markdown for the frontend to render. It must still report a ref that no longer
+        # resolves, so a chart that breaks after the notebook exists is measured, not only on
+        # the first save.
+        self._create_visualization_artifact(query={"kind": "TrendsQuery", "series": []}, short_id="vok2")
+        parent = self._create_notebook_parent("nupd")
+        Notebook.objects.create(
+            team=self.team,
+            short_id=parent.short_id,
+            title="Original title",
+            created_by=self.user,
+            last_modified_by=self.user,
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {"nodeId": "custom-node-id", "markdown": "# Original"},
+                    }
+                ],
+            },
+        )
+        blocks: list[StoredBlock] = [
+            VisualizationRefBlock(artifact_id="vok2", title="Resolvable"),
+            VisualizationRefBlock(artifact_id="vgone", title="Broken"),
+        ]
+        updated_markdown = "# Updated\n\n<insight>vok2</insight>\n\n<insight>vgone</insight>"
+
+        with (
+            patch("ee.hogai.tools.create_notebook.helpers.collab.apublish_notebook_update"),
+            patch("ee.hogai.artifacts.telemetry.posthoganalytics.capture") as mock_capture,
+        ):
+            async_to_sync(save_notebook_to_db)(
+                team=self.team,
+                user=self.user,
+                artifact=parent,
+                blocks=blocks,
+                title="Updated title",
+                state_messages=[],
+                markdown_content=updated_markdown,
+            )
+
+        unresolved_calls = [
+            call for call in mock_capture.call_args_list if call.kwargs["event"] == UNRESOLVED_VISUALIZATION_EVENT
+        ]
+        self.assertEqual(len(unresolved_calls), 1)
+        self.assertEqual(unresolved_calls[0].kwargs["properties"]["unresolved_artifact_ids"], ["vgone"])
+        # The update path stores raw markdown for the frontend to render, even when refs resolve.
+        notebook = Notebook.objects.get(team=self.team, short_id=parent.short_id)
+        self.assertEqual(_get_notebook_markdown(notebook), updated_markdown)
+
     def test_save_notebook_update_advances_version_and_publishes_update(self):
         parent = self._create_notebook_parent("nvrs")
         notebook = Notebook.objects.create(

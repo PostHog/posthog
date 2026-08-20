@@ -74,6 +74,51 @@ def _build_markdown_notebook_doc(markdown: str, existing_content: Any) -> dict[s
     }
 
 
+async def _resolve_and_report_visualizations(
+    team: Team,
+    artifact: AgentArtifact,
+    blocks: Sequence[StoredBlock],
+    state_messages: Sequence[AssistantMessageUnion],
+) -> dict[str, dict]:
+    """Resolve visualization refs and report the ones that no longer resolve.
+
+    Runs on every save so a chart that stops resolving after the notebook already exists is
+    still measured, not only on the first save. Returns the lookup the create path bakes into
+    the TipTap doc; the markdown-update path reports and discards it, because it stores the raw
+    markdown that the frontend renders instead of baking queries in.
+    """
+    # Resolve viz refs through the unified handler (state → AgentArtifact → Insight),
+    # matching the chat preview. A direct AgentArtifact query misses state-only charts.
+    ref_ids = [block.artifact_id for block in blocks if isinstance(block, VisualizationRefBlock)]
+    viz_lookup: dict[str, dict] = {}
+    if not ref_ids:
+        return viz_lookup
+
+    viz_handler = VisualizationHandler()
+    results = await viz_handler.alist(team, ref_ids, state_messages)
+    for ref_id, result in zip(ref_ids, results):
+        if result is None or result.content.query is None:
+            continue
+        query = result.content.query.model_dump(mode="json", exclude_none=True)
+        kind = query.get("kind", "")
+        if kind == "DataVisualizationNode":
+            # Already a top-level SQL chart node, do not double-wrap.
+            notebook_query = query
+        elif kind == "HogQLQuery" or "HogQL" in kind:
+            notebook_query = {"kind": "DataVisualizationNode", "source": query}
+        else:
+            notebook_query = {"kind": "InsightVizNode", "source": query}
+        viz_lookup[ref_id] = {"query": notebook_query, "name": result.content.name}
+
+    # Report on save (once per genuine failure), not on every read/enrich.
+    await areport_unresolved_notebook_visualizations(
+        team=team,
+        notebook_artifact_id=artifact.short_id,
+        unresolved_artifact_ids=[ref_id for ref_id in ref_ids if ref_id not in viz_lookup],
+    )
+    return viz_lookup
+
+
 async def create_or_update_notebook_artifact(
     artifacts_manager: ArtifactManager,
     content: str,
@@ -134,6 +179,10 @@ async def save_notebook_to_db(
                 f"User {user.id} does not have editor access to notebook {existing_notebook.short_id}"
             )
 
+    # Both save paths resolve and report refs, so an unresolvable chart is measured on updates
+    # too, not only on the first save. The markdown-update branch below discards the lookup.
+    viz_lookup = await _resolve_and_report_visualizations(team, artifact, blocks, state_messages)
+
     if existing_notebook and markdown_content is not None and _get_markdown_notebook_node(existing_notebook.content):
         previous_content = existing_notebook.content
         next_content = _build_markdown_notebook_doc(markdown_content, previous_content)
@@ -156,34 +205,6 @@ async def save_notebook_to_db(
             diff=collab.build_markdown_update_diff(previous_content, next_content),
         )
         return updated_notebook
-
-    # Resolve viz refs through the unified handler (state → AgentArtifact → Insight),
-    # matching the chat preview. A direct AgentArtifact query misses state-only charts.
-    ref_ids = [block.artifact_id for block in blocks if isinstance(block, VisualizationRefBlock)]
-    viz_lookup: dict[str, dict] = {}
-    if ref_ids:
-        viz_handler = VisualizationHandler()
-        results = await viz_handler.alist(team, ref_ids, state_messages)
-        for ref_id, result in zip(ref_ids, results):
-            if result is None or result.content.query is None:
-                continue
-            query = result.content.query.model_dump(mode="json", exclude_none=True)
-            kind = query.get("kind", "")
-            if kind == "DataVisualizationNode":
-                # Already a top-level SQL chart node, do not double-wrap.
-                notebook_query = query
-            elif kind == "HogQLQuery" or "HogQL" in kind:
-                notebook_query = {"kind": "DataVisualizationNode", "source": query}
-            else:
-                notebook_query = {"kind": "InsightVizNode", "source": query}
-            viz_lookup[ref_id] = {"query": notebook_query, "name": result.content.name}
-
-        # Report on save (once per genuine failure), not on every read/enrich.
-        await areport_unresolved_notebook_visualizations(
-            team=team,
-            notebook_artifact_id=artifact.short_id,
-            unresolved_artifact_ids=[ref_id for ref_id in ref_ids if ref_id not in viz_lookup],
-        )
 
     def resolve_visualization(artifact_id: str) -> dict | None:
         return viz_lookup.get(artifact_id)
