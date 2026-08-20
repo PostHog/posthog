@@ -1,9 +1,10 @@
 """Curated query: merge-queue landing stats for the repo hub landing page.
 
-Gate-run attribution rides the runs builder's canonical detection (SPEC §6, ``logic/merge_queue.py``):
+Gate-run attribution rides the runs builder's gate detection (SPEC §6, ``logic/merge_queue.py``):
 ``is_merge_queue`` marks actor-corroborated gate runs and ``pr_number`` is already re-keyed to the
-source PR, so this module adds no branch parsing of its own. The population is merged PRs with at
-least one corroborated gate run — all authors, bots included, because these figures measure the
+source PR. The only branch parsing here is collapsing Trunk's ``-bisection`` suffix so a probe run
+groups with the attempt it investigates. The population is merged PRs with at
+least one corroborated gate run: all authors, bots included, because these figures measure the
 queue's mechanics, not author behavior (the locked bots/drafts recipe governs cycle-time medians,
 a different question). ``had_failed_gate`` is a CI-outcome proxy for eviction: the queue's own
 records are not in the GitHub source.
@@ -15,7 +16,10 @@ from datetime import datetime, timedelta
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
-from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    date_to_filter_clause,
+    run_started_floor_constant,
+)
 
 # Gate runs start minutes-to-hours before their merge; reach this far behind the previous window so
 # a PR merged just inside it keeps its first attempt. Dwell beyond this truncates honestly: the
@@ -129,10 +133,7 @@ def query_merge_queue_overview(
         "gate_from": ast.Constant(value=gate_from),
         "run_started_floor": run_started_floor_constant(gate_from),
     }
-    date_to_merged_clause = ""
-    if date_to is not None:
-        date_to_merged_clause = "AND pr.merged_at <= {date_to}"
-        placeholders["date_to"] = ast.Constant(value=date_to)
+    date_to_merged_clause = date_to_filter_clause(date_to, placeholders, column="pr.merged_at")
     sql = (
         _MERGE_QUEUE_SELECT.replace("__CUR__", cur)
         .replace("__PREV__", prev)
