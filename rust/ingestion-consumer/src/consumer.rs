@@ -164,6 +164,13 @@ impl IngestionConsumer {
         }
 
         let client_config = config.build_consumer_config();
+        // After the build, so the caps reported are the ones the client runs
+        // with rather than the settings that seeded them.
+        crate::kafka_stats::export_limits(
+            &client_config,
+            config.consumer_batch_size,
+            config.consumer_batch_size_kb,
+        );
         let commit_sentinel = Arc::new(CommitSentinel::new());
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = dispatcher.key_order_sentinel();

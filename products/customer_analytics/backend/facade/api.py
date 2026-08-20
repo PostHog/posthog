@@ -1837,13 +1837,22 @@ def _fail_created_runs(team_id: int, source_ids: list[Any], error: str) -> None:
 def _start_backfill(team_id: int, binding: "WarehouseBinding", trigger: str) -> None:
     """Start the person-property backfill workflow. Failure must not fail the originating write."""
     created_source_ids: list[Any] = []
+    # The temporal client is heavy; keep it off the CA facade import (django.setup) path. Imported
+    # before the try so the except clause below can name WarehouseBindingMissingError even when an
+    # earlier line raises.
+    from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
+        WarehouseBindingMissingError,
+        start_person_property_backfill,
+    )
+
     try:
         # Placeholder rows before starting, so the activity always finds a running row to reconcile.
         created_source_ids = _create_running_runs(team_id, binding, trigger)
-        # The temporal client is heavy; keep it off the CA facade import (django.setup) path.
-        from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
-
         start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+    except WarehouseBindingMissingError:
+        # The warehouse object was deleted between saving the source and this deferred start. There is
+        # nothing to back-fill, so reconcile the placeholders without capturing it as an error.
+        _fail_created_runs(team_id, created_source_ids, "The warehouse table or view for this source no longer exists.")
     except Exception as e:
         # The workflow never started, so nothing will reconcile the placeholders — fail them here.
         _fail_created_runs(team_id, created_source_ids, "Failed to start backfill")
@@ -1976,10 +1985,19 @@ def trigger_person_property_backfill(
     _assert_warehouse_editor(team_id, binding, user_access_control)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
     created_source_ids = _create_running_runs(team_id, binding, trigger)
-    from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
+    from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
+        WarehouseBindingMissingError,
+        start_person_property_backfill,
+    )
 
     try:
         return start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+    except WarehouseBindingMissingError:
+        # The warehouse table or view was deleted after the placeholders were created; reconcile them
+        # so the source isn't stuck 'running', and report an invalid source (→ 400) rather than a
+        # coalesced run for a table that is gone.
+        _fail_created_runs(team_id, created_source_ids, "The warehouse table or view for this source no longer exists.")
+        return None
     except Exception:
         # The workflow never started; reconcile the placeholders so the source isn't stuck 'running'
         # with its trigger disabled, then surface the error to the caller.
@@ -2283,6 +2301,74 @@ def update_feature_request(
     user_access_control: "UserAccessControl",
 ) -> contracts.FeatureRequestView | None:
     return _feature_requests_logic.update_feature_request(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def add_feature_request_account(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.AddFeatureRequestAccountInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.add_feature_request_account(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def create_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.CreateFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.create_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def update_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.UpdateFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.update_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def delete_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.DeleteFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.delete_feature_request_evidence(
         team_id=team_id,
         feature_request_id=feature_request_id,
         input=input,
