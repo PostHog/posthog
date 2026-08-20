@@ -107,12 +107,12 @@ class AsyncHarmonicClient:
         Returns None for a genuine not-found: at least one domain variation returned a clean
         GraphQL response with companyFound false, and no variation found the company. A clean
         not-found is an authoritative Harmonic answer even when the other variation errored —
-        raising in that mixed case made one deterministically-failing variation (e.g. a GraphQL
-        error for the bare-domain URL) exhaust the caller's retries and fail the whole lookup
-        with no archive row, which is how orgs went permanently unmatched while fresh manual
-        pulls found them fine. Recovery for a possibly-pessimistic miss is the recheck and the
-        re-enrichment sweep, both of which read the archived miss; an activity failure feeds
-        neither.
+        raising in that mixed case let one failing variation exhaust the caller's retries and
+        fail the whole lookup with no archive row. In practice that mixed case has been rare
+        (a prod trace attributed almost all no-archive-row orgs to DB errors before the lookup,
+        not to this path); the point of returning the miss is that every terminal outcome now
+        leaves an archived row, and a row is what the recheck, the backfill, and the
+        re-enrichment sweep act on — an activity failure feeds none of them.
 
         Operational failures on EVERY variation (network errors, non-2xx status, JSON decode,
         GraphQL errors) still re-raise, so callers retry and alert instead of mistaking an
