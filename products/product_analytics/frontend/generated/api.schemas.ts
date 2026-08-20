@@ -4035,6 +4035,10 @@ export const IntegrationKindApi = {
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
     YoutubeAnalytics: 'youtube-analytics',
+    Clover: 'clover',
+    CloverEu: 'clover-eu',
+    CloverLatam: 'clover-latam',
+    CloverSandbox: 'clover-sandbox',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {

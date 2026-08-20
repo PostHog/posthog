@@ -127,6 +127,11 @@ class Integration(models.Model):
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
+        # One kind per Clover deployment region: see CLOVER_OAUTH_REGIONS.
+        CLOVER = "clover"
+        CLOVER_EU = "clover-eu"
+        CLOVER_LATAM = "clover-latam"
+        CLOVER_SANDBOX = "clover-sandbox"
         CUSTOMERIO_APP = "customerio-app"
         CUSTOMERIO_TRACK = "customerio-track"
         CUSTOMERIO_WEBHOOK = "customerio-webhook"

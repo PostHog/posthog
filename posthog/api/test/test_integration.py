@@ -10,8 +10,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
 from django.test import override_settings
 from django.test.client import Client as HttpClient
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import requests
@@ -32,7 +34,7 @@ from posthog.api.github_callback.team_services import (
     list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import IntegrationSerializer, IntegrationViewSet, _ensure_oauth_token_valid
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.integration import (
@@ -6042,3 +6044,43 @@ class TestPosthogConnectionListScoping:
     def test_creator_still_sees_their_connection(self, client: HttpClient):
         client.force_login(self.owner)
         assert self.connection.id in self._list_ids(client)
+
+
+class TestEnsureOauthTokenValid(APIBaseTest):
+    """`_ensure_oauth_token_valid` runs on integration detail endpoints, which are reachable
+    concurrently. Kinds whose refresh token rotates and is single-use (Resend, Clover) must
+    refresh under a row lock so two parallel requests cannot both spend the same token."""
+
+    def _integration(self, kind: str) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind=kind,
+            integration_id=f"{kind}-1",
+            config={"expires_in": 3600, "refreshed_at": int(time.time()) - 7200},
+            sensitive_config={"refresh_token": "rt", "access_token": "at"},
+            created_by=self.user,
+        )
+
+    @patch("posthog.models.integration.OauthIntegration.refresh_access_token")
+    @patch("posthog.models.integration.OauthIntegration.access_token_expired", return_value=True)
+    def test_rotating_refresh_token_kind_refreshes_under_row_lock(self, _mock_expired, mock_refresh):
+        integration = self._integration("resend")
+
+        with CaptureQueriesContext(connection) as queries:
+            _ensure_oauth_token_valid(integration)
+
+        assert mock_refresh.call_count == 1
+        assert any("FOR UPDATE" in query["sql"].upper() for query in queries.captured_queries), (
+            "expected the refresh of a rotating-refresh-token kind to lock the integration row"
+        )
+
+    @patch("posthog.models.integration.OauthIntegration.refresh_access_token")
+    @patch("posthog.models.integration.OauthIntegration.access_token_expired", return_value=True)
+    def test_non_rotating_kind_refreshes_without_taking_a_lock(self, _mock_expired, mock_refresh):
+        integration = self._integration("hubspot")
+
+        with CaptureQueriesContext(connection) as queries:
+            _ensure_oauth_token_valid(integration)
+
+        assert mock_refresh.call_count == 1
+        assert not any("FOR UPDATE" in query["sql"].upper() for query in queries.captured_queries)

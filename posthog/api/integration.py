@@ -58,6 +58,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_GRANTABLE_SCOPES,
     POSTHOG_CONNECT_KIND,
+    ROTATING_REFRESH_TOKEN_KINDS,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
@@ -208,7 +209,21 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
 
     oauth = OauthIntegration(instance)
     if oauth.access_token_expired():
-        oauth.refresh_access_token()
+        if instance.kind in ROTATING_REFRESH_TOKEN_KINDS:
+            # These providers rotate the refresh token on every use and invalidate the one just
+            # spent. Two concurrent requests past the token's half-life would otherwise both POST
+            # the same single-use refresh token, and the loser would save its stale credential over
+            # the winner's rotated pair, permanently breaking the grant. Serialize on the
+            # integration row and re-check the expiry under the lock, so the loser sees the freshly
+            # rotated token and does not spend the refresh token a second time.
+            with transaction.atomic():
+                locked = Integration.objects.select_for_update().get(pk=instance.pk)
+                locked_oauth = OauthIntegration(locked)
+                if locked_oauth.access_token_expired():
+                    locked_oauth.refresh_access_token()
+            instance.refresh_from_db()
+        else:
+            oauth.refresh_access_token()
         if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
             raise ValidationError(
                 "This integration's authentication token could not be refreshed. "

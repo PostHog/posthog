@@ -29588,7 +29588,11 @@
                 "aws-s3",
                 "s3-compatible",
                 "snowflake",
-                "youtube-analytics"
+                "youtube-analytics",
+                "clover",
+                "clover-eu",
+                "clover-latam",
+                "clover-sandbox"
             ],
             "type": "string"
         },

@@ -169,6 +169,7 @@ the row lists both.
 | cliniko                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cloudability                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cloudzero                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| clover                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coassemble                       | HTTP                        | requests                                                        | ✅                          |
 | coda                             | HTTP                        | requests                                                        | ✅                          |
 | codacy                           | HTTP                        | requests                                                        | ✅                          |
@@ -945,7 +946,6 @@ doesn't conflict with concurrent PRs.
 - clip
 - cloudbeds
 - cloudinary
-- clover
 - coassemble
 - cockroachdb
 - codacy

@@ -1,5 +1,6 @@
 """Generic OAuth connect/refresh dispatcher shared by every generic-OAuth integration kind."""
 
+import re
 import json
 import time
 import base64
@@ -7,7 +8,7 @@ import hashlib
 import secrets
 from dataclasses import field, replace
 from datetime import timedelta
-from typing import NoReturn
+from typing import Any, NoReturn
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.conf import settings
@@ -106,6 +107,8 @@ class OauthConfig:
     client_secret_fallback: str | None = field(default=None, repr=False)
     # When true, the authorize/token-exchange flow uses PKCE (RFC 7636, S256)
     pkce: bool = False
+    # When set, refreshes POST here instead of token_url (providers with a separate refresh route)
+    refresh_url: str | None = None
     # When set, disconnecting the integration also revokes the grant at the provider
     token_revoke_url: str | None = None
 
@@ -118,6 +121,105 @@ class OauthConfig:
 # instance. Staging a scope Slack hasn't approved needs a DEV/local-only branch again — see the
 # note by SlackIntegrationScope in frontend/src/types.ts.
 POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
+
+
+@frozen
+class CloverOauthRegion:
+    """One Clover deployment region.
+
+    Clover runs the same platform separately per region, and a merchant only exists in the region
+    their business was onboarded in. The authorize host, the API host *and* the app credentials all
+    differ: a developer registers a separate app per region, so an app id/secret issued in North
+    America cannot authorize a European merchant. `oauth_config_for_kind` resolves one config per
+    kind, so each region is its own integration kind rather than a parameter on a shared one.
+    """
+
+    # Merchant-facing web host, which serves the authorize screen.
+    web_host: str
+    # API host, which serves the token and refresh endpoints (and later the v3 data endpoints).
+    api_host: str
+    client_id_setting: str
+    client_secret_setting: str
+
+
+CLOVER_OAUTH_REGIONS: dict[str, CloverOauthRegion] = {
+    "clover": CloverOauthRegion(
+        web_host="https://www.clover.com",
+        api_host="https://api.clover.com",
+        client_id_setting="CLOVER_APP_CLIENT_ID",
+        client_secret_setting="CLOVER_APP_CLIENT_SECRET",
+    ),
+    "clover-eu": CloverOauthRegion(
+        web_host="https://www.eu.clover.com",
+        api_host="https://api.eu.clover.com",
+        client_id_setting="CLOVER_EU_APP_CLIENT_ID",
+        client_secret_setting="CLOVER_EU_APP_CLIENT_SECRET",
+    ),
+    "clover-latam": CloverOauthRegion(
+        web_host="https://www.la.clover.com",
+        api_host="https://api.la.clover.com",
+        client_id_setting="CLOVER_LATAM_APP_CLIENT_ID",
+        client_secret_setting="CLOVER_LATAM_APP_CLIENT_SECRET",
+    ),
+    "clover-sandbox": CloverOauthRegion(
+        web_host="https://sandbox.dev.clover.com",
+        api_host="https://apisandbox.dev.clover.com",
+        client_id_setting="CLOVER_SANDBOX_APP_CLIENT_ID",
+        client_secret_setting="CLOVER_SANDBOX_APP_CLIENT_SECRET",
+    ),
+}
+
+# Kinds whose refresh token rotates and is single-use: spending the same one twice invalidates the
+# grant, so every refresh of these must be serialized on the integration row (their sync-path
+# resolvers and the API path both take `select_for_update`) and never done by the unlocked periodic
+# sweep in posthog/tasks/integrations.py.
+ROTATING_REFRESH_TOKEN_KINDS = ["resend", *CLOVER_OAUTH_REGIONS]
+
+# Clover access tokens live ~30 minutes, but the response states an absolute expiry rather than a
+# TTL. Used when the expiry is missing or already in the past, so a long sync still re-mints.
+CLOVER_DEFAULT_TOKEN_TTL_SECONDS = 30 * 60
+
+# Merchant ids are Clover's own base-32 alphanumeric identifiers. Validated before being stored
+# because the warehouse source interpolates it into `/v3/merchants/{id}/...` request paths.
+CLOVER_MERCHANT_ID_PATTERN = re.compile(r"^[A-Za-z0-9]+$")
+
+
+def _clover_expires_in(access_token_expiration: Any) -> int:
+    """Convert Clover's absolute `access_token_expiration` (unix seconds) to a relative TTL.
+
+    `access_token_expired()` works off `expires_in` + `refreshed_at`, so an absolute timestamp
+    stored verbatim would read as a TTL of ~57 years and the token would never be refreshed.
+    """
+    if isinstance(access_token_expiration, (int, float)) and not isinstance(access_token_expiration, bool):
+        remaining = int(access_token_expiration) - int(time.time())
+        if remaining > 0:
+            return remaining
+    return CLOVER_DEFAULT_TOKEN_TTL_SECONDS
+
+
+def _clover_merchant_name(kind: str, merchant_id: str, access_token: str | None) -> str:
+    """Best-effort business name for the connected merchant, falling back to its id.
+
+    Clover's token response carries no label at all, so without this every Clover connection in the
+    picker reads as an opaque base-32 id. A failure here is cosmetic — never block the connection on
+    it.
+    """
+    if not access_token:
+        return merchant_id
+    try:
+        res = requests.get(
+            f"{CLOVER_OAUTH_REGIONS[kind].api_host}/v3/merchants/{merchant_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10,
+            allow_redirects=False,
+        )
+        if res.status_code == 200:
+            name = res.json().get("name")
+            if isinstance(name, str) and name:
+                return name
+    except Exception:
+        logger.warning("Failed to fetch Clover merchant name", kind=kind)
+    return merchant_id
 
 
 def _salesforce_instance_host(instance_url: str | None) -> str | None:
@@ -255,6 +357,7 @@ class OauthIntegration:
         "stripe",
         "resend",
         "youtube-analytics",
+        *CLOVER_OAUTH_REGIONS,
     ]
     integration: model.Integration
 
@@ -739,6 +842,31 @@ class OauthIntegration:
                 id_path="resend_account_id",
                 name_path="resend_account_name",
             )
+        elif kind in CLOVER_OAUTH_REGIONS:
+            region = CLOVER_OAUTH_REGIONS[kind]
+            client_id = getattr(settings, region.client_id_setting, "")
+            client_secret = getattr(settings, region.client_secret_setting, "")
+            if not client_id or not client_secret:
+                raise NotImplementedError(f"Clover app not configured for {kind}")
+
+            # PostHog registers as a Clover high-trust app: it stores the app secret server-side and
+            # exchanges the code with client_id + client_secret, so PKCE (the low-trust variant) is
+            # not used. Clover has no OAuth `scope` parameter — the read permissions an app may ask
+            # for are declared on the app in the developer dashboard and granted by the merchant at
+            # install time, so the authorize URL carries none. Refreshing happens at a separate
+            # /oauth/v2/refresh route, and the merchant id arrives as a callback query param rather
+            # than in the token response (see the clover branch in integration_from_oauth_response).
+            return OauthConfig(
+                authorize_url=f"{region.web_host}/oauth/v2/authorize",
+                token_url=f"{region.api_host}/oauth/v2/token",
+                refresh_url=f"{region.api_host}/oauth/v2/refresh",
+                client_id=client_id,
+                client_secret=client_secret,
+                scope="",
+                id_path="merchant_id",
+                # Best-effort business name, falling back to the merchant id when the lookup fails
+                name_path="merchant_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -788,7 +916,9 @@ class OauthIntegration:
         else:
             query_params = {
                 "client_id": oauth_config.client_id,
-                "scope": scope,
+                # Providers that have no scope parameter (Clover declares permissions on the app
+                # itself) leave scope empty; sending a bare `scope=` risks an invalid_scope error.
+                **({"scope": scope} if scope else {}),
                 "redirect_uri": cls.redirect_uri(kind),
                 "response_type": "code",
                 "state": urlencode(state_payload),
@@ -872,6 +1002,20 @@ class OauthIntegration:
                 },
                 headers={"Content-Type": "application/json"},
                 timeout=10,
+            )
+        elif kind in CLOVER_OAUTH_REGIONS:
+            # Clover's v2 token endpoint documents exactly client_id, client_secret and code in the
+            # POST body (no grant_type, no redirect_uri), so send only those rather than assume it
+            # tolerates the standard extras.
+            res = requests.post(
+                oauth_config.token_url,
+                json={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "code": params["code"],
+                },
+                timeout=10,
+                allow_redirects=False,
             )
         elif kind == "stripe":
             # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
@@ -1018,6 +1162,20 @@ class OauthIntegration:
                     status_code=token_info_res.status_code,
                     response=token_info_res.text[:500],
                 )
+
+        # Clover identifies the authorizing merchant on the callback rather than in the token
+        # response, so carry `merchant_id` across from the redirect params — it's both the
+        # integration id and the merchant the warehouse source syncs, which is why the source no
+        # longer asks the user for it.
+        if kind in CLOVER_OAUTH_REGIONS:
+            merchant_id = params.get("merchant_id") or ""
+            if not CLOVER_MERCHANT_ID_PATTERN.match(merchant_id):
+                logger.error("Clover OAuth callback missing a usable merchant_id", kind=kind)
+                raise ValidationError(
+                    "Clover did not tell us which merchant you authorized. Start the connection again from PostHog."
+                )
+            config["merchant_id"] = merchant_id
+            config["merchant_name"] = _clover_merchant_name(kind, merchant_id, config.get("access_token"))
 
         integration_id = common.dot_get(config, oauth_config.id_path)
 
@@ -1180,6 +1338,10 @@ class OauthIntegration:
         # Stripe Apps OAuth tokens don't include expires_in in the response
         if not config.get("expires_in") and kind == "stripe":
             config["expires_in"] = 3600
+
+        # Clover states an absolute `access_token_expiration` (unix seconds) instead of a TTL
+        if kind in CLOVER_OAUTH_REGIONS:
+            config["expires_in"] = _clover_expires_in(config.get("access_token_expiration"))
 
         config["refreshed_at"] = int(time.time())
 
@@ -1354,6 +1516,17 @@ class OauthIntegration:
                 },
                 timeout=10,
             )
+        elif kind in CLOVER_OAUTH_REGIONS:
+            # Clover refreshes at its own /oauth/v2/refresh route, authenticated by client_id plus
+            # the refresh token alone — no client_secret and no grant_type. The response carries a
+            # NEW refresh token: the one just spent is immediately invalid, so refresh_access_token
+            # persisting the rotated value is what keeps the grant alive.
+            return requests.post(
+                oauth_config.refresh_url or oauth_config.token_url,
+                json={"client_id": client_id, "refresh_token": refresh_token},
+                timeout=10,
+                allow_redirects=False,
+            )
         elif kind == "stripe":
             # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
             return requests.post(
@@ -1505,6 +1678,8 @@ class OauthIntegration:
                 expires_in = 3600
             if not expires_in and self.integration.kind == "stripe":
                 expires_in = 3600
+            if self.integration.kind in CLOVER_OAUTH_REGIONS:
+                expires_in = _clover_expires_in(config.get("access_token_expiration"))
 
             self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
