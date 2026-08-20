@@ -14,7 +14,7 @@ from posthog.schema_enums import AlertState
 
 from products.alerts.backend.models import AlertConfiguration
 from products.exports.backend.models.subscription import SubscriptionDelivery
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.config import MAX_ITEMS_PER_DETECTOR, STUCK_REFRESH_ATTEMPTS
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
