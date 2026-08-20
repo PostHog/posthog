@@ -7,6 +7,7 @@ never a template engine — so a community-published template can't execute logi
 """
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,9 +15,32 @@ from .skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES
 
 # `{{ name }}` with optional surrounding whitespace. Names are Python-identifier-like.
 _PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
-# Any residual `{{ ... }}` after substitution — catches placeholders whose declared name isn't a
-# valid identifier (e.g. `{{ repo-name }}`), which the strict pattern above silently skips.
-_LOOSE_PLACEHOLDER_RE = re.compile(r"\{\{.*?\}\}", re.DOTALL)
+
+# A single supplied value, and all resolved bindings together. Bindings are persisted verbatim on
+# the installed skill's metadata, so these bound that row independently of what the values render
+# into — an unused variable never reaches the render-size checks below.
+MAX_TEMPLATE_VARIABLE_BYTES = 10_000
+MAX_TEMPLATE_BINDINGS_BYTES = 100_000
+
+
+def _iter_placeholder_tokens(text: str) -> Iterator[str]:
+    r"""Yield every `{{ ... }}` token, shortest-match, in one forward pass.
+
+    Deliberately not a regex: `\{\{.*?\}\}` rescans the rest of the input for every unmatched `{{`,
+    so a template carrying kilobytes of unclosed delimiters costs quadratic time and ties up an
+    installer's worker. Both indices here only move forward, so a hostile template costs one pass.
+    An unclosed trailing `{{` yields nothing and stays literal, matching the regex it replaces.
+    """
+    pos = 0
+    while True:
+        start = text.find("{{", pos)
+        if start == -1:
+            return
+        end = text.find("}}", start + 2)
+        if end == -1:
+            return
+        yield text[start : end + 2]
+        pos = end + 2
 
 
 @dataclass(frozen=True)
@@ -52,6 +76,13 @@ class TemplateRenderTooLargeError(TemplateRenderError):
 
     def __init__(self, what: str, limit: int) -> None:
         super().__init__(f"Rendered {what} exceeds the {limit} byte size limit.")
+
+
+class TemplateVariableTooLargeError(TemplateRenderError):
+    """A supplied value, or all of them together, exceeded the template variable size limit."""
+
+    def __init__(self, what: str, limit: int) -> None:
+        super().__init__(f"Template variable {what} exceeds the {limit} byte size limit.")
 
 
 class UnknownSuppliedVariableError(TemplateRenderError):
@@ -105,7 +136,8 @@ def resolve_bindings(variables: list[TemplateVariable], supplied: dict[str, str]
     """Build the final {name: value} map, applying defaults and enforcing required variables.
 
     An explicitly supplied value (including "") is used verbatim — only an absent key falls back to
-    the default. Supplying a value for an undeclared variable is an error (likely a typo).
+    the default. Supplying a value for an undeclared variable is an error (likely a typo), and a
+    value (or a whole binding set) past the size caps is rejected before anything is persisted.
     """
     supplied = supplied or {}
     unknown = sorted(set(supplied) - {v.name for v in variables})
@@ -125,24 +157,44 @@ def resolve_bindings(variables: list[TemplateVariable], supplied: dict[str, str]
         else:
             value = ""
         bindings[variable.name] = value
+
+    total = 0
+    for name, value in bindings.items():
+        size = len(value.encode("utf-8"))
+        if size > MAX_TEMPLATE_VARIABLE_BYTES:
+            raise TemplateVariableTooLargeError(f"'{name}'", MAX_TEMPLATE_VARIABLE_BYTES)
+        total += size
+    if total > MAX_TEMPLATE_BINDINGS_BYTES:
+        raise TemplateVariableTooLargeError("values in total", MAX_TEMPLATE_BINDINGS_BYTES)
     return bindings
 
 
-def render_text(text: str, bindings: dict[str, str]) -> str:
+def render_text(text: str, bindings: dict[str, str], *, limit: int, what: str) -> str:
     """Substitute every `{{ name }}` placeholder, erroring on any undeclared/unrenderable name.
 
     Validation runs against the source `text` only, before substitution — a supplied value may
     legitimately contain literal `{{ }}` and must not be re-interpreted as a placeholder.
+
+    The size check runs on the projected output rather than the built string: a template that
+    repeats one placeholder amplifies its binding, so measuring afterwards would mean allocating
+    the amplified result first. Every token is a strict placeholder by the time we get past the
+    loop, so summing the substitution deltas gives the exact rendered size.
     """
-    for match in _LOOSE_PLACEHOLDER_RE.finditer(text):
-        token = match.group(0)
+    binding_sizes = {name: len(value.encode("utf-8")) for name, value in bindings.items()}
+    projected = len(text.encode("utf-8"))
+    for token in _iter_placeholder_tokens(text):
         strict = _PLACEHOLDER_RE.fullmatch(token)
         if strict is None:
             # A `{{ ... }}` whose name the strict pattern can't match (e.g. a hyphen) — fail loudly
             # rather than install a skill with a dangling placeholder.
             raise UnknownTemplatePlaceholderError(token.strip())
-        if strict.group(1) not in bindings:
-            raise UnknownTemplatePlaceholderError(strict.group(1))
+        name = strict.group(1)
+        if name not in bindings:
+            raise UnknownTemplatePlaceholderError(name)
+        projected += binding_sizes[name] - len(token.encode("utf-8"))
+
+    if projected > limit:
+        raise TemplateRenderTooLargeError(what, limit)
 
     return _PLACEHOLDER_RE.sub(lambda m: bindings[m.group(1)], text)
 
@@ -166,19 +218,16 @@ def render_template_skill(
     `variables` is the already-parsed schema (see `parse_template_variables`) so the caller can
     parse once and reuse the result. Raises MissingTemplateVariableError when a required value is
     absent, UnknownTemplatePlaceholderError when a placeholder has no matching declared variable,
-    and TemplateRenderTooLargeError when a user-supplied value expands output past the size limit.
+    TemplateVariableTooLargeError when a supplied value is oversized, and TemplateRenderTooLargeError
+    when a user-supplied value expands output past the size limit.
     """
     bindings = resolve_bindings(variables, supplied)
 
-    rendered_body = render_text(body, bindings)
-    if len(rendered_body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
-        raise TemplateRenderTooLargeError("skill body", MAX_SKILL_BODY_BYTES)
+    rendered_body = render_text(body, bindings, limit=MAX_SKILL_BODY_BYTES, what="skill body")
 
     rendered_files: list[dict[str, str]] = []
     for file in files:
-        content = render_text(file["content"], bindings)
-        if len(content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
-            raise TemplateRenderTooLargeError(f"file '{file['path']}'", MAX_SKILL_FILE_BYTES)
+        content = render_text(file["content"], bindings, limit=MAX_SKILL_FILE_BYTES, what=f"file '{file['path']}'")
         rendered_files.append({**file, "content": content})
 
     return RenderedTemplate(body=rendered_body, files=rendered_files, bindings=bindings)

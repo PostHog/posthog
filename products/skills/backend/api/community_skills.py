@@ -37,6 +37,7 @@ from .skill_services import LLMSkillDuplicateNameConflictError, LLMSkillFileLimi
 from .skill_template_services import (
     MissingTemplateVariableError,
     TemplateRenderTooLargeError,
+    TemplateVariableTooLargeError,
     UnknownSuppliedVariableError,
     UnknownTemplatePlaceholderError,
 )
@@ -199,8 +200,13 @@ class CommunitySkillViewSet(
                 {"detail": f"Community skill '{slug}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except (MissingTemplateVariableError, TemplateRenderTooLargeError, UnknownSuppliedVariableError) as err:
-            # All three are fixable by the caller (supply the value / shorter values / fix the key),
+        except (
+            MissingTemplateVariableError,
+            TemplateRenderTooLargeError,
+            TemplateVariableTooLargeError,
+            UnknownSuppliedVariableError,
+        ) as err:
+            # All four are fixable by the caller (supply the value / shorter values / fix the key),
             # so they're 400s.
             return Response(
                 {"attr": "variables", "detail": str(err)},
@@ -208,7 +214,14 @@ class CommunitySkillViewSet(
             )
         except UnknownTemplatePlaceholderError as err:
             # The template body references a variable it never declared — a content-repo bug the
-            # caller can't fix, so surface it as a server-side fault, not a bad request.
+            # caller can't fix, so surface it as a server-side fault, not a bad request. Returning a
+            # hand-built 500 skips DRF's exception handler, so log it here or a broken catalog entry
+            # fails every install with no server-side signal.
+            logger.exception(
+                "Community skill template references an undeclared placeholder",
+                slug=slug,
+                placeholder=err.placeholder,
+            )
             return Response(
                 {"detail": str(err)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

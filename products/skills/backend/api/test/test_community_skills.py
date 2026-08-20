@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -12,8 +14,11 @@ from posthog.models.user import User
 from ...models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
 from ...models.skills import LLMSkill
 from ..skill_template_services import (
+    MAX_TEMPLATE_BINDINGS_BYTES,
+    MAX_TEMPLATE_VARIABLE_BYTES,
     MissingTemplateVariableError,
     TemplateRenderTooLargeError,
+    TemplateVariableTooLargeError,
     UnknownSuppliedVariableError,
     UnknownTemplatePlaceholderError,
     is_template,
@@ -258,6 +263,34 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertEqual(response.json()["attr"], "variables")
         self.assertFalse(LLMSkill.objects.filter(team=self.team, name="feed-scout").exists())
 
+    def test_install_template_oversized_variable_returns_400(self, _mock_flag) -> None:
+        _create_template_skill(slug="feed-scout")
+        response = self.client.post(
+            self._url("feed-scout/install/"),
+            {"variables": {"feed_table": "x" * (MAX_TEMPLATE_VARIABLE_BYTES + 1)}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="feed-scout").exists())
+
+    def test_install_template_undeclared_placeholder_is_logged(self, _mock_flag) -> None:
+        skill = _create_template_skill(slug="feed-scout")
+        skill.body = "Watch {{ feed_table }} and {{ undeclared }}."
+        skill.save(update_fields=["body"])
+
+        with patch("products.skills.backend.api.community_skills.logger.exception") as mock_exception:
+            response = self.client.post(
+                self._url("feed-scout/install/"),
+                {"variables": {"feed_table": "slack_abc"}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # The hand-built 500 bypasses DRF's exception handler, so this log line is the only signal
+        # that a catalog entry is broken.
+        mock_exception.assert_called_once()
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="feed-scout").exists())
+
     def test_vote_toggles_on_and_off(self, _mock_flag) -> None:
         _create_community_skill(slug="web-analytics-triage")
 
@@ -431,10 +464,43 @@ class TestSkillTemplateRendering(APIBaseTest):
         self.assertEqual(rendered.body, "config: {{ not_a_var }}")
 
     def test_render_oversized_output_raises(self) -> None:
+        # A value well inside the per-variable cap still amplifies past the body limit when the
+        # template repeats its placeholder, so the size check can't assume a small input.
         with self.assertRaises(TemplateRenderTooLargeError):
             render_template_skill(
                 variables=parse_template_variables({"variables": [{"name": "v", "required": True}]}),
-                body="{{ v }}",
+                body="{{ v }}" * 200,
                 files=[],
-                supplied={"v": "x" * 1_000_001},
+                supplied={"v": "x" * 9_000},
             )
+
+    @parameterized.expand(
+        [
+            ("one oversized value", 1, MAX_TEMPLATE_VARIABLE_BYTES + 1),
+            (
+                "values oversized in total",
+                MAX_TEMPLATE_BINDINGS_BYTES // MAX_TEMPLATE_VARIABLE_BYTES + 1,
+                MAX_TEMPLATE_VARIABLE_BYTES,
+            ),
+        ]
+    )
+    def test_render_rejects_oversized_bindings(self, _name, count, size) -> None:
+        names = [f"v{i}" for i in range(count)]
+        with self.assertRaises(TemplateVariableTooLargeError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": n, "required": True} for n in names]}),
+                # Unrendered on purpose: bindings are persisted to the installed skill's metadata
+                # whether or not they appear in the body, so render-size checks don't bound them.
+                body="no placeholders here",
+                files=[],
+                supplied=dict.fromkeys(names, "x" * size),
+            )
+
+    def test_render_scans_unmatched_delimiters_in_one_pass(self) -> None:
+        # Unclosed `{{` stay literal. A `{{.*?}}` regex rescans the rest of the input for each of
+        # them, so this body took tens of seconds to validate before the scan became single-pass.
+        body = "{{" * 32_000
+        started = time.monotonic()
+        rendered = render_template_skill(variables=[], body=body, files=[], supplied=None)
+        self.assertEqual(rendered.body, body)
+        self.assertLess(time.monotonic() - started, 5)
