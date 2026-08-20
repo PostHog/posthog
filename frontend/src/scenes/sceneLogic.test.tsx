@@ -3,9 +3,10 @@ import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { Scene } from 'scenes/sceneTypes'
+import { Scene, type SceneParams } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -285,5 +286,36 @@ describe('sceneLogic', () => {
                 expect(router.values.hashParams).toEqual(expectedHash)
             }
         )
+    })
+
+    describe('dismisses stale error toasts on navigation', () => {
+        let dismissStaleErrorsSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            dismissStaleErrorsSpy = jest.spyOn(lemonToast, 'dismissStaleErrors').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            dismissStaleErrorsSpy.mockRestore()
+        })
+
+        it('dismisses on a record-to-record move but not on a redundant re-set of the same record', async () => {
+            const sceneParams = (id: string): SceneParams => ({ params: { id }, searchParams: {}, hashParams: {} })
+
+            // Two records of the same scene share one sceneId and one sceneKey; only params.params differs.
+            logic.actions.setScene(Scene.Dashboard, 'dashboard', sceneParams('1'))
+            await expectLogic(logic).delay(1)
+            dismissStaleErrorsSpy.mockClear()
+
+            // Re-setting the same record must not clear its own error toasts.
+            logic.actions.setScene(Scene.Dashboard, 'dashboard', sceneParams('1'))
+            await expectLogic(logic).delay(1)
+            expect(dismissStaleErrorsSpy).not.toHaveBeenCalled()
+
+            // Moving to a different record of the same scene clears the previous record's errors.
+            logic.actions.setScene(Scene.Dashboard, 'dashboard', sceneParams('2'))
+            await expectLogic(logic).delay(1)
+            expect(dismissStaleErrorsSpy).toHaveBeenCalled()
+        })
     })
 })

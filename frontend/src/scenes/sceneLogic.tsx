@@ -706,8 +706,11 @@ export const sceneLogic = kea<sceneLogicType>([
                 posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
             }
 
-            // Moving to a different scene: drop error toasts from the page we just left.
-            if (lastSceneId !== sceneId || lastSceneKey !== sceneKey) {
+            // Moving to a different scene, or to a different record of the same scene (e.g.
+            // /dashboard/1 → /dashboard/2, which share a sceneId and sceneKey): drop error toasts
+            // from the page we just left. `lastParams.params` stays last so the `||` short-circuits
+            // before it on the first setScene, when `lastParams` is undefined.
+            if (lastSceneId !== sceneId || lastSceneKey !== sceneKey || !equal(lastParams.params, params.params)) {
                 lemonToast.dismissStaleErrors()
             }
 
