@@ -10,7 +10,6 @@
 //! no embedding and no alert for new issues, until the bucket refills. Its reopen
 //! and spike alerts keep working.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use common_redis::RedisClient;
@@ -32,8 +31,8 @@ pub enum Decision {
     Admitted,
     /// The team is out of budget. Start no workflow.
     Limited,
-    /// No token was spent, because the limit is off, the team is not covered, or
-    /// Redis failed. Start the workflow and never refund.
+    /// No token was spent, because the limit is off or Redis failed. Start the
+    /// workflow and never refund.
     Uncharged,
 }
 
@@ -46,18 +45,13 @@ impl Decision {
 pub struct IssueCreatedRateLimiter {
     /// `None` disables the limit: every notification comes back `Uncharged`.
     bucket: Option<TokenBucket>,
-    /// `None` covers every team.
-    enabled_team_ids: Option<HashSet<i32>>,
 }
 
 impl IssueCreatedRateLimiter {
     pub async fn from_config(config: &NotificationsConfig) -> Result<Self, UnhandledError> {
         let disabled = |reason: &str| {
             info!("Error-tracking issue-created rate limiter disabled: {reason}");
-            Self {
-                bucket: None,
-                enabled_team_ids: None,
-            }
+            Self { bucket: None }
         };
 
         if config.issue_created_rate_limit_redis_url.is_empty() {
@@ -67,6 +61,11 @@ impl IssueCreatedRateLimiter {
             return Ok(disabled("limit is zero or less"));
         }
 
+        // A Redis that is configured but unreachable is fatal on purpose. The
+        // limiter exists to protect shared Temporal and embedding capacity, so a
+        // pod that cannot enforce it must not come up and quietly run without it.
+        // Runtime failures are different: `decide` fails open, because a limiter
+        // outage must not silence alerts for pods that are already serving.
         let client = RedisClient::with_config(
             config.issue_created_rate_limit_redis_url.clone(),
             common_redis::CompressionConfig::disabled(),
@@ -76,12 +75,9 @@ impl IssueCreatedRateLimiter {
         )
         .await?;
 
-        let enabled_team_ids =
-            parse_team_id_allowlist(&config.issue_created_rate_limit_enabled_team_ids);
         info!(
             per_hour = config.issue_created_rate_limit_per_hour,
-            teams = enabled_team_ids.as_ref().map_or(0, HashSet::len),
-            "Error-tracking issue-created rate limiter enabled",
+            "Error-tracking issue-created rate limiter enabled for all teams",
         );
 
         Ok(Self {
@@ -91,7 +87,6 @@ impl IssueCreatedRateLimiter {
                 config.issue_created_rate_limit_per_hour as f64,
                 config.issue_created_rate_limit_bucket_ttl_seconds,
             )),
-            enabled_team_ids,
         })
     }
 
@@ -101,13 +96,6 @@ impl IssueCreatedRateLimiter {
         let Some(bucket) = self.bucket.as_ref() else {
             return Decision::Uncharged;
         };
-        if self
-            .enabled_team_ids
-            .as_ref()
-            .is_some_and(|allowed| !allowed.contains(&team_id))
-        {
-            return Decision::Uncharged;
-        }
 
         match bucket.charge(team_id).await {
             Ok(true) => {
@@ -154,20 +142,6 @@ fn optional_millis(millis: u64) -> Option<std::time::Duration> {
     (millis > 0).then(|| std::time::Duration::from_millis(millis))
 }
 
-/// `None` (empty input) covers every team. `Some(set)` restricts the limit to
-/// the listed ones. Mirrors the event limiter's allowlist.
-fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
-    if value.is_empty() {
-        return None;
-    }
-
-    let ids: HashSet<i32> = value
-        .split(',')
-        .filter_map(|id| id.trim().parse().ok())
-        .collect();
-    (!ids.is_empty()).then_some(ids)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,10 +171,6 @@ mod tests {
                 reply: None,
                 calls: Mutex::new(Vec::new()),
             })
-        }
-
-        fn call_count(&self) -> usize {
-            self.calls.lock().unwrap().len()
         }
 
         fn refunds(&self) -> usize {
@@ -234,15 +204,11 @@ mod tests {
                 1000.0,
                 3600,
             )),
-            enabled_team_ids: None,
         }
     }
 
     fn disabled_limiter() -> IssueCreatedRateLimiter {
-        IssueCreatedRateLimiter {
-            bucket: None,
-            enabled_team_ids: None,
-        }
+        IssueCreatedRateLimiter { bucket: None }
     }
 
     #[tokio::test]
@@ -255,16 +221,6 @@ mod tests {
     async fn a_redis_error_fails_open() {
         let limiter = limiter_with(FakeRunner::failing());
         assert_eq!(limiter.decide(42).await, Decision::Uncharged);
-    }
-
-    #[tokio::test]
-    async fn a_team_outside_the_allowlist_is_never_charged() {
-        let runner = FakeRunner::returning(vec![0]);
-        let mut limiter = limiter_with(runner.clone());
-        limiter.enabled_team_ids = Some(HashSet::from([7]));
-
-        assert_eq!(limiter.decide(42).await, Decision::Uncharged);
-        assert_eq!(runner.call_count(), 0);
     }
 
     #[tokio::test]

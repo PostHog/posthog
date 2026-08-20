@@ -83,13 +83,6 @@ pub struct NotificationsConfig {
     )]
     pub issue_created_rate_limit_bucket_ttl_seconds: u64,
 
-    /// Comma-separated team ids the limit applies to. Empty means all teams.
-    #[envconfig(
-        from = "ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_ENABLED_TEAM_IDS",
-        default = ""
-    )]
-    pub issue_created_rate_limit_enabled_team_ids: String,
-
     #[envconfig(default = "100")]
     pub redis_response_timeout_ms: u64,
 
