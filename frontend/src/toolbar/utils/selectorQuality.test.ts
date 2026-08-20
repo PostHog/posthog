@@ -64,6 +64,9 @@ describe('checkSelectorBreadth', () => {
         ['a Tailwind arbitrary-value class from devtools copy', '.max-w-\\[1045px\\]'],
         ['a Tailwind arbitrary-value class with a function', '.shadow-[0_4px_6px_rgba(0,0,0,0.1)]'],
         ['a Tailwind arbitrary color class', '.text-[#fff]'],
+        ['a tag-only target scoped by an ancestor id', '#checkout-panel button'],
+        ['a class-only target scoped by an ancestor id', '#modal-root .chakra-button'],
+        ['a tag-only target scoped by an ancestor attribute', '[id="header"] > div > button'],
     ])('flags %s as broad', (_label, selector) => {
         const result = checkSelectorBreadth(selector)
         expect(result.isBroad).toBe(true)
