@@ -152,15 +152,6 @@ class TestTransformations:
 
         assert transformed["filters"] == "{}"
 
-    def test_transform_feature_flag_row_drops_last_called_at(self):
-        # last_called_at has its own bulk-update writer that skips updated_at; a mirrored column
-        # would be permanently stale, so the transform strips it.
-        row = _flag_row(last_called_at=datetime(2025, 3, 2))
-
-        transformed = transform_row("posthog_featureflag", row)
-
-        assert "last_called_at" not in transformed
-
     def test_transform_feature_flag_row_redacts_payload_ciphertext(self):
         # Rotation commands update filters.payloads without touching updated_at, so the incremental
         # mirror never sees a rotation. Substituting ciphertext with the redaction sentinel keeps the
@@ -584,8 +575,8 @@ class TestDagsterWiring:
 
         sql, params = cur.execute.call_args[0]
         assert expected_where in sql
-        assert params[0].isoformat() == "2024-01-15T14:00:00"
-        assert params[1].isoformat() == "2024-01-15T15:00:00"
+        assert params[0].replace(tzinfo=None).isoformat() == "2024-01-15T14:00:00"
+        assert params[1].replace(tzinfo=None).isoformat() == "2024-01-15T15:00:00"
 
     def test_backward_lookback_default_is_one_day(self):
         assert _config().backward_lookback_seconds == 86400

@@ -183,8 +183,10 @@ _ORG_BOOL_FIELDS = [
     "is_platform",
 ]
 
+# available_product_features is ArrayField(JSONField()), not JSONField. Excluded from the cast
+# so psycopg2 parses the list and json.dumps round-trips the elements to valid JSON; `jsonb[]::text`
+# renders Postgres array literal syntax (`{"{\"key\": \"val\"}"}`), which JSONExtract* cannot read.
 _ORG_JSONB_TEXT_CAST = {
-    "available_product_features",
     "usage",
     "customer_trust_scores",
     "personalization",
@@ -336,6 +338,11 @@ _TEAM_BOOL_FIELDS = [
     "opt_out_capture",
 ]
 
+# session_recording_url_trigger_config, session_recording_url_blocklist_config, and
+# session_recording_event_trigger_config are ArrayField(JSONField()) / ArrayField(TextField()), not
+# JSONField. Excluded from the cast so psycopg2 parses the list and json.dumps round-trips the
+# elements to valid JSON; `::text` on an array renders Postgres array literal syntax, which
+# JSONExtract* cannot read.
 _TEAM_JSONB_TEXT_CAST = {
     "has_completed_onboarding_for",
     "onboarding_tasks",
@@ -344,9 +351,6 @@ _TEAM_JSONB_TEXT_CAST = {
     "session_recording_linked_flag",
     "session_recording_network_payload_capture_config",
     "session_recording_masking_config",
-    "session_recording_url_trigger_config",
-    "session_recording_url_blocklist_config",
-    "session_recording_event_trigger_config",
     "session_replay_config",
     "survey_config",
     "test_account_filters",
@@ -445,7 +449,7 @@ def _team_ddl() -> str:
             external_data_workspace_last_synced_at Nullable(DateTime64(6)),
             api_query_rate_limit Nullable(String),
             revenue_tracking_config Nullable(String),  -- JSON stored as String
-            drop_events_older_than Nullable(Int64),
+            drop_events_older_than Nullable(Int64),  -- stored as seconds (Django interval → total_seconds())
             base_currency Nullable(String),
             _inserted_at DateTime64(6) DEFAULT now64(6)
         )
@@ -463,6 +467,8 @@ def _finalize_team_row(row: dict) -> dict:
 
 # ----- posthog_featureflag -----
 
+# last_called_at is deliberately excluded: it has its own bulk-update writer that bypasses auto_now,
+# so a mirrored column would be permanently stale. See .notes/feature-flag-mirror-design.md.
 _FEATURE_FLAG_COLS = [
     "id",
     "team_id",
@@ -548,9 +554,6 @@ def _finalize_feature_flag_row(row: dict) -> dict:
     # flag hasn't been edited yet, so fall back to created_at. Makes updated_at non-null in the mirror.
     if row.get("updated_at") is None:
         row["updated_at"] = row.get("created_at")
-    # Deliberately excluded: last_called_at has its own bulk-update writer that bypasses auto_now,
-    # so a mirrored column would be permanently stale. See .notes/feature-flag-mirror-design.md.
-    row.pop("last_called_at", None)
     return row
 
 
@@ -832,8 +835,11 @@ def _sync_asset_partition(context: AssetExecutionContext, table_name: str) -> No
     with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
         config = PostgresToClickHouseETLConfig()
         create_clickhouse_tables(context)
-        partition_dt = datetime.strptime(context.partition_key, "%Y-%m-%d-%H:%M")
-        start_time, end_time = partition_dt, partition_dt + timedelta(hours=1)
+        # partition_time_window raises the moment the run covers a multi-partition range; the
+        # backfill policy allows up to 24 partitions per run, so taking it off the context
+        # (rather than context.partition_key) is what makes range backfills actually work.
+        window = context.partition_time_window
+        start_time, end_time = window.start, window.end
         cfg = TABLE_CONFIGS[table_name]
         query, params = cfg.build_partition_query(table_name, start_time, end_time)
         pg_conn = get_postgres_connection()
@@ -841,7 +847,7 @@ def _sync_asset_partition(context: AssetExecutionContext, table_name: str) -> No
             cursor = pg_conn.cursor()
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            context.log.info(f"Fetched {len(rows)} {table_name} rows for partition {context.partition_key}")
+            context.log.info(f"Fetched {len(rows)} {table_name} rows for partition window {start_time}..{end_time}")
             if rows:
                 inserted = insert_rows_to_clickhouse(table_name, rows, batch_size=config.batch_size)
                 context.log.info(f"Inserted {inserted} rows into models.{table_name}")
