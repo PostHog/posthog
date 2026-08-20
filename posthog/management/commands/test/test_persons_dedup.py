@@ -851,6 +851,32 @@ class TestPersonsDedupPrivilegePreflight:
         assert deleted_tables <= probed, f"deletes without a DELETE grant probe: {sorted(deleted_tables - probed)}"
 
 
+class TestPersonsDedupReplicaLag:
+    # This branch cannot be reached from a live database here: CI and local Postgres are
+    # primaries, so pg_is_in_recovery() is false and the replica path never runs. That gap
+    # is how an Aurora-unsupported function reached production, so the helper is exercised
+    # directly rather than through a connection.
+    def test_an_unsupported_lag_function_costs_the_number_not_the_run(self, monkeypatch):
+        def unsupported(conn, sql, params=None):
+            raise psycopg.errors.FeatureNotSupported(
+                "Function pg_last_xact_replay_timestamp() is currently not supported for Aurora"
+            )
+
+        monkeypatch.setattr(persons_dedup_command, "_scalar", unsupported)
+
+        with capture_logs() as logs:
+            assert persons_dedup_command._replica_lag_seconds(object()) is None
+
+        assert any(entry["event"] == "persons_dedup.replica_lag_unavailable" for entry in logs), (
+            "an unavailable lag must be reported, not swallowed"
+        )
+
+    def test_reports_the_lag_where_the_platform_supports_it(self, monkeypatch):
+        monkeypatch.setattr(persons_dedup_command, "_scalar", lambda conn, sql, params=None: 42)
+
+        assert persons_dedup_command._replica_lag_seconds(object()) == 42
+
+
 class TestPersonsDedupConnectionRouting:
     # The reads can scan for minutes on large teams; silently moving them back to the
     # primary is the regression these guard against. Locally the reader URL falls back

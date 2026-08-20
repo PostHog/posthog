@@ -531,6 +531,28 @@ def _scalar(conn: psycopg.Connection, sql: str, params: dict | None = None) -> i
     return int(row[0]) if row else 0
 
 
+def _replica_lag_seconds(conn: psycopg.Connection) -> int | None:
+    """Replay lag in seconds, or None where the platform does not expose it.
+
+    This is a diagnostic, not a control: it tells the operator whether a verify that
+    disagrees with the repair it just ran is a stale read or a real failure. So it must
+    never abort the run. Losing the number costs one log field; losing the run costs a
+    full re-scan of the team, which is minutes on the large ones.
+
+    Both production persons clusters are Aurora, and Aurora does not implement
+    pg_last_xact_replay_timestamp() -- it raises FeatureNotSupported. So None is the
+    ordinary answer in production rather than an edge case, and no lag number will appear
+    there. When a read has to be authoritative, use --writer instead of trusting a lag
+    figure. The connection is autocommit, so the failed statement leaves nothing to roll
+    back and the caller can keep using it.
+    """
+    try:
+        return _scalar(conn, "SELECT COALESCE(EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp()), 0)::bigint")
+    except psycopg.Error as exc:
+        logger.info("persons_dedup.replica_lag_unavailable", detail=str(exc).strip())
+        return None
+
+
 def _check_session_stability(conn: psycopg.Connection) -> None:
     """Abort if the connection does not behave like one stable backend session.
 
@@ -652,11 +674,11 @@ class Command(BaseCommand):
                 # lagging replica; surfacing the lag lets the operator tell a stale read
                 # from a real failure (or rerun with --writer).
                 if not use_writer and _scalar(conn, "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END"):
-                    lag_seconds = _scalar(
-                        conn,
-                        "SELECT COALESCE(EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp()), 0)::bigint",
+                    logger.info(
+                        "persons_dedup.reading_from_replica",
+                        team_id=team,
+                        replay_lag_seconds=_replica_lag_seconds(conn),
                     )
-                    logger.info("persons_dedup.reading_from_replica", team_id=team, replay_lag_seconds=lag_seconds)
                 if mode == "classify":
                     self._classify(conn, team, Path(options["outdir"]))
                 else:
