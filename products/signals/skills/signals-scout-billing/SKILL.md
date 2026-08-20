@@ -82,14 +82,17 @@ Cycle between these moves; skip what is not useful.
 - `billing-usage-get` with `interval: "day"`, `breakdowns: ["type"]`, `team_ids: [{team_id}]`, and a `start_date` ~35 days back.
   Every array parameter is **JSON-encoded**: `["type"]`, not `type`. A bare string is a 400.
 
-The response is `results`: a list of series, each carrying `label`, `dates`, `data`, `breakdown_type`, and `breakdown_value`.
+The response is `results`: a list of series, each carrying `label`, `dates`, `data`, `breakdown_type`, and `breakdown_value`, plus a top-level `team_id_options` listing every project the caller can see.
 
-**`breakdown_value` is a list whose shape follows `breakdown_type` — branch on it, never index blindly.**
-A `type` breakdown gives one element (`["recording_count_in_period"]`); a `team` breakdown gives one element that is a team id **as a string** (`["1"]`); a combined breakdown reports `breakdown_type: "multiple"`.
-Treating every series as a `[usage_type, team_id]` pair drops or misattributes the org-level, type-only meters, so read the type from the element whose value is a usage-type identifier and treat a missing team element as "not project-attributed".
+**`breakdown_value`'s shape follows `breakdown_type` — branch on it, never index blindly.**
+With `["type"]`, `breakdown_type` is `"type"` and `breakdown_value` is a **plain string** (`"recording_count_in_period"`).
+With `["type","team"]`, `breakdown_type` is `"multiple"` and `breakdown_value` is a two-element list with the team id **as a string** (`["recording_count_in_period", "148051"]`).
+The `label` doubles as a human hint (`"Recordings"` or `"dev::Recordings"`), but it is a project-named string — read identifiers from `breakdown_value`, never from `label`.
+With `team_ids` pinned to one project, `["type"]` is all the step lane needs; one 35-day call returns every usage type (about 26 series) at roughly 25 KB.
 
-**Anchor on the data, not the wall clock.** Billing usage lags, so `max(dates)` is behind today and the final bucket is usually partial.
-Score the latest **complete** day and drop the trailing partial one — otherwise every run opens with a phantom cliff.
+**Anchor on the data, not the wall clock.** `dates` runs through today, and today's bucket is reported as **zero on every meter**, not as a partial count — usage lands in daily batches.
+The latest complete day is therefore the last date with any non-zero meter, normally yesterday. Drop today before scoring, or every run opens with a phantom cliff to zero.
+Treat a last complete day older than two days as lag worth recording in the cursor, not as a drop.
 
 ### Profile shape — what is worth a look
 
@@ -128,6 +131,8 @@ A ramp that follows the project's own weekly rhythm and lifts related meters tog
 ### Lane 2 — the trajectory (every run, one call)
 
 `billing-overview-get` carries the forecast. Read the field mechanics in [`references/usage-types.md`](references/usage-types.md) before quoting a number — the wrong projection field overstates the invoice, and the consequence of crossing a limit is not as certain as it looks.
+The response is large (about 70 KB on a modest org: half `available_product_features`, a third `products[].tiers` and `products[].addons`), so make **one** call per run and pull only `billing_period`, `custom_limits_usd`, the four `projected_total_*` fields, `trial` / `free_trial_until`, and each product's `type`, `usage_key`, `subscribed`, `tiers`, `current_usage`, `usage_limit`, and `projected_amount_usd`.
+If the harness truncates the payload, that is a close-out for this lane, not a denial and not a finding — the step lane still runs.
 Report-worthy shapes:
 
 - Projected period spend materially above the last complete period's actual, with no single meter explaining it.
@@ -143,7 +148,7 @@ On each run, compare those stored boundaries against the overview's current `bil
 
 Domain label is `billing`. Worked entries:
 
-- `pattern:billing:cursor` — _"Scored through 2026-08-17 (last complete day; 08-18 partial). Usage series lags ~2 days on this org."_
+- `pattern:billing:cursor` — _"Scored through 2026-08-19 (last complete day; 08-20 is today and reads zero). Series runs to yesterday on this org."_
 - `pattern:billing:baseline:recording_count_in_period` — _"Recordings run ~40k/weekday, ~9k/weekend; ~62% of this project's bill. Weekend ratio is stable, do not flag it."_
 - `pattern:billing:tiers:recording_count_in_period` — _"Subscribed; first tier is free to 15k/mo, marginal rate above that is $0.005/recording. Re-derive if the plan changes."_
 - `pattern:billing:period-actual` — _"Period 2026-07-01 to 2026-07-31 billed $4,210 after discount and limits. Re-derive when `billing_period.current_period_start` moves past 2026-08-01."_
@@ -209,7 +214,7 @@ A false alarm about someone's invoice costs trust faster than almost anything el
 Direct (read-only):
 
 - `billing-usage-get` — the scorer. Daily series per usage type. Always pass `team_ids: [{team_id}]`. JSON-encoded array params.
-- `billing-spend-get` — the same shape in dollars. Within-period sizing only, never across a period boundary.
+- `billing-spend-get` — the same shape in dollars, but a `type` breakdown keys series by **product** (`session_replay`), not by usage type (`recording_count_in_period`) — map through the vocabulary table in the reference. Within-period sizing only, never across a period boundary.
 - `billing-overview-get` — plan, `products[]` with tiers / limits / usage, `billing_period`, `custom_limits_usd`, `trial`, `free_trial_until`, and the projected totals the trajectory lane runs on.
 
 Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-scratchpad-remember`, `scout-runs-list`, `scout-runs-retrieve`, `scout-emit-report`, `scout-edit-report`, `scout-members-list`.

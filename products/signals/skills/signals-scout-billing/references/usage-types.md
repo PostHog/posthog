@@ -13,6 +13,42 @@ Every tiered product meters cumulatively **within** a period and resets at the b
 
 The overview reflects the current period only. For history, use `billing-usage-get` / `billing-spend-get` with explicit dates.
 
+## Three vocabularies for one meter
+
+The same meter is named three ways across the tools, and none of them is a prefix of another:
+
+- `billing-usage-get` keys series by **usage type** (`recording_count_in_period`) — the names in the routing table below.
+- `billing-spend-get` with a `type` breakdown, and `billing-overview-get`'s `products[].type` and `custom_limits_usd`, key by **product** (`session_replay`).
+- `billing-overview-get`'s `products[].usage_key` and `usage_summary` key by a **short name** (`recordings`).
+
+Match a usage type to its product through this table before pricing it or reading its spending limit. Add-on meters (identified events, group analytics, mobile recordings, 30-day log retention, historical rows) live under the parent product's `addons[]` in the overview and as their own product key in spend.
+
+| Usage type                                       | Product key (spend, `products[].type`, `custom_limits_usd`) | `usage_key`             |
+| ------------------------------------------------ | ----------------------------------------------------------- | ----------------------- |
+| `event_count_in_period`                          | `product_analytics`                                         | `events`                |
+| `enhanced_persons_event_count_in_period`         | `enhanced_persons` (add-on)                                 | —                       |
+| `group_analytics`                                | `group_analytics` (add-on)                                  | —                       |
+| `recording_count_in_period`                      | `session_replay`                                            | `recordings`            |
+| `mobile_recording_count_in_period`               | `mobile_replay` (add-on)                                    | `mobile_recordings`     |
+| `billable_feature_flag_requests_count_in_period` | `feature_flags`                                             | `feature_flag_requests` |
+| `exceptions_captured_in_period`                  | `error_tracking`                                            | `exceptions`            |
+| `survey_responses_count_in_period`               | `surveys`                                                   | `survey_responses`      |
+| `ai_event_count_in_period`                       | `llm_analytics`                                             | `llm_events`            |
+| `ai_credits_used_in_period`                      | `posthog_ai`                                                | `ai_credits`            |
+| `rows_synced_in_period`                          | `data_warehouse`                                            | `rows_synced`           |
+| `free_historical_rows_synced_in_period`          | `data_warehouse_historical` (add-on)                        | —                       |
+| `rows_exported_in_period`                        | `batch_exports`                                             | `rows_exported`         |
+| `cdp_billable_invocations_in_period`             | `realtime_destinations`                                     | `cdp_trigger_events`    |
+| `workflow_emails_sent_in_period`                 | `workflows_emails`                                          | `workflow_emails`       |
+| `workflow_billable_invocations_in_period`        | `workflows_destinations` (add-on)                           | —                       |
+| `logs_mb_in_period`                              | `logs`                                                      | `logs_mb_ingested`      |
+| `logs_retention_30d_mb_in_period`                | `logs_retention_30d` (add-on)                               | —                       |
+| `signals_credits_used_in_period`                 | `inbox`                                                     | `signals_credits`       |
+| `replay_vision_credits_used_in_period`           | `replay_vision`                                             | `replay_vision_credits` |
+| `posthog_code_credits_used_in_period`            | `posthog_code_usage`                                        | `posthog_code_credits`  |
+
+A usage type missing from this table is a new meter: route it by its `label`, and do not price it until the overview carries a product for it.
+
 ## Deriving the free tier — not just `free_allocation`
 
 `free_allocation` is the free threshold only for **unsubscribed** products.
@@ -26,7 +62,11 @@ not subscribed                                   ->  free threshold = free_alloc
 ```
 
 **The marginal rate** — what an extra unit actually costs right now — is the `unit_amount_usd` of the tier that period-to-date usage currently sits in, not the first paid tier and not an average.
+Each tier carries its own `current_usage` and `projected_usage`, so the tier with non-zero `current_usage` and headroom below `up_to` is the marginal one.
 Price a usage delta at that rate. Cache both the threshold and the marginal rate as `pattern:billing:tiers:<usage_type>` and re-derive when the plan changes.
+
+**`usage_limit` is not the free tier either.** On a subscribed product it is the customer's `custom_limits_usd` spending limit converted into units at the tier schedule (a $50 events limit reads as `usage_limit: 2000000`), and `percentage_usage` is `current_usage / usage_limit`.
+Use them for the limit-crossing check in the trajectory lane; `null` means no spending limit is set on that product.
 
 ## Which projection field to quote
 
