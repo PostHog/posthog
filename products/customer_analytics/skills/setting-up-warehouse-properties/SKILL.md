@@ -31,18 +31,18 @@ once the data is syncing.
 
 ## Tools
 
-| Tool | Purpose |
-| --- | --- |
-| `external-data-schemas-list` | Find a synced table and its schema id (the `external_data_schema` binding); columns are omitted here |
-| `external-data-schemas-retrieve` | Read one synced table's columns and types by schema id |
-| `view-list` | Find a materialized view and its column schema (the `saved_query` binding) |
-| `view-get` | Read one materialized view's columns and types by id |
-| `custom-property-definitions-list` | See what warehouse properties already exist for the team |
-| `custom-property-definitions-create` | Create the definition the source attaches to (`target_type: person` or `group`) |
-| `custom-property-sources-create` | Bind the definition to the table, carrying the whole `column_property_map` |
-| `custom-property-sources-backfill` | Populate historical rows after creating the mapping |
-| `custom-property-sources-runs-list` | Check the run funnel after a sync or backfill |
-| `custom-property-sources-sync` | Run the underlying table now |
+| Tool                                 | Purpose                                                                                              |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `external-data-schemas-list`         | Find a synced table and its schema id (the `external_data_schema` binding); columns are omitted here |
+| `external-data-schemas-retrieve`     | Read one synced table's columns and types by schema id                                               |
+| `view-list`                          | Find a materialized view and its column schema (the `saved_query` binding)                           |
+| `view-get`                           | Read one materialized view's columns and types by id                                                 |
+| `custom-property-definitions-list`   | See what warehouse properties already exist for the team                                             |
+| `custom-property-definitions-create` | Create the definition the source attaches to (`target_type: person` or `group`)                      |
+| `custom-property-sources-create`     | Bind the definition to the table, carrying the whole `column_property_map`                           |
+| `custom-property-sources-backfill`   | Populate historical rows after creating the mapping                                                  |
+| `custom-property-sources-runs-list`  | Check the run funnel after a sync or backfill                                                        |
+| `custom-property-sources-sync`       | Run the underlying table now                                                                         |
 
 Person and group targets need the `warehouse-person-properties` feature. A group target additionally needs the
 `group:write` scope; without it, `custom-property-sources-create` refuses the group definition.
@@ -115,12 +115,12 @@ reads the whole table and populates historical rows; it coalesces if one is alre
 Then read `custom-property-sources-runs-list` and walk the funnel, which is where a mapping that "did nothing"
 explains itself:
 
-| Stage | Zero here means |
-| --- | --- |
-| `rows_read` | Nothing was staged — the table has not synced since the mapping was created |
-| `changed` | Every value already matches what was last sent; a re-run is expected to be quiet |
-| `existing` | No row's identifier matched a person or group — usually the wrong key column |
-| `produced` | Nothing reached capture; check `skipped_missing_person` |
+| Stage       | Zero here means                                                                  |
+| ----------- | -------------------------------------------------------------------------------- |
+| `rows_read` | Nothing was staged — the table has not synced since the mapping was created      |
+| `changed`   | Every value already matches what was last sent; a re-run is expected to be quiet |
+| `existing`  | No row's identifier matched a person or group — usually the wrong key column     |
+| `produced`  | Nothing reached capture; check `skipped_missing_person`                          |
 
 A run that reads rows but shows `existing: 0` is the wrong-key-column case almost every time.
 
