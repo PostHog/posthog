@@ -46,12 +46,10 @@ import {
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
-import {
-  RightPanel,
-  SWITCHER_WIDTH_PX,
-} from "@posthog/ui/features/navigation/components/RightPanel";
+import { RightPanel } from "@posthog/ui/features/navigation/components/RightPanel";
 import {
   CONTENT_CHROME_RIGHT_VAR,
+  SWITCHER_WIDTH_PX,
   useRightPanelOpen,
 } from "@posthog/ui/features/navigation/rightPanelSide";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
@@ -443,13 +441,14 @@ export function WebsiteLayout() {
           )}
         </div>
       )}
-      {/* The right panel's switcher pins itself to this row's top right, so the
-          row is its positioning context. `isolate` keeps the switcher's stacking
-          rank inside the row, where it only has to beat the panel's own layer,
-          rather than reaching the app's dialogs and popovers. While the panel is
-          closed the switcher floats over the content pane, so the row publishes
-          how much of its right edge is spoken for and the pane's own chrome
-          stops short of it. */}
+      {/* The right panel lays itself over this row's right edge and pins its
+          switcher to the row's top right, so the row is its positioning context
+          and its ceiling - the panel never reaches over the nav beside it.
+          `isolate` keeps the switcher's stacking rank inside the row, where it
+          only has to beat the panel's own layer, rather than reaching the app's
+          dialogs and popovers. While the panel is closed the switcher floats
+          over the content pane, so the row publishes how much of its right edge
+          is spoken for and the pane's own chrome stops short of it. */}
       <div
         className="relative isolate flex min-h-0 flex-1 overflow-hidden"
         style={
@@ -460,13 +459,17 @@ export function WebsiteLayout() {
           } as CSSProperties
         }
       >
-        <div className="min-w-0 flex-1 overflow-hidden">
+        {/* `isolate`: the pane's own chrome climbs to z-50, and without a
+            stacking context of its own that would outrank the right panel's
+            scrim, which has to sit under the panel and so cannot simply outbid
+            it. */}
+        <div className="isolate min-w-0 flex-1 overflow-hidden">
           <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
             <Outlet />
           </MentionAvailabilityProvider>
         </div>
-        {/* One panel at a time beside the content: the session's timeline,
-            artifacts, comments, or changes, as a push column. */}
+        {/* One panel at a time at the right of the content: the session's
+            timeline, artifacts, comments, or changes. */}
         {spacesLayout && <RightPanel />}
       </div>
       {/* Warm-iframe pool for canvases. Mounted once here so it persists across
