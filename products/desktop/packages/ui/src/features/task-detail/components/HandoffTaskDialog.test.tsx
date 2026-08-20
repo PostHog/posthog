@@ -92,36 +92,62 @@ describe("HandoffTaskDialog", () => {
     ).toBeInTheDocument();
   });
 
-  it("filters people by name or email in the search input", async () => {
+  it("opens a search popover from the select and filters people by name or email", async () => {
     const user = userEvent.setup();
     renderDialog(createTask());
-
     const dialog = await screen.findByRole("alertdialog");
-    await user.type(
-      within(dialog).getByPlaceholderText(/search people/i),
-      "pepp",
+
+    await user.click(
+      within(dialog).getByRole("combobox", { name: /pick a person/i }),
     );
+    const searchInput =
+      await within(dialog).findByPlaceholderText(/search people/i);
+    await user.type(searchInput, "pepp");
 
     expect(await within(dialog).findByText("Pepper")).toBeInTheDocument();
     expect(within(dialog).queryByText("Col")).not.toBeInTheDocument();
   });
 
   it("does not offer the current owner as a handoff target", async () => {
+    const user = userEvent.setup();
     renderDialog(createTask());
-
     const dialog = await screen.findByRole("alertdialog");
+
+    await user.click(
+      within(dialog).getByRole("combobox", { name: /pick a person/i }),
+    );
     expect(
       within(dialog).queryByText("owner@example.com"),
     ).not.toBeInTheDocument();
     expect(await within(dialog).findByText("Col")).toBeInTheDocument();
   });
 
+  it("shows the picked person in the select trigger", async () => {
+    const user = userEvent.setup();
+    renderDialog(createTask());
+    const dialog = await screen.findByRole("alertdialog");
+
+    await user.click(
+      within(dialog).getByRole("combobox", { name: /pick a person/i }),
+    );
+    await user.click(await within(dialog).findByText("Col"));
+
+    // Base UI keeps the popup mounted once it was open, only hidden — so the
+    // readable signal that selection landed is the trigger content itself.
+    expect(
+      within(dialog).getByRole("combobox", { name: /pick a person/i }),
+    ).toHaveTextContent("Col");
+  });
+
   it("hands off to the selected member only after the acknowledge checkbox", async () => {
     mockHandoffMutate.mockClear();
     const user = userEvent.setup();
     renderDialog(createTask());
-
     const dialog = await screen.findByRole("alertdialog");
+
+    await user.click(
+      within(dialog).getByRole("combobox", { name: /pick a person/i }),
+    );
     await user.click(await within(dialog).findByText("Col"));
     // A pick alone isn't enough: the checkbox is what says they really read it.
     expect(

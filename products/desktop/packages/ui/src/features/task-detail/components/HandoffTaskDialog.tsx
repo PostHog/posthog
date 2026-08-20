@@ -1,3 +1,4 @@
+import { CaretDown } from "@phosphor-icons/react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -6,15 +7,14 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  Autocomplete,
-  AutocompleteCollection,
-  AutocompleteEmpty,
-  AutocompleteGroup,
-  AutocompleteInput,
-  AutocompleteItem,
-  AutocompleteList,
   Button,
   Checkbox,
+  Combobox,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
   DialogBody,
   Field,
   FieldLabel,
@@ -25,8 +25,9 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { ModalInlineComboboxContent } from "@posthog/ui/features/settings/ModalInlineComboboxContent";
 import { useHandoffTask } from "@posthog/ui/features/tasks/useTaskMutations";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "../../../primitives/toast";
 import { logger } from "../../../shell/logger";
 
@@ -39,11 +40,11 @@ interface PersonItem {
 }
 
 /**
- * The confirm step of a handoff. The same shape as the canvas delete confirm:
- * a short title, two sentences of consequence, the person picker (search input
- * over the same avatar rows the mention composer draws), then Cancel against
- * the commit. Only the recipient can reverse a handoff, so the item that opens
- * this carries an ellipsis.
+ * The confirm step of a handoff. The picker is a plain select anchored to the
+ * dialog, the consequence copy reads as short GitHub-style sentences, and the
+ * commit stays locked until a colleague is picked AND the acknowledge box is
+ * checked. Only the recipient can reverse a handoff, so the menu item that
+ * opens this carries an ellipsis.
  */
 export function HandoffTaskDialog({
   task,
@@ -56,9 +57,11 @@ export function HandoffTaskDialog({
 }) {
   const currentUser = useCurrentUser();
   const { mutate: handoffTask, isPending } = useHandoffTask();
-  const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const anchorRef = useRef<HTMLDivElement>(null);
 
   const { members, isLoading: membersLoading } = useOrgMembers();
   const { channels } = useChannels();
@@ -69,19 +72,22 @@ export function HandoffTaskDialog({
     channels.find((channel) => channel.id === task.channel)?.channelType ===
       "personal";
 
-  // Same reset rhythm as other dialogs: opening starts a clean search and no
-  // selection. Adjusted during render, not in an effect, because an effect
-  // would commit a frame of the stale state first.
+  // Same reset rhythm as other dialogs: opening starts fresh. Adjusted during
+  // render, not in an effect, because an effect would commit a frame of the
+  // stale state first.
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
-      setQuery("");
       setSelectedId(null);
       setAcknowledged(false);
+      setPickerOpen(false);
+      setSearchQuery("");
     }
   }
 
+  // ids as values — Base UI drops object items, and the selected label comes
+  // straight from the item lookup.
   const items = useMemo<PersonItem[]>(
     () =>
       members.flatMap((member) =>
@@ -97,7 +103,25 @@ export function HandoffTaskDialog({
       ),
     [members, currentUser.data?.id],
   );
+  // Filtering is client-side over the org roster: name or email substring.
+  const needle = searchQuery.trim().toLowerCase();
+  const visibleItems = useMemo(
+    () =>
+      needle
+        ? items.filter(
+            (item) =>
+              item.label.toLowerCase().includes(needle) ||
+              (item.member.email ?? "").toLowerCase().includes(needle),
+          )
+        : items,
+    [items, needle],
+  );
+  const itemIds = useMemo(
+    () => visibleItems.map((item) => item.id),
+    [visibleItems],
+  );
   const selected = items.find((item) => item.id === selectedId);
+  const canHandOff = selected !== undefined && acknowledged;
 
   const handleConfirm = () => {
     if (!selected) return;
@@ -117,8 +141,6 @@ export function HandoffTaskDialog({
     );
   };
 
-  const canHandOff = selected !== undefined && acknowledged;
-
   return (
     <AlertDialog
       open={open}
@@ -132,81 +154,109 @@ export function HandoffTaskDialog({
       <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
           <AlertDialogTitle>Hand off task</AlertDialogTitle>
-          <AlertDialogDescription>
-            <span className="font-medium text-foreground">{task.title}</span>{" "}
-            goes to the person you pick:
+          <AlertDialogDescription render={<div />}>
+            <p>
+              <span className="font-medium text-foreground">{task.title}</span>{" "}
+              goes to the person you pick.
+            </p>
+            <p>They steer it and get its notifications.</p>
+            {movesToTheRecipient ? (
+              <p>It moves into their personal space, so you lose access.</p>
+            ) : null}
+            <p>Only they can hand it back.</p>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <DialogBody viewportClassName="flex flex-col gap-3 px-4 pb-3">
-          <ul className="list-disc space-y-1 pl-4 text-muted-foreground text-xs">
-            <li>They steer it and get its notifications.</li>
-            {movesToTheRecipient ? (
-              <li>It moves into their personal space, so you lose access.</li>
-            ) : null}
-            <li>Only they can hand it back.</li>
-          </ul>
-          <Autocomplete<PersonItem>
-            inline
-            defaultOpen
-            items={[{ items }]}
-            value={query}
-            autoHighlight="always"
-            onValueChange={(value, eventDetails) => {
-              if (eventDetails.reason !== "input-change") return;
-              if (typeof value === "string") setQuery(value);
-            }}
-            filter={(item, search) => {
-              if (!search) return true;
-              const needle = search.toLowerCase();
-              return (
-                item.label.toLowerCase().includes(needle) ||
-                (item.member.email ?? "").toLowerCase().includes(needle)
-              );
-            }}
-          >
-            <AutocompleteInput
-              placeholder="Search people…"
-              autoFocus
-              showClear
+          <div ref={anchorRef}>
+            <Combobox
+              items={itemIds}
+              filter={null}
+              value={selectedId}
+              onValueChange={(value) => {
+                setSelectedId(value as string | null);
+                setPickerOpen(false);
+                setSearchQuery("");
+              }}
+              open={pickerOpen}
+              onOpenChange={(next) => {
+                setPickerOpen(next);
+                if (!next) setSearchQuery("");
+              }}
+              inputValue={searchQuery}
+              onInputValueChange={(value) => setSearchQuery(value ?? "")}
               disabled={isPending}
-            />
-            <AutocompleteEmpty>
-              <span>{membersLoading ? "Loading people…" : "No people."}</span>
-            </AutocompleteEmpty>
-            <AutocompleteList className="h-44 p-0">
-              {(section: { items: PersonItem[] }) => (
-                <AutocompleteGroup items={section.items} className="p-0">
-                  <AutocompleteCollection>
-                    {(item: PersonItem) => (
-                      <AutocompleteItem
-                        key={item.id}
-                        value={item.id}
-                        data-selected={selectedId === item.id || undefined}
-                        onClick={() => setSelectedId(item.id)}
-                        // Same fill-on-select and softened focus ring as the
-                        // channels sidebar rows; the span override lets the
-                        // email reach the row's right edge under quill's own
-                        // child wrapper.
-                        className="w-full min-w-0 ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-selected:bg-fill-selected data-selected:text-foreground data-highlighted:ring-0 [&>span]:w-full [&>span]:gap-2"
-                      >
+              modal={false}
+            >
+              <ComboboxTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isPending}
+                    aria-label="Pick a person to hand the task off to"
+                    className="w-full justify-between"
+                  >
+                    {selected ? (
+                      <span className="flex min-w-0 items-center gap-2">
+                        <UserAvatar
+                          user={selected.member}
+                          size="xs"
+                          className="shrink-0"
+                        />
+                        <span className="min-w-0 truncate">
+                          {userDisplayName(selected.member)}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        Pick someone…
+                      </span>
+                    )}
+                    <CaretDown
+                      size={10}
+                      weight="bold"
+                      className="shrink-0 text-muted-foreground"
+                    />
+                  </Button>
+                }
+              />
+              <ModalInlineComboboxContent
+                anchor={anchorRef}
+                side="bottom"
+                sideOffset={4}
+                className="w-[var(--anchor-width)] min-w-[240px]"
+              >
+                <ComboboxInput
+                  placeholder="Search people…"
+                  showTrigger={false}
+                />
+                <ComboboxEmpty>
+                  {membersLoading ? "Loading people…" : "No people."}
+                </ComboboxEmpty>
+                <ComboboxList className="max-h-[min(18rem,calc(var(--available-height,18rem)-5rem))]">
+                  {(itemId: string) => {
+                    const item = visibleItems.find(
+                      (entry) => entry.id === itemId,
+                    );
+                    if (!item) return null;
+                    return (
+                      <ComboboxItem key={item.id} value={item.id}>
                         <UserAvatar
                           user={item.member}
                           size="xs"
                           className="shrink-0"
                         />
-                        <span className="truncate font-medium text-xs">
-                          {item.label}
-                        </span>
+                        <span className="min-w-0 truncate">{item.label}</span>
                         <span className="ml-auto shrink-0 truncate text-muted-foreground text-xs">
                           {item.member.email}
                         </span>
-                      </AutocompleteItem>
-                    )}
-                  </AutocompleteCollection>
-                </AutocompleteGroup>
-              )}
-            </AutocompleteList>
-          </Autocomplete>
+                      </ComboboxItem>
+                    );
+                  }}
+                </ComboboxList>
+              </ModalInlineComboboxContent>
+            </Combobox>
+          </div>
           <Field orientation="horizontal" className="items-center gap-2">
             <Checkbox
               id="handoff-acknowledge"
