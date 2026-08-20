@@ -842,6 +842,32 @@ describe('parseDraftQueryFromURL()', () => {
         ])
     })
 
+    it('stamps the kind on untagged funnel exclusions by their shape', () => {
+        // Funnel exclusions are also a `kind`-discriminated union, so untagged entries from the URL
+        // hash fail the backend the same way series entries did. `{ event }` is an event exclusion,
+        // `{ id }` is an action exclusion.
+        const query = JSON.stringify({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.FunnelsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                funnelsFilter: {
+                    exclusions: [
+                        { event: 'signed_up', funnelFromStep: 0, funnelToStep: 1 },
+                        { id: 7, funnelFromStep: 0, funnelToStep: 1 },
+                    ],
+                },
+            },
+        })
+
+        const parsed = parseDraftQueryFromURL(query) as any
+
+        expect(parsed.source.funnelsFilter.exclusions).toEqual([
+            { kind: NodeKind.EventsNode, event: 'signed_up', funnelFromStep: 0, funnelToStep: 1 },
+            { kind: NodeKind.ActionsNode, id: 7, funnelFromStep: 0, funnelToStep: 1 },
+        ])
+    })
+
     it('normalizes series on a query node without a source wrapper', () => {
         const query = JSON.stringify({ kind: NodeKind.TrendsQuery, series: [{ event: '$pageview' }] })
 

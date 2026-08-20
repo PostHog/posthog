@@ -765,18 +765,33 @@ function stampSeriesEntryKind(entry: unknown, dataWarehouseKind: NodeKind | unde
     return { ...entry, kind }
 }
 
-/** Series entries copied into the `#q=` URL hash sometimes lose their `kind` discriminator.
- * The backend's discriminated union then rejects each untagged entry with an unreadable error,
- * so stamp the `kind` back on from the entry's shape before the query runs. */
+/** Series entries and funnel exclusions copied into the `#q=` URL hash sometimes lose their `kind`
+ * discriminator. The backend's discriminated unions then reject each untagged entry with an
+ * unreadable error, so stamp the `kind` back on from the entry's shape before the query runs.
+ * Mirrors the `series` and `funnelsFilter.exclusions` stamping in
+ * posthog/schema_migrations/0004_entity_node_kind.py. */
 function normalizeSeriesKind(query: Record<string, any>): void {
     const source = isObject(query.source) ? query.source : query
-    if (!Array.isArray(source.series)) {
-        return
-    }
     const queryKind = typeof source.kind === 'string' ? source.kind : ''
-    const dataWarehouseKind = SERIES_DATA_WAREHOUSE_KIND[queryKind]
-    const allowGroup = SERIES_WITH_GROUP_NODE.has(queryKind)
-    source.series = source.series.map((entry: unknown) => stampSeriesEntryKind(entry, dataWarehouseKind, allowGroup))
+
+    if (Array.isArray(source.series)) {
+        const dataWarehouseKind = SERIES_DATA_WAREHOUSE_KIND[queryKind]
+        const allowGroup = SERIES_WITH_GROUP_NODE.has(queryKind)
+        source.series = source.series.map((entry: unknown) =>
+            stampSeriesEntryKind(entry, dataWarehouseKind, allowGroup)
+        )
+    }
+
+    // Exclusions have no data warehouse or group member, so they resolve to EventsNode/ActionsNode.
+    if (queryKind === NodeKind.FunnelsQuery && isObject(source.funnelsFilter)) {
+        const exclusions = source.funnelsFilter.exclusions
+        if (Array.isArray(exclusions)) {
+            source.funnelsFilter = {
+                ...source.funnelsFilter,
+                exclusions: exclusions.map((entry: unknown) => stampSeriesEntryKind(entry, undefined, false)),
+            }
+        }
+    }
 }
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
