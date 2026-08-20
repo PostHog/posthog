@@ -56,7 +56,7 @@ Grant the following read scopes so the connected endpoints can sync:
 - `api:settings:scorecards:read`
 - `api:workspaces:read`
 
-To also sync the `calls_extensive` table (call participants and CRM associations), additionally grant:
+To also sync the `calls_extensive` table (call participants and CRM associations) and the `calls_content` table (Gong's Call Spotlight summaries), additionally grant:
 - `api:calls:read:extensive`
 """,
             iconPath="/static/services/gong.png",
