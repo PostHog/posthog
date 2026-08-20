@@ -199,6 +199,7 @@ class TestRunOrchestration:
         assert produced_items == [("did1", {"plan_tier": "pro"})]
         assert result.per_source[0].existing == 1
         assert result.per_source[0].skipped_missing_person == 1
+        assert write_snapshot.await_args is not None
         assert set(write_snapshot.await_args.args[4]) == {"e1@x.com"}
 
     @pytest.mark.asyncio
