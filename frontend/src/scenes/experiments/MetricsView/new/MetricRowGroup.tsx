@@ -54,7 +54,7 @@ import {
     isSignificant,
     isWinning,
 } from '~/scenes/experiments/MetricsView/shared/utils'
-import { Experiment, InsightType } from '~/types'
+import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
 
 import { ChartCell } from './ChartCell'
 import {
@@ -87,6 +87,7 @@ interface CollapsibleBreakdownSectionProps {
     colors: ReturnType<typeof useChartColors>
     scale: ReturnType<typeof useAxisScale>
     onRemoveBreakdown: (index: number) => void
+    onBreakdownAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
     onBreakdownLimitChange: (breakdownLimit: number) => void
     onRetry: () => void
     query?: Record<string, any>
@@ -107,6 +108,7 @@ function CollapsibleBreakdownSection({
     colors,
     scale,
     onRemoveBreakdown,
+    onBreakdownAttributionChange,
     onBreakdownLimitChange,
     onRetry,
     query,
@@ -171,7 +173,7 @@ function CollapsibleBreakdownSection({
                                     <MetricBreakdowns
                                         metric={metric}
                                         onRemoveBreakdown={onRemoveBreakdown}
-                                        onAttributionChange={() => {}}
+                                        onAttributionChange={onBreakdownAttributionChange}
                                         onBreakdownLimitChange={onBreakdownLimitChange}
                                     />
                                 </div>
@@ -527,6 +529,7 @@ interface MetricRowGroupProps {
     onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
+    onBreakdownAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
     onBreakdownLimitChange: (breakdownLimit: number) => void
     error?: any
     isLoading?: boolean
@@ -551,6 +554,7 @@ export function MetricRowGroup({
     onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
+    onBreakdownAttributionChange,
     onBreakdownLimitChange,
     error,
     isLoading,
@@ -902,7 +906,7 @@ export function MetricRowGroup({
                         metric={metric}
                         isAlternatingRow={isAlternatingRow}
                         onRemoveBreakdown={onRemoveBreakdown}
-                        onAttributionChange={() => {}}
+                        onAttributionChange={onBreakdownAttributionChange}
                         onBreakdownLimitChange={onBreakdownLimitChange}
                     />
                 )}
@@ -1236,6 +1240,7 @@ export function MetricRowGroup({
                     colors={colors}
                     scale={scale}
                     onRemoveBreakdown={onRemoveBreakdown}
+                    onBreakdownAttributionChange={onBreakdownAttributionChange}
                     onBreakdownLimitChange={onBreakdownLimitChange}
                     onRetry={handleRetry}
                     query={debugQuery}

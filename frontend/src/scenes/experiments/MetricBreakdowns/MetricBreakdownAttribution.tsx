@@ -12,19 +12,28 @@ export function MetricBreakdownAttribution({
     metric: ExperimentFunnelMetric
     onChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
 }): JSX.Element {
-    const { funnel_order_type } = metric
+    const { breakdownAttributionType, breakdownAttributionValue, funnel_order_type } = metric
     const stepCount = metric.series?.length || 0
 
     /**
-     * hardcoded for now, this have to be configured at the metric level.
+     * We need to construct the current value shown based on the attribution type and the funnel order.
+     * we default to `first touch`, but if the funnel is unordered, insterad of the step choice
+     * we show the "any step" option.
+     * For the step attribution type, we need to show the value.
      */
-    const breakdownAttributionType = BreakdownAttributionType.FirstTouch
-    const breakdownAttributionValue = 0
+    const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
+        !breakdownAttributionType
+            ? BreakdownAttributionType.FirstTouch
+            : breakdownAttributionType === BreakdownAttributionType.Step
+              ? funnel_order_type === StepOrderValue.UNORDERED
+                  ? BreakdownAttributionType.Step
+                  : `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+              : breakdownAttributionType
 
     return (
         <LemonSelect
             size="small"
-            value={breakdownAttributionType}
+            value={currentValue}
             placeholder="Attribution"
             options={[
                 { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
