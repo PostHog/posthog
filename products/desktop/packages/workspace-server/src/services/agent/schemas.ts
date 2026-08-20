@@ -2,6 +2,7 @@ import type {
   RequestPermissionRequest,
   PermissionOption as SdkPermissionOption,
 } from "@agentclientprotocol/sdk";
+import { BEDROCK_GATEWAY_VARIANTS } from "@posthog/shared";
 import { effortLevelSchema } from "@posthog/shared/domain-types";
 import { z } from "zod";
 import { USER_AGENT_INSTRUCTIONS_MAX_LENGTH } from "../os/schemas";
@@ -101,6 +102,12 @@ export const startSessionInput = z.object({
    * narration off, so headless runs never load the tool.
    */
   spokenNarration: z.boolean().optional(),
+  /**
+   * Matched variant of the `bedrock-llm-gateway` flag. `test` serves this
+   * session from Bedrock via the gateway; `control` keeps Anthropic. Absent
+   * (headless runs, unresolved flags) leaves the gateway on its default.
+   */
+  bedrockGatewayVariant: z.enum(BEDROCK_GATEWAY_VARIANTS).optional(),
 });
 
 export type StartSessionInput = z.infer<typeof startSessionInput>;
@@ -242,6 +249,8 @@ export const reconnectSessionInput = z.object({
   rtkEnabled: z.boolean().optional(),
   /** See startSessionInput.spokenNarration. */
   spokenNarration: z.boolean().optional(),
+  /** See startSessionInput.bedrockGatewayVariant. */
+  bedrockGatewayVariant: z.enum(BEDROCK_GATEWAY_VARIANTS).optional(),
 });
 
 export type ReconnectSessionInput = z.infer<typeof reconnectSessionInput>;

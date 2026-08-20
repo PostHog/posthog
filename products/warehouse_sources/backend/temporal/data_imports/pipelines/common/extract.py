@@ -60,6 +60,10 @@ async def _get_redis():
         await redis.ping()
     except Exception as e:
         capture_exception(e)
+        # get_async_client only builds a lazy client, so a failed ping means redis is
+        # still unreachable - reset it to None so callers' `if redis_client is None` guard
+        # actually skips the real command instead of raising the same error uncaught.
+        redis = None
 
     yield redis
 
@@ -349,7 +353,6 @@ def validate_incremental_sync(
     *,
     is_first_sync: bool = True,
 ) -> None:
-    # Check for duplicate primary keys
     if is_incremental and resource.has_duplicate_primary_keys:
         raise DuplicatePrimaryKeysException(
             f"The primary keys for this table are not unique. We can't sync incrementally until the table "

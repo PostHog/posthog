@@ -19,6 +19,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.fixtures import create_app_metric2
@@ -312,6 +313,51 @@ class TestHogFlowAPI(APIBaseTest):
         detail = response.json()["detail"]
         for fragment in fragments:
             assert fragment in detail, (fragment, detail)
+
+    def test_literal_off_domain_sender_override_is_rejected_at_save(self):
+        # The domain rule lived only in the send path, so a bad literal address saved fine and
+        # every send then fell back to the integration's sender with a run-log warning the
+        # author never saw. The save is where the author can still act on it.
+        sync_template_to_db(_email_function_template())
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": True},
+        )
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = {"integrationId": integration.id, "email": "sales@evil.com"}
+        hog_flow, action = self._create_hog_flow_with_action({"inputs": inputs})
+        action["type"] = "function_email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        assert 'is not on the verified domain "posthog.com"' in response.json()["detail"]
+
+    def test_stored_off_domain_sender_override_survives_a_resave(self):
+        # Workflows written before June 2026 carry a placeholder address the author never typed.
+        # Re-sending the stored graph unchanged must not fail on it, or every edit to an affected
+        # workflow is blocked until the placeholder backfill has run.
+        sync_template_to_db(_email_function_template())
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": True},
+        )
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = {"integrationId": integration.id, "email": "default@example.com"}
+        hog_flow, action = self._create_hog_flow_with_action({"template_id": "template-email", "inputs": inputs})
+        action["type"] = "function_email"
+        stored = HogFlow.objects.create(
+            team=self.team, name="Legacy flow", actions=hog_flow["actions"], status=HogFlow.State.ACTIVE
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{stored.id}",
+            {"actions": hog_flow["actions"]},
+        )
+
+        assert response.status_code == 200, response.json()
 
     def test_fixed_template_id_is_inferred_from_step_type(self):
         # template_id on fixed-template steps is a constant of the step type; omitting the
