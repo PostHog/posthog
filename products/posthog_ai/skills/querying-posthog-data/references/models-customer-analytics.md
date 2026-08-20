@@ -109,6 +109,7 @@ Column | Type | Nullable | Description
 `source` | varchar(200) | NOT NULL | Free-form source name
 `source_url` | varchar(2000) | NOT NULL | Source URL or an empty string
 `requested_on` | date | NULL | Date the account made the request
+`image_ids` | array(text) | NOT NULL | Uploaded image UUIDs attached to the evidence, in display order
 `created_by_id` | integer | NULL | User who added the evidence
 `updated_by_id` | integer | NULL | User who last updated the evidence
 `created_at` | timestamptz | NOT NULL | When the evidence was added
