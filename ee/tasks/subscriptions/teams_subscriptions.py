@@ -51,7 +51,7 @@ TEAMS_WEBHOOK_URL_ERROR = (
 
 # Teams rejects an incoming webhook payload over roughly 28KB. Images are linked rather than
 # embedded and MAX_INSIGHTS bounds how many there are, so only the AI report text can approach
-# the limit; keep the report well inside it and link out for the rest.
+# that limit. The report is kept well inside it and links out for the rest.
 TEAMS_TEXT_BLOCK_LIMIT = 3000
 TEAMS_REPORT_CHARACTER_BUDGET = 20000
 
