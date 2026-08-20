@@ -235,6 +235,25 @@ class AccountTableAccountIdFilter:
     account_id: UUID
 
 
+class AccountTableFieldOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    CONTAINS = "icontains"
+    DOES_NOT_CONTAIN = "not_icontains"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    DATE_EXACT = "is_date_exact"
+    DATE_BEFORE = "is_date_before"
+    DATE_AFTER = "is_date_after"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableFieldFilter:
+    field: AccountTableField
+    operator: AccountTableFieldOperator
+    values: tuple[str, ...] = ()
+
+
 class AccountTableCustomPropertyOperator(str, Enum):
     EXACT = "exact"
     IS_NOT = "is_not"
@@ -266,6 +285,7 @@ AccountTableFilter = (
     | AccountTableAssignedToFilter
     | AccountTableUnassignedFilter
     | AccountTableAccountIdFilter
+    | AccountTableFieldFilter
     | AccountTableCustomPropertyFilter
 )
 
