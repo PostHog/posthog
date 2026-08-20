@@ -43,6 +43,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dags.common import JobOwners
 from posthog.dataclasses import frozen
 
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
+
 
 @frozen
 class TableConfig:
@@ -534,7 +536,14 @@ def _feature_flag_ddl() -> str:
 def _finalize_feature_flag_row(row: dict) -> dict:
     # Normalizing guarantees a non-null JSON object for the non-Nullable String column, even when
     # the source value is NULL or unparseable.
-    row["filters"] = json.dumps(_normalize_filters(row.get("filters")))
+    filters_dict = _normalize_filters(row.get("filters"))
+    payloads = filters_dict.get("payloads")
+    if isinstance(payloads, dict) and payloads:
+        # Rotate-through-update commands (e.g. reencrypt_flag_payloads) bypass auto_now, so the
+        # incremental mirror never sees a rotation. Substituting ciphertext with the API redaction
+        # sentinel keeps the variant-key shape intact without persisting ciphertext in ClickHouse.
+        filters_dict = {**filters_dict, "payloads": dict.fromkeys(payloads, REDACTED_PAYLOAD_VALUE)}
+    row["filters"] = json.dumps(filters_dict)
     # Watermark column must never be NULL (it's in ORDER BY and the high-watermark read); a brand-new
     # flag hasn't been edited yet, so fall back to created_at. Makes updated_at non-null in the mirror.
     if row.get("updated_at") is None:

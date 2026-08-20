@@ -161,6 +161,34 @@ class TestTransformations:
 
         assert "last_called_at" not in transformed
 
+    def test_transform_feature_flag_row_redacts_payload_ciphertext(self):
+        # Rotation commands update filters.payloads without touching updated_at, so the incremental
+        # mirror never sees a rotation. Substituting ciphertext with the redaction sentinel keeps the
+        # variant-key shape intact without mirroring ciphertext after a key is retired.
+        from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
+
+        row = _flag_row(
+            filters={
+                "groups": [],
+                "payloads": {"control": "gAAAAABkp8G8_example_ciphertext", "test": "gAAAAABkp8G8_another"},
+            },
+            has_encrypted_payloads=True,
+        )
+
+        transformed = transform_row("posthog_featureflag", row)
+
+        mirrored = json.loads(transformed["filters"])
+        assert mirrored["payloads"] == {
+            "control": REDACTED_PAYLOAD_VALUE,
+            "test": REDACTED_PAYLOAD_VALUE,
+        }
+
+    def test_transform_feature_flag_row_leaves_empty_payload_dict_alone(self):
+        transformed = transform_row("posthog_featureflag", _flag_row(filters={"groups": [], "payloads": {}}))
+
+        mirrored = json.loads(transformed["filters"])
+        assert mirrored["payloads"] == {}
+
     def test_transform_row_unknown_table_raises(self):
         with pytest.raises(KeyError):
             transform_row("posthog_nonexistent", {})
