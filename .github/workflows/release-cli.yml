@@ -476,6 +476,13 @@ jobs:
             - name: Build artifacts
               env:
                   CARGO_PROFILE_DIST_SPLIT_DEBUGINFO: ${{ runner.os == 'macOS' && 'packed' || 'off' }}
+                  # Debug symbol uploads derive their chunk id from the GNU build id,
+                  # and zig's lld (used by cargo-zigbuild for cross builds) emits none
+                  # by default. dist reads the ambient RUSTFLAGS and appends its own,
+                  # so this composes with the musl static flags. A config.toml
+                  # rustflags entry would not work: dist always sets the RUSTFLAGS
+                  # env, which overrides cargo config.
+                  RUSTFLAGS: ${{ runner.os == 'Linux' && '-C link-arg=-Wl,--build-id=sha1' || '' }}
               run: |
                   # Actually do builds and make zips and whatnot
                   dist build ${{ needs.plan-release.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
@@ -524,9 +531,14 @@ jobs:
                       cp "$package_dir/posthog-cli" "$target_symbols_dir/posthog-cli"
                   done
 
+                  # Cargo builds into cli/target (the cargo workspace root is cli/),
+                  # while repo-root target/ only holds cargo-dist's staging area, so
+                  # dSYM bundles produced by split-debuginfo live under cli/target.
+                  # posthog-cli.dSYM is a symlink to a hash-named bundle in deps/,
+                  # so the find must follow links and the copy must dereference.
                   while IFS= read -r -d '' dsym; do
-                      cp -R "$dsym" "$symbols_dir/$(basename "$(dirname "$dsym")")-posthog-cli.dSYM"
-                  done < <(find target -type d -name 'posthog-cli.dSYM' -print0)
+                      cp -R -L "$dsym" "$symbols_dir/$(basename "$(dirname "$dsym")")-posthog-cli.dSYM"
+                  done < <(find -L target cli/target -type d -name 'posthog-cli.dSYM' -print0)
 
                   cargo run --manifest-path cli/Cargo.toml --profile dist -- \
                       symbol-sets upload --directory "$symbols_dir" \
