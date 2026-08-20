@@ -266,8 +266,13 @@ class UsageReportCounters:
     # AI observability
     ai_event_count_in_period: int
 
-    # AI Billing Credits (PostHog AI feature usage)
+    # AI Billing Credits (PostHog AI feature usage), net of the docs-search exemption below
     ai_credits_used_in_period: int
+    # Credits docs searches earned this period, reported so the deduction taken off
+    # ai_credits_used_in_period can be reconciled against the gateway's own generation costs. This is the
+    # amount before clamping, so it reads higher than the deduction actually applied for a team whose
+    # docs searches earned more credits than its total PostHog AI spend
+    ai_credits_docs_search_exempted_in_period: int
 
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
@@ -1689,6 +1694,29 @@ POSTHOG_AI_PRODUCTS = [
 # ai_product values billed as PostHog Desktop credits.
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
+# The MCP tool whose calls earn the docs-search exemption. The `exec` dispatcher relabels itself to the
+# tool it dispatched (`resolveExecTool` in services/mcp/src/hono/tool-executor.ts), so a docs search made
+# through the umbrella tool is recorded under this name rather than as `exec`.
+DOCS_SEARCH_MCP_TOOL = "docs-search"
+
+# The `source` value marking a call made by a PostHog AI run. Deliberately not `$mcp_consumer`, which
+# reports `posthog-code` for every sandbox agent, nor `$ai_product`, which is uniformly `mcp` on these
+# events. Neither separates PostHog AI from PostHog Desktop or from third-party agents, which make the
+# large majority of docs searches and spend no PostHog AI credits.
+DOCS_SEARCH_EXEMPT_SOURCE = "posthog_ai"
+
+# Flat credits taken off the bill per exempt docs search, at 1 credit = $0.01. This is a pricing policy
+# number, not a measurement: it should approximate what a docs answer costs on the sandbox runtime, and
+# wants a calibration pass against observed `$ai_generation` costs before it is treated as fair.
+DOCS_SEARCH_EXEMPTION_CREDITS = 3
+
+# Ceiling on exempt searches per team per UTC day. Producing a signals PR is expensive, so that billing
+# path needs no equivalent; asking a documentation question is not, so without a ceiling a loop of
+# searches would mint credits without bound. It also bounds the repeat-search case, where one turn runs
+# several searches and each earns the flat credit. `source` is stamped from a caller-supplied header,
+# which is a second reason to keep the ceiling.
+DOCS_SEARCH_EXEMPTION_DAILY_CAP_PER_TEAM = 50
+
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
     """Resolve the $group_N index that holds the customer cloud URL for the internal AI events team."""
@@ -1907,19 +1935,146 @@ def _get_teams_with_ai_credits_for_products(
     return results
 
 
+def subtract_ai_credit_exemptions(
+    gross: list[tuple[int, int]], exemptions: list[tuple[int, int]]
+) -> list[tuple[int, int]]:
+    """Net AI credits per team after exemptions, dropping any team left at or below zero.
+
+    Clamping mirrors the gross query's `HAVING ai_credits > 0`, so a team whose exemptions exceed its
+    gateway spend reports nothing rather than a negative. Exemptions for a team with no gross credits
+    have nothing to offset and fall away with it — credits are only ever taken off a bill, never handed
+    back as a balance.
+    """
+    exempted_by_team = dict(exemptions)
+    return [(team_id, net) for team_id, credits in gross if (net := credits - exempted_by_team.get(team_id, 0)) > 0]
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_ai_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """PostHog AI (Max) billing credits — events tagged with an ai_product in POSTHOG_AI_PRODUCTS."""
-    return _get_teams_with_ai_credits_for_products(
+    """PostHog AI (Max) billing credits — events tagged with an ai_product in POSTHOG_AI_PRODUCTS.
+
+    Net of the docs-search exemption, which is subtracted here at the source rather than offset later
+    so the single number reaches both the bill and the quota limiter's `todays_usage`, which is patched
+    from this same function.
+    """
+    gross = _get_teams_with_ai_credits_for_products(
         begin,
         end,
         ai_products=POSTHOG_AI_PRODUCTS,
         usage_report_tag="ai_credits",
     )
+    if not gross:
+        # Nothing to take credits off. This also keeps the exemption query from running when the gross
+        # query bailed out because it could not resolve the region it must filter on: a billing query
+        # that cannot be region-filtered must not run at all.
+        return []
+    return subtract_ai_credit_exemptions(gross, get_teams_with_ai_credits_docs_search_exempted_in_period(begin, end))
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_ai_credits_docs_search_exempted_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    """Flat AI credits taken off each team's bill for documentation searches in `[begin, end)`.
+
+    Asking PostHog AI a documentation question is free. On the LangGraph runtime that fell out of the
+    trace-level rule in `_get_teams_with_ai_credits_for_products`, which reads a turn's tool calls off
+    the `$ai_trace` event and skips the turn when every call is in `AI_BILLING_EXCLUDED_TOOLS`. The
+    sandbox runtime spends through the LLM gateway, which emits `$ai_generation` and never `$ai_trace`,
+    so that rule has no turn state to read and every sandbox generation bills.
+
+    This restores the exemption from the MCP side instead. Django serves docs search itself
+    (`MCPToolsViewSet.docs_search`) and the MCP server emits a `$mcp_tool_call` per invocation, so the
+    searches are already counted in ClickHouse alongside the generations they offset.
+
+    The unit is one search rather than one turn: `$mcp_tool_call` carries no trace or conversation id,
+    so there is nothing to group a turn by, and the tool-call denominator a proportional rule would need
+    lives on `$ai_generation` with no key joining the two. A flat credit needs neither. It is also the
+    honest shape, because a docs answer on Claude Code re-sends the system prompt and tool definitions
+    on every loop iteration, so it is cheap but not free.
+    """
+    region = get_instance_region()
+
+    if region is None:
+        # Mirrors the gross-credit query: fail fast in production, degrade quietly in tests.
+        from posthog.settings import TEST
+
+        if not TEST:
+            assert region is not None, "Region must be set in production infrastructure"
+        return []
+
+    use_new = use_new_events_schema(None)
+    events_table = events_read_table(use_new)
+    tool_name_expr, _ = get_property_string_expr(
+        "events", "$mcp_tool_name", "'$mcp_tool_name'", "properties", use_new_events_schema=use_new
+    )
+    source_expr, _ = get_property_string_expr(
+        "events", "source", "'source'", "properties", use_new_events_schema=use_new
+    )
+    mcp_region_expr, _ = get_property_string_expr(
+        "events", "$mcp_region", "'$mcp_region'", "properties", use_new_events_schema=use_new
+    )
+    customer_team_id_expr, _ = get_property_string_expr(
+        "events", "$mcp_project_id", "'$mcp_project_id'", "properties", use_new_events_schema=use_new
+    )
+
+    with tags_context(
+        product=Product.MAX_AI,
+        feature=Feature.USAGE_REPORT,
+        usage_report="ai_credits_docs_search_exempted",
+        kind="usage_report",
+    ):
+        # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
+        return sync_execute(
+            f"""
+            SELECT
+                customer_team_id AS team,
+                toInt64(sum(least(daily_searches, %(daily_cap)s)) * %(credits_per_search)s) AS credits
+            FROM (
+                SELECT
+                    toInt64OrZero({customer_team_id_expr}) AS customer_team_id,
+                    toDate(timestamp) AS day,
+                    count() AS daily_searches
+                FROM {events_table}
+                PREWHERE
+                    -- data inside PostHog project used as ground truth for billing (depends on region)
+                    team_id = %(team_to_query)s
+                    AND timestamp >= %(begin)s
+                    AND timestamp < %(end)s
+                    AND event = '$mcp_tool_call'
+                WHERE
+                    {tool_name_expr} = %(tool_name)s
+                    AND {source_expr} = %(source)s
+                    -- The MCP server captures a region's calls into both regions' projects, so without
+                    -- this every team would be credited once per regional report.
+                    AND {mcp_region_expr} = %(mcp_region)s
+                GROUP BY customer_team_id, day
+            )
+            WHERE customer_team_id > 0
+            GROUP BY team
+            HAVING credits > 0
+            ORDER BY credits DESC
+            """,
+            {
+                "team_to_query": CLOUD_REGION_TO_TEAM_ID[region],
+                "begin": begin,
+                "end": end,
+                "tool_name": DOCS_SEARCH_MCP_TOOL,
+                "source": DOCS_SEARCH_EXEMPT_SOURCE,
+                "mcp_region": region.lower(),
+                "daily_cap": DOCS_SEARCH_EXEMPTION_DAILY_CAP_PER_TEAM,
+                "credits_per_search": DOCS_SEARCH_EXEMPTION_CREDITS,
+            },
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
 
 
 @timed_log()
@@ -3054,6 +3209,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
         "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
+        "teams_with_ai_credits_docs_search_exempted_in_period": (
+            get_teams_with_ai_credits_docs_search_exempted_in_period(period_start, period_end)
+        ),
         "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
             period_start, period_end
         ),
@@ -3273,6 +3431,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
+        ai_credits_docs_search_exempted_in_period=all_data["teams_with_ai_credits_docs_search_exempted_in_period"].get(
+            team.id, 0
+        ),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         posthog_code_credits_used_in_period=combine_posthog_code_credits(
             all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),

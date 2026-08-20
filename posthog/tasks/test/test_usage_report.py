@@ -3913,6 +3913,120 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         # Expected: No charges when all tools are in the excluded list
         self.assertEqual(len(result), 0)
 
+    def _analytics_team_with_gateway_spend(self, period: Any) -> Team:
+        """A team whose gateway spend bills 120 credits, with no paired $ai_trace.
+
+        This is the sandbox shape: the gateway emits $ai_generation only, so the generation bills
+        through the empty-trace fallback rather than the trace-level tool rule.
+        """
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period.start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_gateway",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_ai",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+        return analytics_team
+
+    def _create_docs_search(
+        self, analytics_team: Team, period: Any, *, source: str = "posthog_ai", mcp_region: str = "us"
+    ) -> None:
+        _create_event(
+            event="$mcp_tool_call",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period.start + relativedelta(hours=2),
+            properties={
+                "$mcp_tool_name": "docs-search",
+                "source": source,
+                "$mcp_region": mcp_region,
+                "$mcp_project_id": str(self.org_1_team_1.id),
+            },
+        )
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_docs_searches_are_deducted_from_ai_credits(self, mock_region: MagicMock) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        analytics_team = self._analytics_team_with_gateway_spend(period)
+        for _ in range(3):
+            self._create_docs_search(analytics_team, period)
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
+
+        # 120 gross, less 3 searches * 3 credits
+        self.assertEqual(result, [(self.org_1_team_1.id, 111)])
+
+    @parameterized.expand([("third_party_agent", "mcp"), ("desktop", "posthog_code"), ("slack", "slack")])
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_docs_searches_from_other_surfaces_are_not_deducted(
+        self, _name: str, source: str, mock_region: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        analytics_team = self._analytics_team_with_gateway_spend(period)
+        self._create_docs_search(analytics_team, period, source=source)
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
+
+        # Only PostHog AI runs spend PostHog AI credits, so no other surface may take credits off them
+        self.assertEqual(result, [(self.org_1_team_1.id, 120)])
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_docs_searches_from_another_region_are_not_deducted(self, mock_region: MagicMock) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        analytics_team = self._analytics_team_with_gateway_spend(period)
+        self._create_docs_search(analytics_team, period, mcp_region="eu")
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
+
+        # The MCP server captures a region's calls into both regions' projects. Without the region
+        # filter each search would be deducted once per regional report.
+        self.assertEqual(result, [(self.org_1_team_1.id, 120)])
+
+    @patch("posthog.tasks.usage_report.DOCS_SEARCH_EXEMPTION_DAILY_CAP_PER_TEAM", 2)
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_docs_search_deduction_is_capped_per_day(self, mock_region: MagicMock) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        analytics_team = self._analytics_team_with_gateway_spend(period)
+        for _ in range(4):
+            self._create_docs_search(analytics_team, period)
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
+
+        # 4 searches, capped to 2 * 3 credits — uncapped this would deduct 12
+        self.assertEqual(result, [(self.org_1_team_1.id, 114)])
+
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_summarize_sessions_and_billable_tool(self, mock_region: MagicMock) -> None:
         """Test that traces with summarize_sessions + a billable tool ARE billed."""
@@ -4961,6 +5075,29 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
 
         assert mock_compute.call_count == QUERY_RETRIES
         mock_capture.assert_not_called()
+
+
+class TestAICreditExemptions(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_exemptions", [(1, 100)], [], [(1, 100)]),
+            ("partial_offset", [(1, 100)], [(1, 30)], [(1, 70)]),
+            ("exact_offset_drops_the_team", [(1, 30)], [(1, 30)], []),
+            ("over_offset_clamps_instead_of_going_negative", [(1, 30)], [(1, 500)], []),
+            ("exemption_for_a_team_with_no_spend_is_dropped", [(1, 40)], [(2, 25)], [(1, 40)]),
+            ("offsets_are_per_team", [(1, 40), (2, 40)], [(2, 10)], [(1, 40), (2, 30)]),
+        ]
+    )
+    def test_exemptions_net_off_gross_credits(
+        self,
+        _name: str,
+        gross: list[tuple[int, int]],
+        exemptions: list[tuple[int, int]],
+        expected: list[tuple[int, int]],
+    ) -> None:
+        from posthog.tasks.usage_report import subtract_ai_credit_exemptions
+
+        assert subtract_ai_credit_exemptions(gross, exemptions) == expected
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
