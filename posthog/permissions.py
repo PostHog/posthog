@@ -332,7 +332,15 @@ def is_authenticated_via_project_secret_api_key(request: Request) -> bool:
 
 
 def is_service_auth(request: Request) -> bool:
-    return is_authenticated_via_team_secret_token(request) or is_authenticated_via_project_secret_api_key(request)
+    authenticator = request.successful_authenticator
+    is_machine_oauth = isinstance(authenticator, OAuthAccessTokenAuthentication) and bool(
+        getattr(authenticator, "machine_principal", None)
+    )
+    return (
+        is_authenticated_via_team_secret_token(request)
+        or is_authenticated_via_project_secret_api_key(request)
+        or is_machine_oauth
+    )
 
 
 def _is_request_for_team_secret_token_secured_endpoint(request: Request) -> bool:

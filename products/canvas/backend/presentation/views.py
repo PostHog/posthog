@@ -18,7 +18,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, SystemOAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
@@ -197,6 +197,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # current_source_version feeds the component_meta field on every row.
     queryset = Canvas.objects.unscoped().select_related("created_by", "current_source_version")
     serializer_class = CanvasSerializer
+    authentication_classes = [SystemOAuthAccessTokenAuthentication]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     scope_object_read_actions = [
         "list",

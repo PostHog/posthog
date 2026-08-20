@@ -7,7 +7,11 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_oauth_access_token_for_run
+from products.tasks.backend.temporal.oauth import (
+    create_oauth_access_token,
+    create_oauth_access_token_for_run,
+    create_system_oauth_access_token,
+)
 
 
 @pytest.mark.parametrize(
@@ -162,6 +166,27 @@ def test_oauth_token_can_disable_task_creator_fallback() -> None:
 
     with pytest.raises(TaskInvalidStateError):
         create_oauth_access_token(task, user=None, allow_task_creator_fallback=False)
+
+
+@pytest.mark.django_db
+@patch("products.tasks.backend.temporal.oauth.create_signals_report_canvas_oauth_access_token", return_value="token")
+def test_system_oauth_requires_explicit_signals_report_canvas_task(mock_create: MagicMock) -> None:
+    organization = Organization.objects.create(name="system-oauth-org")
+    team = Team.objects.create(organization=organization, name="system-oauth-team")
+    task = Task.objects.create(
+        team=team,
+        title="Generate report canvas",
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        system_principal=Task.SystemPrincipal.SIGNALS,
+        system_workload=Task.SystemWorkload.REPORT_CANVAS,
+    )
+
+    assert create_system_oauth_access_token(task) == "token"
+    mock_create.assert_called_once_with(team_id=team.id, task_id=task.id)
+
+    task.system_workload = None
+    with pytest.raises(TaskInvalidStateError):
+        create_system_oauth_access_token(task)
 
 
 @pytest.mark.django_db

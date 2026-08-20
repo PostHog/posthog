@@ -181,6 +181,9 @@ class Task(DeletedMetaFields, models.Model):
     class SystemPrincipal(models.TextChoices):
         SIGNALS = "signals", "Signals"
 
+    class SystemWorkload(models.TextChoices):
+        REPORT_CANVAS = "report_canvas", "Report canvas"
+
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
         PI = "pi", "Pi"
@@ -233,6 +236,14 @@ class Task(DeletedMetaFields, models.Model):
         blank=True,
         editable=False,
         help_text="Trusted system principal that owns this task. Mutually exclusive with created_by.",
+    )
+    system_workload = models.CharField(
+        max_length=32,
+        choices=SystemWorkload,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="Trusted workload executed by a system-owned task.",
     )
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)

@@ -311,7 +311,13 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
 
 
 def _mint_oauth_access_token(
-    user, team_id: int, *, app: OAuthApplication, scopes: list[str], sandbox_task_id: UUID | None = None
+    user,
+    team_id: int,
+    *,
+    app: OAuthApplication,
+    scopes: list[str],
+    sandbox_task_id: UUID | None = None,
+    sandbox_workload: str | None = None,
 ) -> str:
     token_value = generate_random_oauth_access_token(None)
 
@@ -323,9 +329,26 @@ def _mint_oauth_access_token(
         scope=" ".join(dict.fromkeys(scopes)),
         scoped_teams=[team_id],
         sandbox_task_id=sandbox_task_id,
+        sandbox_workload=sandbox_workload,
     )
 
     return token_value
+
+
+def create_signals_report_canvas_oauth_access_token(*, team_id: int, task_id: UUID) -> str:
+    """Mint the fixed, userless credential for one Signals report-canvas task."""
+    app = get_signals_app()
+    if app is None:
+        raise RuntimeError("The Signals OAuth application is not configured")
+    scopes = resolve_scopes("report_canvas", include_internal_scopes=True)
+    return _mint_oauth_access_token(
+        None,
+        team_id,
+        app=app,
+        scopes=list(scopes),
+        sandbox_task_id=task_id,
+        sandbox_workload="report_canvas",
+    )
 
 
 def create_oauth_access_token_for_user(

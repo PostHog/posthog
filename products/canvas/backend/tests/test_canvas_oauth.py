@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV, resolve_scopes
 
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.models import Channel, Task
@@ -85,6 +85,57 @@ class TestCanvasOAuthAccess(APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["results"] == []
+
+    def test_system_report_canvas_token_authenticates_only_with_exact_provenance(self):
+        with team_scope(self.team.id):
+            channel = Channel.objects.create(team=self.team, name="general")
+            task = Task.objects.create(
+                team=self.team,
+                channel=channel,
+                title="Generate report canvas",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                system_principal=Task.SystemPrincipal.SIGNALS,
+                system_workload=Task.SystemWorkload.REPORT_CANVAS,
+            )
+        app = OAuthApplication.objects.create(
+            name="Signals",
+            client_id=SIGNALS_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=None,
+            application=app,
+            token="pha_system_report_canvas",
+            scope=" ".join(resolve_scopes("report_canvas", include_internal_scopes=True)),
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+            sandbox_workload="report_canvas",
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/canvases/?channel={channel.id}&limit=200",
+            HTTP_AUTHORIZATION=f"Bearer {token.token}",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+
+        assert response.status_code == 200
+
+        token.scope = f"{token.scope} task:delete"
+        token.save(update_fields=["scope"])
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/canvases/?channel={channel.id}&limit=200",
+            HTTP_AUTHORIZATION=f"Bearer {token.token}",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+        assert response.status_code == 401
 
     def _create_canvas(
         self,

@@ -13,6 +13,7 @@ from posthog.temporal.oauth import (
     PosthogMcpScopes,
     SandboxOAuthApplication,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
+    create_signals_report_canvas_oauth_access_token,
     create_wizard_oauth_access_token_for_user as _create_wizard_oauth_access_token_for_user,
     resolve_scopes,
 )
@@ -145,6 +146,32 @@ def create_oauth_access_token(
     if is_interactive_signals_task(task):
         token_options["include_interactive_run_scope"] = True
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
+
+
+def create_system_oauth_access_token(task: Task) -> str:
+    """Mint the credential for a trusted system-owned report-canvas task."""
+    if task.system_principal != Task.SystemPrincipal.SIGNALS:
+        raise TaskInvalidStateError(
+            f"Task {task.id} is not owned by Signals",
+            {"task_id": task.id},
+            cause=RuntimeError("unexpected system principal"),
+        )
+    if task.system_workload != Task.SystemWorkload.REPORT_CANVAS:
+        raise TaskInvalidStateError(
+            f"Task {task.id} is not a report-canvas workload",
+            {"task_id": task.id},
+            cause=RuntimeError("unexpected system workload"),
+        )
+    if task.created_by_id is not None or task.team_id is None:
+        raise TaskInvalidStateError(
+            f"Task {task.id} has invalid system ownership",
+            {"task_id": task.id},
+            cause=RuntimeError("system task has a human owner or no team"),
+        )
+    try:
+        return create_signals_report_canvas_oauth_access_token(team_id=task.team_id, task_id=task.id)
+    except RuntimeError as error:
+        raise OAuthTokenError(f"Unable to mint system OAuth for task {task.id}") from error
 
 
 def create_oauth_access_token_for_run(

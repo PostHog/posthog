@@ -59,6 +59,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+from posthog.temporal.oauth import SIGNALS_OAUTH_APP_CLIENT_IDS, resolve_scopes
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -956,6 +957,105 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request):
         return self.keyword
+
+
+class OAuthMachinePrincipal:
+    """Narrow DRF principal for an explicitly bound system-owned sandbox token."""
+
+    is_authenticated = True
+    is_active = True
+    is_anonymous = False
+    pk = None
+    id = None
+
+    def __init__(self, *, team_id: int, organization_id: str, task_id: str, principal: str, workload: str) -> None:
+        self.current_team_id = team_id
+        self.current_organization_id = organization_id
+        self.task_id = task_id
+        self.system_principal = principal
+        self.system_workload = workload
+
+
+class SystemOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
+    """OAuth authentication for the report-canvas machine principal.
+
+    Views must opt into this authenticator. The default OAuth authenticator continues to reject
+    every user-null token.
+    """
+
+    machine_principal: OAuthMachinePrincipal | None = None
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        authorization_token = self._extract_token(request)
+        if not authorization_token:
+            return None
+
+        access_token = self._machine_access_token(authorization_token)
+        if access_token is None:
+            return super().authenticate(request)
+
+        self.access_token = access_token
+        team_id = access_token.scoped_teams[0]
+        task = self._bound_system_task(access_token, team_id)
+        team = Team.objects.select_related("organization").get(id=team_id)
+        principal = OAuthMachinePrincipal(
+            team_id=team_id,
+            organization_id=str(team.organization_id),
+            task_id=str(task.id),
+            principal=task.system_principal,
+            workload=task.system_workload,
+        )
+        self.machine_principal = principal
+        tag_authentication(user_id=None, team_id=team_id, access_method=AccessMethod.OAUTH)
+        structlog_logger.info(
+            "system_oauth_authenticated",
+            team_id=team_id,
+            task_id=str(task.id),
+            system_principal=task.system_principal,
+            system_workload=task.system_workload,
+        )
+        return principal, None
+
+    def _machine_access_token(self, token: str) -> OAuthAccessToken | None:
+        try:
+            access_token = OAuthAccessToken.objects.select_related("application").get(token=token)
+        except OAuthAccessToken.DoesNotExist:
+            return None
+        if access_token.user_id is not None:
+            return None
+        if access_token.is_expired():
+            raise AuthenticationFailed(detail="Access token has expired.")
+        if access_token.application_id is None:
+            raise AuthenticationFailed(detail="Access token is not associated with a valid application.")
+        return access_token
+
+    @staticmethod
+    def _bound_system_task(access_token: OAuthAccessToken, team_id: int):
+        if access_token.application.client_id not in SIGNALS_OAUTH_APP_CLIENT_IDS:
+            raise AuthenticationFailed(detail="System token uses the wrong OAuth application.")
+        if access_token.scoped_teams is None or len(access_token.scoped_teams) != 1:
+            raise AuthenticationFailed(detail="System token must be scoped to exactly one project.")
+        if access_token.sandbox_task_id is None or access_token.sandbox_workload != "report_canvas":
+            raise AuthenticationFailed(detail="System token is missing its task or workload binding.")
+        expected_scopes = set(resolve_scopes("report_canvas", include_internal_scopes=True))
+        if set((access_token.scope or "").split()) != expected_scopes:
+            raise AuthenticationFailed(detail="System token has invalid scopes.")
+
+        Task = apps.get_model("tasks", "Task")
+        try:
+            task = Task.objects.only("id", "team_id", "created_by_id", "system_principal", "system_workload").get(
+                id=access_token.sandbox_task_id,
+                team_id=team_id,
+            )
+        except Task.DoesNotExist:
+            raise AuthenticationFailed(detail="System token task binding is invalid.")
+        if (
+            task.created_by_id is not None
+            or task.system_principal != "signals"
+            or task.system_workload != "report_canvas"
+        ):
+            raise AuthenticationFailed(detail="System token principal binding is invalid.")
+        return task
 
 
 class WidgetAuthentication(authentication.BaseAuthentication):
