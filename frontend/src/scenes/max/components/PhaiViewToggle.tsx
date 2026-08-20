@@ -12,8 +12,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
  * rendered for users on the sandbox flag; the new surface is their default (see `effectivePhaiView`).
  *
  * `lemon` matches the small secondary buttons in the main `/ai` header; `primitive` matches the
- * icon-only chrome around "Open as main focus" in the side-panel header, and applies only while the
- * new surface is showing (see the asymmetry note below).
+ * icon-only chrome around "Open as main focus" in the side-panel header.
  */
 export function PhaiViewToggle({ variant = 'lemon' }: { variant?: 'lemon' | 'primitive' }): JSX.Element | null {
     const { isPhaiSandboxFlagOn, effectivePhaiView } = useValues(maxGlobalLogic)
@@ -28,9 +27,7 @@ export function PhaiViewToggle({ variant = 'lemon' }: { variant?: 'lemon' | 'pri
     const Icon = switchingToLegacy ? IconRevert : IconSparkles
     const onClick = (): void => setPhaiViewMode(switchingToLegacy ? 'legacy' : 'new')
 
-    // Asymmetric on purpose: the way back to legacy stays icon-only chrome, while the way into the new
-    // surface keeps its label everywhere, so a user who switched back can still find it.
-    if (variant === 'primitive' && switchingToLegacy) {
+    if (variant === 'primitive') {
         return (
             <ButtonPrimitive iconOnly onClick={onClick} tooltip={tooltip} tooltipPlacement="bottom-end">
                 <Icon className="text-tertiary size-3 group-hover:text-primary z-10" />
@@ -39,14 +36,7 @@ export function PhaiViewToggle({ variant = 'lemon' }: { variant?: 'lemon' | 'pri
     }
 
     return (
-        <LemonButton
-            size={variant === 'primitive' ? 'xsmall' : 'small'}
-            type="secondary"
-            sideIcon={<Icon />}
-            onClick={onClick}
-            tooltip={tooltip}
-            data-attr="phai-view-toggle"
-        >
+        <LemonButton size="small" type="secondary" sideIcon={<Icon />} onClick={onClick} tooltip={tooltip}>
             {switchingToLegacy ? 'Legacy view' : 'New view'}
         </LemonButton>
     )
