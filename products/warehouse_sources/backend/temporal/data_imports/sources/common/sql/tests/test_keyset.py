@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     BacktickIdentifierQuoter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
+    KeysetNullKeyError,
     is_orderable_keyset_type,
     iter_keyset_pages,
     resolve_keyset_eligibility,
@@ -45,28 +46,32 @@ def test_is_orderable_keyset_type(arrow_type, expected):
 
 
 @pytest.mark.parametrize(
-    "primary_keys,incremental,expected_column,expected_reason",
+    "primary_keys,incremental,declared,expected_column,expected_reason",
     [
-        (["id"], False, "id", None),
-        (["created_at"], False, "created_at", None),
-        (["amount"], False, "amount", None),
+        (["id"], False, True, "id", None),
+        (["created_at"], False, True, "created_at", None),
+        (["amount"], False, True, "amount", None),
         # Incremental syncs already resume from their persisted watermark; keyset would double up.
-        (["id"], True, None, "incremental_sync"),
-        (None, False, None, "no_primary_key"),
-        ([], False, None, "no_primary_key"),
-        (["id", "created_at"], False, None, "composite_primary_key"),
+        (["id"], True, True, None, "incremental_sync"),
+        (None, False, True, None, "no_primary_key"),
+        ([], False, True, None, "no_primary_key"),
+        (["id", "created_at"], False, True, None, "composite_primary_key"),
         # If the PK was projected out of the Arrow schema there's nothing to seek on.
-        (["missing"], False, None, "primary_key_not_projected"),
+        (["missing"], False, True, None, "primary_key_not_projected"),
         # A string/uuid PK sorts by collation, which can skip or duplicate rows across keyset pages.
-        (["uuid"], False, None, "non_orderable_type:string"),
-        (["active"], False, None, "non_orderable_type:bool"),
+        (["uuid"], False, True, None, "non_orderable_type:string"),
+        (["active"], False, True, None, "non_orderable_type:bool"),
+        # An inferred key (the keyless-table `id` fallback) has no NOT NULL guarantee, so a page
+        # could end on a NULL and leave the seek with nothing to compare against.
+        (["id"], False, False, None, "undeclared_primary_key"),
     ],
 )
-def test_resolve_keyset_eligibility(primary_keys, incremental, expected_column, expected_reason):
+def test_resolve_keyset_eligibility(primary_keys, incremental, declared, expected_column, expected_reason):
     eligibility = resolve_keyset_eligibility(
         primary_keys=primary_keys,
         arrow_schema=_SCHEMA,
         should_use_incremental_field=incremental,
+        primary_key_is_declared=declared,
     )
 
     assert eligibility.column == expected_column
@@ -211,3 +216,34 @@ def test_checkpoint_is_optional():
         )
     )
     assert [t.num_rows for t in tables] == [2]
+
+
+def test_null_page_boundary_raises_instead_of_replaying_the_page():
+    """A page ending on a NULL key must stop the walk, not re-issue an unbounded query.
+
+    Without the guard `last_value` falls back to None, the next page is built with no seek
+    predicate, and the same rows come back forever — an unbounded rewrite loop a source owner
+    could trigger with a nullable key column.
+    """
+    queries: list[str] = []
+
+    def run_page(page_sql):
+        queries.append(page_sql.sql)
+        return pa.table({"id": pa.array([1, None], type=pa.int64())})
+
+    walk = iter_keyset_pages(
+        builder=_BUILDER,
+        schema="db",
+        table_name="t",
+        keyset_column="id",
+        chunk_size=2,
+        run_page=run_page,
+        initial_last_value=None,
+    )
+
+    assert next(walk).num_rows == 2  # the page itself is still handed to the consumer
+
+    with pytest.raises(KeysetNullKeyError):
+        next(walk)
+
+    assert len(queries) == 1  # crucially, no second query was ever issued
