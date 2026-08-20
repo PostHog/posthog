@@ -125,9 +125,17 @@ export class HogExecutorAsyncService {
                 // budget, to avoid blocking the queue.
                 if (queueParamsType === 'fetch') {
                     if (invocation.queue === 'email') {
+                        // Intermediate results clone away queueMetadata (createInvocationResult
+                        // drops it unless the target queue is passed explicitly), so read the
+                        // stash through the entry invocation too — it still carries the row's copy.
                         result = this.routeToQueue(
                             nextInvocation,
-                            nextInvocation.queueMetadata?.originQueue ?? 'hogflow'
+                            nextInvocation.queueMetadata?.originQueue ??
+                                invocation.queueMetadata?.originQueue ??
+                                'hogflow',
+                            nextInvocation.queueMetadata?.originPriority ??
+                                invocation.queueMetadata?.originPriority ??
+                                invocation.queuePriority
                         )
                     } else {
                         result = await this.executeFetch(nextInvocation, options)
@@ -288,7 +296,8 @@ export class HogExecutorAsyncService {
 
     private routeToQueue(
         invocation: CyclotronJobInvocationHogFunction,
-        targetQueue: string
+        targetQueue: string,
+        originPriority: number
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
         return createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
@@ -296,7 +305,7 @@ export class HogExecutorAsyncService {
                 queue: targetQueue as CyclotronJobInvocationHogFunction['queue'],
                 // Restore the priority the job had before routeEmailToQueue reclassified
                 // it, so an email-class value never orders jobs on the origin queue.
-                queuePriority: invocation.queueMetadata?.originPriority ?? invocation.queuePriority,
+                queuePriority: originPriority,
                 queueParameters: invocation.queueParameters,
                 queueMetadata: undefined,
             },
