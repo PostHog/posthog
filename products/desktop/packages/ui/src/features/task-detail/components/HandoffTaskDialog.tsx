@@ -187,7 +187,7 @@ export function HandoffTaskDialog({
                         // channels sidebar rows; the span override lets the
                         // email reach the row's right edge under quill's own
                         // child wrapper.
-                        className="w-full min-w-0 data-selected:bg-fill-selected data-selected:text-foreground ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:gap-2"
+                        className="w-full min-w-0 ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-selected:bg-fill-selected data-selected:text-foreground data-highlighted:ring-0 [&>span]:w-full [&>span]:gap-2"
                       >
                         <UserAvatar
                           user={item.member}
