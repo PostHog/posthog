@@ -19,8 +19,9 @@ The overview reflects the current period only. For history, use `billing-usage-g
 The same meter is named three ways across the tools, and none of them is a prefix of another:
 
 - `billing-usage-get` keys series by **usage type** (`recording_count_in_period`) — the names in the routing table below.
-- `billing-spend-get` with a `type` breakdown, and `billing-overview-get`'s `products[].type` and `custom_limits_usd`, key by **product** (`session_replay`).
+- `billing-spend-get` with a `type` breakdown, and `billing-overview-get`'s `products[].type`, key by **product** (`session_replay`).
 - `billing-overview-get`'s `products[].usage_key` and `usage_summary` key by a **short name** (`recordings`).
+- `custom_limits_usd` takes **either**: look the product up by `type` first, then by `usage_key`, the order the billing UI resolves them. Checking only `type` misses the organizations whose limits are stored under the short name.
 
 Match a usage type to its product through this table before pricing it or reading its spending limit. Add-on meters (identified events, group analytics, mobile recordings, 30-day log retention, historical rows) live under the parent product's `addons[]` in the overview and as their own product key in spend.
 
@@ -47,19 +48,21 @@ Match a usage type to its product through this table before pricing it or readin
 | `signals_credits_used_in_period`                 | `inbox`                                                     | `signals_credits`       |
 | `replay_vision_credits_used_in_period`           | `replay_vision`                                             | `replay_vision_credits` |
 | `posthog_code_credits_used_in_period`            | `posthog_code_usage`                                        | `posthog_code_credits`  |
+| `data_pipelines`                                 | `data_pipelines` (deprecated add-on)                        | —                       |
 
 A usage type missing from this table is a new meter: route it by its `label`, and do not price it until the overview carries a product for it.
 
 ## Deriving the free tier — not just `free_allocation`
 
 `free_allocation` is the free threshold only for **unsubscribed** products.
-For a **subscribed** product with a tier schedule, the free threshold is the upper bound of the first tier when that tier is free — the product's `tiers[0].up_to` where `tiers[0].unit_amount_usd` is `"0"`, and zero when the first tier is priced.
+For a **subscribed** product with a tier schedule, the free threshold is the upper bound of the first tier when that tier is free — the product's `tiers[0].up_to` where `tiers[0].unit_amount_usd` **parses to zero**, and zero when the first tier is priced.
+Compare the number, not the string: prices come back as decimal strings and a free tier ships as `"0.00"`, so a literal match against `"0"` reads it as paid and prices an entirely free spike as billable.
 This matters: a subscribed product can ship `free_allocation: 0` while its first million units are free, so reading `free_allocation` alone classifies an entirely free usage jump as billable and files a false alarm.
 
 ```text
-subscribed and tiers[0].unit_amount_usd == "0"  ->  free threshold = tiers[0].up_to
-subscribed and tiers[0] is priced               ->  free threshold = 0
-not subscribed                                   ->  free threshold = free_allocation
+subscribed and float(tiers[0].unit_amount_usd) == 0  ->  free threshold = tiers[0].up_to
+subscribed and tiers[0] is priced                    ->  free threshold = 0
+not subscribed                                       ->  free threshold = free_allocation
 ```
 
 **The marginal tier** — the one an extra unit is charged at right now — is the tier period-to-date usage currently sits in, not the first paid tier and not an average.
@@ -78,6 +81,8 @@ impact         = price(projected_usage + daily_step × days_remaining) − price
 ```
 
 where `price(units)` walks the tier schedule and charges each tier's `unit_amount_usd` for the units falling inside it (plus any `flat_amount_usd`), `projected_usage` is the product's own forecast from the overview, and `days_observed` is how many complete days the step has already held (one, on the day you first see it).
+
+**A falling meter has a negative `daily_step`, and the arithmetic has to survive it.** Clamp both counterfactuals at zero units — a negative unit count is not a quantity `price()` can charge — and test the **absolute** impact against the materiality floor, keeping the sign in the report. Otherwise a meter going dark produces a negative impact, fails a positive floor, and the capture-outage shape this scout promises to surface is silently suppressed.
 This prices the move the way the report frames it — what the invoice does if the step persists — and the tier walk means a delta that crosses a boundary is charged at each tier's own rate. Then adjust in this order:
 
 1. **Discount.** Apply `discount_percent`. At 100% the impact is $0 no matter how large the usage move — real, and a legitimate reason not to report.
@@ -87,8 +92,11 @@ Report the adjusted figure. Keep **limit-risk reporting separate**: a meter whos
 
 Cache the tier schedule as `pattern:billing:tiers:<usage_type>` and re-derive when the plan changes.
 
-**`usage_limit` is not the free tier either.** On a subscribed product it is the customer's `custom_limits_usd` spending limit converted into units at the tier schedule (a $50 events limit reads as `usage_limit: 2000000`), and `percentage_usage` is `current_usage / usage_limit`.
-Use them for the limit-crossing check in the trajectory lane; `null` means no spending limit is set on that product.
+**`usage_limit` is not the free tier either**, and it is not proof of a customer-set spending limit.
+When the customer has set one, it is that `custom_limits_usd` amount converted into units at the tier schedule (a $50 events limit reads as `usage_limit: 2000000`), and `percentage_usage` is `current_usage / usage_limit`.
+But a subscribed product can carry a plan or default `usage_limit` while `custom_limits_usd` is empty — the shipped discounted-billing fixture does exactly that — so **look the product up in `custom_limits_usd` before calling the ceiling a customer choice**.
+Resolve the key the way the billing UI does: `custom_limits_usd[products[].type]` first, falling back to `custom_limits_usd[usage_key]`, since some organizations' limits are stored under the short name (`{"events": 200}`). Treat `0` as a real limit, not as absent.
+Use them for the limit-crossing check in the trajectory lane; no `usage_limit` means no ceiling to check.
 
 ## Which projection field to quote
 

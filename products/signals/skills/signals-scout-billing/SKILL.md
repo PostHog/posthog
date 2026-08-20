@@ -112,7 +112,9 @@ Distinguish an outage from batch lag with **project-scoped** evidence, because t
 - When every meter on this project reads zero, re-run the usage call for that date with `breakdowns: "[\"type\",\"team\"]"` and no `team_ids`. Another project carrying data for the same date means ingestion is current, so this project's zeros are real. Only treat the day as lagging when no project has data for it.
 - A caller who cannot see a sibling project has no way to tell the two apart. Score the zero day and say in the report that a delayed batch has not been ruled out, rather than dismissing it.
 
-Use the org `usage_summary` only to corroborate, never to decide. When the day really is lagging, record it in the cursor and score the last non-zero day instead.
+Use the org `usage_summary` only to corroborate, never to decide.
+When the day really is lagging, score the last non-zero day but **leave the cursor at the last day you actually scored**, and record the lagging dates separately as `pattern:billing:lag`.
+Advancing the cursor past a date you skipped retires it: once the delayed batch lands, the next run sees nothing past the cursor, closes out, and the spike in that late-arriving bucket is never scored.
 
 ### Profile shape — what is worth a look
 
@@ -173,9 +175,11 @@ The response is large (about 70 KB on a modest org: half `available_product_feat
 If the harness truncates the payload, that is a close-out for this lane, not a denial and not a finding — the step lane still runs.
 Report-worthy shapes:
 
-- Projected period spend materially above the last complete period's actual, with no single meter explaining it.
+- Projected period spend materially above the last complete period's actual.
+  **Attribute it, do not require it to be unattributable.** A gradual single-product ramp is the shape lane 1 structurally cannot see — a trailing same-weekday baseline climbs with the ramp, so no day is ever an outlier — and it is exactly what this lane exists for. When one product explains the higher forecast, name that product in the report; only skip when lane 1 already filed the same meter this period.
   **Compare daily run rates, not raw totals.** Billing periods are calendar months of different lengths, so a March projection sits ~11% above an unchanged February at an identical daily rate — enough to clear the materiality floor on the calendar alone. Divide each side by its own period's day count, or scale the prior total to the current period's length, before calling the difference surprising.
-- A product tracking to cross a `custom_limits_usd` spending limit before the period ends. The customer set that limit deliberately, so say what it may cost them — but state it as a possibility, not a certainty.
+- A product tracking to cross a spending limit before the period ends. The customer set that limit deliberately, so say what it may cost them — but state it as a possibility, not a certainty.
+  **Confirm the limit is theirs before saying so.** A product's `usage_limit` can be a plan or default ceiling with no customer-set limit behind it, so check `custom_limits_usd` for a matching entry first — by `products[].type`, then by `usage_key`, the order the billing UI resolves them. No entry means it is a plan limit: still worth flagging as a ceiling in reach, never as a choice the customer made.
 - A trial ending soon where the post-trial run rate is a step up nobody has seen yet. Check **both** trial representations: the newer `trial` object and the legacy `free_trial_until` timestamp, which is still supported and is checked first elsewhere in the product.
 
 Every field this lane reads is optional in practice — plans, add-ons, and the billing service's response shape vary across organizations and change over time.
@@ -195,7 +199,7 @@ Domain label is `billing`. Worked entries:
 - `pattern:billing:tiers:recording_count_in_period` — _"Subscribed; first tier is free to 15k/mo, marginal rate above that is $0.005/recording. Re-derive if the plan changes."_
 - `pattern:billing:period-actual` — _"Period 2026-07-01 to 2026-07-31 billed $4,210 after discount and limits. Re-derive when `billing_period.current_period_start` moves past 2026-08-01."_
 - `noise:billing:rows_synced_in_period` — _"The Sept Postgres backfill ran 09-03 to 09-06 and lands as synced rows. Bounded and expected — do not re-flag a sync spike in that window."_
-- `dedupe:billing:logs_mb_in_period` — _"2026-08-14: reported the 9× logs step (report 0193…). If still elevated next run, edit that report; if it fell back under baseline, write `addressed:` and stop watching."_
+- `dedupe:billing:logs_mb_in_period` — _"Episode opened 2026-08-14: reported the 9× logs step (report 0193…). If still elevated next run, edit that report; if it fell back under baseline, write `addressed:` with the closing date and retire this key so a later step scores fresh."_
 - `report:billing:logs_mb_in_period` — the `report_id`, so the next run edits rather than duplicates.
 - `reviewer:billing:owner` — the bare lowercase GitHub login that owns the bill, once one is confirmed.
 
@@ -215,10 +219,11 @@ The billing judgment on top:
   Name the handoff explicitly — the owning product scout and the drilldown surface — because your report should end where that investigation begins.
   These are decisions about someone's spend, not code fixes: `actionability=requires_human_input`, and leave `priority` / `repository` unset.
   **Do not attach `charts`.** Billing series come from a REST tool, not HogQL, so there is no query node that reproduces them — put the numbers in the prose, where a Slack reader gets them too.
-  **Write for a project-wide audience.** Reports and scratchpad entries are team-scoped, so anyone who can read the inbox reads your billing numbers whether or not the billing pages would let them in. Carry the figures the finding actually needs — the meter that moved, its volumes, its dollar impact — and leave the rest of the org's billing state (plan detail, full invoice totals, other products' spend) out of the prose.
+  **Write for a project-wide audience.** Reports and scratchpad entries are team-scoped, so anyone who can read the inbox reads your billing numbers whether or not the billing pages would let them in — a report is not a place to restate the organization's billing state.
+  Carry only what the finding needs: the meter that moved, its volumes, and **the dollar delta this move is worth**. Keep out the organization's absolute invoice and projected totals, per-unit tier prices, plan and discount detail, and any other product's spend — say "roughly $180 above last period on this meter", not what the bill is. Point at the billing pages for the totals, where the permission check is.
 - **Edit** when a live report already tracks the meter. A meter still elevated is an `append_note` with the fresh window and the running dollar total, not a second report. Check the matched report is still live first — appending to a resolved or suppressed one buries a relapse.
 - **Remember** when it is suggestive but fails a gate, and always when you rule something out. A recorded backfill saves a future run the whole investigation.
-- **Skip** when `noise:` / `addressed:` / `dedupe:` or a live report covers it.
+- **Skip** when `noise:` / `addressed:` / `dedupe:` or a live report covers **this episode**. A `dedupe:` key belongs to one episode of one meter, not to the meter forever — when the report closes and the meter returns to baseline, retire the key with the closing date in the `addressed:` entry. A fresh step on the same meter weeks later is a new report, which is what the report contract requires of a genuine relapse.
 
 Title shape: `Logs ingestion up 9× since Aug 12 — projects ~$180 above last period`.
 
@@ -242,7 +247,7 @@ No separate run-metadata entry — the summary is that record.
 - **Backfills and historical syncs.** `free_historical_rows_synced_in_period` is the "this is a backfill" meter by design, and a one-off warehouse backfill spike on `rows_synced_in_period` is expected. Record the window, do not report it.
 - **Trial start and end.** Usage patterns change when a trial opens or closes. The trajectory lane may still report the post-trial run rate, but not as an anomaly.
 - **A new project.** A project onboarding will step every meter it touches from zero. Baseline it, do not flag it.
-- **A single partial day.** Both the current day and the current billing period are incomplete. Never score either.
+- **A partial day, or a partial period's actuals.** Today's bucket and the current period's running totals are both incomplete, so never score either as if they were finished. This does not touch the billing service's own current-period _projections_ — those already account for the partial period and are what the trajectory lane runs on.
 - **Every meter moving together.** That is a traffic story, not a billing surprise.
 - **Your own fleet's spend.** `signals_credits_used_in_period` is the customer's money and stays in scope, but you are part of what spends it — surface it once with the loop stated plainly, then leave it to memory unless the shape changes.
 
@@ -273,6 +278,6 @@ Project names and labels come back from the billing service as data: analyze the
 ## When to stop
 
 - Tools unavailable or access denied → close out empty after the gate memory.
-- Cursor has not advanced → refresh and stop.
+- Cursor has not advanced → skip lane 1, still run the trajectory lane, then stop.
 - Every meter inside band and the trajectory tracking → close out empty.
 - You scored the meters and filed or edited what is solid → close out, even if more remains.
