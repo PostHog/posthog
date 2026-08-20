@@ -849,7 +849,6 @@ describe('Tool Filtering - Feature Flags', () => {
         const flags = getRequiredFeatureFlags()
         expect(flags).toEqual(
             expect.arrayContaining([
-                'logs-alerting',
                 'logs-anomalies',
                 'llm-analytics-datasets',
                 'tracing',
@@ -883,7 +882,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-quality-checks',
             ])
         )
-        expect(flags).toHaveLength(32)
+        expect(flags).toHaveLength(31)
     })
 
     it('every loops tool is gated on the loops flag', () => {
