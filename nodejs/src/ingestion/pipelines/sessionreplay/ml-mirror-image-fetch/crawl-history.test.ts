@@ -2,6 +2,7 @@ import { CrawlHistory, CrawlHistoryRedis, CrawlHistoryRedisPool } from './crawl-
 
 /** Above one round trip's key limit, so every test crosses a chunk boundary. */
 const KEYS = Array.from({ length: 600 }, (_value, index) => `k${index}`)
+const NOW_MS = 1_700_000_000_000
 
 type ExecResult = [Error | null, unknown][] | null
 
@@ -51,7 +52,7 @@ describe('CrawlHistory', () => {
         const present = new Set(['k0', 'k255', 'k256', 'k599'])
         const client = new FakeClient({ mget: (keys) => keys.map((key) => (present.has(key) ? '{}' : null)) })
 
-        const result = await build(client).read(KEYS)
+        const result = await build(client).read(KEYS, NOW_MS)
 
         expect([...result.known].sort((a, b) => a - b)).toEqual([0, 255, 256, 599])
         expect(result.failed.size).toBe(0)
@@ -67,7 +68,7 @@ describe('CrawlHistory', () => {
             },
         })
 
-        const result = await build(client).read(KEYS)
+        const result = await build(client).read(KEYS, NOW_MS)
 
         // The caller drops these rather than fetches them, so it needs which keys, not how many.
         expect(result.failed.size).toBe(256)
@@ -104,7 +105,7 @@ describe('CrawlHistory', () => {
             },
         })
 
-        const result = await build(client, 30).read(KEYS)
+        const result = await build(client, 30).read(KEYS, NOW_MS)
 
         expect(result.failed.size).toBeGreaterThan(0)
     })
