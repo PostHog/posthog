@@ -320,6 +320,25 @@ describe('cohortCountWarningLogic', () => {
         })
     })
 
+    describe('shared dataNodeLogic', () => {
+        it('keeps the loaded persons rows when attaching to the table dataNodeLogic', () => {
+            const query = createMockQuery(1)
+
+            // The persons DataTable builds its dataNodeLogic from `query.source` under this key.
+            const tableDataNodeLogic = dataNodeLogic({ key: 'test-key', query: query.source })
+            tableDataNodeLogic.mount()
+            tableDataNodeLogic.actions.loadDataSuccess({ results: new Array(100), hasMore: false })
+
+            // Attaching the warning logic must reuse the same query, not a DataTableNode, so
+            // propsChanged does not see a kind change and clear the freshly loaded rows.
+            const logic = createLogicWithProps({ query })
+            logic.mount()
+
+            expect(tableDataNodeLogic.values.response).not.toBeNull()
+            expect((tableDataNodeLogic.values.response as any).results).toHaveLength(100)
+        })
+    })
+
     describe('key generation', () => {
         it('generates unique keys based on cohort id and dataNodeLogicKey', () => {
             const props1 = {

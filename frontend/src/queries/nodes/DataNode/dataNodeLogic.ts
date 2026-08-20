@@ -1376,7 +1376,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         totalCount: [
             null as number | null,
             {
-                loadTotalCount: async () => {
+                loadTotalCount: async (_, breakpoint) => {
                     const query = values.totalCountQuery
                     if (!query) {
                         return null
@@ -1384,9 +1384,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     try {
                         const response = await performQuery(query)
+                        breakpoint()
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
-                    } catch (error) {
+                    } catch (error: any) {
+                        if (isBreakpoint(error)) {
+                            throw error
+                        }
                         posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
                         return null
                     }
