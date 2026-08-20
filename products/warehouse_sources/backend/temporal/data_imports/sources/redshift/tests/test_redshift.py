@@ -330,6 +330,35 @@ class TestGetPrimaryKeysForTable:
         cursor.fetchall.return_value = [("id",), ("email",)]
         assert impl.get_primary_keys_for_table(cursor, "public", "t") == ["id", "email"]
 
+    @pytest.mark.parametrize(
+        "table_type,expected_phrase",
+        [
+            ("view", "A view cannot have a primary key"),
+            ("materialized_view", "A materialized view cannot have a primary key"),
+        ],
+    )
+    def test_warns_that_a_relation_without_a_key_cannot_have_one(
+        self, impl, cursor, logger, table_type, expected_phrase
+    ):
+        # Neither relation can declare a PRIMARY KEY in Redshift, so the empty result is final —
+        # the message has to name the remedies rather than send the operator looking for a key.
+        cursor.fetchall.return_value = []
+
+        impl.get_primary_keys_for_table(cursor, "public", "t", logger, table_type)
+
+        warning = logger.warning.call_args.args[0]
+        assert expected_phrase in warning
+        assert "full table replication" in warning
+
+    def test_warns_about_a_missing_key_on_a_table(self, impl, cursor, logger):
+        cursor.fetchall.return_value = []
+
+        impl.get_primary_keys_for_table(cursor, "public", "t", logger, "table")
+
+        warning = logger.warning.call_args.args[0]
+        assert "information_schema" in warning
+        assert "cannot have a primary key" not in warning
+
 
 class TestGetTableMetadata:
     def test_builds_table_with_columns(self, impl, cursor):
@@ -350,9 +379,31 @@ class TestGetTableMetadata:
 
     def test_marks_view_when_is_view_true(self, impl, cursor):
         cursor.execute.return_value = cursor
-        cursor.fetchone.return_value = (True,)
+        # svv_mv_info probe first, then pg_views.
+        cursor.fetchone.side_effect = [(False,), (True,)]
         cursor.__iter__.return_value = iter([("id", "integer", "NO", None, None)])
         table = impl.get_table_metadata(cursor, "public", "myview")
+        assert table.type == "view"
+
+    def test_marks_materialized_view_when_svv_mv_info_matches(self, impl, cursor):
+        # Redshift has no `pg_matviews`, so the `pg_views` lookup alone reported every
+        # materialized view as a plain table.
+        cursor.execute.return_value = cursor
+        cursor.fetchone.side_effect = [(True,)]
+        cursor.__iter__.return_value = iter([("id", "integer", "NO", None, None)])
+
+        table = impl.get_table_metadata(cursor, "public", "daily_totals")
+
+        assert table.type == "materialized_view"
+
+    def test_falls_back_to_the_view_check_when_the_mv_probe_fails(self, impl, cursor):
+        # A role without access to `svv_mv_info` must still get a classified relation.
+        cursor.execute.side_effect = [Exception("permission denied for relation svv_mv_info"), cursor, cursor]
+        cursor.fetchone.return_value = (True,)
+        cursor.__iter__.return_value = iter([("id", "integer", "NO", None, None)])
+
+        table = impl.get_table_metadata(cursor, "public", "myview")
+
         assert table.type == "view"
 
     def test_populates_numeric_precision_and_scale_for_decimals(self, impl, cursor):
@@ -971,10 +1022,11 @@ class TestGetRowCounts:
         conn = MagicMock()
         cur = MagicMock()
         cur.__enter__.return_value = cur
-        # 1: SET statement_timeout, 2: svv_table_info, 3: pg_views, 4: UNION ALL view counts.
+        # 1: SET statement_timeout, 2: svv_table_info, 3: pg_views, 4: svv_mv_info, 5: UNION ALL counts.
         cur.fetchall.side_effect = [
             [("analytics", "events", 500)],  # svv_table_info (materialized tables)
             [("public", "events")],  # pg_views (views aren't in svv_table_info)
+            [],  # svv_mv_info
             [("public", "events", 42)],  # COUNT(*) per view
         ]
         conn.cursor.return_value = cur
@@ -983,6 +1035,37 @@ class TestGetRowCounts:
 
         # Same table name in two namespaces stays distinct; the view falls through to COUNT(*).
         assert result == {"analytics.events": 500, "public.events": 42}
+
+    def test_materialized_view_falls_through_to_count_query(self, impl):
+        # A materialized view is in neither `svv_table_info` (registered under an internal name)
+        # nor `pg_views`, so without the `svv_mv_info` probe it got no row count at all.
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.fetchall.side_effect = [
+            [],  # svv_table_info
+            [],  # pg_views
+            [("public", "daily_totals")],  # svv_mv_info
+            [("public", "daily_totals", 7)],  # COUNT(*)
+        ]
+        conn.cursor.return_value = cur
+
+        assert impl.get_row_counts(conn, _make_config(), ["daily_totals"]) == {"daily_totals": 7}
+
+    def test_failed_materialized_view_probe_keeps_the_other_counts(self, impl):
+        # The probe is isolated so a role without access to `svv_mv_info` loses only the
+        # materialized-view counts, not every count in the batch.
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.execute.side_effect = [None, None, None, Exception("permission denied for relation svv_mv_info")]
+        cur.fetchall.side_effect = [
+            [("public", "users", 500)],  # svv_table_info
+            [],  # pg_views
+        ]
+        conn.cursor.return_value = cur
+
+        assert impl.get_row_counts(conn, _make_config(), ["users"]) == {"users": 500}
 
     def test_returns_empty_on_exception(self, impl):
         conn = MagicMock()
