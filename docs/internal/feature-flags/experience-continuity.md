@@ -275,7 +275,7 @@ Set `bucketing_identifier` on the feature flag:
 
 ### Code References
 
-The Rust service determines the hashed identifier in `flag_matching.rs:1260-1289`:
+`hashed_identifier` in `flag_matching.rs` determines the hash input for a person-based flag:
 
 ```rust
 // Check if flag is configured for device_id bucketing
@@ -285,9 +285,13 @@ if feature_flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
             return Ok(device_id.clone());
         }
     }
-    // Falls back to distinct_id if device_id not provided
+    // Falls through to distinct_id if device_id not provided
 }
 ```
+
+This fall-through is not reached for a person release condition.
+`get_match` checks for a missing `$device_id` before it calls `hashed_identifier`, skips the condition, and records `missing_device_id` (see [Missing device id behavior](#missing-device-id-behavior) below).
+The fall-through applies only to paths that bypass that guard, such as holdout hashing (`get_holdout_hash`).
 
 ### Current Status
 
@@ -314,9 +318,14 @@ The SDK must include `$device_id` as a top-level field in `/flags` requests:
 }
 ```
 
-### Fallback Behavior
+### Missing device id behavior
 
-If a flag is configured for `device_id` bucketing but no `$device_id` is provided in the request, the system falls back to using `distinct_id`. This maintains backward compatibility but may result in variant changes during identity transitions.
+A person-aggregated condition on a device-bucketed flag needs a `$device_id` in the request.
+When the request has none, `get_match` skips that condition, increments `FLAG_CONDITION_SKIPPED_COUNTER` with reason `missing_device_id`, and records `OutOfRolloutBound`.
+There is no silent fallback to `distinct_id` for a release condition, so a pure person device-bucketed flag with no `$device_id` matches nothing.
+Group-aggregated conditions on a mixed flag can still match without a `$device_id`.
+
+See the [flag evaluation engine doc](./flag-evaluation-engine.md) for the same behavior and its local-evaluation caveat.
 
 ## Debugging Guide
 
