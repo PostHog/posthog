@@ -25,7 +25,11 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
-from products.signals.backend.scout_harness.limits import AUTO_PAUSE_PROBE_INTERVAL_S, DISPATCH_BATCH_INTERVAL_SECONDS
+from products.signals.backend.scout_harness.limits import (
+    AUTO_PAUSE_PROBE_INTERVAL_S,
+    DISPATCH_BATCH_INTERVAL_SECONDS,
+    DISPATCH_SMEAR_SECONDS,
+)
 
 # The flag-payload read + per-team cap resolution live in `scout_harness/team_limits.py`; helpers
 # defined there are imported and patched there (see `_PAYLOAD_PATH` / `_IS_CLOUD_PATH`).
@@ -37,6 +41,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _enrolled_team_ids,
     _parse_enrollment,
     _read_flag_payload,
+    _resolve_dispatch_smear_seconds,
     _resolve_enrolled,
     _resolve_github_read_access,
     _resolve_global_max_runs_per_tick,
@@ -455,6 +460,24 @@ def test_resolve_enrolled_wildcard(wildcard, in_explicit, in_skip, expected):
 )
 def test_resolve_global_max_runs_per_tick(payload, expected):
     assert _resolve_global_max_runs_per_tick(payload, MAX_RUNS_PER_TICK) == expected
+
+
+# `dispatch_smear_seconds: 0` is the no-deploy kill switch for paced fan-out, so a key that
+# silently fails to resolve would leave no way to turn smearing off during an incident.
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        (None, DISPATCH_SMEAR_SECONDS),  # no payload → code default
+        ({}, DISPATCH_SMEAR_SECONDS),  # absent key → code default
+        ({"dispatch_smear_seconds": 0}, 0),  # the kill switch: back to a single burst
+        ({"dispatch_smear_seconds": 300}, 300),  # narrow the window
+        ({"dispatch_smear_seconds": -60}, DISPATCH_SMEAR_SECONDS),  # negative → default
+        ({"dispatch_smear_seconds": "0"}, DISPATCH_SMEAR_SECONDS),  # wrong type → default
+        ({"dispatch_smear_seconds": False}, DISPATCH_SMEAR_SECONDS),  # bool is not a valid int here
+    ],
+)
+def test_resolve_dispatch_smear_seconds(payload, expected):
+    assert _resolve_dispatch_smear_seconds(payload, DISPATCH_SMEAR_SECONDS) == expected
 
 
 @pytest.mark.asyncio
