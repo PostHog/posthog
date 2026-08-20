@@ -213,6 +213,12 @@ class TestTaskListFilterMatrix(TestCase):
             "peter_mention_me", "peter_plain", "peter_i_commented", "peter_legacy_mention"
         )
 
+    def test_exclude_origin_product_rejects_unknown_values(self):
+        # A typo must not fail open: matching nothing would return the full list including the
+        # very tasks the caller asked to drop.
+        response = self.client.get("/api/projects/@current/tasks/", {"exclude_origin_product": "signal_scout"})
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             ("failed", ["peter_mention_me"]),

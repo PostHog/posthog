@@ -81,8 +81,8 @@ describe('tasksLogic', () => {
             expect(logic.values.assigneeFilter).toBe('for_you')
         })
 
-        // Scout runs are attributed to the human who owns the scout, so "for you" and "my scouts"
-        // have to split on origin as well as creator, otherwise both lists show the same rows.
+        // "For you" and "my scouts" both scope to the current user, so they have to split on origin
+        // as well as creator, otherwise the two filters return the same rows.
         it.each([
             [
                 'for_you' as const,
