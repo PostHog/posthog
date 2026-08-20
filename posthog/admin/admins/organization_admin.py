@@ -133,7 +133,7 @@ class UsageReportForm(forms.Form):
 
 class BulkDeactivateOrganizationsForm(forms.Form):
     CUSTOM_REASON = "__custom__"
-    MAX_ORGANIZATIONS = 200
+    MAX_ORGANIZATIONS = 100
     PREVIEW_TOKEN_SALT = "posthog.admin.bulk_deactivate_organizations"
 
     organization_ids = forms.CharField(
@@ -161,20 +161,17 @@ class BulkDeactivateOrganizationsForm(forms.Form):
 
     def clean_organization_ids(self) -> list[UUID]:
         raw_value = self.cleaned_data["organization_ids"]
-        tokens: list[str] = []
-        for match in re.finditer(r"[^,\s]+", raw_value):
-            tokens.append(match.group())
-            if len(tokens) > self.MAX_ORGANIZATIONS:
-                raise forms.ValidationError(f"Enter {self.MAX_ORGANIZATIONS} organization IDs or fewer.")
-
-        if not tokens:
-            raise forms.ValidationError("Enter at least one organization ID.")
-
         invalid_tokens: list[str] = []
         organization_ids: list[UUID] = []
         seen_ids: set[UUID] = set()
+        token_count = 0
 
-        for token in tokens:
+        for match in re.finditer(r"[^,\s]+", raw_value):
+            token_count += 1
+            if token_count > self.MAX_ORGANIZATIONS:
+                raise forms.ValidationError(f"Enter {self.MAX_ORGANIZATIONS} organization IDs or fewer.")
+
+            token = match.group()
             try:
                 organization_id = UUID(token)
             except ValueError:
@@ -186,6 +183,9 @@ class BulkDeactivateOrganizationsForm(forms.Form):
 
             seen_ids.add(organization_id)
             organization_ids.append(organization_id)
+
+        if token_count == 0:
+            raise forms.ValidationError("Enter at least one organization ID.")
 
         if invalid_tokens:
             raise forms.ValidationError(
