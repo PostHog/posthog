@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
@@ -31,6 +32,24 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
 
     const [showPopover, setShowPopover] = useState(false)
 
+    // A user without project-admin access can't connect a source. Show a single disabled button
+    // that states why, rather than a dropdown whose every row looks clickable but does nothing —
+    // those un-selectable rows are what users dead-click. This also avoids a race where the
+    // dropdown opens before access resolves and its rows then flip to disabled under the pointer.
+    if (restrictedReason) {
+        return (
+            <LemonButton
+                type="primary"
+                size="small"
+                icon={<IconPlusSmall />}
+                data-attr="add-integration"
+                disabledReason={restrictedReason}
+            >
+                Add source
+            </LemonButton>
+        )
+    }
+
     const groupedIntegrations = {
         native: getEnabledNativeMarketingSources(featureFlags),
         external: VALID_NON_NATIVE_MARKETING_SOURCES,
@@ -41,6 +60,9 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         if (onIntegrationSelect) {
             onIntegrationSelect(integrationId)
         } else {
+            // Record the click before navigating. The wizard only records a source that reaches
+            // it, so without this a push that never lands leaves no trace — the reported dead click.
+            posthog.capture('warehouse new source selected', { kind: integrationId, from: 'marketing analytics' })
             router.actions.push(
                 urls.dataWarehouseSourceNew(integrationId, urls.marketingAnalyticsApp(), 'Marketing analytics')
             )
@@ -65,7 +87,6 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                         key={integrationId}
                         fullWidth
                         size="small"
-                        disabledReason={restrictedReason}
                         onClick={() => handleIntegrateClick(integrationId)}
                         className="justify-start"
                     >
@@ -101,13 +122,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                 </div>
             }
         >
-            <LemonButton
-                type="primary"
-                size="small"
-                icon={<IconPlusSmall />}
-                data-attr="add-integration"
-                disabledReason={restrictedReason}
-            >
+            <LemonButton type="primary" size="small" icon={<IconPlusSmall />} data-attr="add-integration">
                 Add source
             </LemonButton>
         </LemonDropdown>

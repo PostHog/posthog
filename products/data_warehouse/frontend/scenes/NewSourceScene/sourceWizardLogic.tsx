@@ -3758,7 +3758,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // we know it's a genuine mismatch, not the load race) tell the user what to do.
                 if (kind) {
                     const connectorsLoaded = (values.connectors?.length ?? 0) > 0
-                    posthog.capture('warehouse new source kind unresolved', { kind, connectorsLoaded })
+                    // returnLabel ties the failure back to the entry point (e.g. "Marketing
+                    // analytics"), so a click that leaves that page but never opens a source is
+                    // traceable alongside the "warehouse new source selected" click event.
+                    posthog.capture('warehouse new source kind unresolved', { kind, connectorsLoaded, returnLabel })
                     if (connectorsLoaded) {
                         lemonToast.error(
                             `We couldn't open the "${kind}" connector — please pick a source from the list.`
