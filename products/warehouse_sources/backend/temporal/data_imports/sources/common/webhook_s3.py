@@ -15,6 +15,11 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.batching import (
+    DEFAULT_BATCH_BYTE_LIMIT,
+    DEFAULT_BATCH_ROW_LIMIT,
+    TableBatcher,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
@@ -100,8 +105,8 @@ class WebhookSourceManager:
     async def get_items(
         self,
         table_transformer: Optional[Callable[[pa.Table], pa.Table]] = None,
-        batch_row_limit: int = 5000,
-        batch_byte_limit: int = 200 * 1024 * 1024,
+        batch_row_limit: int = DEFAULT_BATCH_ROW_LIMIT,
+        batch_byte_limit: int = DEFAULT_BATCH_BYTE_LIMIT,
     ) -> AsyncGenerator[pa.Table]:
         files = await self._list_webhook_parquet_files()
 
@@ -114,10 +119,7 @@ class WebhookSourceManager:
             merged = pa.concat_tables(tables, promote_options="permissive")
             return table_transformer(merged) if table_transformer else merged
 
-        batch_tables: list[pa.Table] = []
-        batch_paths: list[str] = []
-        batch_rows = 0
-        batch_bytes = 0
+        batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
 
         async with aget_s3_client() as s3:
             for file in files:
@@ -143,42 +145,34 @@ class WebhookSourceManager:
 
                 table = self._transform_webhook_table(table)
 
-                batch_tables.append(table)
-                batch_paths.append(path)
-                batch_rows += table.num_rows
-                batch_bytes += table.nbytes
-
-                if batch_rows >= batch_row_limit or batch_bytes >= batch_byte_limit:
-                    merged = finalize_batch(batch_tables)
+                if batch.add(table, path):
+                    merged = finalize_batch(batch.tables)
                     await self._logger.adebug(
                         "webhook_batch_yield",
-                        file_count=len(batch_paths),
+                        file_count=len(batch.items),
                         row_count=merged.num_rows,
                         byte_count=merged.nbytes,
                     )
 
                     yield merged
 
-                    for p in batch_paths:
+                    for p in batch.items:
                         await s3._rm(p)
-                    batch_tables = []
-                    batch_paths = []
-                    batch_rows = 0
-                    batch_bytes = 0
+                    batch.reset()
 
             # Yield any remaining rows
-            if batch_tables:
-                merged = finalize_batch(batch_tables)
+            if batch:
+                merged = finalize_batch(batch.tables)
                 await self._logger.adebug(
                     "webhook_batch_yield",
-                    file_count=len(batch_paths),
+                    file_count=len(batch.items),
                     row_count=merged.num_rows,
                     byte_count=merged.nbytes,
                 )
 
                 yield merged
 
-                for p in batch_paths:
+                for p in batch.items:
                     await s3._rm(p)
 
     async def _validate_webhook_table(self, table: pa.Table) -> pa.Table:

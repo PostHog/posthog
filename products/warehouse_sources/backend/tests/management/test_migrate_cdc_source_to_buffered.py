@@ -8,11 +8,14 @@ from unittest.mock import MagicMock, patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import consolidated_resource_name
 
 _CMD = "products.warehouse_sources.backend.management.commands.migrate_cdc_source_to_buffered"
 
@@ -23,15 +26,26 @@ def _mocked_side_effects(
     write_resolution: bool = True,
     pipeline_v3: bool = True,
     buffer_keys: list[str] | None = None,
+    buffer_keys_by_schema: dict[str, list[str]] | None = None,
     extraction_running: bool = False,
 ):
     """Stub every outside effect: Temporal schedules, the sourcebatch probe, the flag, and S3.
 
     `buffer_keys` is what any prefix listing returns; None means the prefix does not exist, which is
-    both a clean purge and a drained buffer.
+    both a clean purge and a drained buffer. `buffer_keys_by_schema` answers per schema id instead,
+    for the prefixes that hold different files.
     """
     s3 = MagicMock()
-    if buffer_keys is None:
+    if buffer_keys_by_schema is not None:
+
+        def _ls(prefix, **kwargs):
+            for schema_id, keys in buffer_keys_by_schema.items():
+                if schema_id in prefix:
+                    return keys
+            raise FileNotFoundError(prefix)
+
+        s3.ls.side_effect = _ls
+    elif buffer_keys is None:
         s3.ls.side_effect = FileNotFoundError()
     else:
         s3.ls.return_value = buffer_keys
@@ -147,6 +161,69 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         assert source.job_inputs["cdc_ingest_mode"] == "buffered"
         # Consumer schedules must still be live so they can catch up for the re-run.
         mocks["pause_schema"].assert_not_called()
+
+    def _record_load_position(self, schema: ExternalDataSchema, position: int) -> None:
+        schema.sync_type_config = {
+            **schema.sync_type_config,
+            "cdc_load_position": {consolidated_resource_name(schema): position},
+        }
+        schema.save(update_fields=["sync_type_config"])
+
+    def test_rollback_ignores_prefixes_the_buffered_lane_never_served(self):
+        # A legacy schema's prefix holds shadow copies no consumer ever reads, so scanning it would
+        # wedge every rollback of a hybrid source with capture left paused.
+        source = self._source(ingest_mode="buffered")
+        self._schema(source, "users")
+        companion = self._schema(source, "events", table_mode="cdc_only")
+        shadow = f"bucket/cdc_producer/x/{build_buffer_file_name(100, 200, 0)}"
+
+        with _mocked_side_effects(buffer_keys_by_schema={str(companion.id): [shadow]}):
+            self._run(source, rollback=True, drain_timeout=0)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "legacy"
+
+    @parameterized.expand([("at_the_position", 200, True), ("below_the_position", 199, False)])
+    def test_rollback_waits_for_the_consumer_to_delete_the_file_at_the_position(
+        self, _name, end_seq: int, blocks: bool
+    ):
+        # One transaction shares a commit position across its events, so a file ending AT the
+        # position can still be an unread tail. Only the consumer's deletion proves it landed.
+        source = self._source(ingest_mode="buffered")
+        schema = self._schema(source, "users")
+        self._record_load_position(schema, 200)
+        remaining = f"bucket/cdc_producer/x/{build_buffer_file_name(100, end_seq, 0)}"
+
+        with _mocked_side_effects(buffer_keys=[remaining]):
+            if blocks:
+                with pytest.raises(CommandError, match="not yet proven applied"):
+                    self._run(source, rollback=True, drain_timeout=0)
+            else:
+                self._run(source, rollback=True, drain_timeout=0)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == ("buffered" if blocks else "legacy")
+
+    def test_a_reflip_is_allowed_once_the_reserved_column_is_ours(self):
+        # The buffered lane writes `_ph_cdc_seq` into the warehouse table, so after a rollback the
+        # column is there for our own reasons — a recorded position proves capture never collided.
+        source = self._source()
+        table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="users",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://bucket/users/*",
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField"}, CDC_SEQ_COLUMN: {"hogql": "IntegerDatabaseField"}},
+        )
+        schema = self._schema(source, "users", table=table)
+        self._record_load_position(schema, 42)
+
+        with _mocked_side_effects():
+            self._run(source)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
 
     def test_a_hybrid_source_flips_only_its_consolidated_schemas(self):
         source = self._source()

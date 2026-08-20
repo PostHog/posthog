@@ -36,6 +36,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.batching import (
+    DEFAULT_BATCH_BYTE_LIMIT,
+    DEFAULT_BATCH_ROW_LIMIT,
+    TableBatcher,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
@@ -50,8 +55,6 @@ CONSOLIDATED_TABLE_MODE = "consolidated"
 # events rather than rows read from a table.
 CONSOLIDATED_WRITE_MODE = "incremental_merge"
 
-DEFAULT_BATCH_ROW_LIMIT = 5000
-DEFAULT_BATCH_BYTE_LIMIT = 200 * 1024 * 1024
 
 # Slack when comparing an S3 mtime against a listing timestamp from our clock, so skew between the
 # two can never make a file look older than a listing that in fact never saw it.
@@ -261,9 +264,7 @@ class CDCSourceManager:
         proof_time = await self._completed_listing_time(prior_listing) if floor is not None else None
         await self._stamp_listing(listed_at)
 
-        batch_tables: list[pa.Table] = []
-        batch_rows = 0
-        batch_bytes = 0
+        batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
 
         async with aget_s3_client() as s3:
             for file in files:
@@ -286,18 +287,12 @@ class CDCSourceManager:
                 if table.num_rows == 0:
                     continue
 
-                batch_tables.append(table)
-                batch_rows += table.num_rows
-                batch_bytes += table.nbytes
+                if batch.add(table):
+                    yield self._finalize_batch(batch.tables)
+                    batch.reset()
 
-                if batch_rows >= batch_row_limit or batch_bytes >= batch_byte_limit:
-                    yield self._finalize_batch(batch_tables)
-                    batch_tables = []
-                    batch_rows = 0
-                    batch_bytes = 0
-
-            if batch_tables:
-                yield self._finalize_batch(batch_tables)
+            if batch:
+                yield self._finalize_batch(batch.tables)
 
     def _finalize_batch(self, tables: list[pa.Table]) -> pa.Table:
         # `permissive` because a column added to the source table mid-stream makes later files

@@ -29,8 +29,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     WRITE_RESOLUTION_FLAG,
     is_cdc_write_resolution_enabled,
+    read_load_position,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import serves_buffered_lane
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+    consolidated_resource_name,
+    serves_buffered_lane,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
 )
@@ -143,8 +147,18 @@ class Command(BaseCommand):
 
         The collision stops the batcher stamping the engine position, and capture hard-errors on it
         (CDCReservedColumnError) — catching it here keeps the source out of a flip-then-break loop.
+
+        The buffered lane writes its own `_ph_cdc_seq` into the warehouse table, so the column alone
+        proves nothing once a schema has consumed the buffer. A recorded load position is proof the
+        column is ours: capture would have hard-errored on a real collision before any file existed.
         """
-        conflicted = [s.name for s in eligible if s.table is not None and CDC_SEQ_COLUMN in (s.table.columns or {})]
+        conflicted = [
+            s.name
+            for s in eligible
+            if s.table is not None
+            and CDC_SEQ_COLUMN in (s.table.columns or {})
+            and read_load_position(s.sync_type_config, consolidated_resource_name(s)) is None
+        ]
         if conflicted:
             raise CommandError(
                 f"Schemas with a source column named {CDC_SEQ_COLUMN}: {', '.join(sorted(conflicted))}. "
@@ -248,10 +262,10 @@ class Command(BaseCommand):
         # The buffer's tail holds WAL the slot has already advanced past — it exists nowhere else.
         # The consumer must apply it BEFORE legacy delivery resumes, or it is lost for good. Capture
         # is idle so the buffer is static; the still-running scheduled sync drains it. Scanned over
-        # every CDC schema, not just the eligible ones — a schema disabled after the flip still owns
-        # unconsumed files.
+        # every schema the buffered lane serves, which includes ones disabled after the flip — but
+        # not the legacy ones, whose prefixes hold shadow copies no consumer will ever read.
         self.stdout.write("3/6 waiting for the consumer to drain the buffer")
-        self._wait_for_buffer_drain(source.team_id, cdc_schemas, drain_timeout)
+        self._wait_for_buffer_drain(source.team_id, [s for s in cdc_schemas if serves_buffered_lane(s)], drain_timeout)
 
         # Consumer next: a sync merging old buffered rows AFTER legacy capture resumed would
         # overwrite newer legacy writes — legacy writes carry no position, so the guard can't
@@ -284,12 +298,16 @@ class Command(BaseCommand):
             time.sleep(DRAIN_POLL_SECONDS)
 
     def _wait_for_buffer_drain(self, team_id: int, schemas: list[ExternalDataSchema], timeout: int) -> None:
-        """Block until every schema's load position covers every remaining buffer file."""
+        """Block until every remaining buffer file sits strictly below the schema's load position.
+
+        A file AT the position is not proof of consumption: one Postgres transaction shares a commit
+        position across every event, so a transaction split across files leaves an unread tail whose
+        `end_seq` already equals the floor, and `drop_superseded_rows` keeps rows at the watermark
+        precisely so that tail can still land. The consumer settles it by deleting the file once a
+        completed run proves it read it, so waiting for the deletion is the same proof the consumer
+        uses — a couple of ticks on an idle schema.
+        """
         from products.data_warehouse.backend.facade.api import get_s3_client
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import read_load_position
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-            consolidated_resource_name,
-        )
 
         s3 = get_s3_client()
         deadline = time.monotonic() + timeout
@@ -305,16 +323,17 @@ class Command(BaseCommand):
                     continue
                 for key in keys:
                     parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
-                    if parsed is not None and parsed.end_seq > floor:
+                    if parsed is not None and parsed.end_seq >= floor:
                         behind.append(schema.name)
                         break
             if not behind:
                 return
             if time.monotonic() >= deadline:
                 raise CommandError(
-                    f"Buffered changes not yet applied for: {', '.join(sorted(behind))} after {timeout}s. "
-                    "Rolling back now would lose them — the slot already advanced past that WAL. "
-                    "Extraction is left paused; let the scheduled syncs catch up, then re-run."
+                    f"Buffered changes not yet proven applied for: {', '.join(sorted(behind))} after "
+                    f"{timeout}s. Rolling back now could lose them — the slot already advanced past that "
+                    "WAL, and the consumer deletes each file only once it proves it read it. Extraction "
+                    "is left paused; let the scheduled syncs catch up, then re-run."
                 )
             self.stdout.write(f"    waiting, buffer not drained for: {', '.join(sorted(behind))}")
             time.sleep(DRAIN_POLL_SECONDS)

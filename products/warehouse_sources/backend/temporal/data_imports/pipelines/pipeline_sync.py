@@ -138,12 +138,12 @@ def _purge_stale_buffer_then_mark_initial_sync_complete(
     from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix  # noqa: PLC0415
 
     schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-    # About to flip a CDC schema snapshot→streaming: every buffer file predates the snapshot
-    # that just landed (capture only writes buffer files once initial_sync_complete is True),
-    # so anything in the prefix is stale — a leftover from before a TRUNCATE, a re-enable, or
-    # this run's own capture tail — and merging it after the flip would resurrect rows the
-    # snapshot wiped. Purge-then-flip is race-free for the same reason: nothing can write to
-    # the prefix until the flip commits. Strict because a survived stale file corrupts the table.
+    # About to flip a CDC schema snapshot→streaming: anything in the prefix predates the snapshot
+    # that just landed — a leftover from before a TRUNCATE, a re-enable, or this run's own capture
+    # tail — and merging it after the flip would resurrect rows the snapshot wiped. The ingress lane
+    # cannot write here until the flip commits; the shadow lane writes on its flag alone, so a
+    # concurrent capture tick is the one remaining writer, and the consumer's position guard covers
+    # what it leaves. Strict because a survived stale file corrupts the table.
     if schema.is_cdc and not schema.initial_sync_complete and schema.cdc_mode == "snapshot":
         purge_buffer_prefix(team_id, str(schema_id), logger, strict=True)
     mark_initial_sync_complete(schema_id=schema_id, team_id=team_id)

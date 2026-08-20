@@ -35,7 +35,9 @@ preserved, so there is no WAL gap and no re-sync.
    and the symptom is a frozen `cdc_load_position` with buffer files aging toward the TTL.
 2. No source table has a column named `_ph_cdc_seq`. **The command refuses to flip if one does** —
    the name is reserved for change ordering, and capture hard-errors on the collision rather than
-   writing files whose ordering and retry cleanup derive from customer data.
+   writing files whose ordering and retry cleanup derive from customer data. A schema that already
+   consumed the buffer carries the column for our own reasons, and its recorded load position tells
+   the check apart from a real collision, so a re-flip after a rollback is not blocked by it.
 3. Every CDC schema on the source is at `sync_frequency_interval = 5min`. The command warns
    when an eligible schema is off cadence — consumption paces to the schema's own schedule.
 4. Buffer validation is clean over a busy window:
@@ -107,14 +109,19 @@ The order matters, and the command enforces it:
 3. **Wait for the consumer to drain the buffer.** The buffer's tail holds WAL the slot has already
    advanced past — it exists nowhere else, and flipping to legacy before it is applied loses it for
    good. The command refuses to proceed (extraction left paused, consumer left running) until every
-   remaining file is covered by the schema's load position.
+   remaining file sits strictly below the schema's load position. A file ending exactly at the
+   position does not count: one transaction shares a commit position across its events, so that file
+   can still be the unread tail of a transaction split across files. The consumer settles it by
+   deleting the file once a completed run proves it read it, which takes a tick or two.
 4. Pause the per-schema schedules and wait for running sync jobs, so no in-flight merge of old
    buffered rows can land after legacy delivery resumes and overwrite newer rows.
 5. Set the mode to `legacy` and unpause the extraction schedule.
 
-The buffer-drain check covers every CDC schema on the source, including ones disabled after the
-flip — a disabled schema's unconsumed files still block, and draining them means re-enabling the
-schema so its sync can catch up first.
+The buffer-drain check covers every schema the buffered lane serves, including ones disabled after
+the flip — a disabled schema's unconsumed files still block, and draining them means re-enabling the
+schema so its sync can catch up first. It skips the schemas that stayed on legacy: with the shadow
+lane on, their prefixes hold validation copies no consumer reads, so scanning them would block the
+rollback forever with capture paused.
 
 Fully-applied buffer files are **not** purged: the position guard makes a replay a no-op, and the
 14-day S3 TTL clears them. Rows already merged stay merged — the same rows the legacy lane would
