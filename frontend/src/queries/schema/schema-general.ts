@@ -7496,6 +7496,7 @@ export function getEffectiveExcludedColumns(
 export enum MarketingAnalyticsConstants {
     Goal = 'Goal',
     CostPer = 'Cost per',
+    Roas = 'ROAS',
     ConstantValuePrefix = 'const:',
 }
 
@@ -9022,6 +9023,7 @@ export const externalDataSources = [
     'IronSourceAds',
     'MicrosoftExcel',
     'Profound',
+    'Airwallex',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

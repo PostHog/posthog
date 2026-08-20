@@ -6,10 +6,12 @@ import {
 } from "@posthog/core/command-center/grid";
 import { Button } from "@posthog/quill";
 import {
+  consumeTaskDrop,
   readTaskDragData,
   TASK_DRAG_TYPE,
   TASK_IDS_DRAG_TYPE,
 } from "@posthog/ui/features/sidebar/taskDrag";
+import { useLiveTaskIds } from "@posthog/ui/features/tasks/useLiveTaskIds";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
@@ -91,7 +93,11 @@ function useTaskDropTarget(onTasks: (taskIds: string[]) => void) {
       e.preventDefault();
       setIsOver(false);
       const taskIds = readTaskDragData(e.dataTransfer);
-      if (taskIds.length > 0) onTasks(taskIds);
+      if (taskIds.length === 0) return;
+      // Filing is what this drop was for, so the pin drag behind the same
+      // gesture leaves the sessions pinned where they were.
+      consumeTaskDrop();
+      onTasks(taskIds);
     },
   };
 }
@@ -173,14 +179,15 @@ function GridCell({
     [markActive],
   );
 
+  const liveTaskIds = useLiveTaskIds();
   const placeInCell = useCallback(
     (taskIds: string[]) => {
       if (cell.terminalId) {
         destroyShellTerminal(getTerminalCellStateKey(cell.terminalId));
       }
-      placeTasksInCommandCenterCell(taskIds, cell.cellIndex);
+      placeTasksInCommandCenterCell(taskIds, cell.cellIndex, liveTaskIds);
     },
-    [cell.cellIndex, cell.terminalId],
+    [cell.cellIndex, cell.terminalId, liveTaskIds],
   );
 
   const dropTarget = useTaskDropTarget(placeInCell);
@@ -254,10 +261,11 @@ function ExpandSlot({
   slot: number;
   placement: PlacementState;
 }) {
+  const liveTaskIds = useLiveTaskIds();
   const expand = useCallback(
     (taskIds: string[]) =>
-      expandTasksInCommandCenterInto(direction, slot, taskIds),
-    [direction, slot],
+      expandTasksInCommandCenterInto(direction, slot, taskIds, liveTaskIds),
+    [direction, liveTaskIds, slot],
   );
   const dropTarget = useTaskDropTarget(expand);
   const { cols, rows } = getGridDimensions(expanded);

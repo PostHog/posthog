@@ -23108,6 +23108,7 @@ export namespace Schemas {
      * * `IronSourceAds` - IronSourceAds
      * * `MicrosoftExcel` - MicrosoftExcel
      * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24414,6 +24415,7 @@ export namespace Schemas {
       IronSourceAds: 'IronSourceAds',
       MicrosoftExcel: 'MicrosoftExcel',
       Profound: 'Profound',
+      Airwallex: 'Airwallex',
     } as const;
 
     /**
@@ -25733,7 +25735,8 @@ export namespace Schemas {
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
        * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound */
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27747,7 +27750,8 @@ export namespace Schemas {
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
        * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound */
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -29704,6 +29708,32 @@ export namespace Schemas {
       properties?: ErrorTrackingEventProperties;
     }
 
+    /**
+     * Payload to send back as external_context when creating a reference to this issue.
+     */
+    export type ErrorTrackingExternalIssueResultExternalContext = { [key: string]: unknown };
+
+    export interface ErrorTrackingExternalIssueResult {
+      /** Provider-native identifier of the issue (e.g. issue key or number). */
+      id: string;
+      /** Human-readable issue title, for display in the picker. */
+      title: string;
+      /** Link to the issue in the provider's system. */
+      url: string;
+      /** Payload to send back as external_context when creating a reference to this issue. */
+      external_context: ErrorTrackingExternalIssueResultExternalContext;
+    }
+
+    export interface ErrorTrackingExternalIssueSearchResult {
+      /** Matching existing issues. */
+      issues: ErrorTrackingExternalIssueResult[];
+    }
+
+    /**
+     * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+     */
+    export type ErrorTrackingExternalReferenceCreateConfig = {[key: string]: string};
+
     export interface ErrorTrackingExternalReferenceIntegrationResult {
       /** ID of the integration backing this external reference. */
       readonly id: number;
@@ -29714,21 +29744,45 @@ export namespace Schemas {
     }
 
     /**
-     * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+     * Payload for creating a new provider issue and linking it to an error tracking issue.
      */
-    export type ErrorTrackingExternalReferenceResultConfig = {[key: string]: string};
+    export interface ErrorTrackingExternalReferenceCreate {
+      /** Unique ID of the external reference. */
+      readonly id: string;
+      /** The connected integration this reference was created through. */
+      readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
+      /** URL of the linked external issue in the provider's system. */
+      readonly external_url: string;
+      /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
+      integration_id: number;
+      /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+      config: ErrorTrackingExternalReferenceCreateConfig;
+      /** ID of the error tracking issue to link the reference to. */
+      issue: string;
+    }
 
+    /**
+     * Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+     */
+    export type ErrorTrackingExternalReferenceLinkExternalContext = { [key: string]: unknown };
+
+    export interface ErrorTrackingExternalReferenceLink {
+      /** ID of the connected integration the existing issue lives in (one of 'github', 'gitlab', 'linear', 'jira'). */
+      integration_id: number;
+      /** ID of the error tracking issue to link the reference to. */
+      issue: string;
+      /** Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+      external_context: ErrorTrackingExternalReferenceLinkExternalContext;
+    }
+
+    /**
+     * Read-only shape of an external reference, shared by every response.
+     */
     export interface ErrorTrackingExternalReferenceResult {
       /** Unique ID of the external reference. */
       readonly id: string;
       /** The connected integration this reference was created through. */
       readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
-      /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
-      integration_id: number;
-      /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
-      config: ErrorTrackingExternalReferenceResultConfig;
-      /** ID of the error tracking issue to link the reference to. */
-      issue: string;
       /** URL of the linked external issue in the provider's system. */
       readonly external_url: string;
     }
@@ -35494,7 +35548,8 @@ export namespace Schemas {
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
        * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound */
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -36834,7 +36889,8 @@ export namespace Schemas {
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
        * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound */
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -74525,7 +74581,8 @@ export namespace Schemas {
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
        * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound */
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -75873,7 +75930,8 @@ export namespace Schemas {
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
        * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound */
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -77211,7 +77269,8 @@ export namespace Schemas {
        * * `SamCart` - SamCart
        * * `IronSourceAds` - IronSourceAds
        * * `MicrosoftExcel` - MicrosoftExcel
-       * * `Profound` - Profound */
+       * * `Profound` - Profound
+       * * `Airwallex` - Airwallex */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -87197,6 +87256,22 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
+    /**
+     * ID of the connected integration to search issues in.
+     */
+    integration_id: number;
+    /**
+     * Repository to search within. Required for GitHub, ignored by other providers.
+     */
+    repository?: string;
+    /**
+     * Text to match against existing issue titles / keys in the provider.
+     * @minLength 1
+     */
+    search: string;
     };
 
     export type ErrorTrackingFingerprintsListParams = {

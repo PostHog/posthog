@@ -1,8 +1,9 @@
+import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
 import type { SidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { SidebarBulkActionFooter } from "./SidebarBulkActionFooter";
+import { useBulkArchiveConfirm } from "./useBulkArchiveConfirm";
 
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
@@ -37,13 +38,26 @@ function makeActions(
   };
 }
 
-describe("SidebarBulkActionFooter", () => {
+/** The pairing every sidebar renders: the bar asks, the dialog confirms. */
+function Harness({ actions }: { actions: SidebarBulkActions }) {
+  const confirm = useBulkArchiveConfirm(actions);
+  return (
+    <>
+      <SidebarBulkActionBar
+        actions={actions}
+        onClearSelection={vi.fn()}
+        onArchive={confirm.requestArchive}
+      />
+      {confirm.dialog}
+    </>
+  );
+}
+
+describe("useBulkArchiveConfirm", () => {
   it("confirms before archiving rather than archiving on the click", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     const actions = makeActions();
-    render(
-      <SidebarBulkActionFooter actions={actions} onClearSelection={vi.fn()} />,
-    );
+    render(<Harness actions={actions} />);
 
     await user.click(screen.getByLabelText("Archive 3 sessions"));
 
@@ -58,20 +72,14 @@ describe("SidebarBulkActionFooter", () => {
   // retitle itself "Archive 0 sessions?" while it is still open.
   it("keeps the count it opened with after the selection empties", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    const { rerender } = render(
-      <SidebarBulkActionFooter
-        actions={makeActions()}
-        onClearSelection={vi.fn()}
-      />,
-    );
+    const { rerender } = render(<Harness actions={makeActions()} />);
 
     await user.click(screen.getByLabelText("Archive 3 sessions"));
     expect(await screen.findByText("Archive 3 sessions?")).toBeInTheDocument();
 
     rerender(
-      <SidebarBulkActionFooter
+      <Harness
         actions={makeActions({ selectedCount: 0, isArchiving: true })}
-        onClearSelection={vi.fn()}
       />,
     );
 
@@ -80,21 +88,12 @@ describe("SidebarBulkActionFooter", () => {
 
   it("holds the dialog open when Escape lands mid-archive", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    const { rerender } = render(
-      <SidebarBulkActionFooter
-        actions={makeActions()}
-        onClearSelection={vi.fn()}
-      />,
-    );
+    const { rerender } = render(<Harness actions={makeActions()} />);
+
     await user.click(screen.getByLabelText("Archive 3 sessions"));
     expect(await screen.findByText("Archive 3 sessions?")).toBeInTheDocument();
 
-    rerender(
-      <SidebarBulkActionFooter
-        actions={makeActions({ isArchiving: true })}
-        onClearSelection={vi.fn()}
-      />,
-    );
+    rerender(<Harness actions={makeActions({ isArchiving: true })} />);
     await user.keyboard("{Escape}");
 
     expect(screen.getByText("Archive 3 sessions?")).toBeInTheDocument();
