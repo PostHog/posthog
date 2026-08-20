@@ -3190,6 +3190,7 @@ export interface CredentialApi {
  * * `IronSourceAds` - IronSourceAds
  * * `MicrosoftExcel` - MicrosoftExcel
  * * `Profound` - Profound
+ * * `Airwallex` - Airwallex
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4496,6 +4497,7 @@ export const ExternalDataSourceTypeEnumApi = {
     IronSourceAds: 'IronSourceAds',
     MicrosoftExcel: 'MicrosoftExcel',
     Profound: 'Profound',
+    Airwallex: 'Airwallex',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

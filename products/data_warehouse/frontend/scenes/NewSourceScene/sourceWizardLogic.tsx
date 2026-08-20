@@ -618,6 +618,7 @@ export interface sourceWizardLogicActions {
             | 'Aircall'
             | 'AirOps'
             | 'Airtable'
+            | 'Airwallex'
             | 'Aiven'
             | 'AkamaiReporting'
             | 'Akeneo'
