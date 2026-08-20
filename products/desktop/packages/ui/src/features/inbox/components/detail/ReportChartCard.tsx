@@ -10,6 +10,7 @@ import {
 import { cn } from "@posthog/quill";
 import {
   BarChart,
+  DEFAULT_CHART_CONFIG,
   LineChart,
   type Series,
   TimeSeriesBarChart,
@@ -42,6 +43,7 @@ function ChartSeriesBody({
   const theme = useChartTheme();
   const series: Series[] = data.series;
   const config = {
+    ...DEFAULT_CHART_CONFIG,
     legend: data.series.length > 1 ? { show: true } : undefined,
     ...(data.isTimeSeries
       ? { xAxis: { interval: data.interval, timezone: "UTC" } }
