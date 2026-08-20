@@ -4,7 +4,7 @@ Approve-first PR review: an LLM reviewer that runs deterministic gates plus a sc
 
 ## The engine
 
-The review engine lives in [`tools/pr-approval-agent/`](../../tools/pr-approval-agent/).
+The review engine lives in [`packages/pr-approval-agent/`](packages/pr-approval-agent/).
 A GitHub App delivers webhooks here, and reviews run in an isolated Modal sandbox with per-run minted credentials: `review_local.py` consumes a pre-fetched context, with no GitHub token inside the sandbox.
 `review_pr.py` in the same directory is the manual entrypoint for reviewing a PR from your own checkout, which fetches over the network instead.
 

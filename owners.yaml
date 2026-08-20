@@ -103,7 +103,8 @@ rules:
           - '/tools/hogli/'
           - '/tools/owners/'
           - '/tools/phrocs/'
-          - '/tools/pr-approval-agent/'
+      owners: team-devex
+    - match: '/products/stamphog/packages/pr-approval-agent/'
       owners: team-devex
     - match: '/tools/query-performance-ai/'
       owners: team-analytics-platform

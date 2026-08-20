@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from manifest_risk import manifest_change_is_risky
+from manifest_risk import manifest_change_is_risky, manifest_script_changes
 
 
 def _pkg(scripts: str = "", extra: str = "") -> str:
@@ -215,8 +215,6 @@ def test_wrapper_anchors_at_merge_base_not_base_tip(tmp_path) -> None:
     # Regression from review: comparing against the base branch *tip* counts
     # base-side drift (someone else's scripts change landing on the base) as
     # this PR's doing and falsely denies a clean manifest edit.
-    from manifest_risk import manifest_script_changes
-
     def run(*args: str) -> str:
         result = subprocess.run(["git", *args], capture_output=True, text=True, cwd=tmp_path, check=True)
         return result.stdout.strip()

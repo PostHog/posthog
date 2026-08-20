@@ -12,7 +12,7 @@
 """AI-assisted PR approval agent.
 
 Usage:
-    uv run tools/pr-approval-agent/review_pr.py <pr_number> [--dry-run] [--output-json path]
+    uv run products/stamphog/packages/pr-approval-agent/review_pr.py <pr_number> [--dry-run] [--output-json path]
 
 Runs deterministic gates (deny-list, ownership, tier classification),
 then — if eligible — calls Claude for evidence-bundle review and
@@ -28,6 +28,7 @@ import uuid
 import argparse
 import tempfile
 import subprocess
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -208,7 +209,7 @@ class Pipeline:
         verbose: bool = False,
         self_driving: bool = False,
         head_checkout: bool = False,
-    ):
+    ) -> None:
         self.pr_number = pr_number
         self.repo = repo
         self.dry_run = dry_run
@@ -735,7 +736,7 @@ class Pipeline:
         return links
 
     @contextmanager
-    def _pr_head_worktree(self):
+    def _pr_head_worktree(self) -> Iterator[Path | None]:
         """Yield a detached worktree at the PR head, or None when none is needed.
 
         Only stacked PRs reviewed from a trunk checkout need this: their head

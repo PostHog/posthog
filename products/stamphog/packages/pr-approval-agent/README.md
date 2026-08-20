@@ -4,7 +4,7 @@ AI-assisted PR approval for PostHog.
 Deterministic safety gates first, then Claude reviews for showstoppers.
 
 > [!NOTE]
-> This directory (together with `.stamphog/`) is vendored into other repos — e.g. [MLHog](https://github.com/PostHog/MLHog/tree/master/tools/pr-approval-agent) — each documenting its intentional local changes in its own copy of this README. When you change the engine or policy format here, those copies stay stale until someone re-syncs them, so give the owning teams a heads-up (or re-sync yourself: diff, re-copy, re-apply their documented local changes).
+> This directory (together with `.stamphog/`) is vendored into other repos — e.g. [MLHog](https://github.com/PostHog/MLHog/tree/master/tools/pr-approval-agent) — each documenting its intentional local changes in its own copy of this README. Vendored copies live at `tools/pr-approval-agent/` with `tools/owners` beside them, which is also where this repo's review sandbox writes the engine; only the source of truth sits here. When you change the engine or policy format here, those copies stay stale until someone re-syncs them, so give the owning teams a heads-up (or re-sync yourself: diff, re-copy, re-apply their documented local changes).
 > A policy that declares a `hogli-resolver` ownership source additionally needs the sibling `tools/owners` package vendored.
 > The legacy `gh-codeowners` / `ph-product` ownership formats were removed together with the `CODEOWNERS-soft` migration, so a vendored copy whose policy still declares them must migrate to `hogli-resolver` (adopting `owners.yaml` + `tools/owners`) as part of the re-sync — or skip the re-sync and keep its previous engine until it's ready. The policy loader rejects unknown formats loudly at startup, so a missed migration fails closed rather than silently skipping the ownership source.
 
@@ -30,16 +30,16 @@ the next push retries automatically.
 
 ```bash
 # run from anywhere inside the posthog repo
-uv run tools/pr-approval-agent/review_pr.py 46594
+uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594
 
 # dry run (gates only, no LLM calls)
-uv run tools/pr-approval-agent/review_pr.py 46594 --dry-run
+uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 --dry-run
 
 # save full result as JSON
-uv run tools/pr-approval-agent/review_pr.py 46594 --output-json /tmp/review.json
+uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 --output-json /tmp/review.json
 
 # verbose (show agent tool calls)
-uv run tools/pr-approval-agent/review_pr.py 46594 -v
+uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 -v
 ```
 
 `review_pr.py` is the manual entrypoint: it fetches everything over the network with `gh` and reviews a PR from your own checkout.
@@ -232,7 +232,7 @@ are exempt from the **auth** and **billing** categories — connector code
 legitimately does OAuth and talks to the Stripe API without touching
 PostHog's auth system or its billing.
 
-The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe). The check is published by `analyze_migration_risk` in `ci-backend.yml` and is the same signal humans see in the PR's Checks tab. See `tools/pr-approval-agent/migration_risk.py` for how stamphog reads it.
+The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe). The check is published by `analyze_migration_risk` in `ci-backend.yml` and is the same signal humans see in the PR's Checks tab. See `migration_risk.py` for how stamphog reads it.
 
 If the check hasn't reported yet when stamphog runs, the hosted runtime returns `WAIT` rather than a verdict: the deny-list only matched because the engine could not tell a safe migration from a risky one, and a refusal would hand the PR to ReviewHog and strip the trigger label over a race with CI. The label is kept and the next push reviews against the now-classified head commit.
 
