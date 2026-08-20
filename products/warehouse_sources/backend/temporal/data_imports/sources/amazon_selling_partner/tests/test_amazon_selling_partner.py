@@ -561,9 +561,7 @@ class TestSalesAndTrafficReport:
             _response({"url": presigned}),
         ]
         # What `requests` actually raises: the message carries the whole request URL.
-        mock_session.return_value.get.side_effect = requests.HTTPError(
-            f"403 Client Error for url: {presigned}", response=None
-        )
+        mock_session.return_value.get.side_effect = requests.HTTPError(f"403 Client Error for url: {presigned}")
 
         with pytest.raises(AmazonSellingPartnerReportError) as excinfo:
             _collect(
