@@ -6,6 +6,7 @@ import {
     FlutterInstallation,
     FramerInstallation,
     IOSInstallation,
+    KMPInstallation,
     NextJSInstallation,
     NuxtInstallation,
     ReactInstallation,
@@ -115,6 +116,10 @@ const SessionReplayFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
     snippets: SNIPPETS,
 })
+const SessionReplayKMPInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: KMPInstallation,
+    snippets: SNIPPETS,
+})
 const SessionReplayRNInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
     snippets: SNIPPETS,
@@ -141,4 +146,5 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANDROID]: SessionReplayAndroidInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: SessionReplayRNInstructionsWrapper,
     [SDKKey.FLUTTER]: SessionReplayFlutterInstructionsWrapper,
+    [SDKKey.KMP]: SessionReplayKMPInstructionsWrapper,
 }

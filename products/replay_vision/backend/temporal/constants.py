@@ -51,10 +51,26 @@ SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 # pass that picks up sessions whose matching events were older than the fast pass's narrow window.
 # Paired with SWEEP_EVENTS_LOOKBACK: that sets what the fast pass can miss, this sets how long a miss
 # waits, so tuning either one moves the same cost-against-latency tradeoff.
-DEEP_SWEEP_INTERVAL = dt.timedelta(hours=6)
-# The deep pass shares the sweep activity's time budget with the fast query, so it gets the smaller
-# share: it is catch-up work, and a tick that overruns retries both queries.
-DEEP_SWEEP_MAX_EXECUTION_SECONDS = 60
+DEEP_SWEEP_INTERVAL = dt.timedelta(hours=12)
+# ClickHouse budget for one deep query; the pass shares the sweep activity's ~200s timeout with the
+# fast query, so it only gets this when enough of the activity is left to spend it.
+DEEP_SWEEP_MAX_EXECUTION_SECONDS = 120
+
+# Most ground one deep pass covers. The events scan pads ~50h around whatever window it is given, so
+# an unbounded window is both slow and unbounded in cost; a scanner further behind takes more passes
+# rather than one huge one. Sized against the longest interval below, not the floor: the padding
+# dominates a single pass, so widening the window is much cheaper than shortening the gap.
+DEEP_SWEEP_MAX_WINDOW = dt.timedelta(hours=54)
+# Ceiling on the deep pass's cadence stretch. Must stay below DEEP_SWEEP_MAX_WINDOW / DEEP_SWEEP_INTERVAL
+# with margin: a pass covering less ground than the gap before it falls behind for good.
+DEEP_SWEEP_MAX_FACTOR = 3
+# The deep pass is priced on its average daily reads over this window, which has to outlast the
+# longest interval above or a stretched pass ages out of its own measurement and resets to the floor.
+DEEP_SPEND_WINDOW_DAYS = 8
+# Daily ClickHouse read budget for the deep pass alone; above it the pass stretches its interval.
+# Half the frequent sweep's budget: it is background catch-up, and giving each pass the full budget
+# would double the per-scanner ceiling this throttling exists to hold.
+DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY = 100 * 1024**3
 
 # Rolling 24h ClickHouse read budget per scanner. Above it, sweeps stretch their effective cadence
 # proportionally (skipped ticks batch into the next executed one, so no sessions are missed).
@@ -68,8 +84,12 @@ READ_METER_WORKFLOW_NAME = "replay-vision-meter-scanner-reads"
 READ_METER_WORKFLOW_ID = "replay-vision-scanner-read-meter"
 READ_METER_SCHEDULE_ID = "replay-vision-scanner-read-meter-schedule"
 READ_METER_INTERVAL = dt.timedelta(hours=1)
-READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
+# Must cover the metering activity's retries plus the auto-materialize pass, or a slow metering run
+# eats the day's only acting window. Overlap policy is SKIP, so a long run absorbs the next tick.
+READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
 METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
+# Covers the ON CLUSTER ADD COLUMN round when the auto-materializer acts; candidate scans are seconds.
+AUTO_MATERIALIZE_TIMEOUT = dt.timedelta(minutes=4)
 
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
 # prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
@@ -81,6 +101,11 @@ SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 # on top, so a pathological run can still reach this cap. That costs one skipped daily refresh (single
 # attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
 REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
+
+# What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion
+# scan is capped by what the candidate query left rather than by a fixed budget of its own: overrunning
+# kills the attempt after the candidates were found, so the tick retries without ever dispatching.
+FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
@@ -121,6 +146,8 @@ MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
 # N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
 MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
+
+CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
 
 
 def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:

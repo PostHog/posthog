@@ -1086,7 +1086,7 @@ insight_variables: PostgresTable = PostgresTable(
     postgres_table_name="posthog_insightvariable",
     description="Reusable insight/dashboard template variables; one row per variable.",
     fields={
-        "id": IntegerDatabaseField(name="id", description="Variable id."),
+        "id": UUIDDatabaseField(name="id", description="Variable id (UUID)."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "name": StringDatabaseField(name="name", description="Display name of the variable."),
         "type": StringDatabaseField(name="type", description="Variable type, e.g. 'String', 'Number', 'List', 'Date'."),
@@ -1205,7 +1205,7 @@ surveys: PostgresTable = PostgresTable(
     access_control_creator_id_field="created_by_id",
     description="In-app surveys; one row per survey, including its questions and display configuration.",
     fields={
-        "id": IntegerDatabaseField(name="id", description="Survey id."),
+        "id": UUIDDatabaseField(name="id", description="Survey id (UUID)."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "name": StringDatabaseField(name="name", description="Survey name."),
         "type": StringDatabaseField(name="type", description="Survey delivery type, e.g. 'popover', 'api', 'widget'."),
@@ -1221,6 +1221,25 @@ surveys: PostgresTable = PostgresTable(
             name="created_by_id", nullable=True, description="User who created the survey."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the survey was created."),
+    },
+)
+
+survey_response_archives: PostgresTable = PostgresTable(
+    name="survey_response_archives",
+    postgres_table_name="posthog_surveyresponsearchive",
+    access_scope="survey",
+    access_control_id_field="survey_id",
+    description="Archived survey responses; one row per response hidden from survey results. Survey responses themselves are events, so join response_uuid to events.uuid.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Archive record UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "survey_id": UUIDDatabaseField(
+            name="survey_id", description="Survey the archived response belongs to; joins to surveys.id."
+        ),
+        "response_uuid": UUIDDatabaseField(
+            name="response_uuid", description="UUID of the event holding the response; joins to events.uuid."
+        ),
+        "archived_at": DateTimeDatabaseField(name="archived_at", description="When the response was archived."),
     },
 )
 
@@ -1640,6 +1659,9 @@ error_tracking_issues: PostgresTable = PostgresTable(
         "created_at": DateTimeDatabaseField(name="created_at", description="When the issue was first created."),
         "status": StringDatabaseField(
             name="status", description="Issue status, e.g. 'active', 'resolved', 'suppressed'."
+        ),
+        "severity": StringDatabaseField(
+            name="severity", nullable=True, description="Assigned issue severity, or null when unassigned."
         ),
         "name": StringDatabaseField(name="name", description="Issue title (usually the exception type/message)."),
         "description": StringDatabaseField(name="description", description="Issue description."),
@@ -2870,6 +2892,7 @@ class SystemTables(TableNode):
         "_ticket_assignee_roles": TableNode(name="_ticket_assignee_roles", table=ticket_assignee_roles, hidden=True),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
+        "survey_response_archives": TableNode(name="survey_response_archives", table=survey_response_archives),
         "_task_public_channels": TableNode(name="_task_public_channels", table=task_public_channels, hidden=True),
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tags": TableNode(name="tags", table=tags),

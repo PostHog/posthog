@@ -6,7 +6,7 @@ from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -16,6 +16,7 @@ from django.utils import timezone
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -38,6 +39,12 @@ type IncrementalFieldValue = str | int | float | None
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
 AUTO_DISABLED_JOB_ERROR = "Sync stopped because of an error that retrying would not fix"
+
+# How stale a rewrite checkpoint may get before its import hold lapses. Generous on purpose: a
+# multi-budget rewrite renews the stamp on every advancing attempt, and attempts arrive at the
+# schema's own sync cadence, which can be six hours apart. The number that matters is the ceiling on
+# how long a rewrite nobody is advancing can pause a table's imports.
+REPARTITION_HOLD_MAX_AGE = timedelta(hours=48)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -637,13 +644,44 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         appending from that offset instead of re-streaming from row 0, so a table too large to rewrite
         in one activity converges across attempts rather than giving up terminally. Cleared once temp
         is fully built (a swap is staged) or when the controller gives up. Shape:
-        {"temp_uri": str, "rows_written": int, "target": dict}.
+        {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str}.
         """
         if self.sync_type_config:
             marker = self.sync_type_config.get("repartition_rewrite", None)
             if isinstance(marker, dict):
                 return marker
         return None
+
+    @property
+    def repartition_holds_import(self) -> bool:
+        """Whether an unfinished rewrite should pause this schema's imports.
+
+        A rewrite spanning several activity budgets can only resume while live stays at the Delta
+        version its checkpoint was built against, and this schema's own merge is what moves it. Left
+        alone, every sync invalidates the checkpoint the previous run wrote, so the rewrite restarts
+        from row 0 forever and the table never converges. Holding imports for the duration trades
+        staleness on one table for a rewrite that can finish.
+
+        `held_at` is restamped on every checkpoint write, so a rewrite that keeps advancing keeps
+        renewing the hold. One that stops advancing lets it lapse after `REPARTITION_HOLD_MAX_AGE`,
+        so a wedged or abandoned rewrite cannot pause ingestion indefinitely — the worst case is a
+        stale table, never a stopped one.
+        """
+        rewrite = self.repartition_rewrite
+        if not rewrite:
+            return False
+        held_at = rewrite.get("held_at")
+        if not isinstance(held_at, str):
+            # A checkpoint written before `held_at` existed. Treat it as lapsed rather than holding on
+            # a timestamp we cannot age out.
+            return False
+        try:
+            stamped = datetime.fromisoformat(held_at)
+        except ValueError:
+            return False
+        if stamped.tzinfo is None:
+            stamped = stamped.replace(tzinfo=UTC)
+        return datetime.now(UTC) - stamped < REPARTITION_HOLD_MAX_AGE
 
     @property
     def repartition_claim(self) -> dict[str, Any] | None:
@@ -1227,7 +1265,7 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
             schema.save(update_fields=["label", "updated_at"])
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SchemaSyncResult:
     created: list[str]
     deleted: list[str]

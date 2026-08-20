@@ -56,6 +56,14 @@ class ReplayObservation(UUIDModel):
         blank=True,
         help_text="Start time of the recorded session; copied from session metadata so downstream steps don't re-query.",
     )
+    session_group_keys = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Group keys the recorded session's events carry, keyed by group type index (e.g. {'0': 'acme-inc'}). "
+            "Resolved at scan time so the emitted event can be attributed to the group without re-querying."
+        ),
+    )
 
     status = models.CharField(max_length=16, choices=ObservationStatus.choices, default=ObservationStatus.PENDING)
     error_reason = models.TextField(blank=True, default="", help_text=ERROR_REASON_HELP_TEXT)

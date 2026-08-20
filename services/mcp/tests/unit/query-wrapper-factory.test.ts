@@ -206,6 +206,31 @@ describe('createQueryWrapper _posthogUrl', () => {
         expect(result._posthogUrl).toBe('http://localhost:8010/project/1/error_tracking')
         expect(result._posthogUrl).not.toContain('InsightVizNode')
     })
+
+    const traceSchema = z.object({ traceId: z.string().optional() })
+
+    it.each([
+        ['fills a placeholder from the query body', { traceId: 'abc-123' }, '/ai-observability/traces/abc-123'],
+        ['encodes a placeholder value', { traceId: 'a/b c' }, '/ai-observability/traces/a%252Fb%2520c'],
+        [
+            'encodes an opaque placeholder value',
+            { traceId: 'trace](id /?#' },
+            '/ai-observability/traces/trace%255D%2528id%2520%252F%253F%2523',
+        ],
+        ['drops the segment when the placeholder is unset', {}, '/ai-observability/traces'],
+    ])('%s', async (_name, params, expectedPath) => {
+        const context = createMockContext()
+        const tool = createQueryWrapper({
+            name: 'test',
+            schema: traceSchema,
+            kind: 'TraceQuery',
+            urlPrefix: '/ai-observability/traces/{traceId}',
+        })()
+
+        const result = (await tool.handler(context, params)) as any
+
+        expect(result._posthogUrl).toBe(`http://localhost:8010/project/1${expectedPath}`)
+    })
 })
 
 describe('createQueryWrapper output_format handling', () => {

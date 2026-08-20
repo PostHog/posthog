@@ -168,6 +168,12 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     const result = makeService(menu).showTaskContextMenu({
       ...baseTask,
       channels: [
+        {
+          id: "0",
+          name: "personal",
+          channelType: "personal",
+          starred: true,
+        },
         { id: "1", name: "alpha" },
         { id: "2", name: "beta", starred: true },
         { id: "3", name: "gamma" },
@@ -176,7 +182,13 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     });
     await menu.shown;
     const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
-    expect(labels(submenu)).toEqual(["#beta", "#delta", "#alpha", "#gamma"]);
+    expect(labels(submenu)).toEqual([
+      "personal",
+      "#beta",
+      "#delta",
+      "#alpha",
+      "#gamma",
+    ]);
     findSubmenuItem(menu.lastItems, "File to…", "#delta").click();
     expect(await result).toEqual({
       action: { type: "file-to-channel", channelId: "4" },
@@ -271,11 +283,17 @@ describe("ContextMenuService.showBulkTaskContextMenu", () => {
       channels: [
         { id: "c1", name: "support" },
         { id: "c2", name: "design", starred: true },
+        {
+          id: "c3",
+          name: "personal",
+          channelType: "personal",
+          starred: true,
+        },
       ],
     });
     await menu.shown;
     const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
-    expect(labels(submenu)).toEqual(["#design", "#support"]);
+    expect(labels(submenu)).toEqual(["#design", "personal", "#support"]);
   });
 
   it("gates archive on confirmation", async () => {

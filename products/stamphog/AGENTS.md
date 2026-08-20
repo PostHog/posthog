@@ -135,12 +135,26 @@ narrow:
 ## Trust boundaries
 
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
-  able to rewrite the policy that gates it. Same for the `digest:` channel declaration.
+  able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
+  root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
   it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
   settings — those were configured under a verified binding.
-- Name-matched Slack digest channels provision **disabled** pending a human enable (a workspace
-  member can squat a channel named like a team slug). Only repo-declared channels auto-enable.
+- Auto-provisioned digest channels arrive **enabled**, a bare Slack name match included. Only
+  workspace members can create a channel, and a digest carries merged PR titles and summaries those
+  same people can read on the PRs, so gating a name match behind a human enable bought a silent
+  no-op — a channel row, no run row, no post, and an info log in a worker pod — rather than
+  protection. The exclusion that stays is the shared-channel one, the only path where a digest
+  leaves the workspace: only the repo's own `digest:` channel skips it, because the `owners.yaml`
+  registry can name a channel for a team the declaring repo does not own.
+- The app is not a member of a channel it only matched by name, so `post_digest` joins on
+  `not_in_channel` and retries the post once. The join is attempted, never gated on the scope:
+  `conversations.join` needs `channels:join`, and whether an install granted it is invisible to the
+  person who set the digest up, so asking Slack is the only way to find out. A refused join fails
+  the run with an error naming the invite, which is a signal in the digests scene and self-heals the
+  moment somebody adds the app.
+- A declared channel that does not resolve is a dead end, never a retry with the audience slug —
+  the slug is the wrong name the declaration exists to correct.
 - PR content — title, body, diff, comments, reactions — is untrusted input everywhere, including
   in reviewer prompts and error messages persisted to API-readable fields (`run.error` keeps only
   a truncated first line for exactly this reason).

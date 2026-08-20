@@ -44,7 +44,7 @@ import {
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
-import { serializeError } from "@posthog/shared";
+import { leadingSlashCommand, serializeError } from "@posthog/shared";
 import { v7 as uuidv7 } from "uuid";
 import packageJson from "../../../package.json" with { type: "json" };
 import {
@@ -66,6 +66,7 @@ import {
   type PostHogProductId,
 } from "../../posthog-products";
 import type { PostHogAPIConfig } from "../../types";
+import { text } from "../../utils/acp-content";
 import {
   isCloudRun,
   unreachable,
@@ -76,7 +77,9 @@ import { resolveGithubToken } from "../../utils/github-token";
 import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
 import { BaseAcpAgent } from "../base-acp-agent";
+import { isLocalSkillCommandChunk } from "../local-skill";
 import { LOCAL_TOOLS_MCP_NAME, type LocalToolCtx } from "../local-tools";
+import { visiblePromptBlocks } from "../prompt-blocks";
 import { resolveSpokenNarration, resolveTaskId } from "../session-meta";
 import {
   buildBreakdown,
@@ -109,6 +112,7 @@ import {
 } from "./mcp/tool-metadata";
 import { canUseTool } from "./permissions/permission-handlers";
 import { getAvailableSlashCommands } from "./session/commands";
+import { getSessionJsonlPath } from "./session/jsonl-hydration";
 import { parseMcpServers } from "./session/mcp-config";
 import {
   applyAvailableModelsAllowlist,
@@ -174,6 +178,33 @@ const SESSION_ENDED_MESSAGE =
 const MAX_TITLE_LENGTH = 256;
 const LOCAL_ONLY_COMMANDS = new Set(["/context", "/heapdump", "/extra-usage"]);
 
+/**
+ * The `/command` a prompt leads with, if any.
+ *
+ * Read from the ACP prompt rather than the converted SDK message, and skipping
+ * the blocks the host injected rather than the user: `promptToClaude` prepends
+ * detected-PR and local-skill context, and cloud prompts lead with hidden
+ * blocks (the resume preamble; on desktop, shell-execute recaps). Matching the
+ * first text block of either would read host context as the user's command and
+ * miss the command entirely.
+ */
+function promptSlashCommand(params: PromptRequest): string | undefined {
+  const meta = params._meta as { localSkillName?: unknown } | undefined;
+  const localSkillName =
+    typeof meta?.localSkillName === "string" ? meta.localSkillName : null;
+
+  for (const chunk of visiblePromptBlocks(params.prompt)) {
+    if (chunk.type !== "text") continue;
+    // `promptToClaude` consumes this chunk and sends the skill's context in its
+    // place, so the SDK never sees a command — neither should we.
+    if (localSkillName && isLocalSkillCommandChunk(chunk, localSkillName)) {
+      return undefined;
+    }
+    return leadingSlashCommand(chunk.text);
+  }
+  return undefined;
+}
+
 /** Steers the SDK has yet to fold into the turn. */
 function hasUnconsumedSteers(turn: Turn): boolean {
   for (const steer of turn.pendingSteers.values()) {
@@ -192,6 +223,14 @@ function confirmConsumedSteers(turn: Turn): void {
       turn.pendingSteers.delete(uuid);
     }
   }
+  if (turn.pendingSteers.size > 0) {
+    return;
+  }
+  if (turn.steerTimer) {
+    clearTimeout(turn.steerTimer);
+    turn.steerTimer = undefined;
+  }
+  turn.deferredResult = undefined;
 }
 
 /** Report every steer left on a finishing turn as undelivered so callers redeliver it. */
@@ -358,6 +397,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           posthog: {
             resumeSession: true,
             steering: "native",
+            // This build implements `/clear` itself and treats a
+            // `_posthog/conversation_cleared` marker as a rehydration boundary.
+            // Hosts that record the boundary without an agent (the backend does
+            // it for a finished cloud run) gate on this: an older agent ignores
+            // the marker and would resume the conversation it was meant to
+            // retire, so the clear has to look unavailable rather than silently
+            // not take.
+            conversationClear: true,
           },
           claudeCode: {
             promptQueueing: true,
@@ -491,31 +538,30 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
+    // Detect local-only slash commands that return results without model invocation
+    const command = promptSlashCommand(params);
+
+    if (command === "/clear") {
+      // Handled by the adapter, never forwarded to the SDK (whose own /clear
+      // is unreliable in this embedding — see UPSTREAM.md "Hide /clear").
+      // Ahead of the SDK conversion below, which this path never reads.
+      return this.clearConversation(params);
+    }
+
     const userMessage = promptToClaude(params);
     const promptUuid = randomUUID();
     userMessage.uuid = promptUuid;
-    let isLocalOnlyCommand = false;
+    const isLocalOnlyCommand = !!command && LOCAL_ONLY_COMMANDS.has(command);
 
-    // Detect local-only slash commands that return results without model invocation
-    const msgContent = userMessage.message.content;
-    let firstTextPart = "";
-    if (typeof msgContent === "string") {
-      firstTextPart = msgContent;
-    } else if (Array.isArray(msgContent)) {
-      for (const block of msgContent) {
-        if ("type" in block && block.type === "text" && "text" in block) {
-          firstTextPart = block.text as string;
-          break;
-        }
-      }
-    }
-    const commandMatch = firstTextPart.match(/^(\/\S+)/);
-    if (commandMatch && LOCAL_ONLY_COMMANDS.has(commandMatch[1])) {
-      isLocalOnlyCommand = true;
+    if (this.session.clearing) {
+      // A /clear is swapping the SDK query underneath. Wait for it to settle
+      // so this prompt lands on the fresh input stream, not the retired one
+      // (a failed clear sets queryClosed, which the check below rejects).
+      await this.session.clearing;
     }
 
-    if (commandMatch && !isLocalOnlyCommand) {
-      await this.refreshSlashCommandsForPrompt(commandMatch[1]);
+    if (command && !isLocalOnlyCommand) {
+      await this.refreshSlashCommandsForPrompt(command);
     }
 
     if (this.session.queryClosed) {
@@ -527,7 +573,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const isSteer = isSteerMeta(params._meta);
     if (hasInFlightTurns && isSteer) {
-      // Fold into the running turn (promptToClaude tagged it priority:"next");
+      // Fold into the running turn (promptToClaude tagged it priority:"now");
       // the benign end_turn is ignored by clients, which key off _meta.steer.
       const owner =
         this.session.activeTurn ??
@@ -573,7 +619,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       promptUuid,
       pendingSteers: new Map(),
       isLocalOnlyCommand,
-      commandName: commandMatch?.[1],
+      commandName: command,
       broadcast: () => this.broadcastUserMessage(params),
       settled: false,
       resolve: () => {},
@@ -1508,6 +1554,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (session.queryClosed) {
       return;
     }
+    if (session.clearing) {
+      // A /clear is swapping the SDK query: there is no turn to cancel, and
+      // interrupting the half-initialized replacement would corrupt the swap.
+      // A wedged clear self-limits: retireQuery's interrupt() and the new
+      // query's init are both time-bounded (see retireQuery, performClear).
+      this.logger.debug("Ignoring cancel while a /clear is in progress", {
+        sessionId: this.sessionId,
+      });
+      return;
+    }
     session.cancelled = true;
 
     // Settle not-yet-echoed turns immediately; the SDK still runs their
@@ -1594,10 +1650,310 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     return { refreshed: true };
   }
 
+  /** Retire the current consumer and SDK query so a replacement Query can be
+   *  swapped in place (refreshSession, clearConversation). The generation bump
+   *  makes the retired consumer exit quietly. */
+  private async retireQuery(session: Session): Promise<void> {
+    session.queryGeneration += 1;
+    const oldConsumer = session.consumer;
+    session.consumer = undefined;
+    session.cancelController?.abort();
+    session.cancelController = undefined;
+
+    // Abort FIRST so any stuck in-flight HTTP request unblocks — otherwise
+    // interrupt() can deadlock waiting on an API call that never returns.
+    // Callers allocate a fresh controller for the new Query so aborting
+    // the old one doesn't poison it.
+    session.abortController.abort();
+    try {
+      // Bounded so a wedged interrupt() can't block the swap indefinitely —
+      // the abort above should already unblock it; this is the backstop.
+      await withTimeout(session.query.interrupt(), 5_000);
+    } catch (error) {
+      this.logger.debug("Ignoring interrupt error while retiring query", {
+        sessionId: this.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    session.input.end();
+    if (oldConsumer) {
+      // Bounded so a wedged old query can't block the swap.
+      await withTimeout(oldConsumer, 5_000);
+    }
+  }
+
+  /**
+   * `/clear` — drop the conversation and start over in place.
+   *
+   * The SDK's own /clear is not forwarded (see UPSTREAM.md "Hide /clear");
+   * instead the current Query is retired and a brand-new SDK session (fresh
+   * session id, no resume) is swapped in under the same ACP session. The
+   * session log stays append-only: a `conversation_cleared` marker records
+   * the boundary (rehydration rebuilds only post-clear turns) and an updated
+   * `sdk_session` mapping points future resumes at the fresh SDK session.
+   */
+  private async clearConversation(
+    params: PromptRequest,
+  ): Promise<PromptResponse> {
+    const session = this.session;
+    if (session.queryClosed) {
+      throw RequestError.internalError(undefined, SESSION_ENDED_MESSAGE);
+    }
+    // A second /clear mid-swap would race the same session fields
+    // (query/input/abortController) and orphan a live SDK query; a clear
+    // mid-turn would rip the query out from under the active prompt.
+    const refusal = session.clearing
+      ? "A conversation clear is already in progress."
+      : session.activeTurn !== null || session.turnQueue.length > 0
+        ? "Cannot clear the conversation while a turn is in progress. Wait for it to finish (or cancel it) and try again."
+        : null;
+    if (refusal) {
+      await this.client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: text(refusal),
+        },
+      });
+      return { stopReason: "end_turn" };
+    }
+
+    // Claim the session synchronously, before the first await: ACP handlers
+    // are not serialized, so a prompt/cancel/second clear can arrive at any
+    // await point of the swap. They key off this flag (see Session.clearing).
+    // performClear runs synchronously up to its first await, so the claim is
+    // visible before any other handler can interleave. Waiters only need
+    // settlement; a failure still surfaces through the returned promise.
+    const clear = this.performClear(params, session);
+    session.clearing = clear.then(
+      () => undefined,
+      () => undefined,
+    );
+    try {
+      return await clear;
+    } finally {
+      session.clearing = undefined;
+    }
+  }
+
+  /** Body of {@link clearConversation}; only runs holding `session.clearing`. */
+  private async performClear(
+    params: PromptRequest,
+    session: Session,
+  ): Promise<PromptResponse> {
+    this.logger.info("Clearing conversation", { sessionId: params.sessionId });
+
+    // Signal the in-progress state immediately (mirrors the "compacting"
+    // status row): the swap below is normally sub-second, but on a slow or
+    // timed-out clear the user would otherwise see no feedback at all
+    // between typing `/clear` and either the divider or an error appearing.
+    await this.client.extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+      sessionId: params.sessionId,
+      status: "clearing",
+    });
+
+    let newQuery: Query | undefined;
+    let newAbortController: AbortController | undefined;
+    try {
+      await this.retireQuery(session);
+
+      const newSdkSessionId = uuidv7();
+      newAbortController = new AbortController();
+      const {
+        resume: _dropResume,
+        forkSession: _dropFork,
+        ...rest
+      } = session.queryOptions;
+
+      // Rebuild the in-process ("sdk") server fresh; reusing the prior instance
+      // throws "Already connected to a transport".
+      const freshInProcess = session.buildInProcessMcpServers();
+
+      const newOptions: Options = {
+        ...rest,
+        mcpServers: {
+          ...externalMcpServers(rest.mcpServers),
+          ...freshInProcess,
+        },
+        sessionId: newSdkSessionId,
+        abortController: newAbortController,
+        // `rest.model` is the creation-time value; the user may have switched
+        // models since, so re-root the new Query on the live session model.
+        ...(session.modelId && { model: toSdkModelId(session.modelId) }),
+      };
+
+      const newInput = new Pushable<SDKUserMessage>();
+      newQuery = query({ prompt: newInput, options: newOptions });
+
+      session.query = newQuery;
+      session.input = newInput;
+      session.queryOptions = newOptions;
+      session.abortController = newAbortController;
+
+      const result = await withTimeout(
+        newQuery.initializationResult(),
+        SESSION_VALIDATION_TIMEOUT_MS,
+      );
+      if (result.result === "timeout") {
+        throw new Error(
+          `Conversation clear timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+        );
+      }
+      return await this.finishClear(
+        params,
+        session,
+        newQuery,
+        newSdkSessionId,
+        result.value,
+      );
+    } catch (error) {
+      // The old query is already retired and the new one is unproven, so any
+      // failure here — timeout, SDK init rejection, a consumer that died while
+      // being retired — leaves the session unusable. Close it out and report
+      // the outcome (same as a failed compaction) rather than leaving the
+      // "Clearing…" spinner unresolved and the session half-swapped.
+      if (newQuery && newAbortController) {
+        this.terminateQuery(newQuery, newAbortController);
+      }
+      session.queryClosed = true;
+      const message = error instanceof Error ? error.message : String(error);
+      try {
+        await this.client.extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+          sessionId: params.sessionId,
+          status: "clearing_failed",
+          error: message,
+        });
+      } catch {
+        // The client transport itself is failing; don't mask the cause.
+      }
+      throw new RequestError(-32603, message, { sessionId: params.sessionId });
+    }
+  }
+
+  /** Post-swap bookkeeping and notifications once the fresh SDK session is
+   *  confirmed live. Failures still propagate to performClear's catch: the
+   *  log may already show the /clear, but the session state is authoritative
+   *  only once everything (marker included) has been persisted. */
+  private async finishClear(
+    params: PromptRequest,
+    session: Session,
+    newQuery: Query,
+    newSdkSessionId: string,
+    initResult: Awaited<ReturnType<Query["initializationResult"]>>,
+  ): Promise<PromptResponse> {
+    session.knownSlashCommands = collectKnownSlashCommands(initResult.commands);
+    session.fastModeEnabled = fastModeStateEnabled(initResult.fast_mode_state);
+
+    // Future resumes (refreshSession, desktop reconnect, cloud rehydration)
+    // must target the fresh SDK session. `this.sessionId` (the ACP-visible
+    // id) stays stable — clients keep addressing the session with it.
+    const previousSdkSessionId = session.sdkSessionId;
+    session.sdkSessionId = newSdkSessionId;
+
+    // Invalidate the jsonl the SDK just finished writing for the retired
+    // session — the stable ACP id on a session's first /clear, or that
+    // clear's own sdkSessionId on every clear after. Left in place, a cold
+    // reconnect that hydrates by that id would find it, skip re-fetching the
+    // authoritative log, and resume the pre-clear conversation instead of the
+    // cleared one; left on disk, it also orphans one file per clear.
+    try {
+      await fs.promises.unlink(
+        getSessionJsonlPath(previousSdkSessionId, session.cwd),
+      );
+    } catch (error) {
+      // Already gone is the common case (a resumed session that never wrote a
+      // local jsonl this run). Anything else means the file survives, and a
+      // cold reconnect that finds it resumes the pre-clear conversation — so
+      // the clear has to fail rather than report a success the next
+      // reconnect quietly undoes.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    const hadTasks = session.taskState.size > 0;
+    session.taskState.clear();
+    this.toolUseStreamCache.clear();
+    this.emittedToolCalls.clear();
+    // Nothing from before the boundary should be able to reach the fresh
+    // session: reset the plan/notification state ExitPlanMode falls back
+    // to when its tool input omits an explicit plan, so a stale (possibly
+    // repo-injected) pre-clear plan can't resurface after approval.
+    session.notificationHistory.length = 0;
+    session.lastPlanFilePath = undefined;
+    session.lastPlanContent = undefined;
+    this.fileContentCache = {};
+
+    // Only broadcast (and thus persist) the "/clear" prompt once the new
+    // session is confirmed live — the log must never show a "/clear" whose
+    // clear never actually happened. Broadcast before the marker so it lands
+    // on the pre-clear side of the rehydration boundary and gets dropped
+    // rather than replayed as a turn after resume.
+    await this.broadcastUserMessage(params);
+
+    // These notifications are independent of one another (only the
+    // user-message broadcast above must precede them); issue them
+    // concurrently rather than paying sequential round trips.
+    const postClearNotifications: Promise<unknown>[] = [
+      // Clear the "Clearing…" spinner. `conversation_cleared` normally
+      // supersedes it visually, but signal completion explicitly (same
+      // rationale as the compacting spinner) rather than relying on that.
+      this.client.extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+        sessionId: params.sessionId,
+        status: "clearing",
+        isComplete: true,
+      }),
+    ];
+    if (session.taskRunId) {
+      postClearNotifications.push(
+        this.client.extNotification(POSTHOG_NOTIFICATIONS.SDK_SESSION, {
+          taskRunId: session.taskRunId,
+          sessionId: newSdkSessionId,
+          adapter: "claude",
+        }),
+      );
+    }
+    postClearNotifications.push(
+      this.client.extNotification(POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED, {
+        sessionId: newSdkSessionId,
+      }),
+    );
+    if (hadTasks) {
+      postClearNotifications.push(
+        this.client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: { sessionUpdate: "plan", entries: [] },
+        }),
+      );
+    }
+    postClearNotifications.push(
+      this.client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: "usage_update",
+          used: 0,
+          size:
+            session.lastContextWindowSize ??
+            this.getContextWindowForModel(session.modelId ?? ""),
+        },
+      }),
+    );
+    await Promise.all(postClearNotifications);
+
+    this.refreshMcpMetadata(newQuery);
+    return { stopReason: "end_turn" };
+  }
+
   private async refreshSession(
     mcpServers: Record<string, McpServerConfig>,
   ): Promise<void> {
     const prev = this.session;
+    if (prev.clearing) {
+      throw new RequestError(
+        -32002,
+        "Cannot refresh session while a conversation clear is in progress",
+      );
+    }
     if (prev.activeTurn !== null || prev.turnQueue.length > 0) {
       throw new RequestError(
         -32002,
@@ -1616,31 +1972,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       sessionId: this.sessionId,
     });
 
-    // Retire the old consumer: the generation bump makes it exit quietly.
-    prev.queryGeneration += 1;
-    const oldConsumer = prev.consumer;
-    prev.consumer = undefined;
-    prev.cancelController?.abort();
-    prev.cancelController = undefined;
-
-    // Abort FIRST so any stuck in-flight HTTP request unblocks — otherwise
-    // interrupt() can deadlock waiting on an API call that never returns.
-    // We allocate a fresh controller for the new Query below so aborting
-    // the old one doesn't poison it.
-    prev.abortController.abort();
-    try {
-      await prev.query.interrupt();
-    } catch (error) {
-      this.logger.debug("Ignoring interrupt error during session refresh", {
-        sessionId: this.sessionId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-    prev.input.end();
-    if (oldConsumer) {
-      // Bounded so a wedged old query can't block the refresh.
-      await withTimeout(oldConsumer, 5_000);
-    }
+    await this.retireQuery(prev);
 
     // Reuse every option from the running session; swap mcpServers, re-root
     // identity on `resume` instead of `sessionId`, and give the new Query a
@@ -1661,7 +1993,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const newOptions: Options = {
       ...rest,
       mcpServers: { ...mcpServers, ...freshInProcess },
-      resume: this.sessionId,
+      resume: prev.sdkSessionId,
       forkSession: false,
       abortController: newAbortController,
       // `rest.model` is the creation-time value; the user may have switched
@@ -1911,6 +2243,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     const previousMode = this.session.permissionMode;
     this.session.permissionMode = modeId as CodeExecutionMode;
+    // queryOptions seeds every later query rebuild (/clear, refreshSession), so the
+    // mode has to land there too. Left stale, a rebuild restores the creation-time
+    // mode — handing back permissions the user had since narrowed, with nothing on
+    // screen to say so.
+    this.session.queryOptions.permissionMode = toSdkPermissionMode(
+      modeId as CodeExecutionMode,
+    );
     if (modeId === "plan" && previousMode !== "plan") {
       this.session.modeBeforePlan = previousMode;
     }
@@ -1920,6 +2259,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       );
     } catch (error) {
       this.session.permissionMode = previousMode;
+      this.session.queryOptions.permissionMode =
+        toSdkPermissionMode(previousMode);
       if (error instanceof Error) {
         if (!error.message) {
           error.message = "Invalid Mode";
@@ -2183,6 +2524,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const session: Session = {
       query: q,
+      sdkSessionId: sessionId,
       queryOptions: options,
       buildInProcessMcpServers,
       localToolsServerNames,
@@ -2457,6 +2799,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       if (this.session) {
         const previousMode = this.session.permissionMode;
         this.session.permissionMode = newMode;
+        // Same reason as applySessionMode: queryOptions seeds every later
+        // rebuild, and this path (the EnterPlanMode hook) moves the mode too.
+        this.session.queryOptions.permissionMode = toSdkPermissionMode(newMode);
         if (newMode === "plan" && previousMode !== "plan") {
           this.session.modeBeforePlan = previousMode;
         }
@@ -2502,10 +2847,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     });
   }
 
+  /** Matches the ACP session id, or the underlying SDK session id after a
+   *  /clear (desktop hosts re-key on the sdk_session notification). */
+  hasSession(sessionId: string): boolean {
+    return (
+      super.hasSession(sessionId) || this.session?.sdkSessionId === sessionId
+    );
+  }
+
   private getExistingSessionState(
     sessionId: string,
   ): NewSessionResponse | null {
-    if (this.sessionId !== sessionId || !this.session) return null;
+    if (!this.hasSession(sessionId) || !this.session) return null;
 
     const availableModes = getAvailableModes();
     const modes: SessionModeState = {
@@ -2518,7 +2871,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     };
 
     return {
-      sessionId,
+      // Echo the canonical ACP session id even if the caller matched via the
+      // post-/clear SDK session id (see hasSession) — clients must keep
+      // addressing the session with the stable id.
+      sessionId: this.sessionId,
       modes,
       configOptions: this.session.configOptions,
     };
@@ -2679,7 +3035,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   ): Promise<void> {
     let info: Awaited<ReturnType<typeof getSessionInfo>>;
     try {
-      info = await getSessionInfo(sessionId, { dir: session.cwd });
+      // The SDK stores session info under the SDK session id, which diverges
+      // from the client-addressed id after a /clear.
+      info = await getSessionInfo(session.sdkSessionId, {
+        dir: session.cwd,
+      });
     } catch (error) {
       this.logger.warn("Failed to read session info for title update", {
         sessionId,

@@ -28,6 +28,7 @@ import modal
 import requests
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
@@ -48,6 +49,7 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
+    SandboxNetworkPolicyError,
     SandboxNotFoundError,
     SandboxNotRunningError,
     SandboxProvisionError,
@@ -115,6 +117,9 @@ STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
 # Images and snapshots are workspace-scoped in Modal, not app-scoped, so a box here still restores
 # a snapshot baked under the default app.
 SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
+
+CPU_BILLING_STATE_PATH = "/tmp/posthog-cpu-billing.state"
+CPU_BILLING_SAMPLER_PATH = "/usr/local/bin/posthog-cpu-billing-sampler"
 
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
@@ -191,6 +196,20 @@ SESSION_INIT_PROBE_HOSTS = (
     "api.anthropic.com",
 )
 
+_MODAL_NETWORK_POLICY_REJECTION_MARKERS = (
+    "outbound_domain_allowlist",
+    "outbound domain allowlist",
+    "domain allowlist",
+    "allowed domains",
+)
+
+
+def _is_modal_network_policy_rejection(error: BaseException) -> bool:
+    if not isinstance(error, ModalInvalidError):
+        return False
+    message = str(error).casefold()
+    return any(marker in message for marker in _MODAL_NETWORK_POLICY_REJECTION_MARKERS)
+
 
 def _session_init_probe_hosts() -> list[str]:
     """Hosts the startup-failure egress probe checks. Both gateway settings
@@ -258,6 +277,11 @@ LOCAL_MODAL_DOCKERFILES = {
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-guard.sh")
+# The notebook image bakes the notebooks SQLV2 kernel and stamps its content hash,
+# so a local build context needs the package and the module that computes the hash.
+LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
+LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
+LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
@@ -601,6 +625,11 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_gh_guard_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base_dir / LOCAL_MODAL_GH_GUARD_SCRIPT, destination_gh_guard_path)
 
+    if template in {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE}:
+        destination_sampler_path = context_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER
+        destination_sampler_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER, destination_sampler_path)
+
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
         destination_install_script_path = context_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
@@ -611,6 +640,18 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         # latest rendered output.
         LocalSkillsCache(base_dir).ensure_built()
         populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
+
+    elif template == SandboxTemplate.NOTEBOOK_BASE:
+        destination_kernel_module_path = context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE
+        destination_kernel_module_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE, destination_kernel_module_path)
+        # A checkout that ran the tests locally has bytecode here, and this context
+        # bypasses .dockerignore, so drop it rather than bake it into the image.
+        shutil.copytree(
+            base_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+            context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
 
     elif template == SandboxTemplate.STREAMLIT_BASE:
         # Copy all sibling files (streamlit_auth_proxy.py, etc.)
@@ -808,7 +849,7 @@ class ModalSandbox(SandboxBase):
             if config.block_network:
                 create_kwargs["block_network"] = True
 
-            if config.outbound_domain_allowlist:
+            if config.outbound_domain_allowlist is not None:
                 create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
 
             if secrets:
@@ -900,11 +941,13 @@ class ModalSandbox(SandboxBase):
 
             return sandbox
 
+        except SandboxNetworkPolicyError:
+            raise
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
-            )
+            ) from e
 
     @staticmethod
     def _create_from_image_candidates(
@@ -920,12 +963,22 @@ class ModalSandbox(SandboxBase):
         re-enter this chain (the wedged-restore recovery) can describe what they landed on.
         """
         for index, candidate in enumerate(candidates):
-            create_kwargs["image"] = candidate.image
+            attempt_kwargs = {**create_kwargs, "image": candidate.image}
             try:
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                    sb = modal.Sandbox.create(**attempt_kwargs)  # type: ignore[arg-type]
             except Exception as e:
+                if config.outbound_domain_allowlist is not None and _is_modal_network_policy_rejection(e):
+                    raise SandboxNetworkPolicyError(
+                        "Modal rejected the requested sandbox network policy.",
+                        {
+                            "config_name": config.name,
+                            "network_policy_fingerprint": config.network_policy_fingerprint,
+                            "error": str(e),
+                        },
+                        cause=e,
+                    ) from e
                 if index == len(candidates) - 1:
                     raise
                 logger.warning(
@@ -1348,6 +1401,8 @@ class ModalSandbox(SandboxBase):
             raise RuntimeError("Sandbox not in running state.")
 
         if self._agent_server_is_healthy():
+            if wait_for_health:
+                self.wait_for_agent_server_ready(allowed_domains)
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
             return
         self._free_agent_server_port()
@@ -1435,6 +1490,12 @@ class ModalSandbox(SandboxBase):
 
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
         if self._wait_for_health_check():
+            if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
+                raise SandboxExecutionError(
+                    "Failed to verify agentsh network enforcement",
+                    {"sandbox_id": self.id},
+                    cause=RuntimeError("agentsh daemon health check failed"),
+                )
             logger.info(f"Agent-server ready in sandbox {self.id}")
             return
         diagnostics = self._diagnose_startup_failure(allowed_domains)
@@ -1715,12 +1776,51 @@ class ModalSandbox(SandboxBase):
             )
 
     def read_cpu_usage_usec(self) -> int | None:
-        cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
-        for line in cpu_stat.splitlines():
-            key, _, value = line.partition(" ")
-            if key == "usage_usec":
-                return int(value)
+        try:
+            cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+        except Exception:
+            cpu_stat = None
+        if cpu_stat is not None:
+            for line in cpu_stat.splitlines():
+                key, _, value = line.partition(" ")
+                if key == "usage_usec":
+                    return int(value)
+        try:
+            cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+            if cpuacct_usage.strip():
+                return int(cpuacct_usage) // 1000
+        except Exception:
+            pass
         return None
+
+    def start_cpu_billing_sampler(self) -> bool:
+        request_cores = (
+            self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
+        )
+        command = (
+            f"rm -f {shlex.quote(CPU_BILLING_STATE_PATH)}; "
+            f"setsid {shlex.quote(CPU_BILLING_SAMPLER_PATH)} "
+            f"{shlex.quote(CPU_BILLING_STATE_PATH)} {shlex.quote(str(request_cores))} "
+            ">/dev/null 2>&1 </dev/null & "
+            f"for _ in $(seq 1 50); do [ -f {shlex.quote(CPU_BILLING_STATE_PATH)} ] && exit 0; sleep 0.02; done; exit 1"
+        )
+        result = self.execute(command, timeout_seconds=10)
+        return result.exit_code == 0
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
+        values = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH).split()
+        if len(values) != 3:
+            return None
+        billed_usec, previous_cpu, previous_time = (int(value) for value in values)
+        current_cpu = self.read_cpu_usage_usec()
+        if current_cpu is None:
+            return None
+        elapsed_ns = max(0, time.time_ns() - previous_time)
+        request_cores = (
+            self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
+        )
+        floor_usec = round(request_cores * elapsed_ns / 1000)
+        return billed_usec + max(current_cpu - previous_cpu, floor_usec)
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

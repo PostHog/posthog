@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -329,14 +330,48 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
 
 
 class TestReplyFooterGate(SimpleTestCase):
-    def _handler(self) -> SlackThreadHandler:
+    def _handler(self, footer: RunFooter | None = None) -> SlackThreadHandler:
         context = SlackThreadContext(
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
             mentioning_slack_user_id="U123",
         )
-        return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
+        return SlackThreadHandler(context, footer or RunFooter(model="claude-opus-5"))
+
+    @parameterized.expand([("withheld", False), ("granted", True)])
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_withholding_the_links_still_leaves_the_model_and_configure(
+        self,
+        _name: str,
+        code_access: bool,
+        mock_get_client,
+        mock_get_integration,
+        _mock_flag,
+        _mock_home,
+    ) -> None:
+        # Whether this reader can open a task page changes which segments render, never
+        # whether the line appears: the model and the way to change it are theirs either way.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(config={"app_id": "A1"}, integration_id="T1")
+        footer = RunFooter(
+            task_url="https://app/project/1/tasks/t",
+            desktop_url="https://us.posthog.com/code/task/t",
+            model="claude-opus-5",
+        )
+
+        with patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=code_access):
+            self._handler(footer).post_thread_message("the answer", with_footer=True)
+
+        line = mock_client.chat_postMessage.call_args.kwargs["blocks"][-1]["elements"][0]["text"]
+        assert "*Claude Opus 5*" in line
+        assert "|Configure>" in line
+        assert ("View on web" in line) is code_access
+        assert ("View on desktop" in line) is code_access
 
     @parameterized.expand([("off", False, False), ("on", True, True)])
     @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
@@ -441,3 +476,54 @@ class TestRelayedAnswerFooter(SimpleTestCase):
             assert kwargs["blocks"][-1]["type"] == "context"
             # A section collapses behind "Show more" unless it is told to expand.
             assert kwargs["blocks"][0]["expand"] is True
+
+
+class TestDeletedTriggerMessage(SimpleTestCase):
+    """A run whose prompt has been deleted has nobody left to answer, so it says nothing."""
+
+    def setUp(self) -> None:
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    def _handler(self) -> SlackThreadHandler:
+        return SlackThreadHandler(
+            SlackThreadContext(
+                integration_id=1,
+                channel="C_DELETED",
+                thread_ts="1700000000.000100",
+                mentioning_slack_user_id="U123",
+            )
+        )
+
+    @parameterized.expand(
+        [
+            ("relayed_answer", lambda h: h.post_thread_message("here is the answer")),
+            ("completion_card", lambda h: h.post_completion(task_url=None)),
+            ("failure_card", lambda h: h.post_error("boom", task_url=None)),
+            ("progress_update", lambda h: h.post_or_update_progress("planning")),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_nothing_is_posted_once_the_prompt_is_deleted(
+        self, _name, post, mock_get_client, _mock_find_progress
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.conversations_history.return_value = {"messages": []}
+        mock_get_client.return_value = mock_client
+
+        post(self._handler())
+
+        mock_client.chat_postMessage.assert_not_called()
+
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_status_stream_does_not_start_for_a_deleted_prompt(self, mock_get_client) -> None:
+        mock_client = MagicMock()
+        mock_client.conversations_history.return_value = {"messages": []}
+        mock_get_client.return_value = mock_client
+
+        assert self._handler().start_status_stream(first_markdown_text="thinking") is None
+
+        mock_client.chat_startStream.assert_not_called()

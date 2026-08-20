@@ -2,7 +2,7 @@ import os
 import logging
 from collections.abc import Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import StrEnum
 from functools import cache
 from typing import TYPE_CHECKING
@@ -11,6 +11,8 @@ from django.conf import settings
 
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
@@ -92,7 +94,7 @@ class ClickHouseUser(StrEnum):
     DICT_READER = "dict_reader"
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ClickHouseCredentials:
     user: str
     password: str = field(repr=False)

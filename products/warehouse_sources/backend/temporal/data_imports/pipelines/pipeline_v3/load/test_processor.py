@@ -12,9 +12,11 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import LOAD_POSITION_CONFIG_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
@@ -23,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _mark_job_completed,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
+    _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
     process_message,
@@ -599,7 +602,7 @@ class TestPostImportTrigger:
             # Any start failure (e.g. no Temporal env vars on the load deployment) must
             # not fail the load; it is logged and captured.
             ("start_failure_is_captured", RuntimeError("no temporal"), True),
-            # An id collision means a prior delivery already started this job's run.
+            # An id collision means a register is already in flight for this schema.
             ("already_started_is_benign", WorkflowAlreadyStartedError("wf-id", "wf-type"), False),
         ]
     )
@@ -697,6 +700,147 @@ class TestEnrichCdcRows:
                 TOAST_OMITTED_COLUMN: pa.array([r.get("omitted") for r in rows], pa.list_(pa.string())),
             }
         )
+
+    def _stamped(self, ids: list[int], ops: list[str], seqs: list[int]) -> pa.Table:
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_PROVENANCE
+
+        table = pa.table(
+            {
+                "id": pa.array(ids, pa.int64()),
+                "name": pa.array([f"n{i}" for i in ids], pa.string()),
+                CDC_OP_COLUMN: pa.array(ops, pa.string()),
+            }
+        )
+        return table.append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array(seqs, pa.int64())
+        )
+
+    def _resolve(self, table: pa.Table, *, watermark: int | None, cdc_write_mode: str = "incremental_merge"):
+        config = {LOAD_POSITION_CONFIG_KEY: {"users": watermark}} if watermark is not None else {}
+        return _resolve_cdc_positions(
+            table,
+            sync_type_config=config,
+            resource_name="users",
+            primary_keys=["id"],
+            cdc_write_mode=cdc_write_mode,
+            team_id="2",
+        )
+
+    def test_resolution_drops_applied_rows_and_returns_the_new_position(self):
+        table = self._stamped([1, 2, 3], ["I", "I", "I"], [10, 20, 30])
+        result, position = self._resolve(table, watermark=20)
+
+        # Strictly-below only: 20 stays, because a split transaction shares its commit position.
+        assert result.column("id").to_pylist() == [2, 3]
+        assert position == 30
+
+    def test_resolution_is_skipped_without_an_engine_stamped_position(self):
+        # A source column named _ph_cdc_seq must not drive the guard.
+        table = self._stamped([1, 2], ["I", "I"], [10, 20]).drop_columns([CDC_SEQ_COLUMN])
+        table = table.append_column(pa.field(CDC_SEQ_COLUMN, pa.int64()), pa.array([10, 20], pa.int64()))
+        result, position = self._resolve(table, watermark=99)
+
+        assert result is table
+        assert position is None
+
+    def test_resolution_keeps_every_row_on_the_first_batch_ever(self):
+        # No recorded position yet: nothing is provably applied, so nothing may be dropped.
+        table = self._stamped([1, 2], ["I", "I"], [10, 20])
+        result, position = self._resolve(table, watermark=None)
+
+        assert result.column("id").to_pylist() == [1, 2]
+        assert position == 20
+
+    def test_resolution_reads_the_position_for_its_own_lane_only(self):
+        # Consolidated and companion tables advance independently; one must not gate the other.
+        table = self._stamped([1, 2], ["I", "I"], [10, 20])
+        result, _ = _resolve_cdc_positions(
+            table,
+            sync_type_config={LOAD_POSITION_CONFIG_KEY: {"users_cdc": 99}},
+            resource_name="users",
+            primary_keys=["id"],
+            cdc_write_mode="incremental_merge",
+            team_id="2",
+        )
+
+        assert result.num_rows == 2
+
+    def test_resolution_does_not_dedupe_the_history_lane(self):
+        table = self._stamped([1, 1], ["I", "U"], [10, 20])
+        result, _ = self._resolve(table, watermark=None, cdc_write_mode="scd2_append")
+
+        assert result.num_rows == 2
+
+    def _write_existing(self, path: str) -> None:
+        write_deltalake(
+            path,
+            pa.table(
+                {
+                    "id": pa.array([1], pa.int64()),
+                    "name": pa.array(["one"], pa.string()),
+                    "big": pa.array(["toasted-1"], pa.string()),
+                }
+            ),
+            mode="overwrite",
+        )
+
+    def test_verification_stays_quiet_when_enrichment_filled_the_delete(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            with patch(f"{_PROCESSOR}.CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL") as violations:
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                    verify_deletes=True,
+                    team_id="2",
+                )
+
+            violations.labels.assert_not_called()
+
+    def test_verification_reports_a_delete_that_would_null_target_data(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            # Enrichment silently doing nothing is the failure this lane exists to catch: under
+            # deltalite the upsert replaces the whole row, so those nulls would land in the table.
+            with (
+                patch(f"{_PROCESSOR}.enrich_delete_rows", side_effect=lambda table, *_a, **_kw: table),
+                patch(f"{_PROCESSOR}.CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL") as violations,
+            ):
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                    verify_deletes=True,
+                    team_id="2",
+                )
+
+            violations.labels.assert_called_once_with(team_id="2")
+            violations.labels.return_value.inc.assert_called_once_with(1)
+
+    def test_verification_is_skipped_when_the_flag_is_off(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            with (
+                patch(f"{_PROCESSOR}.enrich_delete_rows", side_effect=lambda table, *_a, **_kw: table),
+                patch(f"{_PROCESSOR}.verify_delete_enrichment") as verify,
+            ):
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                )
+
+            verify.assert_not_called()
 
     def test_fills_toast_and_delete_rows_from_delta_state_and_drops_marker(self):
         with tempfile.TemporaryDirectory() as path:

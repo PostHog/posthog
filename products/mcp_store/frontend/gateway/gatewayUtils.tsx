@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconShieldLock, IconX } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDialog, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils/strings'
 
-import { MCPToolApprovalStateEnumApi, UserBasicApi } from '../generated/api.schemas'
-import { agentServerAccessKey, mcpGatewayLogic } from './mcpGatewayLogic'
+import { MCPAgentGrantScopeEnumApi, MCPToolApprovalStateEnumApi, UserBasicApi } from '../generated/api.schemas'
+import { AgentServerShare, agentServerAccessKey, mcpGatewayLogic } from './mcpGatewayLogic'
 
 /** ProfilePicture wants a UserBasicType-ish shape; the generated UserBasicApi's
  * `hedgehog_config` type isn't assignable, so pass the fields it actually reads. */
@@ -14,18 +14,72 @@ export function toProfileUser(user: UserBasicApi): { first_name?: string; last_n
     return { first_name: user.first_name, last_name: user.last_name, email: user.email }
 }
 
-/** Attributes a grant backed by someone else's connection, so a member never reads
- * a teammate's share as their own. */
-export function sharedByLabel(users: UserBasicApi[]): string | null {
-    if (users.length === 0) {
-        return null
-    }
+function memberNames(users: UserBasicApi[]): string {
     const [first, ...rest] = users
     const name = fullName(first) || first.email
     if (rest.length === 0) {
-        return `Shared by ${name}`
+        return name
     }
-    return `Shared by ${name} and ${rest.length} other${rest.length === 1 ? '' : 's'}`
+    return `${name} and ${rest.length} other${rest.length === 1 ? '' : 's'}`
+}
+
+/** Attributes grants backed by other members' connections, so a member never reads
+ * a teammate's share as their own. Team shares take the line when both kinds exist,
+ * because those are the ones that also back the viewer's own agent runs. */
+export function sharedByOthersLabel(share: AgentServerShare): string | null {
+    if (share.teamSharedByOthers.length > 0) {
+        return `Shared to the team by ${memberNames(share.teamSharedByOthers)}`
+    }
+    if (share.sharedByOthers.length > 0) {
+        return `Shared by ${memberNames(share.sharedByOthers)}`
+    }
+    return null
+}
+
+/** Whose connection an agent call rode, for audit rows. */
+export function credentialOwnerLabel(owner: UserBasicApi, grantScope: string): string {
+    const name = fullName(owner) || owner.email
+    return grantScope === 'team' ? `via ${name}'s connection (team share)` : `via ${name}'s connection`
+}
+
+export const AGENT_GRANT_SCOPE_OPTIONS: { value: MCPAgentGrantScopeEnumApi; label: string; tooltip: string }[] = [
+    {
+        value: 'personal',
+        label: 'Just my agents',
+        tooltip: 'The agent uses your connection only when it runs for you.',
+    },
+    {
+        value: 'team',
+        label: 'All team agents',
+        tooltip:
+            "The agent uses your connection for every run in this project, including runs nobody started. Teammates can't use the connection directly, but agents act through it on their runs too.",
+    },
+]
+
+/** Scope picker for the viewer's own grant. Changing it re-sends the share with the
+ * new scope, so it shares the share's in-flight key and cannot be double-submitted. */
+export function AgentGrantScopeControl({
+    accountId,
+    serverId,
+    scope,
+}: {
+    accountId: string
+    serverId: string
+    scope: MCPAgentGrantScopeEnumApi
+}): JSX.Element {
+    const { agentServerAccessLoadingKeys } = useValues(mcpGatewayLogic)
+    const { setAgentServerAccess } = useActions(mcpGatewayLogic)
+    const saving = agentServerAccessLoadingKeys.has(agentServerAccessKey(accountId, serverId))
+
+    return (
+        <LemonSegmentedButton
+            size="xsmall"
+            value={scope}
+            options={AGENT_GRANT_SCOPE_OPTIONS}
+            disabledReason={saving ? 'Saving your change' : undefined}
+            onChange={(next) => setAgentServerAccess(accountId, serverId, true, next)}
+        />
+    )
 }
 
 /** Admin-only escape hatch: the share switch only ever controls the viewer's own

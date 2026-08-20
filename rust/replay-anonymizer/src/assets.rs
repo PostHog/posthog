@@ -19,6 +19,7 @@ pub const INLINE_IMAGE_ATTR: &str = "rr_dataURL";
 pub const PLACEHOLDER_SRC: &str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'><rect width='80' height='80' fill='%23f3f4f6'/><rect x='6' y='6' width='68' height='68' fill='none' stroke='%23d1d5db' stroke-width='2' rx='6'/><circle cx='26' cy='26' r='6' fill='%239ca3af'/><path d='M14 60 L34 40 L48 50 L66 32 L66 66 L14 66 Z' fill='%239ca3af'/></svg>";
 
 pub const MEDIA_SRC_ATTRS: &[&str] = &["src", "rr_src", "srcset", "href", "xlink:href", "poster"];
+pub(crate) const IMAGE_REF_ATTR_PREFIX: &str = "data-anon-image-ref-";
 
 pub fn is_media_tag(tag: &str) -> bool {
     matches!(
@@ -29,6 +30,10 @@ pub fn is_media_tag(tag: &str) -> bool {
 
 pub fn is_media_src_attr(name: &str) -> bool {
     MEDIA_SRC_ATTRS.contains(&name)
+}
+
+pub(crate) fn is_image_ref_attr(name: &str) -> bool {
+    name.starts_with(IMAGE_REF_ATTR_PREFIX)
 }
 
 /// True for a tag whose `src` names an image.
@@ -93,8 +98,9 @@ pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object<'_>, name: &str)
 }
 
 /// Replace a media element's source attrs with the blurred image (data URIs) or placeholder (remote
-/// URLs, whose scrubbed original is stashed under a namespaced attr). Returns whether it changed any
-/// attribute — a media tag with no source attrs (e.g. a bare `<img>`) is left untouched.
+/// URLs). A collected remote URL's ref and scrubbed original are stashed under separate namespaced
+/// attrs. Returns whether it changed any attribute — a media tag with no source attrs (e.g. a bare
+/// `<img>`) is left untouched.
 pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>, tag_src_is_image: bool) -> bool {
     let mut acted = false;
     for key in MEDIA_SRC_ATTRS {
@@ -114,22 +120,21 @@ pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>, tag_src_is_image: bool)
             let blurred = ctx.scrub_image(&existing, ImageFallback::Placeholder);
             attrs.insert(Cow::Borrowed(*key), string_value(blurred));
         } else {
-            // A ref here means the fetch lane downloads this URL and scrubs it out of band. The
-            // attribute can therefore carry a join key instead of the placeholder. Until those bytes
-            // land the ref is dangling, which readers already render as the placeholder, so the
-            // worst case matches the behaviour this replaces.
             let collected = is_fetchable_src_attr(key, tag_src_is_image)
                 .then(|| ctx.collect_url(&existing))
                 .flatten();
-            // Stashed under a namespaced attr that won't collide with an app `data-original-*`.
             let scrubbed = scrub_url(ctx, &existing).unwrap_or(existing);
-            match collected {
-                Some(url_ref) => attrs.insert(Cow::Borrowed(*key), string_value(url_ref)),
-                None => attrs.insert(
-                    Cow::Borrowed(*key),
-                    Value::String(Cow::Borrowed(PLACEHOLDER_SRC)),
-                ),
-            };
+            // Fetch completion must not change how an ordinary replay renders this element.
+            attrs.insert(
+                Cow::Borrowed(*key),
+                Value::String(Cow::Borrowed(PLACEHOLDER_SRC)),
+            );
+            if let Some(url_ref) = collected {
+                attrs.insert(
+                    Cow::Owned(format!("{IMAGE_REF_ATTR_PREFIX}{key}")),
+                    string_value(url_ref),
+                );
+            }
             attrs.insert(
                 Cow::Owned(format!("data-anon-original-{key}")),
                 string_value(scrubbed),

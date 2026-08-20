@@ -44,24 +44,24 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
     # uv sync validates workspace membership even with --no-dev, so every
-    # workspace member must be present in the build context.
+    # workspace member must be present in the build context. tools/owners is also a real install
+    # source here: posthog-owners is a runtime dependency (stamphog's digest reads owners.yaml
+    # through it, and posthog/urls.py imports that chain unconditionally), and --no-editable copies
+    # it into the venv so the image never depends on this bind mount's path surviving.
     --mount=type=bind,source=tools/owners,target=tools/owners \
-    uv sync --locked --no-dev --no-install-project --group sentiment --no-binary-package lxml --no-binary-package xmlsec
-
-# Copy project files
-COPY manage.py manage.py
-COPY common/esbuilder common/esbuilder
-COPY common/hogvm common/hogvm/
-COPY common/migration_utils common/migration_utils/
-COPY posthog posthog/
-COPY products/ products/
-COPY ee ee/
-COPY bin/temporal-django-worker bin/temporal-django-worker
+    uv sync --locked --no-dev --no-editable --no-install-project --group sentiment --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime \
     POSTHOG_SENTIMENT_MODEL_CACHE=/opt/posthog-sentiment-model \
     TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
+
+# posthog-owners is installed from a bind mount that does not survive into the image, so a missing
+# --no-editable above leaves an editable install pointing at /code/tools/owners and every Django
+# entrypoint dies on `import posthog_owners` at runtime instead of here. The root Dockerfile asserts
+# the same invariant with `test -d tools/owners/posthog_owners`; this image never copies that source
+# tree, so assert importability instead of presence.
+RUN python -c "import posthog_owners"
 
 # Pre-warm the tiktoken BPE encoding cache into the image so runtime token counting reads the
 # blobs from disk instead of fetching them from OpenAI's blob host on first use, which fails under
@@ -129,6 +129,17 @@ print(f'  smoke test passed: positive={labels[\"positive\"]:.4f}')
 print(f'Model baked into {cache_dir}')
 "
 BAKE_MODEL
+
+# Copy project files. Must stay below the tiktoken pre-warm and the model bake, which read
+# nothing from the repo; moving it above them invalidates both layers on every source-only commit.
+COPY manage.py manage.py
+COPY common/esbuilder common/esbuilder
+COPY common/hogvm common/hogvm/
+COPY common/migration_utils common/migration_utils/
+COPY posthog posthog/
+COPY products/ products/
+COPY ee ee/
+COPY bin/temporal-django-worker bin/temporal-django-worker
 
 RUN chmod +x bin/temporal-django-worker
 

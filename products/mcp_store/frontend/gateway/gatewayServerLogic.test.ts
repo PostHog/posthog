@@ -24,6 +24,7 @@ import {
 } from '../generated/api'
 import type {
     GatewayMemberSummaryApi,
+    MCPAgentGrantScopeEnumApi,
     MCPGatewayServerApi,
     MCPServiceAccountApi,
     ResolvedToolPolicyApi,
@@ -119,7 +120,9 @@ const TEAMMATE: UserBasicApi = {
     hedgehog_config: null,
 }
 
-function serviceAccount(id: string = 'scout-id', sharedBy: UserBasicApi[] = []): MCPServiceAccountApi {
+type Grant = { user: UserBasicApi; scope: MCPAgentGrantScopeEnumApi }
+
+function serviceAccount(id: string = 'scout-id', grants: Grant[] = []): MCPServiceAccountApi {
     return {
         id,
         name: `Agent ${id}`,
@@ -127,10 +130,11 @@ function serviceAccount(id: string = 'scout-id', sharedBy: UserBasicApi[] = []):
         handle: `svc-${id}`,
         agent_key: 'scout',
         status: 'active',
-        server_ids: sharedBy.map(() => 'server-id'),
-        servers: sharedBy.map((user) => ({
+        server_ids: grants.map(() => 'server-id'),
+        servers: grants.map(({ user, scope }) => ({
             id: 'server-id',
             shared_by: user,
+            scope,
             name: 'Test server',
             description: '',
             icon_key: '',
@@ -220,28 +224,53 @@ describe('gatewayServerLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('attributes each agent grant to the member backing it', () => {
+    it('attributes each agent grant to the member backing it, and separates team shares', () => {
         parentLogic.actions.loadServiceAccountsSuccess([
-            serviceAccount('yours-only', [YOU]),
-            serviceAccount('teammate-only', [TEAMMATE]),
-            serviceAccount('both', [YOU, TEAMMATE]),
+            serviceAccount('yours-team', [{ user: YOU, scope: 'team' }]),
+            serviceAccount('teammate-personal', [{ user: TEAMMATE, scope: 'personal' }]),
+            serviceAccount('teammate-team', [{ user: TEAMMATE, scope: 'team' }]),
+            serviceAccount('both', [
+                { user: YOU, scope: 'personal' },
+                { user: TEAMMATE, scope: 'team' },
+            ]),
             serviceAccount('unshared', []),
         ])
 
         expect(logic.values.agentSharesByAccountId).toEqual({
-            'yours-only': { sharedByYou: true, sharedByOthers: [] },
-            'teammate-only': { sharedByYou: false, sharedByOthers: [TEAMMATE] },
-            both: { sharedByYou: true, sharedByOthers: [TEAMMATE] },
-            unshared: { sharedByYou: false, sharedByOthers: [] },
+            'yours-team': { sharedByYou: true, yourScope: 'team', sharedByOthers: [], teamSharedByOthers: [] },
+            'teammate-personal': {
+                sharedByYou: false,
+                yourScope: 'personal',
+                sharedByOthers: [TEAMMATE],
+                teamSharedByOthers: [],
+            },
+            'teammate-team': {
+                sharedByYou: false,
+                yourScope: 'personal',
+                sharedByOthers: [TEAMMATE],
+                teamSharedByOthers: [TEAMMATE],
+            },
+            both: {
+                sharedByYou: true,
+                yourScope: 'personal',
+                sharedByOthers: [TEAMMATE],
+                teamSharedByOthers: [TEAMMATE],
+            },
+            unshared: { sharedByYou: false, yourScope: 'personal', sharedByOthers: [], teamSharedByOthers: [] },
         })
     })
 
     it('attributes no grant while the current user is still loading', () => {
         userLogic.actions.loadUserSuccess(null)
-        parentLogic.actions.loadServiceAccountsSuccess([serviceAccount('both', [YOU, TEAMMATE])])
+        parentLogic.actions.loadServiceAccountsSuccess([
+            serviceAccount('both', [
+                { user: YOU, scope: 'team' },
+                { user: TEAMMATE, scope: 'team' },
+            ]),
+        ])
 
         expect(logic.values.agentSharesByAccountId).toEqual({
-            both: { sharedByYou: false, sharedByOthers: [] },
+            both: { sharedByYou: false, yourScope: 'personal', sharedByOthers: [], teamSharedByOthers: [] },
         })
     })
 
@@ -352,12 +381,32 @@ describe('gatewayServerLogic', () => {
         expect(mockServiceAccountAccess).toHaveBeenCalledWith(expect.any(String), account.id, {
             gateway_server_id: 'server-id',
             enabled: true,
+            scope: 'team',
             policies: [
                 { tool_name: 'list_issues', policy_state: 'approved' },
                 { tool_name: 'create_issue', policy_state: 'do_not_use' },
             ],
         })
         expect(logic.values.agentAccessModalOpen).toBe(false)
+    })
+
+    it('sends the scope picked in the share modal instead of the team default', async () => {
+        const account = serviceAccount()
+        parentLogic.actions.loadServiceAccountsSuccess([account])
+        logic.actions.openAgentAccessModal()
+        logic.actions.loadTeamToolPoliciesSuccess([toolPolicy('list_issues')])
+        logic.actions.setAgentAccessSelectedId(account.id)
+        logic.actions.setAgentAccessScope('personal')
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAgentAccess()
+        }).toFinishAllListeners()
+
+        expect(mockServiceAccountAccess).toHaveBeenCalledWith(
+            expect.any(String),
+            account.id,
+            expect.objectContaining({ scope: 'personal' })
+        )
     })
 
     it.each([

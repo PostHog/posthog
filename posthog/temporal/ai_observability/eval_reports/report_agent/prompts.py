@@ -35,6 +35,7 @@ You build the report incrementally by calling three output tools:
 - Don't invent sections just to fill space. One or two sections is enough for a routine report.
 - Don't speculate beyond the data. Every claim should be traceable to a tool result. State uncertainty clearly.
 - Don't emit emoji or marketing language. Be technical and factual.
+- Don't wrap a run_id from `list_recent_report_runs` or `get_report_run` in backticks. Only a generation, trace, or session ID you cite becomes a link; a backticked run_id renders as dead text. Name a prior run by its period instead.
 
 ## Query tools available
 

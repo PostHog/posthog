@@ -7,7 +7,15 @@
 category: Replay vision
 feature: replay_vision
 url_prefix: /replay-vision
-ui_apps: {}
+ui_apps:
+    inline-scan:
+        type: detail
+        view_prop: data
+    vision-observation-list:
+        type: list
+        detail_tool: vision-observations-retrieve
+        item_name_field: id
+        entity_label: observation
 tools:
     vision-actions-create:
         operation: vision_actions_create
@@ -217,6 +225,7 @@ tools:
             `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
             someone, deep-link the one or two moments it turns on rather than only describing them.
+        ui_app: vision-observation-list
         url_prefix: /replay
     vision-observations-retrieve:
         operation: vision_observations_retrieve
@@ -326,14 +335,16 @@ tools:
             scanner (a permissive `query`, loose `sampling_mode`, and/or high `sampling_rate`), first call
             `vision-scanners-estimate-create` to project its monthly credit spend and `vision-quota-retrieve` to check
             the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation
-            itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Creating a
-            scanner also creates its built-in daily digest: an enabled vision action with no delivery targets that
-            synthesizes the scanner's observations once a day and spends credits of its own, on top of the observations.
-            Disable or delete it with `vision-actions-update` / `vision-actions-delete` if you don't want it. To get
-            notified about what the scanner finds (a Slack alert or a summary on another schedule), create a further
-            vision action bound to it with `vision-actions-create`. For a scanner scoped to one experiment's exposed
-            sessions, load the `scanning-experiments-with-replay-vision` skill first — it derives the query from the
-            experiment's exposure criteria.
+            itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set
+            `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's
+            other scanners. The scanner stops scanning once the credits left cannot cover another observation, and
+            resumes when the period resets. Creating a scanner also creates its built-in daily digest: an enabled vision
+            action with no delivery targets that synthesizes the scanner's observations once a day and spends credits of
+            its own, on top of the observations. Disable or delete it with `vision-actions-update` /
+            `vision-actions-delete` if you don't want it. To get notified about what the scanner finds (a Slack alert or
+            a summary on another schedule), create a further vision action bound to it with `vision-actions-create`. For
+            a scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision`
+            skill first — it derives the query from the experiment's exposure criteria.
         exclude_params:
             - id
             - scanner_version
@@ -360,6 +371,9 @@ tools:
             Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along
             with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via
             `vision-scanners-update` instead.
+    vision-scanners-draft-create:
+        operation: vision_scanners_draft_create
+        enabled: false
     vision-scanners-estimate-create:
         operation: vision_scanners_estimate_create
         enabled: true
@@ -438,6 +452,7 @@ tools:
             than being charged twice. Scans cost credits per session at the same rate a scanner does; check
             `vision-quota-retrieve` first if the batch is large, since sessions past the monthly limit come back as
             `skipped_quota` instead of failing the call.
+        ui_app: inline-scan
         requires_ai_consent: true
     vision-scanners-list:
         operation: vision_scanners_list
@@ -518,6 +533,7 @@ tools:
             `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
             someone, deep-link the one or two moments it turns on rather than only describing them.
+        ui_app: vision-observation-list
         url_prefix: /replay
     vision-scanners-observations-retry-create:
         operation: vision_scanners_observations_retry_create
@@ -640,6 +656,9 @@ tools:
             you're examining. A scanner can observe a given session only once — re-triggering it on a session that
             already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.
         requires_ai_consent: true
+    vision-scanners-self-driving-stats-retrieve:
+        operation: vision_scanners_self_driving_stats_retrieve
+        enabled: false
     vision-scanners-stats-retrieve:
         operation: vision_scanners_stats_retrieve
         enabled: false
