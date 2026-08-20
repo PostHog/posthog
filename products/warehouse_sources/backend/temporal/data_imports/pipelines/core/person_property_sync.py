@@ -83,7 +83,7 @@ def _log_fields(binding: WarehouseBinding) -> dict[str, str]:
 _EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)  # mutated in place as the per-source funnel counts accrue
 class PerSourceResult:
     """One source's funnel counts within a run, so the recorder can persist a run row per source.
 
