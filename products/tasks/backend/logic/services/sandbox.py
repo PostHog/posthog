@@ -433,6 +433,7 @@ class SandboxBase(ABC):
         github_token: str | None = "",
         shallow: bool = True,
         branch: str | None = None,
+        blobless: bool = False,
     ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -449,9 +450,9 @@ class SandboxBase(ABC):
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
-        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
-        # files get fetched on demand. Shallow clones are already small enough.
-        blob_filter = "" if shallow else " --filter=blob:limit=128k"
+        blob_filter = ""
+        if not shallow:
+            blob_filter = " --filter=blob:none" if blobless else " --filter=blob:limit=128k"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
@@ -548,6 +549,12 @@ class SandboxBase(ABC):
         return None
 
     def read_cpu_usage_usec(self) -> int | None:
+        return None
+
+    def start_cpu_billing_sampler(self) -> bool:
+        return False
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
         return None
 
     def _read_health_session_init_ms(self, port: int) -> int | None:

@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
+    GOOGLE_ADS_INITIAL_BACKFILL_DAYS,
     GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
     clean_customer_id,
@@ -58,17 +59,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-# Default incremental overlap re-read window for Google Ads stats tables (the 12 schemas
-# carrying a `segments.date` filter). Google reports recent-day cost/conversion data as
-# provisional and keeps revising it for days after the fact (see "About data freshness":
-# https://support.google.com/google-ads/answer/2544985), so an incremental sync that only
-# re-fetches the newest day freezes each day at its first-imported, not-yet-final value.
-# Re-reading a 30-day trailing window each run lets those days catch up as Google finalizes
-# them; merge-by-primary-key makes the overlap idempotent. 30 days also covers the App-
-# campaign conversion attribution window for the conversion metrics in these tables. These
-# tables are small, so the extra re-read is negligible. Tunable; stays under the 60-day cap
-# enforced at the creation/update endpoints.
-GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
+# Default incremental overlap re-read window for Google Ads stats tables (those carrying a
+# `segments.date` filter). Google reports recent-day cost/conversion data as provisional and keeps
+# revising it for days after the fact (see "About data freshness":
+# https://support.google.com/google-ads/answer/2544985), so an incremental sync that only re-fetches
+# the newest day freezes each day at its first-imported, not-yet-final value. Re-reading a trailing
+# window each run lets those days catch up; merge-by-primary-key makes the overlap idempotent.
+#
+# The window is a direct multiplier on the rows an incremental run reports: on the largest stats
+# tables (`search_term_stats`, `keyword_stats`, which grow with query volume rather than account
+# size) an N-day window costs roughly N times the rows of a newest-day-only sync. Two weeks buys
+# most of Google's restatement window at half that cost. Only schemas created from here on pick this
+# up — existing schemas keep whatever lookback they already carry. It sits above the length at which
+# SyncMethodForm warns a window is expensive, so accounts that would rather sync less lower it per
+# schema, up to the 60-day cap the creation/update endpoints enforce.
+GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 15 * 24 * 60 * 60
 
 _OAUTH_ACCOUNTS_CACHE_TTL_SECONDS = 60
 
@@ -94,6 +99,8 @@ class GoogleAdsSource(
         VersionDeprecation(version="v23", sunset_at=datetime.date(2027, 2, 1)),
         VersionDeprecation(version="v24", sunset_at=None),
     )
+
+    history_lookback = datetime.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -239,6 +246,8 @@ class GoogleAdsSource(
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
+            history_start=inputs.history_start,
         )
 
     @property

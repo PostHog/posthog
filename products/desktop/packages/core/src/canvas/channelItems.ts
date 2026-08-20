@@ -9,6 +9,7 @@ import type {
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { isTaskUnread, type TaskTimestamp } from "../sidebar/buildSidebarData";
+import { taskActivityAt, taskActivityTimestamp } from "../tasks/taskActivity";
 import type { DashboardRecord } from "./dashboardSchemas";
 
 /** Where a session runs. `worktree` is a local checkout, so it reads as local. */
@@ -19,6 +20,7 @@ export interface ChannelItemModel {
   kind: "task" | "canvas";
   id: string;
   title: string;
+  /** Activity time for the activity-first sort: a session's `last_activity_at`, or a canvas's `updatedAt`. */
   ts: number;
   /** When it was first made, for the created-first sort. */
   createdAt: number;
@@ -156,7 +158,7 @@ export function buildChannelItems({
             kind: "task" as const,
             id: task.id,
             title: task.title || "Untitled task",
-            ts: Date.parse(task.updated_at) || 0,
+            ts: taskActivityTimestamp(task, "updated") || 0,
             createdAt: Date.parse(task.created_at) || 0,
             pinned: pinnedTaskIds.has(task.id),
             rawStatus: task.latest_run?.status ?? null,
@@ -167,7 +169,7 @@ export function buildChannelItems({
             source: sourceOf(task),
             needsInput: sessionFacts.needsInputTaskIds.has(task.id),
             unread: isTaskUnread(
-              task.updated_at,
+              taskActivityAt(task),
               sessionFacts.viewedTimestamps[task.id],
             ),
             authorUser: task.created_by ?? null,

@@ -9,12 +9,13 @@ import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
+import { urls } from 'scenes/urls'
 
+import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
@@ -183,7 +184,6 @@ function SignalSourcesWidget(): JSX.Element {
 function ScoutTroopWidget(): JSX.Element {
     useMountedLogic(scoutFleetLogic)
     const { scoutConfigs, enabledCount } = useValues(scoutFleetLogic)
-    const { openSetupModal } = useActions(agentSetupModalLogic)
     const hasAny = enabledCount > 0
     return (
         <SetupWidgetCard
@@ -194,7 +194,7 @@ function ScoutTroopWidget(): JSX.Element {
             loading={scoutConfigs === null}
             status={hasAny ? `${enabledCount} on patrol` : 'No scouts running'}
             description="Scheduled agents that sweep this project on a cadence and report signals."
-            onClick={() => openSetupModal('scout-troop')}
+            to={urls.inbox('scouts')}
         />
     )
 }
@@ -270,12 +270,6 @@ const SETUP_MODALS: Record<
         width: 760,
         body: <SignalSourcesPanel />,
     },
-    'scout-troop': {
-        title: 'Scout troop',
-        description: 'Scheduled agents that sweep this project on a cadence and emit signals to your inbox.',
-        width: 760,
-        body: <ScoutsFleetSection />,
-    },
     slack: {
         title: 'Notifications',
         description: 'Get pinged in Slack when you’re a suggested reviewer on a new report.',
@@ -318,6 +312,9 @@ function SetupModal(): JSX.Element {
 export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
+    // The usage widget renders nothing without the billing product, so the section title
+    // must hide with it rather than sit over an empty area.
+    const { product: inboxUsageProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
 
     return (
         <div
@@ -336,9 +333,11 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
                 <CodeAccessWidget />
                 <NotificationsWidget />
             </SetupSection>
-            <SetupSection title="Usage">
-                <InboxUsageWidget />
-            </SetupSection>
+            {(inboxUsageProduct != null || inboxUsageLoading) && (
+                <SetupSection title="Usage">
+                    <InboxUsageWidget />
+                </SetupSection>
+            )}
             <SetupModal />
         </div>
     )

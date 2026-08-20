@@ -37,6 +37,7 @@ import {
     calculateDaysElapsed,
     calculateExposureRate,
     getCalculatorMetricType,
+    hasRequiredBaselineStats,
 } from './calculations'
 
 export interface RunningTimeLogicProps {
@@ -471,8 +472,12 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 if (!firstMetric?.metric || !firstMetric?.result?.baseline) {
                     return null
                 }
+                const metricType = getCalculatorMetricType(firstMetric.metric)
+                if (!hasRequiredBaselineStats(metricType, firstMetric.result.baseline)) {
+                    return null
+                }
                 return {
-                    metric_type: getCalculatorMetricType(firstMetric.metric),
+                    metric_type: metricType,
                     minimum_detectable_effect: mde,
                     number_of_variants: numberOfVariants,
                     baseline_stats: baselineStatsFromResults(firstMetric.result.baseline),
