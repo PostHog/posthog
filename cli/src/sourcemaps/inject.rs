@@ -41,11 +41,26 @@ pub struct InjectArgs {
         default_value = "symbol-set"
     )]
     pub release_mode: ReleaseMode,
+
+    /// Do not rewrite minified JS. Stamp chunk/release ids onto sourcemaps only, leaving deploy
+    /// artifacts byte-identical so content hashes (Angular `ngsw.json`, SRI, CDN checksums) stay
+    /// valid. Incompatible with `--release-mode=event`, which embeds a runtime release id in JS.
+    /// See https://github.com/PostHog/posthog/issues/86046
+    #[arg(long, default_value_t = false)]
+    pub preserve_sources: bool,
 }
 
 impl InjectArgs {
     pub fn validate(&self) -> Result<()> {
-        self.file_selection.validate()
+        self.file_selection.validate()?;
+        if self.preserve_sources && self.release_mode == ReleaseMode::Event {
+            bail!(
+                "--preserve-sources cannot be combined with --release-mode=event \
+                 (event mode injects `_posthogReleaseId` into JS). Use symbol-set mode, \
+                 or omit --preserve-sources."
+            );
+        }
+        Ok(())
     }
 }
 
@@ -59,9 +74,21 @@ pub fn inject_impl(
         public_path_prefix,
         release,
         release_mode,
+        preserve_sources,
     } = args;
 
     info!("injecting selection: {}", file_selection);
+    if *preserve_sources {
+        info!(
+            "preserve-sources: minified JS will not be rewritten; chunk ids go on sourcemaps only"
+        );
+    } else if directory_has_service_worker_manifest(file_selection) {
+        warn!(
+            "ngsw.json detected under the inject directory. In-place inject rewrites JS and \
+             invalidates Angular service-worker hashes (see posthog/posthog#86046). Re-run with \
+             --preserve-sources, or regenerate the manifest after inject with ngsw-config."
+        );
+    }
 
     let iterator = FileSelection::try_from(file_selection.clone())?;
 
@@ -84,7 +111,7 @@ pub fn inject_impl(
                     "no release could be resolved, injecting chunk ids only — events will carry no release"
                 );
             }
-            pairs = inject_pairs(pairs, release_id.as_deref())?;
+            pairs = inject_pairs_with_options(pairs, release_id.as_deref(), *preserve_sources)?;
         }
         ReleaseMode::SymbolSet => {
             // Fetch or create a release over the API and stamp its id into the sourcemap,
@@ -97,28 +124,49 @@ pub fn inject_impl(
                     .as_ref()
                     .map(|r| r.id.to_string())
             };
-            pairs = inject_pairs_legacy(pairs, created_release_id)?;
+            pairs =
+                inject_pairs_legacy_with_options(pairs, created_release_id, *preserve_sources)?;
         }
     }
 
-    // Write the source and sourcemaps back to disk
+    // Write artifacts back to disk. With preserve-sources, JS files are left untouched.
     for pair in &pairs {
-        pair.save()?;
+        pair.save_with_options(*preserve_sources)?;
     }
     info!("injecting done");
     Ok(())
 }
 
+fn directory_has_service_worker_manifest(file_selection: &FileSelectionArgs) -> bool {
+    file_selection.directory.iter().any(|root| {
+        root.join("ngsw.json").is_file()
+            || root.join("browser/ngsw.json").is_file()
+            || walkdir::WalkDir::new(root)
+                .max_depth(3)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .any(|e| e.file_name() == "ngsw.json")
+    })
+}
+
 /// Event-mode injection (`--release-mode=event`): content-addressed chunk ids plus an optional
 /// `_posthogReleaseId` payload.
 pub fn inject_pairs(
+    pairs: Vec<SourcePair>,
+    release_id: Option<&str>,
+) -> Result<Vec<SourcePair>> {
+    inject_pairs_with_options(pairs, release_id, false)
+}
+
+pub fn inject_pairs_with_options(
     mut pairs: Vec<SourcePair>,
     release_id: Option<&str>,
+    preserve_source: bool,
 ) -> Result<Vec<SourcePair>> {
     for pair in &mut pairs {
         let Some(chunk_id) = pair.get_chunk_id() else {
             let chunk_id = stable_chunk_id(&pair.source.inner.content);
-            pair.add_chunk_id(chunk_id, release_id)?;
+            pair.add_chunk_id_with_options(chunk_id, release_id, preserve_source)?;
             continue;
         };
 
@@ -127,14 +175,18 @@ pub fn inject_pairs(
         // or a re-run over an existing dist would keep reporting the old release on every
         // event. When no release resolves, leave the pair untouched: failing to resolve is
         // missing information (e.g. no git context), not evidence the embedded id is stale.
+        // Maps-only mode has no JS release snippet to refresh.
+        if preserve_source {
+            continue;
+        }
         let Some(release_id) = release_id else {
             continue;
         };
         if pair.get_injected_release_id().as_deref() == Some(release_id) {
             continue;
         }
-        pair.remove_chunk_id(chunk_id.clone())?;
-        pair.add_chunk_id(chunk_id, Some(release_id))?;
+        pair.remove_chunk_id_with_options(chunk_id.clone(), false)?;
+        pair.add_chunk_id_with_options(chunk_id, Some(release_id), false)?;
     }
 
     Ok(pairs)
@@ -144,8 +196,16 @@ pub fn inject_pairs(
 /// id stamped into the sourcemap. Regenerates the chunk id whenever the release id changes or is
 /// missing.
 pub fn inject_pairs_legacy(
+    pairs: Vec<SourcePair>,
+    created_release_id: Option<String>,
+) -> Result<Vec<SourcePair>> {
+    inject_pairs_legacy_with_options(pairs, created_release_id, false)
+}
+
+pub fn inject_pairs_legacy_with_options(
     mut pairs: Vec<SourcePair>,
     created_release_id: Option<String>,
+    preserve_source: bool,
 ) -> Result<Vec<SourcePair>> {
     for pair in &mut pairs {
         let current_release_id = pair.get_release_id();
@@ -155,9 +215,9 @@ pub fn inject_pairs_legacy(
 
             let chunk_id = uuid::Uuid::now_v7().to_string();
             if let Some(previous_chunk_id) = pair.get_chunk_id() {
-                pair.update_chunk_id(previous_chunk_id, chunk_id)?;
+                pair.update_chunk_id_with_options(previous_chunk_id, chunk_id, preserve_source)?;
             } else {
-                pair.add_chunk_id(chunk_id, None)?;
+                pair.add_chunk_id_with_options(chunk_id, None, preserve_source)?;
             }
         }
     }

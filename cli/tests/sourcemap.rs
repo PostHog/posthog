@@ -2,7 +2,9 @@ use posthog_cli::{
     sourcemaps::{
         args::ReleaseMode,
         content::SourceMapContent,
-        inject::{inject_pairs, inject_pairs_legacy},
+        inject::{
+            inject_pairs, inject_pairs_legacy, inject_pairs_legacy_with_options,
+        },
         plain::inject::{is_javascript_file, is_stylesheet_file},
         source_pairs::SourcePair,
     },
@@ -429,6 +431,34 @@ fn test_legacy_reinject_with_new_release() {
         first_pair.sourcemap.get_release_id().unwrap(),
         release_id.clone()
     );
+}
+
+#[test]
+fn test_preserve_sources_leaves_minified_js_bytes_unchanged() {
+    // #86046: Angular ngsw / SRI hash deploy artifacts. Inject must be able to stamp
+    // chunk ids without rewriting the minified JS that was just hashed.
+    let case_path = get_case_path("inject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 1);
+    let original_source = pairs[0].source.inner.content.clone();
+
+    let release_id = uuid::Uuid::now_v7().to_string();
+    let injected = inject_pairs_legacy_with_options(pairs, Some(release_id.clone()), true)
+        .expect("Failed to inject pairs with preserve_sources");
+    let pair = injected.first().expect("pair");
+
+    assert_eq!(
+        pair.source.inner.content, original_source,
+        "minified source must remain byte-identical"
+    );
+    assert!(
+        pair.source.get_chunk_id().is_none(),
+        "source must not gain a //# chunkId= comment"
+    );
+    assert_eq!(pair.get_chunk_id().as_deref(), pair.sourcemap.get_chunk_id().as_deref());
+    assert!(pair.sourcemap.get_chunk_id().is_some());
+    assert_eq!(pair.sourcemap.get_release_id().as_deref(), Some(release_id.as_str()));
 }
 
 #[test]

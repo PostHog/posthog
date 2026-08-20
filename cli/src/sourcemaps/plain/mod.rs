@@ -62,6 +62,10 @@ pub struct ProcessArgs {
         default_value = "symbol-set"
     )]
     pub release_mode: ReleaseMode,
+
+    /// Do not rewrite minified JS during inject (sourcemap-only chunk ids). See `inject --help`.
+    #[arg(long, default_value_t = false)]
+    pub preserve_sources: bool,
 }
 
 impl ProcessArgs {
@@ -79,6 +83,7 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             release: args.release.clone(),
             public_path_prefix: args.public_path_prefix.clone(),
             release_mode: args.release_mode,
+            preserve_sources: args.preserve_sources,
         };
         let upload_args = upload::Args {
             file_selection: args.file_selection,

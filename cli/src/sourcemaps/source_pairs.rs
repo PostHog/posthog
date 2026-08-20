@@ -26,7 +26,11 @@ impl SourcePair {
     }
 
     pub fn get_chunk_id(&self) -> Option<String> {
-        self.source.get_chunk_id()
+        // Prefer the minified source (runtime injection). Fall back to the sourcemap so
+        // `--preserve-sources` can stamp ids without rewriting deployable JS (#86046).
+        self.source
+            .get_chunk_id()
+            .or_else(|| self.sourcemap.get_chunk_id())
     }
 
     pub fn has_release_id(&self) -> bool {
@@ -45,8 +49,23 @@ impl SourcePair {
     }
 
     pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<()> {
+        self.remove_chunk_id_with_options(chunk_id, false)
+    }
+
+    pub fn remove_chunk_id_with_options(
+        &mut self,
+        chunk_id: String,
+        preserve_source: bool,
+    ) -> Result<()> {
         if self.get_chunk_id().as_ref() != Some(&chunk_id) {
             return Err(anyhow!("Chunk ID mismatch"));
+        }
+        if preserve_source || self.source.get_chunk_id().is_none() {
+            // Maps-only injection never rewrote the JS; clear the map field only.
+            if self.sourcemap.get_chunk_id().as_ref() == Some(&chunk_id) {
+                self.sourcemap.set_chunk_id(None);
+            }
+            return Ok(());
         }
         let adjustment = self.source.remove_chunk_id(chunk_id)?;
         self.sourcemap.apply_adjustment(adjustment)?;
@@ -59,14 +78,42 @@ impl SourcePair {
         previous_chunk_id: String,
         new_chunk_id: String,
     ) -> Result<()> {
-        self.remove_chunk_id(previous_chunk_id)?;
-        self.add_chunk_id(new_chunk_id, None)?;
+        self.update_chunk_id_with_options(previous_chunk_id, new_chunk_id, false)
+    }
+
+    pub fn update_chunk_id_with_options(
+        &mut self,
+        previous_chunk_id: String,
+        new_chunk_id: String,
+        preserve_source: bool,
+    ) -> Result<()> {
+        self.remove_chunk_id_with_options(previous_chunk_id, preserve_source)?;
+        self.add_chunk_id_with_options(new_chunk_id, None, preserve_source)?;
         Ok(())
     }
 
     pub fn add_chunk_id(&mut self, chunk_id: String, release_id: Option<&str>) -> Result<()> {
+        self.add_chunk_id_with_options(chunk_id, release_id, false)
+    }
+
+    /// When `preserve_source` is true, stamp the chunk id onto the sourcemap only and leave the
+    /// minified JS bytes untouched. Required for Angular service workers, SRI, and any pipeline
+    /// that content-hashes deploy artifacts before/without re-hashing after inject (#86046).
+    pub fn add_chunk_id_with_options(
+        &mut self,
+        chunk_id: String,
+        release_id: Option<&str>,
+        preserve_source: bool,
+    ) -> Result<()> {
         if self.has_chunk_id() {
             return Err(anyhow!("Chunk ID already set"));
+        }
+
+        if preserve_source {
+            // No IIFE / chunkId comment, no sourcemap offset adjustment — deploy hashes stay valid.
+            self.sourcemap.set_chunk_id(Some(chunk_id));
+            let _ = release_id; // event-mode release embedding requires JS mutation; rejected upstream
+            return Ok(());
         }
 
         let adjustment = self.source.set_chunk_id(&chunk_id, release_id)?;
@@ -85,7 +132,13 @@ impl SourcePair {
     }
 
     pub fn save(&self) -> Result<()> {
-        self.source.save()?;
+        self.save_with_options(false)
+    }
+
+    pub fn save_with_options(&self, preserve_source: bool) -> Result<()> {
+        if !preserve_source {
+            self.source.save()?;
+        }
         self.sourcemap.save()?;
         Ok(())
     }
