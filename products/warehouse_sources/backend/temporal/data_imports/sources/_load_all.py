@@ -627,6 +627,7 @@ from .justsift.source import JustSiftSource
 from .k6_cloud.source import K6CloudSource
 from .kafka.source import KafkaSource
 from .kajabi.source import KajabiSource
+from .kalshi.source import KalshiSource
 from .kameleoon.source import KameleoonSource
 from .kandji.source import KandjiSource
 from .kapa_ai.source import KapaAISource
