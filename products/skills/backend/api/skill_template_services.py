@@ -22,6 +22,11 @@ _PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 MAX_TEMPLATE_VARIABLE_BYTES = 10_000
 MAX_TEMPLATE_BINDINGS_BYTES = 100_000
 
+# Every rendered file and the body together. The per-file limit alone bounds nothing in aggregate:
+# a template of 200 small files that each repeat a placeholder renders to 200 MB while every
+# individual file stays under its own 1 MB cap.
+MAX_RENDERED_SKILL_BYTES = 5_000_000
+
 
 def _iter_placeholder_tokens(text: str) -> Iterator[str]:
     r"""Yield every `{{ ... }}` token, shortest-match, in one forward pass.
@@ -169,18 +174,14 @@ def resolve_bindings(variables: list[TemplateVariable], supplied: dict[str, str]
     return bindings
 
 
-def render_text(text: str, bindings: dict[str, str], *, limit: int, what: str) -> str:
-    """Substitute every `{{ name }}` placeholder, erroring on any undeclared/unrenderable name.
+def _validate_and_project(text: str, bindings: dict[str, str], binding_sizes: dict[str, int]) -> int:
+    """Check every placeholder is declared and return the exact rendered byte size, allocating nothing.
 
-    Validation runs against the source `text` only, before substitution — a supplied value may
-    legitimately contain literal `{{ }}` and must not be re-interpreted as a placeholder.
-
-    The size check runs on the projected output rather than the built string: a template that
-    repeats one placeholder amplifies its binding, so measuring afterwards would mean allocating
-    the amplified result first. Every token is a strict placeholder by the time we get past the
-    loop, so summing the substitution deltas gives the exact rendered size.
+    Validation runs against the source `text` only — a supplied value may legitimately contain
+    literal `{{ }}` and must not be re-interpreted as a placeholder. Sizing the output without
+    building it is what lets the caller reject an amplifying template before it allocates: every
+    token here is a strict placeholder, so summing the substitution deltas is exact.
     """
-    binding_sizes = {name: len(value.encode("utf-8")) for name, value in bindings.items()}
     projected = len(text.encode("utf-8"))
     for token in _iter_placeholder_tokens(text):
         strict = _PLACEHOLDER_RE.fullmatch(token)
@@ -192,10 +193,10 @@ def render_text(text: str, bindings: dict[str, str], *, limit: int, what: str) -
         if name not in bindings:
             raise UnknownTemplatePlaceholderError(name)
         projected += binding_sizes[name] - len(token.encode("utf-8"))
+    return projected
 
-    if projected > limit:
-        raise TemplateRenderTooLargeError(what, limit)
 
+def _substitute(text: str, bindings: dict[str, str]) -> str:
     return _PLACEHOLDER_RE.sub(lambda m: bindings[m.group(1)], text)
 
 
@@ -222,12 +223,20 @@ def render_template_skill(
     when a user-supplied value expands output past the size limit.
     """
     bindings = resolve_bindings(variables, supplied)
+    binding_sizes = {name: len(value.encode("utf-8")) for name, value in bindings.items()}
 
-    rendered_body = render_text(body, bindings, limit=MAX_SKILL_BODY_BYTES, what="skill body")
-
-    rendered_files: list[dict[str, str]] = []
+    # Size the whole skill before substituting any of it, so an amplifying template is rejected
+    # rather than allocated: peak memory here is the aggregate cap, not the sum of the per-file ones.
+    total = _validate_and_project(body, bindings, binding_sizes)
+    if total > MAX_SKILL_BODY_BYTES:
+        raise TemplateRenderTooLargeError("skill body", MAX_SKILL_BODY_BYTES)
     for file in files:
-        content = render_text(file["content"], bindings, limit=MAX_SKILL_FILE_BYTES, what=f"file '{file['path']}'")
-        rendered_files.append({**file, "content": content})
+        size = _validate_and_project(file["content"], bindings, binding_sizes)
+        if size > MAX_SKILL_FILE_BYTES:
+            raise TemplateRenderTooLargeError(f"file '{file['path']}'", MAX_SKILL_FILE_BYTES)
+        total += size
+        if total > MAX_RENDERED_SKILL_BYTES:
+            raise TemplateRenderTooLargeError("skill", MAX_RENDERED_SKILL_BYTES)
 
-    return RenderedTemplate(body=rendered_body, files=rendered_files, bindings=bindings)
+    rendered_files = [{**file, "content": _substitute(file["content"], bindings)} for file in files]
+    return RenderedTemplate(body=_substitute(body, bindings), files=rendered_files, bindings=bindings)

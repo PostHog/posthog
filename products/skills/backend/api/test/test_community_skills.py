@@ -14,6 +14,7 @@ from posthog.models.user import User
 from ...models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
 from ...models.skills import LLMSkill
 from ..skill_template_services import (
+    MAX_RENDERED_SKILL_BYTES,
     MAX_TEMPLATE_BINDINGS_BYTES,
     MAX_TEMPLATE_VARIABLE_BYTES,
     MissingTemplateVariableError,
@@ -495,6 +496,21 @@ class TestSkillTemplateRendering(APIBaseTest):
                 files=[],
                 supplied=dict.fromkeys(names, "x" * size),
             )
+
+    def test_render_rejects_oversized_total_across_files(self) -> None:
+        # Each file renders to ~700 KB, under the 1 MB per-file cap, but 200 of them are 140 MB.
+        # A per-file limit bounds nothing in aggregate, so the whole-skill cap has to exist.
+        with self.assertRaises(TemplateRenderTooLargeError) as ctx:
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "v", "required": True}]}),
+                body="small",
+                files=[
+                    {"path": f"references/{i}.md", "content": "{{ v }}" * 100, "content_type": "text/plain"}
+                    for i in range(200)
+                ],
+                supplied={"v": "x" * 7_000},
+            )
+        self.assertIn(str(MAX_RENDERED_SKILL_BYTES), str(ctx.exception))
 
     def test_render_scans_unmatched_delimiters_in_one_pass(self) -> None:
         # Unclosed `{{` stay literal. A `{{.*?}}` regex rescans the rest of the input for each of
