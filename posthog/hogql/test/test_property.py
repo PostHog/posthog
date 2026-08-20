@@ -1713,17 +1713,20 @@ class TestProperty(BaseTest):
             ),
         )
 
-        # Test caret requires valid semver
-        with self.assertRaisesMessage(QueryError, "Caret operator requires a valid semver string"):
-            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_caret", "value": "abc.def"})
-
-        # Test wildcard requires valid pattern
-        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
-            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": "*"})
-
-        # Test wildcard requires valid pattern
-        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
-            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": ".*"})
+        # A malformed range filter value matches nothing instead of failing the query. Probe
+        # payloads (e.g. 'php://') reach these operators and must not crash query generation.
+        for operator, value in [
+            ("semver_caret", "abc.def"),
+            ("semver_caret", "php://"),
+            ("semver_tilde", "not-a-version"),
+            ("semver_wildcard", "*"),
+            ("semver_wildcard", ".*"),
+        ]:
+            self.assertEqual(
+                self._property_to_expr({"type": "person", "key": "version", "operator": operator, "value": value}),
+                ast.Constant(value=False),
+                msg=f"{operator} with {value!r} should match nothing",
+            )
 
     def test_property_to_expr_semver_edge_cases(self):
         """Test edge cases to document expected behavior with various version formats.

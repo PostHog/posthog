@@ -135,28 +135,29 @@ def _gate_on_valid_semver(expr: ast.Expr, comparison: ast.Expr) -> ast.And:
 def semver_range_compare(
     expr: ast.Expr,
     value: ast.Any,
-    operator_name: str,
     bounds_calculator: Callable[[str], tuple[str, str]],
-) -> ast.And:
+) -> ast.Expr:
     """
     Build a semver range comparison AST (lower_bound <= expr < upper_bound).
 
     Args:
         expr: The expression to compare (e.g., person.properties.app_version)
         value: The semver value from the filter
-        operator_name: Name for error messages (e.g., "Tilde", "Caret", "Wildcard")
         bounds_calculator: Function that takes the value and returns (lower_bound, upper_bound)
 
     Returns:
         AST node representing: match(expr, valid_semver) AND sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
     """
+    # A filter value that is not a semver string can never match a real version. Drop the
+    # row instead of failing the whole query, matching the fail-safe the comparison operators
+    # get from the STRICT_SEMVER_REGEX gate.
     if not isinstance(value, str):
-        raise QueryError(f"{operator_name} operator requires a semver string value")
+        return ast.Constant(value=False)
 
     try:
         lower_bound, upper_bound = bounds_calculator(value)
     except (ValueError, IndexError):
-        raise QueryError(f"{operator_name} operator requires a valid semver string (e.g., '1.2.3')")
+        return ast.Constant(value=False)
 
     return ast.And(
         exprs=[
@@ -712,11 +713,11 @@ def _expr_to_compare_op(
             ),
         )
     elif operator == PropertyOperator.SEMVER_TILDE:
-        return semver_range_compare(expr, value, "Tilde", _tilde_bounds)
+        return semver_range_compare(expr, value, _tilde_bounds)
     elif operator == PropertyOperator.SEMVER_CARET:
-        return semver_range_compare(expr, value, "Caret", _caret_bounds)
+        return semver_range_compare(expr, value, _caret_bounds)
     elif operator == PropertyOperator.SEMVER_WILDCARD:
-        return semver_range_compare(expr, value, "Wildcard", _wildcard_bounds)
+        return semver_range_compare(expr, value, _wildcard_bounds)
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
