@@ -519,6 +519,7 @@ export class PiAgentServer {
         taskId: this.config.taskId,
         taskRunId: this.config.runId,
         baseBranch: this.config.baseBranch,
+        peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
       },
     );
     const mcpConfiguration = await this.posthogAPI.getMcpRuntimeConfiguration(
