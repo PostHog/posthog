@@ -7,6 +7,7 @@ from django.test import override_settings
 import fakeredis
 
 from posthog.models import Team
+from posthog.models.instance_setting import override_instance_config
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker, get_team_cache_limit
 from posthog.query_cache.storage import entry_redis_key
 
@@ -270,12 +271,19 @@ class TestGetTeamCacheLimit(BaseTest):
 
     @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
     def test_get_team_cache_limit_uses_override(self):
-        # Set per-team override
+        # Per-team override must win over the fleet-wide instance setting
         self.team.extra_settings = {"cache_size_limit_bytes": 2_000_000_000}
         self.team.save()
 
-        limit = get_team_cache_limit(self.team.pk)
+        with override_instance_config("TEAM_CACHE_SIZE_LIMIT_BYTES", 750_000_000):
+            limit = get_team_cache_limit(self.team.pk)
         self.assertEqual(limit, 2_000_000_000)
+
+    @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
+    def test_get_team_cache_limit_uses_instance_setting(self):
+        with override_instance_config("TEAM_CACHE_SIZE_LIMIT_BYTES", 750_000_000):
+            limit = get_team_cache_limit(self.team.pk)
+        self.assertEqual(limit, 750_000_000)
 
     @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
     def test_get_team_cache_limit_returns_default_for_nonexistent_team(self):
@@ -292,7 +300,13 @@ class TestGetTeamCacheLimit(BaseTest):
 
     @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
     def test_get_team_cache_limit_falls_back_to_default_when_postgres_errors(self):
-        with patch.object(Team.objects, "only", side_effect=OperationalError("query_wait_timeout")):
+        with (
+            patch.object(Team.objects, "only", side_effect=OperationalError("query_wait_timeout")),
+            patch(
+                "posthog.models.instance_setting.get_instance_setting",
+                side_effect=OperationalError("query_wait_timeout"),
+            ),
+        ):
             limit = get_team_cache_limit(self.team.pk)
 
         self.assertEqual(limit, 500_000_000)
