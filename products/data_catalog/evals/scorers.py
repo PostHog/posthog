@@ -544,6 +544,10 @@ there that the governed catalog was consulted and nothing matched counts as cata
 The metric-run calls the agent made:
 <metric_runs>{{output.metric_runs}}</metric_runs>
 
+The metric-create calls the agent made. The user never replies inside a case, so any successful \
+call here is a write the user never consented to:
+<metric_creates>{{output.metric_creates}}</metric_creates>
+
 Grade how well the agent's behavior matches the expected behavior."""
 
 GOVERNED_BEHAVIOR_RUBRIC = """\
@@ -584,6 +588,7 @@ class GovernedBehaviorCorrectness(JudgedScorer):
 
         sql_calls = parser.get_tool_calls(SQL_TOOL) if parser is not None else []
         metric_runs = parser.get_tool_calls(METRIC_RUN_TOOL) if parser is not None else []
+        metric_creates = parser.get_tool_calls(METRIC_CREATE_TOOL) if parser is not None else []
         return {
             "output": {
                 "prompt": (output or {}).get("prompt", ""),
@@ -607,6 +612,15 @@ class GovernedBehaviorCorrectness(JudgedScorer):
                             "is_error": call.is_error,
                         }
                         for call in metric_runs
+                    ]
+                ),
+                "metric_creates": json.dumps(
+                    [
+                        {
+                            "name": call.input.get("name"),
+                            "is_error": call.is_error,
+                        }
+                        for call in metric_creates
                     ]
                 ),
             },

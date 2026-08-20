@@ -41,6 +41,8 @@ from products.data_catalog.evals.constants import (
     DECOY_INSIGHT_NAMES,
     DEFINITION_INSIGHT_NAME,
     DRIFTED_METRIC_NAME,
+    METRIC_CREATE_TOOL,
+    METRIC_UPDATE_TOOL,
     OPERATIONAL_METRIC_NAME,
     PROPOSED_METRIC_NAME,
     SCOUT_PRESCRIBED_OPS_SWEEP_SQL,
@@ -69,6 +71,7 @@ from products.data_catalog.evals.seeders import (
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.scorers import NoToolCall
 
 
 async def eval_governed_metrics(ctx: EvalContext) -> None:
@@ -487,6 +490,9 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             CanonicalMetricRun(),
             MetricsCatalogNotQueried(),
             GovernedBehaviorCorrectness(),
+            # A case is one turn, so the user never answers the offer. Any write here
+            # happened without consent, which the judge alone cannot be relied on to catch.
+            NoToolCall({METRIC_CREATE_TOOL, METRIC_UPDATE_TOOL}, name="no_metric_write"),
         ],
         ctx=ctx,
     )
