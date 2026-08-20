@@ -121,7 +121,14 @@ export const BotEventsPerMinuteChart = ({
                 config={config}
                 tooltip={(ctx: TooltipContext) => {
                     const point = data[ctx.dataIndex]
-                    return <DefaultTooltip {...ctx} labelFormatter={(label) => (point ? point.minute : label)} />
+                    return (
+                        <DefaultTooltip
+                            {...ctx}
+                            labelFormatter={(label) =>
+                                point ? `${point.minute} · ${point.botEvents} bot requests` : label
+                            }
+                        />
+                    )
                 }}
             />
         </div>
