@@ -25,7 +25,8 @@ fn record() -> BillingUsageRecord {
 #[test]
 fn converts_a_valid_record_to_clickhouse_json_shape() {
     let organization_id = Uuid::new_v4();
-    let result = KafkaBillingUsageRecord::from_proto(record(), organization_id, Utc::now()).unwrap();
+    let result =
+        KafkaBillingUsageRecord::from_proto(record(), organization_id, Utc::now()).unwrap();
 
     assert_eq!(result.organization_id, organization_id);
     assert_eq!(result.mode, "delta");

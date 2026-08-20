@@ -19,12 +19,15 @@ enum BillingUsageMode {
 }
 
 message BillingUsageRecord {
-  // Stable UUID or producer-scoped identifier used for idempotent retries.
+  // Stable UUID or producer-scoped identifier used for idempotent retries. A retry
+  // must reuse record_id, version, and event_timestamp_ms; a correction gets a new
+  // version instead.
   string record_id = 1;
   string producer_id = 2;
   int64 team_id = 3;
 
-  // Optional for producers. The service resolves it from team_id when omitted.
+  // Optional for producers. The service always resolves the organization from
+  // team_id and rejects a supplied value that does not match.
   optional string organization_id = 4;
 
   string usage_key = 5;

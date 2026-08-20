@@ -15,6 +15,10 @@ KAFKA_BILLING_USAGE_RECORDS_TABLE = f"kafka_{BILLING_USAGE_RECORDS_TABLE}"
 BILLING_USAGE_RECORDS_MV = f"{BILLING_USAGE_RECORDS_TABLE}_mv"
 
 
+# ReplacingMergeTree collapses only within a partition, so a retry must reuse the
+# original event_timestamp — a correction that moves billable time into another month
+# lands in another partition and survives as a second row. Corrections belong on a new
+# version, which is a distinct row by design.
 def billing_usage_records_data_table_engine() -> ReplacingMergeTree:
     return ReplacingMergeTree(
         SHARDED_BILLING_USAGE_RECORDS_TABLE,

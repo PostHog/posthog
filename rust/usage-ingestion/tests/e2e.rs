@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use common::{clickhouse, clickhouse_url, table, Service};
 use usage_ingestion_proto::usage_ingestion::v1::{
-    IngestBillingUsageRequest, BillingUsageMode, BillingUsageRecord,
+    BillingUsageMode, BillingUsageRecord, IngestBillingUsageRequest,
 };
 use uuid::Uuid;
 

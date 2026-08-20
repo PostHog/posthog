@@ -1,6 +1,6 @@
 use prost::Message;
 use usage_ingestion_proto::usage_ingestion::v1::{
-    IngestBillingUsageRequest, BillingUsageMode, BillingUsageRecord,
+    BillingUsageMode, BillingUsageRecord, IngestBillingUsageRequest,
 };
 
 #[test]

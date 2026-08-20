@@ -87,7 +87,8 @@ impl KafkaBillingUsageRecord {
             return Err(ValidationError::InvalidDimension);
         }
 
-        let mode = BillingUsageMode::try_from(record.mode).map_err(|_| ValidationError::InvalidMode)?;
+        let mode =
+            BillingUsageMode::try_from(record.mode).map_err(|_| ValidationError::InvalidMode)?;
         let mode = match mode {
             BillingUsageMode::Delta if record.quantity == 0 => {
                 return Err(ValidationError::InvalidDeltaQuantity)

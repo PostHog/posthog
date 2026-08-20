@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use common::{clickhouse, clickhouse_url, env_usize, table, Service};
 use tokio::sync::Semaphore;
 use usage_ingestion_proto::usage_ingestion::v1::{
-    IngestBillingUsageRequest, BillingUsageMode, BillingUsageRecord,
+    BillingUsageMode, BillingUsageRecord, IngestBillingUsageRequest,
 };
 use uuid::Uuid;
 

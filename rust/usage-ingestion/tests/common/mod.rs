@@ -30,7 +30,10 @@ pub fn table() -> String {
 }
 
 pub fn topic() -> String {
-    env_or("USAGE_INGESTION_E2E_TOPIC", "clickhouse_billing_usage_records")
+    env_or(
+        "USAGE_INGESTION_E2E_TOPIC",
+        "clickhouse_billing_usage_records",
+    )
 }
 
 #[derive(Clone)]
