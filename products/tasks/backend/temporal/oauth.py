@@ -192,9 +192,7 @@ def create_oauth_access_token_for_run(
                 raise TaskInvalidStateError(
                     f"{credential_owner_kind.capitalize()} task {locked_task.id} credential owner can no longer access its team",
                     {"task_id": locked_task.id},
-                    cause=RuntimeError(
-                        f"{credential_owner_kind} credential owner is not an active team member"
-                    ),
+                    cause=RuntimeError(f"{credential_owner_kind} credential owner is not an active team member"),
                 )
 
         return create_oauth_access_token(
