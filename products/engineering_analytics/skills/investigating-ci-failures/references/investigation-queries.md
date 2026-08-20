@@ -151,10 +151,16 @@ SELECT
     countIf(conclusion IN ('failure', 'timed_out')) AS fail,
     round(100.0 * fail / nullIf(ok + fail, 0), 2) AS fail_pct
 FROM engineering_analytics_ci_job_history
-WHERE job_name = '<failing job name>'
+WHERE repo_name = '<repo>'
+  AND workflow_name = '<failing workflow name>'
+  AND job_name = '<failing job name>'
   AND created_at >= now() - INTERVAL 7 DAY
   AND created_at_raw >= '<8 days ago, YYYY-MM-DD>'
 ```
+
+Scope by repository and workflow as well as job: the view unions every connected repository, and job
+names repeat across workflows (`Desktop Tests Pass` fails under two), so a job-only filter pools
+unrelated attempts into the denominator.
 
 `timed_out` counts as a failure, the same set every other rate in this product uses. `cancelled` and
 `skipped` are absent from `ok + fail` on purpose: neither reached a verdict, and both are common
@@ -168,7 +174,9 @@ SELECT
     countIf(conclusion = 'success') AS ok,
     countIf(conclusion IN ('failure', 'timed_out')) AS fail
 FROM engineering_analytics_ci_job_history
-WHERE job_name = '<failing job name>'
+WHERE repo_name = '<repo>'
+  AND workflow_name = '<failing workflow name>'
+  AND job_name = '<failing job name>'
   AND created_at >= now() - INTERVAL 12 HOUR
   AND created_at_raw >= '<yesterday, YYYY-MM-DD>'
 GROUP BY hour
