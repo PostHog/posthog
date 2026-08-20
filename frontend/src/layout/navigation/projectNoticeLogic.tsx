@@ -118,8 +118,11 @@ function storeNoticeDismissal(key: string): void {
 
 // Drop and skip restrictions share the one banner variant but must dismiss independently, so that
 // hiding the benign skip-person-processing notice never also suppresses a later drop-event warning.
-function eventIngestionRestrictionDismissKey(hasDropEventRestriction: boolean): string {
-    return hasDropEventRestriction ? 'event_ingestion_restriction.drop' : 'event_ingestion_restriction.skip'
+// The restriction is per-project, so the key is scoped to the team too — dismissing it in one
+// project must not hide the same restriction in another project the user also has.
+function eventIngestionRestrictionDismissKey(hasDropEventRestriction: boolean, currentTeamId: number | null): string {
+    const type = hasDropEventRestriction ? 'drop' : 'skip'
+    return `event_ingestion_restriction.${type}.${currentTeamId}`
 }
 
 /**
@@ -255,7 +258,8 @@ export interface projectNoticeLogicMeta {
         projectNoticeDismissKey: (
             projectNoticeVariant: ProjectNoticeVariant | null,
             effectiveBillingAlert: BillingAlertConfig | null,
-            hasDropEventRestriction: boolean
+            hasDropEventRestriction: boolean,
+            currentTeamId: number | null
         ) => string | null
         projectNotice: (
             projectNoticeVariant: ProjectNoticeVariant | null,
@@ -446,7 +450,9 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return 'real_project_with_no_events'
                 } else if (
                     hasEventIngestionRestriction &&
-                    !isNoticeDismissed(eventIngestionRestrictionDismissKey(hasDropEventRestriction))
+                    !isNoticeDismissed(
+                        eventIngestionRestrictionDismissKey(hasDropEventRestriction, currentTeam?.id ?? null)
+                    )
                 ) {
                     return 'event_ingestion_restriction'
                 } else if (
@@ -474,11 +480,13 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 s.projectNoticeVariant,
                 s.effectiveBillingAlert,
                 eventIngestionRestrictionLogic.selectors.hasDropEventRestriction,
+                teamLogic.selectors.currentTeamId,
             ],
             (
                 variant: ProjectNoticeVariant | null,
                 effectiveBillingAlert: BillingAlertConfig | null,
-                hasDropEventRestriction: boolean
+                hasDropEventRestriction: boolean,
+                currentTeamId: number | null
             ): string | null => {
                 switch (variant) {
                     case 'billing_alert':
@@ -486,7 +494,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             ? `billing_alert.${effectiveBillingAlert.dismissKey}`
                             : null
                     case 'event_ingestion_restriction':
-                        return eventIngestionRestrictionDismissKey(hasDropEventRestriction)
+                        return eventIngestionRestrictionDismissKey(hasDropEventRestriction, currentTeamId)
                     case 'real_project_with_no_events':
                     case 'missing_reverse_proxy':
                     case 'invite_teammates':

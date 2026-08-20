@@ -268,14 +268,14 @@ describe('projectNoticeLogic', () => {
             restriction: RestrictionType.DROP_EVENT_FROM_INGESTION,
             expectedType: 'warning',
             expectsDocsLink: false,
-            dismissKey: 'event_ingestion_restriction.drop',
+            dismissKey: `event_ingestion_restriction.drop.${MOCK_TEAM_ID}`,
         },
         {
             label: 'only person processing is skipped',
             restriction: RestrictionType.SKIP_PERSON_PROCESSING,
             expectedType: 'info',
             expectsDocsLink: true,
-            dismissKey: 'event_ingestion_restriction.skip',
+            dismissKey: `event_ingestion_restriction.skip.${MOCK_TEAM_ID}`,
         },
     ])(
         'event ingestion restriction banner copy: $label',
@@ -322,6 +322,9 @@ describe('projectNoticeLogic', () => {
                 expect(logic.values.projectNotice?.type).toEqual(expectedType)
                 expect(logic.values.projectNotice?.onClose).not.toBeUndefined()
                 expect(logic.values.projectNotice?.action).toEqual(expectsDocsLink ? expect.anything() : undefined)
+                // The dismiss key is scoped to the project, so closing it in one project can't hide
+                // the same restriction in another project the user also has.
+                expect(logic.values.projectNoticeDismissKey).toEqual(dismissKey)
 
                 logic.unmount()
             })
@@ -373,7 +376,7 @@ describe('projectNoticeLogic', () => {
                 .spyOn(Storage.prototype, 'getItem')
                 .mockImplementation((key: string) =>
                     key === 'project-notice-dismissed.invite_teammates' ||
-                    key === 'project-notice-dismissed.event_ingestion_restriction.skip'
+                    key === `project-notice-dismissed.event_ingestion_restriction.skip.${MOCK_TEAM_ID}`
                         ? 'true'
                         : null
                 )
