@@ -93,6 +93,7 @@ export const HoverCardStates: Story = {
             title: "Coupon → purchase conversion",
             detail: "Funnel conversion, last 30 days",
           }}
+          onExpand={() => {}}
         >
           Checkout funnel
         </EvidenceHoverCard>

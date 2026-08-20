@@ -1,3 +1,5 @@
+import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
+import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -41,6 +43,10 @@ function signIn() {
 
 afterEach(() => {
   useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
+  const actions = useDraftStore.getState().actions;
+  actions.setDraft("task-1", null);
+  actions.clearPendingInsert("task-1");
+  actions.clearFocusRequest("task-1");
 });
 
 describe("EvidenceRefChip", () => {
@@ -127,6 +133,41 @@ describe("EvidenceRefChip", () => {
     fireEvent.click(trigger);
     expect(screen.getByRole("dialog")).toBeDefined();
   });
+
+  it("adds the exact object reference after an existing composer draft", () => {
+    signIn();
+    useDraftStore.getState().actions.setDraft("task-1", {
+      segments: [{ type: "text", text: "Compare the variants" }],
+    });
+    renderInTheme(
+      <SessionTaskIdProvider taskId="task-1">
+        <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+          Checkout funnel
+        </EvidenceRefChip>
+      </SessionTaskIdProvider>,
+    );
+
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand on it" }));
+
+    expect(useDraftStore.getState().pendingInsert["task-1"]).toEqual({
+      segments: [
+        { type: "text", text: "\n\nExpand on " },
+        {
+          type: "chip",
+          chip: {
+            type: "posthog_object",
+            objectKind: "insight",
+            id: "9pQx3",
+            label: "Insight: Checkout funnel",
+          },
+        },
+        { type: "text", text: " " },
+      ],
+    });
+    expect(useDraftStore.getState().focusRequested["task-1"]).toBeDefined();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });
 
 describe("EvidenceHoverCard", () => {
@@ -154,6 +195,27 @@ describe("EvidenceHoverCard", () => {
     if (preview) {
       expect(screen.getByText("conversion, last 30 days")).toBeDefined();
     }
+  });
+
+  it("copies the exact reference from the existing footer", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderInTheme(
+      <EvidenceHoverCard
+        target={{ kind: "insight", id: "9pQx3" }}
+        url={null}
+        preview={{ title: "Checkout funnel" }}
+      >
+        Checkout funnel
+      </EvidenceHoverCard>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy reference" }));
+
+    expect(writeText).toHaveBeenCalledWith("9pQx3");
   });
 
   it("draws a sparkline and headline for a series preview and opens on click", () => {
