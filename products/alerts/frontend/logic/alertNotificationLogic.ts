@@ -76,6 +76,9 @@ export interface alertNotificationLogicActions {
             icon_url: any
             id: number
             kind:
+                | 'amazon-selling-partner-eu'
+                | 'amazon-selling-partner-fe'
+                | 'amazon-selling-partner-na'
                 | 'apns'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -130,6 +133,9 @@ export interface alertNotificationLogicActions {
             icon_url: any
             id: number
             kind:
+                | 'amazon-selling-partner-eu'
+                | 'amazon-selling-partner-fe'
+                | 'amazon-selling-partner-na'
                 | 'apns'
                 | 'aws-s3'
                 | 'azure-blob'

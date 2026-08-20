@@ -29548,6 +29548,9 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
+                "amazon-selling-partner-na",
+                "amazon-selling-partner-eu",
+                "amazon-selling-partner-fe",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",

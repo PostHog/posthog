@@ -120,6 +120,9 @@ class IntegrationManager(models.Manager["Integration"]):
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
+        AMAZON_SELLING_PARTNER_EU = "amazon-selling-partner-eu", "Amazon Selling Partner (Europe)"
+        AMAZON_SELLING_PARTNER_FE = "amazon-selling-partner-fe", "Amazon Selling Partner (Far East)"
+        AMAZON_SELLING_PARTNER_NA = "amazon-selling-partner-na", "Amazon Selling Partner (North America)"
         ANTHROPIC = "anthropic"
         APPLE_PUSH = "apns"
         AWS_REDSHIFT = "aws-redshift"
