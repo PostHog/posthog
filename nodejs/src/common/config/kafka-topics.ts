@@ -114,4 +114,4 @@ export const KAFKA_METRICS_CLICKHOUSE = `${prefix}clickhouse_metrics${suffix}`
 
 // TopHog metrics
 export const KAFKA_CLICKHOUSE_TOPHOG = `${prefix}clickhouse_tophog${suffix}`
-export const KAFKA_USAGE_RECORDS = `${prefix}clickhouse_usage_records${suffix}`
+export const KAFKA_BILLING_USAGE_RECORDS = `${prefix}clickhouse_billing_usage_records${suffix}`

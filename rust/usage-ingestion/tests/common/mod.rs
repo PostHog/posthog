@@ -24,13 +24,13 @@ use uuid::Uuid;
 /// A Django test environment suffixes both the database and the topic, so CI overrides both.
 pub fn table() -> String {
     format!(
-        "{}.sharded_usage_records",
+        "{}.sharded_billing_usage_records",
         env_or("USAGE_INGESTION_E2E_CLICKHOUSE_DATABASE", "posthog")
     )
 }
 
 pub fn topic() -> String {
-    env_or("USAGE_INGESTION_E2E_TOPIC", "clickhouse_usage_records")
+    env_or("USAGE_INGESTION_E2E_TOPIC", "clickhouse_billing_usage_records")
 }
 
 #[derive(Clone)]

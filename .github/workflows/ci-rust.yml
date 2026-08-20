@@ -506,7 +506,7 @@ jobs:
                       # Cargo.toml guard keeps this a no-op on branches predating the crate.
                       if [ "$pkg" = "usage-ingestion" ] && [ -f usage-ingestion/Cargo.toml ]; then
                           USAGE_INGESTION_E2E_CLICKHOUSE_DATABASE=posthog_test \
-                          USAGE_INGESTION_E2E_TOPIC=clickhouse_usage_records_test \
+                          USAGE_INGESTION_E2E_TOPIC=clickhouse_billing_usage_records_test \
                           USAGE_INGESTION_E2E_LOAD_REQUESTS=2000 \
                               run_nextest usage-ingestion-ignored -p usage-ingestion --run-ignored only --test-threads=1
                       fi

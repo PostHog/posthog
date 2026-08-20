@@ -8,12 +8,12 @@ use common_kafka::kafka_producer::{
 use rdkafka::producer::FutureProducer;
 use tonic::{Request, Response, Status};
 use usage_ingestion_proto::usage_ingestion::v1::{
-    usage_ingestion_server::UsageIngestion, IngestUsageRecordsRequest, IngestUsageRecordsResponse,
-    UsageRecord,
+    usage_ingestion_server::UsageIngestion, IngestBillingUsageRequest, IngestBillingUsageResponse,
+    BillingUsageRecord,
 };
 use uuid::Uuid;
 
-use crate::record::KafkaUsageRecord;
+use crate::record::KafkaBillingUsageRecord;
 use crate::resolver::{OrganizationResolver, ResolveError};
 
 pub struct UsageIngestionService {
@@ -40,9 +40,9 @@ impl UsageIngestionService {
 
     async fn prepare(
         &self,
-        record: UsageRecord,
+        record: BillingUsageRecord,
         resolved: &mut HashMap<i64, Uuid>,
-    ) -> Result<KafkaUsageRecord, Status> {
+    ) -> Result<KafkaBillingUsageRecord, Status> {
         if record.team_id <= 0 || record.team_id > i64::from(i32::MAX) {
             return Err(Status::invalid_argument(
                 "team_id must be a positive 32-bit integer",
@@ -70,17 +70,17 @@ impl UsageIngestionService {
             },
         };
 
-        KafkaUsageRecord::from_proto(record, organization_id, Utc::now())
+        KafkaBillingUsageRecord::from_proto(record, organization_id, Utc::now())
             .map_err(|error| Status::invalid_argument(error.to_string()))
     }
 }
 
 #[tonic::async_trait]
 impl UsageIngestion for UsageIngestionService {
-    async fn ingest(
+    async fn ingest_billing_usage(
         &self,
-        request: Request<IngestUsageRecordsRequest>,
-    ) -> Result<Response<IngestUsageRecordsResponse>, Status> {
+        request: Request<IngestBillingUsageRequest>,
+    ) -> Result<Response<IngestBillingUsageResponse>, Status> {
         let records = request.into_inner().records;
         if records.is_empty() {
             return Err(Status::invalid_argument("records must not be empty"));
@@ -124,7 +124,7 @@ impl UsageIngestion for UsageIngestionService {
             ));
         }
 
-        Ok(Response::new(IngestUsageRecordsResponse {
+        Ok(Response::new(IngestBillingUsageResponse {
             accepted_record_ids,
         }))
     }

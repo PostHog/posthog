@@ -3,7 +3,7 @@ use std::ops::Range;
 use chrono::{DateTime, Datelike, SecondsFormat, Utc};
 use serde::Serialize;
 use thiserror::Error;
-use usage_ingestion_proto::usage_ingestion::v1::{UsageMode, UsageRecord};
+use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageMode, BillingUsageRecord};
 use uuid::Uuid;
 
 const CLICKHOUSE_DATETIME64_YEARS: Range<i32> = 1900..2300;
@@ -40,7 +40,7 @@ pub enum ValidationError {
 }
 
 #[derive(Debug, Serialize)]
-pub struct KafkaUsageRecord {
+pub struct KafkaBillingUsageRecord {
     pub schema_version: u8,
     pub record_id: String,
     pub producer_id: String,
@@ -59,9 +59,9 @@ pub struct KafkaUsageRecord {
     pub dimensions: std::collections::HashMap<String, String>,
 }
 
-impl KafkaUsageRecord {
+impl KafkaBillingUsageRecord {
     pub fn from_proto(
-        record: UsageRecord,
+        record: BillingUsageRecord,
         organization_id: Uuid,
         inserted_at: DateTime<Utc>,
     ) -> Result<Self, ValidationError> {
@@ -87,14 +87,14 @@ impl KafkaUsageRecord {
             return Err(ValidationError::InvalidDimension);
         }
 
-        let mode = UsageMode::try_from(record.mode).map_err(|_| ValidationError::InvalidMode)?;
+        let mode = BillingUsageMode::try_from(record.mode).map_err(|_| ValidationError::InvalidMode)?;
         let mode = match mode {
-            UsageMode::Delta if record.quantity == 0 => {
+            BillingUsageMode::Delta if record.quantity == 0 => {
                 return Err(ValidationError::InvalidDeltaQuantity)
             }
-            UsageMode::Delta => "delta",
-            UsageMode::Snapshot => "snapshot",
-            UsageMode::Unspecified => return Err(ValidationError::InvalidMode),
+            BillingUsageMode::Delta => "delta",
+            BillingUsageMode::Snapshot => "snapshot",
+            BillingUsageMode::Unspecified => return Err(ValidationError::InvalidMode),
         };
         if let Some(value) = record.organization_id.as_deref() {
             Uuid::parse_str(value).map_err(|_| ValidationError::InvalidOrganizationId)?;

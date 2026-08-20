@@ -7865,7 +7865,7 @@ SQL
       comment = "column_materializer::properties::$ai_experiment_id"
     }
   }
-  table "sharded_usage_records" {
+  table "sharded_billing_usage_records" {
     order_by     = ["team_id", "producer_id", "record_id", "version"]
     partition_by = "toYYYYMM(event_timestamp)"
     column "schema_version" { type = "UInt8" }
@@ -7888,13 +7888,13 @@ SQL
     column "_offset" { type = "UInt64" }
     column "_partition" { type = "UInt64" }
     engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_usage_records"
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
       replica_name   = "{replica}"
       version_column = "event_timestamp"
     }
   }
 
-  table "usage_records" {
+  table "billing_usage_records" {
     column "schema_version" { type = "UInt8" }
     column "record_id" { type = "String" }
     column "producer_id" { type = "LowCardinality(String)" }
@@ -7917,7 +7917,7 @@ SQL
     engine "distributed" {
       cluster_name    = "posthog"
       remote_database = "posthog"
-      remote_table    = "sharded_usage_records"
+      remote_table    = "sharded_billing_usage_records"
       sharding_key    = "sipHash64(team_id)"
     }
   }

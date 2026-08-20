@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use common::{clickhouse, clickhouse_url, table, Service};
 use usage_ingestion_proto::usage_ingestion::v1::{
-    IngestUsageRecordsRequest, UsageMode, UsageRecord,
+    IngestBillingUsageRequest, BillingUsageMode, BillingUsageRecord,
 };
 use uuid::Uuid;
 
@@ -15,14 +15,14 @@ use uuid::Uuid;
 const FIRST_EVENT_TIMESTAMP_MS: i64 = 1_718_409_600_000; // 2024-06-15T00:00:00Z
 const RETRY_EVENT_TIMESTAMP_MS: i64 = FIRST_EVENT_TIMESTAMP_MS + 1_000;
 
-fn record(record_id: &str, organization_id: Uuid, event_timestamp_ms: i64) -> UsageRecord {
-    UsageRecord {
+fn record(record_id: &str, organization_id: Uuid, event_timestamp_ms: i64) -> BillingUsageRecord {
+    BillingUsageRecord {
         record_id: record_id.to_string(),
         producer_id: "usage-ingestion-e2e".to_string(),
         team_id: 1,
         organization_id: Some(organization_id.to_string()),
         usage_key: "e2e_records".to_string(),
-        mode: UsageMode::Delta as i32,
+        mode: BillingUsageMode::Delta as i32,
         unit: "record".to_string(),
         quantity: 1,
         version: 1,
@@ -45,7 +45,7 @@ async fn retried_record_deduplicates_to_the_latest_event_timestamp() {
     let record_id = Uuid::new_v4().to_string();
     let organization_id = Uuid::new_v4();
     client
-        .ingest(IngestUsageRecordsRequest {
+        .ingest_billing_usage(IngestBillingUsageRequest {
             records: vec![record(
                 &record_id,
                 organization_id,
@@ -58,7 +58,7 @@ async fn retried_record_deduplicates_to_the_latest_event_timestamp() {
     // Milliseconds: the precision the service serializes inserted_at at.
     let between_ingests = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f000").to_string();
     client
-        .ingest(IngestUsageRecordsRequest {
+        .ingest_billing_usage(IngestBillingUsageRequest {
             records: vec![record(
                 &record_id,
                 organization_id,

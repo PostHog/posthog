@@ -2105,7 +2105,7 @@ SQL
     }
   }
 
-  table "writable_usage_records" {
+  table "writable_billing_usage_records" {
     column "schema_version" { type = "UInt8" }
     column "record_id" { type = "String" }
     column "producer_id" { type = "LowCardinality(String)" }
@@ -2128,12 +2128,12 @@ SQL
     engine "distributed" {
       cluster_name    = "posthog"
       remote_database = "posthog"
-      remote_table    = "sharded_usage_records"
+      remote_table    = "sharded_billing_usage_records"
       sharding_key    = "sipHash64(team_id)"
     }
   }
 
-  table "kafka_usage_records" {
+  table "kafka_billing_usage_records" {
     settings = { date_time_input_format = "best_effort" }
     column "schema_version" { type = "UInt8" }
     column "record_id" { type = "String" }
@@ -2153,14 +2153,14 @@ SQL
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     engine "kafka" {
       broker_list = "warpstream_ingestion"
-      topic_list  = "kafka_topic_list = 'clickhouse_usage_records'"
-      group_name  = "kafka_group_name = 'clickhouse_usage_records'"
+      topic_list  = "kafka_topic_list = 'clickhouse_billing_usage_records'"
+      group_name  = "kafka_group_name = 'clickhouse_billing_usage_records'"
       format      = "kafka_format = 'JSONEachRow'"
     }
   }
 
-  materialized_view "usage_records_mv" {
-    to_table = "posthog.writable_usage_records"
+  materialized_view "billing_usage_records_mv" {
+    to_table = "posthog.writable_billing_usage_records"
     query    = <<SQL
 SELECT
   schema_version,
@@ -2182,7 +2182,7 @@ SELECT
   _timestamp,
   _offset,
   _partition
-FROM posthog.kafka_usage_records
+FROM posthog.kafka_billing_usage_records
 SQL
 
     column "schema_version" { type = "UInt8" }

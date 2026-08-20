@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use common::{clickhouse, clickhouse_url, env_usize, table, Service};
 use tokio::sync::Semaphore;
 use usage_ingestion_proto::usage_ingestion::v1::{
-    IngestUsageRecordsRequest, UsageMode, UsageRecord,
+    IngestBillingUsageRequest, BillingUsageMode, BillingUsageRecord,
 };
 use uuid::Uuid;
 
@@ -37,19 +37,19 @@ const USAGE_KEYS: [(&str, &str); 4] = [
 
 /// A `retry` must leave every field of the table's sorting key — team_id, producer_id,
 /// record_id, version — identical to the original, or it becomes a separate row.
-fn record(run: &str, organizations: &[Uuid], index: usize, retry: bool) -> UsageRecord {
+fn record(run: &str, organizations: &[Uuid], index: usize, retry: bool) -> BillingUsageRecord {
     let (usage_key, unit) = USAGE_KEYS[index % USAGE_KEYS.len()];
     let event_offset_ms = (index % 60_000) as i64;
-    UsageRecord {
+    BillingUsageRecord {
         record_id: format!("{run}:{index}"),
         producer_id: "usage-ingestion-load".to_string(),
         team_id: 1 + (index % 8) as i64,
         organization_id: Some(organizations[index % organizations.len()].to_string()),
         usage_key: usage_key.to_string(),
         mode: if index.is_multiple_of(7) {
-            UsageMode::Snapshot as i32
+            BillingUsageMode::Snapshot as i32
         } else {
-            UsageMode::Delta as i32
+            BillingUsageMode::Delta as i32
         },
         unit: unit.to_string(),
         quantity: 1 + (index % 100) as i64,
@@ -95,7 +95,7 @@ async fn sustains_thousands_of_concurrent_requests() {
     for index in unique..unique + BASELINE_REQUESTS {
         let started = Instant::now();
         baseline_client
-            .ingest(IngestUsageRecordsRequest {
+            .ingest_billing_usage(IngestBillingUsageRequest {
                 records: vec![record(&run, &organizations, index, false)],
             })
             .await
@@ -105,7 +105,7 @@ async fn sustains_thousands_of_concurrent_requests() {
     let baseline_throughput = BASELINE_REQUESTS as f64 / baseline_started.elapsed().as_secs_f64();
     baseline_latencies.sort();
 
-    let mut plan: Vec<UsageRecord> = (0..unique)
+    let mut plan: Vec<BillingUsageRecord> = (0..unique)
         .map(|index| record(&run, &organizations, index, false))
         .chain((0..retries).map(|index| record(&run, &organizations, index, true)))
         .collect();
@@ -132,7 +132,7 @@ async fn sustains_thousands_of_concurrent_requests() {
                 let _permit = permits.acquire().await.unwrap();
                 let started = Instant::now();
                 let result = client
-                    .ingest(IngestUsageRecordsRequest {
+                    .ingest_billing_usage(IngestBillingUsageRequest {
                         records: vec![record],
                     })
                     .await;

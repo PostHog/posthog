@@ -2,20 +2,23 @@ syntax = "proto3";
 
 package usage_ingestion.v1;
 
-// UsageIngestion accepts product-usage records for durable analytics and billing.
-// Producers must reuse record_id when retrying a record. The service preserves
-// producer-supplied event time and assigns insertion time when it publishes.
+// UsageIngestion accepts usage records for durable analytics. Producers must reuse
+// record_id when retrying a record. The service preserves producer-supplied event
+// time and assigns insertion time when it publishes.
+//
+// IngestBillingUsage carries tenant-billable usage: exact, idempotent, retained
+// indefinitely. Cost and resource metering is a separate RPC and table.
 service UsageIngestion {
-  rpc Ingest(IngestUsageRecordsRequest) returns (IngestUsageRecordsResponse);
+  rpc IngestBillingUsage(IngestBillingUsageRequest) returns (IngestBillingUsageResponse);
 }
 
-enum UsageMode {
-  USAGE_MODE_UNSPECIFIED = 0;
-  USAGE_MODE_DELTA = 1;
-  USAGE_MODE_SNAPSHOT = 2;
+enum BillingUsageMode {
+  BILLING_USAGE_MODE_UNSPECIFIED = 0;
+  BILLING_USAGE_MODE_DELTA = 1;
+  BILLING_USAGE_MODE_SNAPSHOT = 2;
 }
 
-message UsageRecord {
+message BillingUsageRecord {
   // Stable UUID or producer-scoped identifier used for idempotent retries.
   string record_id = 1;
   string producer_id = 2;
@@ -25,7 +28,7 @@ message UsageRecord {
   optional string organization_id = 4;
 
   string usage_key = 5;
-  UsageMode mode = 6;
+  BillingUsageMode mode = 6;
   string unit = 7;
   int64 quantity = 8;
   uint64 version = 9;
@@ -36,11 +39,11 @@ message UsageRecord {
   map<string, string> dimensions = 14;
 }
 
-message IngestUsageRecordsRequest {
-  repeated UsageRecord records = 1;
+message IngestBillingUsageRequest {
+  repeated BillingUsageRecord records = 1;
 }
 
-message IngestUsageRecordsResponse {
+message IngestBillingUsageResponse {
   // Records were validated and submitted to Kafka. A retry after an unavailable
   // response is safe because record_id is the deduplication identity.
   repeated string accepted_record_ids = 1;

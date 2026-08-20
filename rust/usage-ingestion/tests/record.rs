@@ -1,16 +1,16 @@
 use chrono::Utc;
-use usage_ingestion::record::{KafkaUsageRecord, ValidationError};
-use usage_ingestion_proto::usage_ingestion::v1::{UsageMode, UsageRecord};
+use usage_ingestion::record::{KafkaBillingUsageRecord, ValidationError};
+use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageMode, BillingUsageRecord};
 use uuid::Uuid;
 
-fn record() -> UsageRecord {
-    UsageRecord {
+fn record() -> BillingUsageRecord {
+    BillingUsageRecord {
         record_id: "record-1".to_string(),
         producer_id: "feature-flags".to_string(),
         team_id: 42,
         organization_id: None,
         usage_key: "feature_flag_requests".to_string(),
-        mode: UsageMode::Delta as i32,
+        mode: BillingUsageMode::Delta as i32,
         unit: "request".to_string(),
         quantity: 2,
         version: 1,
@@ -25,7 +25,7 @@ fn record() -> UsageRecord {
 #[test]
 fn converts_a_valid_record_to_clickhouse_json_shape() {
     let organization_id = Uuid::new_v4();
-    let result = KafkaUsageRecord::from_proto(record(), organization_id, Utc::now()).unwrap();
+    let result = KafkaBillingUsageRecord::from_proto(record(), organization_id, Utc::now()).unwrap();
 
     assert_eq!(result.organization_id, organization_id);
     assert_eq!(result.mode, "delta");
@@ -46,7 +46,7 @@ fn rejects_timestamps_outside_the_clickhouse_range() {
         invalid.event_timestamp_ms = event_timestamp_ms;
 
         assert_eq!(
-            KafkaUsageRecord::from_proto(invalid, Uuid::new_v4(), Utc::now()).unwrap_err(),
+            KafkaBillingUsageRecord::from_proto(invalid, Uuid::new_v4(), Utc::now()).unwrap_err(),
             ValidationError::InvalidTimestamp,
             "{event_timestamp_ms} should be rejected"
         );
@@ -59,7 +59,7 @@ fn rejects_zero_delta_quantity() {
     invalid.quantity = 0;
 
     assert_eq!(
-        KafkaUsageRecord::from_proto(invalid, Uuid::new_v4(), Utc::now()).unwrap_err(),
+        KafkaBillingUsageRecord::from_proto(invalid, Uuid::new_v4(), Utc::now()).unwrap_err(),
         ValidationError::InvalidDeltaQuantity
     );
 }

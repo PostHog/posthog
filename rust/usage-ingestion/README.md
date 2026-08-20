@@ -3,7 +3,12 @@
 `usage-ingestion` is the internal gRPC gateway for durable usage records. It
 validates records, resolves an omitted organization ID from the dedicated
 team-to-organization HyperCache (with PostgreSQL fallback), and publishes
-JSONEachRow messages to `clickhouse_usage_records`.
+JSONEachRow messages to `clickhouse_billing_usage_records`.
+
+The service is the shared gateway for every usage stream; `IngestBillingUsage`
+is the tenant-billing stream, which is exact, idempotent, and retained
+indefinitely. Cost and resource metering gets its own RPC, topic, and table
+rather than sharing these — see `.context/usage-ingestion-implementation-plan.md`.
 
 Run it in the local Docker stack with:
 
@@ -21,7 +26,7 @@ for cold or stale mappings.
 | Resource | Placement |
 | --- | --- |
 | Kafka cluster | `warpstream-shared` |
-| Topic | `clickhouse_usage_records`, 8 partitions, 7-day retention |
+| Topic | `clickhouse_billing_usage_records`, 8 partitions, 7-day retention |
 | ClickHouse Kafka table and MV | `NodeRole.INGESTION_SMALL` |
 | ClickHouse storage and read tables | `NodeRole.DATA` |
 | HyperCache store | a dedicated serverless Valkey cluster |
@@ -54,7 +59,7 @@ repartition cannot change the result.
 ## End-to-end tests
 
 Both tests run the service in-process and need the local dev stack for Kafka and
-ClickHouse (with migration `0302_usage_records` applied), so both are
+ClickHouse (with migration `0302_billing_usage_records` applied), so both are
 `#[ignore]`d by default.
 `ci-rust.yml` runs them with `--run-ignored only` against the Django test
 schema, so they gate PRs that touch this crate.
@@ -64,7 +69,7 @@ schema, so they gate PRs that touch this crate.
 | `USAGE_INGESTION_E2E_KAFKA_HOSTS` | `localhost:9092` |
 | `USAGE_INGESTION_E2E_CLICKHOUSE_URL` | `http://localhost:8123` |
 | `USAGE_INGESTION_E2E_CLICKHOUSE_DATABASE` | `posthog` (CI: `posthog_test`) |
-| `USAGE_INGESTION_E2E_TOPIC` | `clickhouse_usage_records` (CI: `clickhouse_usage_records_test`) |
+| `USAGE_INGESTION_E2E_TOPIC` | `clickhouse_billing_usage_records` (CI: `clickhouse_billing_usage_records_test`) |
 
 A Django test environment suffixes both the ClickHouse database and the Kafka
 topic, which is why the last two exist.
@@ -116,6 +121,6 @@ producer's 20ms linger until concurrency passes 512, measured at 20000 requests:
 | 512 | 18.8k req/s | 26ms | 45ms |
 | 1024 | 22.7k req/s | 43ms | 71ms |
 
-A large run leaves its rows in `posthog.sharded_usage_records`; every query
+A large run leaves its rows in `posthog.sharded_billing_usage_records`; every query
 filters on a per-run record ID prefix, so runs never interfere, but
-`TRUNCATE TABLE posthog.sharded_usage_records` clears a dev instance.
+`TRUNCATE TABLE posthog.sharded_billing_usage_records` clears a dev instance.
