@@ -13,6 +13,30 @@ from ee.hogai.llm import MaxChatAnthropic
 
 from .prompts import SYSTEM_PROMPT, USER_PROMPT
 
+# Blocks Anthropic requires to be replayed unchanged; a cache_control marker on them is rejected.
+_CACHEABLE_BLOCK_TYPES = ("text", "tool_result")
+
+
+def _mark_cache_breakpoint(messages: list[BaseMessage]) -> None:
+    """Mark the end of the transcript as a single cache breakpoint, in place.
+
+    Anchors on the last text or tool_result block, scanning from the end, so the whole transcript
+    prefix is cached. Thinking and tool_use blocks are skipped because Anthropic rejects a
+    cache_control marker on them.
+    """
+    for message in reversed(messages):
+        content = message.content
+        if isinstance(content, str):
+            if content:
+                message.content = [{"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}]
+                return
+            continue
+        if isinstance(content, list):
+            for block in reversed(content):
+                if isinstance(block, dict) and block.get("type") in _CACHEABLE_BLOCK_TYPES:
+                    block["cache_control"] = {"type": "ephemeral"}
+                    return
+
 
 class ConversationSummarizer:
     def __init__(self, team: Team, user: User, conversation_start_dt: datetime.datetime | None = None):
@@ -81,7 +105,16 @@ class AnthropicConversationSummarizer(ConversationSummarizer):
         )
 
     def _construct_messages(self, messages: Sequence[BaseMessage]):
-        """Removes cache_control headers."""
+        """Re-anchor prompt caching to the summarizer's own prefix.
+
+        The incoming messages carry cache_control breakpoints placed for the main agent, whose
+        prefix differs from ours — a different system prompt, and a fixed user prompt appended
+        after the transcript. Left in place they cache a prefix the summarizer never resends. So
+        strip them, then mark the end of the transcript as a single breakpoint. The transcript is
+        the large, stable prefix the summarizer does resend (`start_dt` keeps the injected context
+        byte-stable within the cache window), so repeated summarizations read it from cache instead
+        of paying full input price every time.
+        """
         messages_without_cache: list[BaseMessage] = []
         for message in messages:
             if isinstance(message.content, list):
@@ -90,5 +123,7 @@ class AnthropicConversationSummarizer(ConversationSummarizer):
                     if isinstance(content, dict) and "cache_control" in content:
                         content.pop("cache_control")
             messages_without_cache.append(message)
+
+        _mark_cache_breakpoint(messages_without_cache)
 
         return super()._construct_messages(messages_without_cache)
