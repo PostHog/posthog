@@ -45,12 +45,20 @@ export async function prepareContextWiki(options: {
   cacheDir: string;
   log: AgentScopedLogger;
 }): Promise<ContextWikiMount | null> {
-  const key = `${options.apiHost}:${options.projectId}`;
+  // Resolve the organization before locking: every destructive path below is
+  // org-scoped (mountDir and its .bundle/.head siblings under cacheDir), so the
+  // lock must key on the org, not the project. Two projects in one org would
+  // otherwise take different keys and rm -rf then clone the same checkout at once.
+  const organizationId = await resolveOrganizationId(options);
+  if (!organizationId) {
+    return null;
+  }
+  const key = `${options.apiHost.replace(/\/$/, "")}:${options.cacheDir}:${organizationId}`;
   const pending = inflight.get(key);
   if (pending) {
     return pending;
   }
-  const preparation = prepare(key, options).catch((err) => {
+  const preparation = prepare(organizationId, options).catch((err) => {
     options.log.warn("Failed to prepare the context wiki mount", {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -64,20 +72,19 @@ export async function prepareContextWiki(options: {
   }
 }
 
-async function prepare(
-  key: string,
-  options: {
-    apiHost: string;
-    projectId: number;
-    authenticatedFetch: AuthenticatedFetch;
-    cacheDir: string;
-    log: AgentScopedLogger;
-  },
-): Promise<ContextWikiMount | null> {
-  const base = options.apiHost.replace(/\/$/, "");
-
-  let organizationId = organizationIds.get(key);
-  if (!organizationId) {
+async function resolveOrganizationId(options: {
+  apiHost: string;
+  projectId: number;
+  authenticatedFetch: AuthenticatedFetch;
+  log: AgentScopedLogger;
+}): Promise<string | null> {
+  const cacheKey = `${options.apiHost}:${options.projectId}`;
+  const cached = organizationIds.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+  try {
+    const base = options.apiHost.replace(/\/$/, "");
     const projectResponse = await options.authenticatedFetch(
       `${base}/api/projects/${options.projectId}/`,
       { signal: AbortSignal.timeout(API_TIMEOUT_MS) },
@@ -91,9 +98,26 @@ async function prepare(
     if (typeof project.organization !== "string" || !project.organization) {
       return null;
     }
-    organizationId = project.organization;
-    organizationIds.set(key, organizationId);
+    organizationIds.set(cacheKey, project.organization);
+    return project.organization;
+  } catch (err) {
+    options.log.warn("Failed to resolve the context wiki organization", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
   }
+}
+
+async function prepare(
+  organizationId: string,
+  options: {
+    apiHost: string;
+    authenticatedFetch: AuthenticatedFetch;
+    cacheDir: string;
+    log: AgentScopedLogger;
+  },
+): Promise<ContextWikiMount | null> {
+  const base = options.apiHost.replace(/\/$/, "");
 
   // 404 = wiki not enabled, 403 = flag off or the org has private projects;
   // both simply mean "no wiki for this session".
