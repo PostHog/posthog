@@ -577,6 +577,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         loading={loading}
                                         apiErrored={apiErrored}
                                         apiError={apiError}
+                                        queryId={insight.query_status?.id}
                                         highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                         updateColor={(color) => updateTileColor(tile.id, color)}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}

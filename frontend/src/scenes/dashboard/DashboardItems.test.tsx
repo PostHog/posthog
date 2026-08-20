@@ -86,6 +86,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
         tile: { id: number }
         showResizeHandles: boolean
         apiErrored?: boolean
+        queryId?: string
         apiError?: Error & {
             status?: number
             detail?: string | null
@@ -548,7 +549,7 @@ describe('DashboardItems', () => {
         expect(mockInsightCard).toHaveBeenCalledWith(
             expect.objectContaining({
                 refresh: expect.any(Function),
-                apiError: expect.objectContaining({ data: { queryId: 'failed-query-id' } }),
+                queryId: 'failed-query-id',
             })
         )
         expect(insightCard).toHaveAttribute(
