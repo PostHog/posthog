@@ -39,6 +39,7 @@ import type {
   TaskRunStatus,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { TaskTabIcon } from "@posthog/ui/features/browser-tabs/TaskTabIcon";
@@ -1311,9 +1312,18 @@ export function ChannelFeedView({
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
 }) {
+  // Archiving is local-only host state the server task list doesn't know about,
+  // so a just-archived card would otherwise reappear on the next poll. Drop
+  // archived tasks here, the same way the sidebar tree does via useChannelItems.
+  const archivedTaskIds = useArchivedTaskIds();
+  const visibleTasks = useMemo(
+    () => tasks.filter((task) => !archivedTaskIds.has(task.id)),
+    [tasks, archivedTaskIds],
+  );
+
   const entries = useMemo<FeedEntry[]>(
-    () => mergeFeedEntries(tasks, systemMessages ?? []),
-    [tasks, systemMessages],
+    () => mergeFeedEntries(visibleTasks, systemMessages ?? []),
+    [visibleTasks, systemMessages],
   );
 
   // The channel's dominant repo: on a single-repo channel every card would
@@ -1321,7 +1331,7 @@ export function ChannelFeedView({
   // different repo than most of the channel.
   const dominantRepo = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const task of tasks) {
+    for (const task of visibleTasks) {
       if (!task.repository) continue;
       counts.set(task.repository, (counts.get(task.repository) ?? 0) + 1);
     }
@@ -1334,7 +1344,7 @@ export function ChannelFeedView({
       }
     }
     return best;
-  }, [tasks]);
+  }, [visibleTasks]);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: channelId is a trigger — switching channels or finishing the initial load swaps/completes the rows without a remount, so re-land at the latest cards

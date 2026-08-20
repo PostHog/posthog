@@ -41,6 +41,12 @@ vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
 vi.mock("@posthog/ui/features/archive/useArchiveTask", () => ({
   useArchiveTask: () => ({ archiveTask: vi.fn() }),
 }));
+const { archivedTaskIds } = vi.hoisted(() => ({
+  archivedTaskIds: { current: new Set<string>() },
+}));
+vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
+  useArchivedTaskIds: () => archivedTaskIds.current,
+}));
 vi.mock("@posthog/ui/features/tasks/useTaskMutations", () => ({
   useRenameTask: () => ({ renameTask: vi.fn() }),
 }));
@@ -93,6 +99,7 @@ const task = {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  archivedTaskIds.current = new Set<string>();
 });
 
 // ExpandablePrompt measures how the prompt wraps to decide where to cut and
@@ -133,6 +140,29 @@ describe("ChannelFeedView", () => {
 
     expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Loading tasks");
+  });
+
+  it("hides archived tasks from the feed", () => {
+    const archived = {
+      ...task,
+      id: "task-archived",
+      title: "Already archived",
+    } satisfies Task;
+    archivedTaskIds.current = new Set([archived.id]);
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task, archived]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.queryByText("Already archived")).not.toBeInTheDocument();
+    expect(screen.getByText(task.title)).toBeInTheDocument();
   });
 
   it.each([
