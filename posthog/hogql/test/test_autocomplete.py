@@ -21,7 +21,7 @@ from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,

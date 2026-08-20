@@ -1239,12 +1239,12 @@ class GitHubIntegrationBase:
             return []
         return [pr["html_url"] for pr in pulls if isinstance(pr, dict) and isinstance(pr.get("html_url"), str)]
 
-    def get_open_pr_base_for_head(self, repository: str, branch: str) -> str | None:
-        """Return the base branch of an OPEN pull request whose head is ``branch``, if one exists.
+    def get_open_pull_request_for_head(self, repository: str, branch: str) -> dict[str, Any] | None:
+        """Return the OPEN pull request whose head is ``branch`` — its number, HTML url, and base ref.
 
-        ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Distinguishes
-        a branch that *heads* an open PR (work continues on it) from a branch used as a PR *base*.
-        Best-effort: returns None on a bad repo, non-200, no open PR, or any error.
+        ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Lets a caller
+        that owns a deterministic branch name find the PR it already opened, instead of opening a
+        second one. Best-effort: returns None on a bad repo, non-200, no open PR, or any error.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         owner = repo_path.split("/", 1)[0]
@@ -1258,12 +1258,29 @@ class GitHubIntegrationBase:
         try:
             pulls = response.json()
         except Exception:
-            logger.warning("GitHubIntegration: get_open_pr_base_for_head non-JSON response", repository=repo_path)
+            logger.warning("GitHubIntegration: get_open_pull_request_for_head non-JSON response", repository=repo_path)
             return None
         if not isinstance(pulls, list) or not pulls or not isinstance(pulls[0], dict):
             return None
-        base = (pulls[0].get("base") or {}).get("ref")
-        return base if isinstance(base, str) and base else None
+        pull = pulls[0]
+        number = pull.get("number")
+        if not isinstance(number, int):
+            return None
+        base = (pull.get("base") or {}).get("ref")
+        return {
+            "number": number,
+            "url": pull.get("html_url") if isinstance(pull.get("html_url"), str) else None,
+            "base": base if isinstance(base, str) and base else None,
+        }
+
+    def get_open_pr_base_for_head(self, repository: str, branch: str) -> str | None:
+        """Return the base branch of an OPEN pull request whose head is ``branch``, if one exists.
+
+        Distinguishes a branch that *heads* an open PR (work continues on it) from a branch used as
+        a PR *base*. Best-effort: returns None on a bad repo, non-200, no open PR, or any error.
+        """
+        pull = self.get_open_pull_request_for_head(repository, branch)
+        return pull.get("base") if pull else None
 
     _PR_SNAPSHOT_QUERY = """
     query($owner: String!, $repo: String!, $number: Int!) {

@@ -34,6 +34,7 @@ import {
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
+import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -122,7 +123,7 @@ import {
   jsonRpcRequestSchema,
   validateCommandParams,
 } from "./schemas";
-import type { AgentServerConfig } from "./types";
+import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 
 const agentErrorClassificationSchema = z.enum([
   "upstream_stream_terminated",
@@ -160,6 +161,18 @@ const MAX_UPSTREAM_TURN_RETRIES = 2;
 const UPSTREAM_TURN_RETRY_DELAY_MS = 5_000;
 const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
+
+export function buildCloudSessionSystemPrompt(
+  cloudAppend: string,
+  userPrompt: ClaudeCodeConfig["systemPrompt"],
+): string | { append: string } {
+  if (typeof userPrompt === "string") {
+    return appendRichOutputPrompt([userPrompt, cloudAppend].join("\n\n"));
+  }
+
+  const prompt = [userPrompt?.append, cloudAppend].filter(Boolean).join("\n\n");
+  return { append: appendRichOutputPrompt(prompt) };
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -3472,20 +3485,7 @@ export class AgentServer {
     );
     const userPrompt = this.config.claudeCode?.systemPrompt;
 
-    // String override: combine user prompt with cloud instructions
-    if (typeof userPrompt === "string") {
-      return [userPrompt, cloudAppend].join("\n\n");
-    }
-
-    // Preset with append: merge user append with cloud instructions
-    if (typeof userPrompt === "object") {
-      return {
-        append: [userPrompt.append, cloudAppend].filter(Boolean).join("\n\n"),
-      };
-    }
-
-    // Default: just cloud instructions
-    return { append: cloudAppend };
+    return buildCloudSessionSystemPrompt(cloudAppend, userPrompt);
   }
 
   private buildCodexInstructions(
