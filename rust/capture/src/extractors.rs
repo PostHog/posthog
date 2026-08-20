@@ -32,17 +32,37 @@ pub enum DrainOutcome {
     /// The body was consumed in full, so the rejection can be written on a
     /// connection the client can keep using.
     Drained,
-    /// We stopped early: the budget ran out, the client stalled, or the stream
-    /// broke. The connection is torn down and the client may see a reset
-    /// instead of our status code.
-    Abandoned,
+    /// We stopped early. The connection is torn down and the client may see a
+    /// reset instead of our status code.
+    Abandoned(DrainAbandoned),
+}
+
+/// Why a drain stopped before the body ended. Each cause calls for a different
+/// response, so they are reported apart rather than as one bucket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrainAbandoned {
+    /// The client sent more after the rejection than we were willing to read.
+    Budget,
+    /// The deadline elapsed first: a stalled client, or one dripping slowly.
+    Deadline,
+    /// The stream failed, so the connection is already gone.
+    StreamError,
 }
 
 impl DrainOutcome {
     fn as_metric_tag(&self) -> &'static str {
         match self {
             DrainOutcome::Drained => "drained",
-            DrainOutcome::Abandoned => "abandoned",
+            DrainOutcome::Abandoned(_) => "abandoned",
+        }
+    }
+
+    fn reason_metric_tag(&self) -> &'static str {
+        match self {
+            DrainOutcome::Drained => "complete",
+            DrainOutcome::Abandoned(DrainAbandoned::Budget) => "budget",
+            DrainOutcome::Abandoned(DrainAbandoned::Deadline) => "deadline",
+            DrainOutcome::Abandoned(DrainAbandoned::StreamError) => "stream_error",
         }
     }
 }
@@ -67,16 +87,18 @@ pub async fn drain_rejected_body<S>(
 where
     S: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
 {
+    let mut drained: usize = 0;
     let drain = async {
-        let mut remaining = budget;
         loop {
             match stream.next().await {
-                Some(Ok(chunk)) => match remaining.checked_sub(chunk.len()) {
-                    Some(left) => remaining = left,
-                    None => break DrainOutcome::Abandoned,
-                },
+                Some(Ok(chunk)) => {
+                    drained += chunk.len();
+                    if drained > budget {
+                        break DrainOutcome::Abandoned(DrainAbandoned::Budget);
+                    }
+                }
                 // The stream broke while we discarded it, so the connection is already gone.
-                Some(Err(_)) => break DrainOutcome::Abandoned,
+                Some(Err(_)) => break DrainOutcome::Abandoned(DrainAbandoned::StreamError),
                 None => break DrainOutcome::Drained,
             }
         }
@@ -86,14 +108,25 @@ where
     // to keep a per-chunk timer alive.
     let outcome = tokio::time::timeout(deadline, drain)
         .await
-        .unwrap_or(DrainOutcome::Abandoned);
+        .unwrap_or(DrainOutcome::Abandoned(DrainAbandoned::Deadline));
 
     metrics::counter!(
         METRIC_REJECTED_BODY_DRAIN,
         "path" => path.to_string(),
         "outcome" => outcome.as_metric_tag(),
+        "reason" => outcome.reason_metric_tag(),
     )
     .increment(1);
+
+    if matches!(outcome, DrainOutcome::Abandoned(_)) {
+        warn!(
+            path = path,
+            reason = outcome.reason_metric_tag(),
+            drained_bytes = drained,
+            budget = budget,
+            "Rejected body drain abandoned; client may see a reset instead of our status"
+        );
+    }
 
     outcome
 }
@@ -225,7 +258,7 @@ mod tests {
         // Budget of 25 bytes covers two ten-byte chunks; the third overruns it.
         let outcome = drain_rejected_body(&mut stream, 25, Duration::from_secs(30), "/test").await;
 
-        assert_eq!(outcome, DrainOutcome::Abandoned);
+        assert_eq!(outcome, DrainOutcome::Abandoned(DrainAbandoned::Budget));
         assert_eq!(pulled.load(Ordering::SeqCst), 3);
     }
 
@@ -237,7 +270,23 @@ mod tests {
         let outcome =
             drain_rejected_body(&mut stream, 1024, Duration::from_millis(50), "/test").await;
 
-        assert_eq!(outcome, DrainOutcome::Abandoned);
+        assert_eq!(outcome, DrainOutcome::Abandoned(DrainAbandoned::Deadline));
+    }
+
+    #[tokio::test]
+    async fn drain_rejected_body_reports_a_broken_stream_apart_from_a_timeout() {
+        // A mid-drain stream error must not be filed as budget or deadline: the
+        // metric drives whether the budget is the value to change.
+        let chunks: Vec<Result<Bytes, axum::Error>> = vec![
+            Ok(Bytes::from_static(b"partial")),
+            Err(axum::Error::new(std::io::Error::other("broken pipe"))),
+        ];
+        let mut stream = Box::pin(stream::iter(chunks));
+
+        let outcome =
+            drain_rejected_body(&mut stream, 1024, Duration::from_secs(30), "/test").await;
+
+        assert_eq!(outcome, DrainOutcome::Abandoned(DrainAbandoned::StreamError));
     }
 
     #[tokio::test(start_paused = true)]
@@ -258,9 +307,9 @@ mod tests {
         )
         .await;
 
-        assert_eq!(outcome, DrainOutcome::Abandoned);
-        // The deadline ended this, not the budget: dripping 10MB at one byte per
-        // 10ms would take over a day.
+        // The reason proves which bound fired; the elapsed check proves the
+        // deadline was honored rather than the drip simply ending.
+        assert_eq!(outcome, DrainOutcome::Abandoned(DrainAbandoned::Deadline));
         assert!(started.elapsed() < Duration::from_secs(6));
     }
 
