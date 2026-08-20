@@ -34,6 +34,11 @@ export interface ExternalAccountListItemApi {
      * @nullable
      */
     churned_at: string | null
+    /**
+     * When Track Rules ignored the account, or null if it is tracked.
+     * @nullable
+     */
+    ignored_at: string | null
     /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
     relationships: ExternalAccountListItemApiRelationships
 }
@@ -277,6 +282,11 @@ export interface AccountApi {
      * @nullable
      */
     churned_at?: string | null
+    /**
+     * When Track Rules ignored the account. Null means the account is tracked.
+     * @nullable
+     */
+    readonly ignored_at: string | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -454,6 +464,11 @@ export interface PatchedAccountApi {
      * @nullable
      */
     churned_at?: string | null
+    /**
+     * When Track Rules ignored the account. Null means the account is tracked.
+     * @nullable
+     */
+    readonly ignored_at?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -2009,6 +2024,10 @@ export type CustomerAnalyticsExternalAccountsRetrieveParams = {
      */
     cursor?: string
     /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean
+    /**
      * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
      */
     limit?: number
@@ -2061,6 +2080,10 @@ export type AccountsListParams = {
      * Include churned accounts. Churned accounts are hidden by default.
      */
     include_churned?: boolean
+    /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean
     /**
      * Number of results to return per page.
      */

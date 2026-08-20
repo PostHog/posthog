@@ -14,6 +14,34 @@ const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 const MAX_CONCURRENT_DATA_REQUESTS = 8;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const DATA_REQUEST_TIMEOUT_MS = 30_000;
+const REPLAYABLE_SHORTCUT_KEYS = new Set([
+  ",",
+  "/",
+  "[",
+  "]",
+  "{",
+  "}",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "arrowdown",
+  "arrowleft",
+  "arrowright",
+  "arrowup",
+  "b",
+  "i",
+  "j",
+  "k",
+  "n",
+  "t",
+  "tab",
+]);
 
 function isBoundedPayload(payload: unknown): boolean {
   try {
@@ -183,6 +211,22 @@ export function createCanvasHostMessageRouter(
           options.openExternal(message.url);
         }
         break;
+      case "keydown": {
+        if (!message.metaKey && !message.ctrlKey) break;
+        if (!REPLAYABLE_SHORTCUT_KEYS.has(message.key.toLowerCase())) break;
+        if (!(document.activeElement instanceof HTMLIFrameElement)) break;
+        const init = {
+          key: message.key,
+          code: message.code,
+          metaKey: message.metaKey,
+          ctrlKey: message.ctrlKey,
+          shiftKey: message.shiftKey,
+          altKey: message.altKey,
+        };
+        document.dispatchEvent(new KeyboardEvent("keydown", init));
+        document.dispatchEvent(new KeyboardEvent("keyup", init));
+        break;
+      }
       case "ready":
         options.callbacks().onReady?.();
         break;
