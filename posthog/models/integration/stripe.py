@@ -202,14 +202,18 @@ class StripeIntegration:
         application identity. Sharing one application therefore lets any of those people mint a
         deep-link login session as the admin who installed the app.
 
-        Returns None when the setting is unset, rather than falling back to the orchestrator.
+        Returns None when the setting is unset or names the orchestrator, rather than minting there.
         """
         client_id = settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID
-        if not client_id:
-            # Falling back to the orchestrator's application is the vulnerability, so this fails
-            # closed: a new install gets no credential rather than a privileged one.
+        if not client_id or client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+            # Minting on the orchestrator's application is the vulnerability, whether the setting
+            # is unset or mapped to the orchestrator's own id, so both fail closed: a new install
+            # gets no credential rather than a privileged one.
             capture_exception(
-                Exception("STRIPE_MARKETPLACE_OAUTH_CLIENT_ID is unset, refusing to mint a Stripe marketplace token"),
+                Exception(
+                    "STRIPE_MARKETPLACE_OAUTH_CLIENT_ID is unset or equal to the orchestrator's, "
+                    "refusing to mint a Stripe marketplace token"
+                ),
                 {"integration_id": self.integration.id, "team_id": self.integration.team_id},
             )
             return None

@@ -4533,7 +4533,7 @@ class TestStripeIntegrationOAuthTokens:
 
     @patch("posthog.models.integration.stripe.settings")
     def test_destroy_oauth_tokens_deletes_tokens(self, mock_settings):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, access_token, refresh_token = self._create_integration_with_tokens()
         stripe_int = StripeIntegration(integration)
@@ -4545,7 +4545,7 @@ class TestStripeIntegrationOAuthTokens:
 
     @patch("posthog.models.integration.stripe.settings")
     def test_destroy_oauth_tokens_only_affects_same_team(self, mock_settings):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, _, _ = self._create_integration_with_tokens()
 
@@ -4584,12 +4584,12 @@ class TestStripeIntegrationOAuthTokens:
         assert OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
         assert OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
 
-    @pytest.mark.parametrize("marketplace_configured", [True, False])
+    @pytest.mark.parametrize("marketplace_setting", ["configured", "unset", "equal_to_orchestrator"])
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.oauth.settings")
     @patch("posthog.models.integration.stripe.settings")
     def test_marketplace_token_never_mints_on_the_orchestrator_application(
-        self, mock_settings, mock_oauth_settings, MockStripeClient, marketplace_configured
+        self, mock_settings, mock_oauth_settings, MockStripeClient, marketplace_setting
     ):
         orchestrator_app = OAuthApplication.objects.create(
             name="Stripe orchestrator",
@@ -4600,7 +4600,11 @@ class TestStripeIntegrationOAuthTokens:
             algorithm="RS256",
         )
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = orchestrator_app.client_id
-        mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id if marketplace_configured else ""
+        mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = {
+            "configured": self.oauth_app.client_id,
+            "unset": "",
+            "equal_to_orchestrator": orchestrator_app.client_id,
+        }[marketplace_setting]
         mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
         mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_test"
         MockStripeClient.return_value = MagicMock()
@@ -4618,7 +4622,7 @@ class TestStripeIntegrationOAuthTokens:
         minted = OAuthAccessToken.objects.filter(scoped_teams__contains=[self.team.pk])
         assert not minted.filter(application=orchestrator_app).exists()
 
-        if marketplace_configured:
+        if marketplace_setting == "configured":
             assert unwritten == []
             assert minted.latest("id").application == self.oauth_app
         else:
@@ -4649,7 +4653,7 @@ class TestStripeIntegrationOAuthTokens:
     @patch("posthog.models.integration.oauth.settings")
     @patch("posthog.models.integration.stripe.settings")
     def test_write_posthog_secrets_uses_account_scope(self, mock_settings, mock_oauth_settings, MockStripeClient):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
         mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_test"
@@ -4681,7 +4685,7 @@ class TestStripeIntegrationOAuthTokens:
     @patch("posthog.models.integration.oauth.settings")
     @patch("posthog.models.integration.stripe.settings")
     def test_write_posthog_secrets_mints_read_only_token(self, mock_settings, mock_oauth_settings, MockStripeClient):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
         mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_test"
@@ -4749,7 +4753,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_stripe_client_uses_live_secret(
         self, _name, method_name, mock_settings, mock_oauth_settings, MockStripeClient
     ):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
         mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_live"
@@ -4778,7 +4782,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_write_posthog_secrets_skips_when_keys_missing(
         self, mock_settings, mock_oauth_settings, MockStripeClient, mock_capture
     ):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_oauth_settings.STRIPE_APP_CLIENT_ID = None
         mock_oauth_settings.STRIPE_APP_SECRET_KEY = None
@@ -4807,7 +4811,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_clear_posthog_secrets_skips_and_revokes_tokens_when_keys_missing(
         self, mock_settings, mock_oauth_settings, MockStripeClient, mock_capture
     ):
-        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_oauth_settings.STRIPE_APP_CLIENT_ID = None
         mock_oauth_settings.STRIPE_APP_SECRET_KEY = None
