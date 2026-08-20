@@ -43,7 +43,13 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { EditListItemAppearanceDialog } from "./EditListItemAppearanceDialog";
 
 function renderDialog(onOpenChange = vi.fn()) {
-  render(<EditListItemAppearanceDialog open onOpenChange={onOpenChange} />);
+  render(
+    <EditListItemAppearanceDialog
+      surface="sidebar"
+      open
+      onOpenChange={onOpenChange}
+    />,
+  );
   return { onOpenChange };
 }
 
@@ -75,6 +81,7 @@ describe("EditListItemAppearanceDialog", () => {
       {
         secondary_fields: ["repository", "branch"],
         secondary_field_count: 2,
+        surface: "sidebar",
       },
     );
     expect(onOpenChange).toHaveBeenCalledWith(false);

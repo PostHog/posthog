@@ -1,3 +1,4 @@
+import { repositoryLabel } from "@posthog/core/sidebar/groupTasks";
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 
 export const LIST_ITEM_METADATA_FIELDS = [
@@ -52,24 +53,34 @@ export function moveListItemMetadataField(
   return next;
 }
 
-export function formatListItemMetadata(
-  task: Pick<TaskData, "repository" | "branchName" | "linkedBranch">,
-  creatorName: string | undefined,
+/**
+ * The second row's text, from values a surface has already resolved. Lists that
+ * hold different session shapes (the Code sidebar's `TaskData`, a space's
+ * channel item) share the order and the separator this way rather than each
+ * joining its own.
+ */
+export function formatListItemMetadataValues(
+  values: Partial<Record<ListItemMetadataField, string | null | undefined>>,
   fields: readonly ListItemMetadataField[],
 ): string | undefined {
-  const repository = task.repository
-    ? task.repository.organization
-      ? `${task.repository.organization}/${task.repository.name}`
-      : task.repository.name
-    : undefined;
-  const values: Partial<Record<ListItemMetadataField, string | undefined>> = {
-    repository,
-    branch: task.linkedBranch ?? task.branchName ?? undefined,
-    creator: creatorName,
-  };
   const visibleValues = fields
     .map((field) => values[field]?.trim())
     .filter((value): value is string => Boolean(value));
 
   return visibleValues.length > 0 ? visibleValues.join(" · ") : undefined;
+}
+
+export function formatListItemMetadata(
+  task: Pick<TaskData, "repository" | "branchName" | "linkedBranch">,
+  creatorName: string | undefined,
+  fields: readonly ListItemMetadataField[],
+): string | undefined {
+  return formatListItemMetadataValues(
+    {
+      repository: repositoryLabel(task.repository),
+      branch: task.linkedBranch ?? task.branchName,
+      creator: creatorName,
+    },
+    fields,
+  );
 }

@@ -1,5 +1,4 @@
 import { type DragDropEvents, DragDropProvider } from "@dnd-kit/react";
-import { GitBranch } from "@phosphor-icons/react";
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import {
   Button,
@@ -13,7 +12,12 @@ import {
   DialogTitle,
   Text,
 } from "@posthog/quill";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import {
+  ANALYTICS_EVENTS,
+  type TaskListAppearanceChangedProperties,
+} from "@posthog/shared/analytics-events";
+import { TaskStatusDot } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
+import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import {
   formatListItemMetadata,
@@ -83,9 +87,12 @@ function orderedFieldList(
 }
 
 export function EditListItemAppearanceDialog({
+  surface,
   open,
   onOpenChange,
 }: {
+  /** Which list it was opened from. The setting itself is shared by both. */
+  surface: TaskListAppearanceChangedProperties["surface"];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -144,6 +151,7 @@ export function EditListItemAppearanceDialog({
       track(ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED, {
         secondary_fields: visibleFields,
         secondary_field_count: visibleFields.length,
+        surface,
       });
     }
     onOpenChange(false);
@@ -155,7 +163,7 @@ export function EditListItemAppearanceDialog({
         <DialogHeader>
           <DialogTitle>Edit list item appearance</DialogTitle>
           <DialogDescription>
-            Add context under each task name to find related work faster.
+            Add context under each session name to find related work faster.
           </DialogDescription>
         </DialogHeader>
 
@@ -169,19 +177,24 @@ export function EditListItemAppearanceDialog({
             >
               Preview
             </Text>
-            <div className="rounded-(--radius-3) border border-border bg-(--gray-2) p-2">
+            {/* Not `disabled` rows: that dims them, and the preview has to
+                carry the list's real colours to be worth looking at. Nothing
+                inside answers a pointer instead. */}
+            <div className="pointer-events-none rounded-(--radius-3) border border-border bg-(--gray-2) p-2">
               {PREVIEW_TASKS.map((task) => (
                 <SidebarItem
                   key={task.id}
                   depth={0}
-                  icon={<GitBranch size={14} />}
+                  // The same leading mark a settled session carries in the
+                  // list, so the preview reads as the list it stands for.
+                  icon={<TaskStatusDot dot={taskDot({})} />}
                   label={task.title}
                   subtitle={formatListItemMetadata(
                     task,
                     task.creatorName,
                     visibleFields,
                   )}
-                  disabled
+                  tabIndex={-1}
                 />
               ))}
             </div>

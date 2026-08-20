@@ -1,7 +1,9 @@
 import {
   type ChannelItemFilters,
+  type ChannelItemGrouping,
   type ChannelItemSort,
   DEFAULT_CHANNEL_ITEM_FILTERS,
+  DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
   hasActiveChannelItemFilters,
 } from "@posthog/core/canvas/channelItems";
@@ -19,23 +21,34 @@ function Harness({
   initialSort,
   sources,
   showCreatedBy,
+  showRunFilters,
 }: {
   initialFilters: ChannelItemFilters;
   initialSort: ChannelItemSort;
   sources: string[];
   showCreatedBy: boolean;
+  showRunFilters: boolean;
 }) {
   const [filters, setFilters] = useState(initialFilters);
   const [sort, setSort] = useState(initialSort);
+  const [grouping, setGrouping] = useState<ChannelItemGrouping>(
+    DEFAULT_CHANNEL_ITEM_GROUPING,
+  );
   return (
     <div className="flex justify-end p-2">
       <ChannelFilterMenu
         filters={filters}
-        onFiltersChange={setFilters}
+        onFilterChange={(key, value) =>
+          setFilters((current) => ({ ...current, [key]: value }))
+        }
+        onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
         sort={sort}
         onSortChange={setSort}
+        grouping={grouping}
+        onGroupingChange={setGrouping}
         sources={sources}
         showCreatedBy={showCreatedBy}
+        showRunFilters={showRunFilters}
         active={hasActiveChannelItemFilters(filters)}
       />
     </div>
@@ -50,6 +63,7 @@ const meta: Meta<typeof Harness> = {
     initialSort: DEFAULT_CHANNEL_ITEM_SORT,
     sources: ["slack", "error_tracking", "support_queue"],
     showCreatedBy: true,
+    showRunFilters: true,
   },
   decorators: [
     (Story) => (
@@ -74,6 +88,11 @@ export const Filtered: Story = {
       environment: "cloud",
     },
   },
+};
+
+/** The canvases tab: no run to filter on, and no metadata row to configure. */
+export const CanvasesTab: Story = {
+  args: { showRunFilters: false },
 };
 
 /** #me, where every session is yours: no "created by", and no filed sources. */

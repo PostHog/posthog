@@ -1,6 +1,7 @@
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Badge } from "@posthog/ui/primitives/Badge";
+import { CopyButton } from "@posthog/ui/primitives/CopyButton";
 import { Flex, Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -9,7 +10,6 @@ import { useSetAgentBuilderPage } from "../agent-builder/useSetAgentBuilderPage"
 import { useAgentApplicationSession } from "../hooks/useAgentApplicationSession";
 import { sessionStateColor } from "../utils/format";
 import { AgentSessionDetailBody } from "./AgentSessionDetailBody";
-import { CopyButton } from "./CopyButton";
 
 /**
  * Full-screen session view: page chrome (back link + title) wrapping the shared

@@ -100,7 +100,7 @@ describe("TasksHeader", () => {
     expect(useSidebarStore.getState().organizeMode).toBe("chronological");
     expect(track).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED,
-      { group_by: "date", sort_by: "updated" },
+      { group_by: "date", sort_by: "updated", surface: "sidebar" },
     );
   });
 

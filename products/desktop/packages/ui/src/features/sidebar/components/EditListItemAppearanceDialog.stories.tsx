@@ -18,6 +18,7 @@ const meta = {
     },
   ],
   args: {
+    surface: "sidebar",
     open: true,
     onOpenChange: fn(),
   },

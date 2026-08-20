@@ -31,6 +31,7 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 }));
 
 import { usePendingCanvasDeleteStore } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelItemPreviewCardProvider } from "./ChannelItemHoverCard";
 import { ChannelItemRow } from "./ChannelItemRow";
 
@@ -60,6 +61,8 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     authorName: null,
     authorUuid: "user-uuid",
     templateId: null,
+    repository: null,
+    branch: null,
     task: null,
     ...overrides,
   };
@@ -85,6 +88,7 @@ function renderRow(model: ChannelItemModel) {
 
 beforeEach(() => {
   mocks.status = null;
+  useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
   useTaskSelectionStore.setState({
     selectedTaskIds: [],
@@ -454,5 +458,33 @@ describe("ChannelItemRow", () => {
     );
 
     expect(remove).toHaveBeenCalledWith(canvas);
+  });
+
+  it("shows the metadata fields the appearance settings ask for, in that order", () => {
+    useSidebarStore.setState({
+      listItemMetadataFields: ["branch", "repository"],
+    });
+    renderRow(
+      item({
+        authorName: "Ada Lovelace",
+        repository: { key: "posthog/code", label: "PostHog/code" },
+        branch: "posthog/session-list",
+      }),
+    );
+
+    expect(
+      screen.getByText("posthog/session-list · PostHog/code"),
+    ).toBeInTheDocument();
+  });
+
+  it("leaves a row single-line when no metadata fields are chosen", () => {
+    renderRow(
+      item({
+        authorName: "Ada Lovelace",
+        repository: { key: "posthog/code", label: "PostHog/code" },
+      }),
+    );
+
+    expect(screen.queryByText(/PostHog\/code/)).not.toBeInTheDocument();
   });
 });

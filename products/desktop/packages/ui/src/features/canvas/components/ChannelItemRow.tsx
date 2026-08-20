@@ -23,6 +23,7 @@ import {
   TaskRowContextMenu,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
+import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useChannelItemFacts";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
@@ -171,6 +172,7 @@ function ChannelItemDot({
 export function ChannelItemRowView({
   item,
   status,
+  subtitle,
   isActive,
   isSelected = false,
   showPinBadge = true,
@@ -181,6 +183,8 @@ export function ChannelItemRowView({
 }: {
   item: ChannelItemModel;
   status: TaskStatusInput | null;
+  /** The metadata row under the title, when the appearance settings ask for one. */
+  subtitle?: string;
   isActive: boolean;
   isSelected?: boolean;
   showPinBadge?: boolean;
@@ -196,6 +200,7 @@ export function ChannelItemRowView({
       icon={<ChannelItemDot item={item} status={status} />}
       // A non-string label opts out of SidebarItem's truncation tooltip.
       label={<span>{item.title}</span>}
+      subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
       // Lets a drag-selection find the row and its session; canvases are not
@@ -280,6 +285,7 @@ export function ChannelItemRow({
   onContextMenuOpenChange?: (open: boolean) => void;
 }) {
   const status = useChannelTaskStatus(item);
+  const subtitle = useChannelItemMetadata(item);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const handleDragStart = useCallback(
     (event: DragEvent) => {
@@ -348,6 +354,7 @@ export function ChannelItemRow({
       <ChannelItemRowView
         item={item}
         status={status}
+        subtitle={subtitle}
         isActive={isActive}
         isSelected={isSelected}
         showPinBadge={showPinBadge}

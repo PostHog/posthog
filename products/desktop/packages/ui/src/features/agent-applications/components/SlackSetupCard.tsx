@@ -1,7 +1,7 @@
 import { ArrowSquareOutIcon, ChatCircleIcon } from "@phosphor-icons/react";
+import { CopyButton } from "@posthog/ui/primitives/CopyButton";
 import { Flex, Text } from "@radix-ui/themes";
 import { useAgentSlackManifest } from "../hooks/useAgentSlackManifest";
-import { CopyButton } from "./CopyButton";
 
 /**
  * Deterministic Slack app setup for a slack-triggered agent: the manifest the

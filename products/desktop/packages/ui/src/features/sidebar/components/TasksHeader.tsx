@@ -120,6 +120,7 @@ function TaskFilterMenu() {
     track(ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED, {
       group_by: nextMode === "by-project" ? "repository" : "date",
       sort_by: sortMode,
+      surface: "sidebar",
     });
   };
 
@@ -238,6 +239,7 @@ function TaskFilterMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
       <EditListItemAppearanceDialog
+        surface="sidebar"
         open={appearanceDialogOpen}
         onOpenChange={setAppearanceDialogOpen}
       />
