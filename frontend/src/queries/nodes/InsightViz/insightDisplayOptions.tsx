@@ -145,7 +145,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
             displayItems.push(DisplayOptions.Legend)
         }
         if (isPie) {
-            displayItems.push(DisplayOptions.SliceNames, DisplayOptions.PieTotal)
+            displayItems.push(DisplayOptions.SliceNames, DisplayOptions.PieTotal, DisplayOptions.Donut)
         }
         if (showAlertThresholdLinesConfig) {
             displayItems.push(DisplayOptions.AlertThresholdLines, DisplayOptions.AlertAnomalyPoints)

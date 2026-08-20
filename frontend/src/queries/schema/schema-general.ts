@@ -1472,6 +1472,8 @@ export interface VizSpecificOptions {
     [ChartDisplayType.ActionsPie]?: {
         disableHoverOffset?: boolean
         hideAggregation?: boolean
+        /** Render the pie with a hollow center (donut). */
+        donut?: boolean
     }
 }
 

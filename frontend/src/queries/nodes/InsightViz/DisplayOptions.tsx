@@ -27,6 +27,7 @@ import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertAnomalyPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertAnomalyPointsFilter'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowAnnotationsFilter } from 'scenes/insights/EditorFilters/ShowAnnotationsFilter'
+import { ShowDonutFilter } from 'scenes/insights/EditorFilters/ShowDonutFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
@@ -228,6 +229,7 @@ export const DisplayOptions = {
     StackBreakdown: { label: () => <StackBreakdownFilter /> },
     SliceNames: { label: () => <SliceNamesFilter /> },
     PieTotal: { label: () => <ShowPieTotalFilter /> },
+    Donut: { label: () => <ShowDonutFilter /> },
     AlertThresholdLines: { label: () => <ShowAlertThresholdLinesFilter /> },
     AlertAnomalyPoints: { label: () => <ShowAlertAnomalyPointsFilter /> },
     MultipleYAxes: { label: () => <ShowMultipleYAxesFilter /> },

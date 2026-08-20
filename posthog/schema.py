@@ -2969,6 +2969,7 @@ class ActionsPie(BaseModel):
         extra="forbid",
     )
     disableHoverOffset: bool | None = None
+    donut: bool | None = Field(default=None, description="Render the pie with a hollow center (donut).")
     hideAggregation: bool | None = None
 
 

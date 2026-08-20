@@ -96,6 +96,17 @@ export const MinHeightParent: Story = {
     render: () => renderTrendsPieChart(trendsPieBreakdownFixture, MinHeightStage),
 }
 
+export const Donut: Story = {
+    render: () =>
+        renderTrendsPieChart({
+            ...trendsPieBreakdownFixture,
+            query: {
+                ...trendsPieBreakdownFixture.query,
+                vizSpecificOptions: { ActionsPie: { donut: true } },
+            },
+        }),
+}
+
 function renderBreakdownPieWithFilter(trendsFilter: Record<string, unknown>): JSX.Element {
     return renderTrendsPieChart({
         ...trendsPieBreakdownFixture,

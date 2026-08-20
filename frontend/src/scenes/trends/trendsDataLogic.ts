@@ -187,6 +187,7 @@ export interface trendsDataLogicValues {
     pieChartVizOptions:
         | {
               disableHoverOffset?: boolean | undefined
+              donut?: boolean | undefined
               hideAggregation?: boolean | undefined
           }
         | undefined
@@ -367,6 +368,7 @@ export interface trendsDataLogicMeta {
         pieChartVizOptions: (arg: VizSpecificOptions | null | undefined) =>
             | {
                   disableHoverOffset?: boolean | undefined
+                  donut?: boolean | undefined
                   hideAggregation?: boolean | undefined
               }
             | undefined

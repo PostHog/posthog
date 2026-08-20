@@ -53473,6 +53473,10 @@
                         "disableHoverOffset": {
                             "type": "boolean"
                         },
+                        "donut": {
+                            "description": "Render the pie with a hollow center (donut).",
+                            "type": "boolean"
+                        },
                         "hideAggregation": {
                             "type": "boolean"
                         }
