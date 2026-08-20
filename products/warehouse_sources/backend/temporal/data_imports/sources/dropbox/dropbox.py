@@ -1,6 +1,7 @@
 import json
 import hashlib
 from collections.abc import Iterator
+from dataclasses import field
 from datetime import datetime
 from typing import Any, Optional
 
@@ -11,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
@@ -66,7 +68,8 @@ class DropboxCredentials:
     # Short-lived access token from the PostHog Dropbox OAuth integration. Renewing it is the
     # integration's job (`OauthIntegration.refresh_access_token` plus the scheduled sweep), not
     # this client's.
-    access_token: str
+    # repr=False: keep the token out of tracebacks, logs, and pytest assertion diffs.
+    access_token: str = field(repr=False)
     # Dropbox Business only: act as one team member, and/or resolve paths against the team space.
     team_member_id: str | None = None
     root_namespace_id: str | None = None
