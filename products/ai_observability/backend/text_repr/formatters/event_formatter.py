@@ -13,6 +13,7 @@ from typing import Any
 
 from .constants import SEPARATOR
 from .message_formatter import FormatterOptions, add_line_numbers, format_input_messages, format_output_messages
+from .span_formatter import format_state_section
 from .tool_formatter import format_tools
 
 
@@ -106,16 +107,21 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
         lines.append(SEPARATOR)
         lines.extend(tools_lines)
 
-    # Input messages
+    # Input messages. Framework wrappers (LangChain, OpenAI Agents, Claude Agent SDK) record the
+    # payload as $ai_input_state, so fall back to it the way the frontend's readAiInput does.
     input_lines = format_input_messages(props.get("$ai_input"), options)
+    if not input_lines:
+        input_lines = format_state_section(props.get("$ai_input_state"), "INPUT", options)
     if input_lines:
         if lines:
             lines.append("")
         lines.append(SEPARATOR)
         lines.extend(input_lines)
 
-    # Output messages
+    # Output messages, with the same $ai_output_state fallback readAiOutput uses.
     output_lines = format_output_messages(props.get("$ai_output"), props.get("$ai_output_choices"), options)
+    if not output_lines:
+        output_lines = format_state_section(props.get("$ai_output_state"), "OUTPUT", options)
     if output_lines:
         if lines:
             lines.append("")

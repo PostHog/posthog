@@ -172,6 +172,11 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
         return lines
 
 
+def format_state_section(state: Any, label: str, options: FormatterOptions | None = None) -> list[str]:
+    """Render an `$ai_*_state` payload as a labelled section, for reuse by other formatters."""
+    return _format_state(state, label, options)
+
+
 def format_span_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
     """Generate complete text representation of a span event."""
     lines: list[str] = []

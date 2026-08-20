@@ -119,20 +119,46 @@ function lookupWindow(createdAt: string): Pick<SummarizeRequestApi, 'date_from' 
     }
 }
 
+const GENERIC_SUMMARY_ERROR = "Couldn't generate a summary. Try again, and if it keeps happening contact support."
+
 /**
- * A gateway rejection or timeout carries no body, so `ApiError` has no `detail` to show and falls
- * back to its own `Non-OK response [POST ...] (status 504: )` string. The status is carried over so
- * transient gateway errors stay out of error tracking.
+ * Plain-language message for an upstream status the summarizer can hit. Context-window and
+ * payload-size rejections (413/422) mean the trace is too big; gateway 502/503/504 are transient.
+ * Their bodies carry nothing a user can act on, so we replace them by status.
+ */
+function upstreamStatusMessage(statusCode: number | undefined): string | null {
+    switch (statusCode) {
+        case 413:
+        case 422:
+            return 'This trace is too large to summarize. Open a single generation and summarize that instead.'
+        case 502:
+        case 503:
+            return 'The summary service is busy right now. Try again in a moment.'
+        case 504:
+            return 'Generating this summary took too long. Try again in a moment.'
+        default:
+            return null
+    }
+}
+
+/**
+ * Keep a raw status code out of the toast and inline error. `ApiError` with no `detail` falls back
+ * to its own `Non-OK response [POST ...] (status 422: )` string, so map known upstream statuses to
+ * a readable sentence and give anything else without a body a generic message. The status is
+ * carried over so transient gateway errors stay out of error tracking.
  */
 function toReadableError(error: unknown): unknown {
-    if (!(error instanceof ApiError) || error.detail) {
+    if (!(error instanceof ApiError)) {
         return error
     }
-    const message =
-        error.status === 504
-            ? 'Generating this summary took too long. Try again in a moment.'
-            : "Couldn't generate a summary. Try again, and if it keeps happening contact support."
-    return new ApiError(message, error.status, error.headers, error.data)
+    const upstreamMessage = upstreamStatusMessage(error.status)
+    if (upstreamMessage) {
+        return new ApiError(upstreamMessage, error.status, error.headers, error.data)
+    }
+    if (error.detail) {
+        return error
+    }
+    return new ApiError(GENERIC_SUMMARY_ERROR, error.status, error.headers, error.data)
 }
 
 export const summaryViewLogic = kea<summaryViewLogicType>([

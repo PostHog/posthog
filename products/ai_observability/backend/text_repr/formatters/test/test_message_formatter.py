@@ -317,6 +317,14 @@ class TestFormatToolCalls:
         # Empty list still shows "Tool calls: 0"
         assert len(lines) > 0 or lines == []
 
+    def test_tolerates_string_and_malformed_entries(self):
+        """A string entry, or a non-dict `function`, must not raise `'str' has no attribute 'get'`."""
+        tool_calls = ["raw string call", {"function": "not a dict"}, {"name": "func", "args": {"a": 1}}]
+        lines = format_tool_calls(tool_calls)  # type: ignore[arg-type]
+        result = "\n".join(lines)
+        assert "raw string call" in result
+        assert "func(a=1)" in result
+
 
 class TestFormatInputMessages:
     """Test input message section formatting."""

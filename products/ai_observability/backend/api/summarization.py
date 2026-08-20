@@ -9,6 +9,7 @@ Endpoints:
 - POST /api/projects/:id/llm_analytics/summarization/batch_check/ - Check cached summaries for multiple traces
 """
 
+import re
 import time
 from datetime import datetime
 
@@ -44,6 +45,7 @@ from posthog.rate_limit import (
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.summarization.llm import summarize
+from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse, SummaryBullet
 from products.ai_observability.backend.summarization.models import SummarizationMode
 from products.ai_observability.backend.summarization.utils import get_summary_cache_key
 from products.ai_observability.backend.text_repr.formatters import (
@@ -57,6 +59,20 @@ logger = structlog.get_logger(__name__)
 
 # Event types the formatters can render on their own, so a single one of them can be summarized by UUID.
 SUMMARIZABLE_EVENT_TYPES = ["$ai_generation", "$ai_span", "$ai_embedding", "$ai_evaluation"]
+
+# Strips the "L12: " line-number prefix the formatters add, so an otherwise empty representation
+# is recognised as empty rather than as one line of content.
+_LINE_NUMBER_PREFIX = re.compile(r"^L\d+:\s?", re.MULTILINE)
+
+
+def _text_repr_has_content(text_repr: str) -> bool:
+    """True when the representation holds anything beyond line-number scaffolding.
+
+    A generation with no input, output, or tools formats to an empty string, which becomes just
+    "L1: " once numbered. Summarizing that spends an LLM call to describe nothing, and the model
+    then invents an "empty input" summary of what the trace view still shows as populated.
+    """
+    return bool(_LINE_NUMBER_PREFIX.sub("", text_repr).strip())
 
 
 # Request/Response Serializers
@@ -375,6 +391,22 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         else:  # event
             return format_event_text_repr(event=entity_data["event"], options=options)
 
+    def _build_empty_summary_response(self, text_repr: str, summarize_type: str) -> dict:
+        """Build a deterministic response for an entity that has no content to summarize."""
+        entity = "trace" if summarize_type == "trace" else "event"
+        summary = SummarizationResponse(
+            title=f"Nothing to summarize in this {entity}",
+            flow_diagram="",
+            summary_bullets=[
+                SummaryBullet(
+                    text=f"This {entity} recorded no input or output, so there is nothing to summarize.",
+                    line_refs="",
+                )
+            ],
+            interesting_notes=[],
+        )
+        return self._build_summary_response(summary, text_repr, summarize_type)
+
     def _build_summary_response(self, summary, text_repr: str, summarize_type: str) -> dict:
         """Build the API response dict from summary and text representation.
 
@@ -549,6 +581,20 @@ The response includes the structured summary, the text representation, and metad
                 raise exceptions.ValidationError("No trace or event data was provided for summarization.")
 
             text_repr = self._generate_text_repr(summarize_type, entity_data)
+
+            # An empty representation would make the LLM invent a summary of nothing, so answer
+            # directly instead of paying for the call.
+            if not _text_repr_has_content(text_repr):
+                result = self._build_empty_summary_response(text_repr, summarize_type)
+                cache.set(cache_key, result, timeout=3600)
+                logger.info(
+                    "Skipped summarizing an empty representation",
+                    summarize_type=summarize_type,
+                    entity_id=entity_id,
+                    mode=mode,
+                    team_id=self.team_id,
+                )
+                return Response(result, status=status.HTTP_200_OK)
 
             start_time = time.time()
             user_distinct_id = getattr(request.user, "distinct_id", None)

@@ -64,6 +64,36 @@ class TestDictToYamlLines:
         assert "null: None" in lines
 
 
+class TestGenerationStateFallback:
+    """Generations from framework wrappers carry their payload in the `_state` properties."""
+
+    def test_renders_input_and_output_state_when_primary_properties_absent(self):
+        event = {
+            "event": "$ai_generation",
+            "properties": {
+                "$ai_input_state": {"messages": [{"role": "user", "content": "what is the capital of France"}]},
+                "$ai_output_state": "Paris",
+            },
+        }
+        result = format_generation_text_repr(event)
+
+        assert "what is the capital of France" in result
+        assert "Paris" in result
+
+    def test_prefers_primary_properties_over_state(self):
+        event = {
+            "event": "$ai_generation",
+            "properties": {
+                "$ai_input": [{"role": "user", "content": "primary input"}],
+                "$ai_input_state": [{"role": "user", "content": "state input"}],
+            },
+        }
+        result = format_generation_text_repr(event)
+
+        assert "primary input" in result
+        assert "state input" not in result
+
+
 class TestErrorFormattingGeneration:
     """Test error formatting in generation events."""
 

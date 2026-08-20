@@ -87,6 +87,17 @@ describe('summaryViewLogic', () => {
         expect(logic.values.summaryError).toBe('Generating this summary took too long. Try again in a moment.')
     })
 
+    it('maps an upstream context-window rejection to a readable message, not a bare status', async () => {
+        mockSummarization(Promise.reject(new ApiError('[422]', 422, undefined, { detail: '[422]' })))
+
+        await generateSummary()
+
+        expect(logic.values.summaryError).not.toContain('422')
+        expect(logic.values.summaryError).toBe(
+            'This trace is too large to summarize. Open a single generation and summarize that instead.'
+        )
+    })
+
     it('clears a stale summary when regeneration fails', async () => {
         await generateSummary()
         expect(logic.values.summaryData?.summary.title).toBe('Summary')

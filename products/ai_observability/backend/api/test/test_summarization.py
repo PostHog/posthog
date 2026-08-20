@@ -142,6 +142,28 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertIn("title", data["summary"])
         self.assertEqual(data["summary"]["title"], "Multi-step Trace Execution")
 
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_empty_event_short_circuits_without_calling_the_model(self, mock_summarize):
+        """An event with no input or output must answer directly, not pay for an LLM call."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        request_data = {
+            "summarize_type": "event",
+            "mode": "minimal",
+            "data": {"event": {"id": "gen-empty", "event": "$ai_generation", "properties": {}}},
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_summarize.assert_not_called()
+        self.assertIn("Nothing to summarize", response.data["summary"]["title"])
+
     def test_missing_summarize_type(self):
         """Should return 400 for missing summarize_type."""
         self.organization.is_ai_data_processing_approved = True

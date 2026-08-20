@@ -224,11 +224,17 @@ def format_tool_calls(tool_calls: list[ToolCall]) -> list[str]:
     lines.append(f"Tool calls: {len(tool_calls)}")
 
     for tc in tool_calls:
+        # Some SDKs record a tool call as a bare string; show it rather than crashing on `.get`.
+        if not isinstance(tc, dict):
+            lines.append(f"  - {tc}")
+            continue
+
         # Handle both OpenAI format (function: {name, arguments})
         # and LangChain format (name, args)
-        if tc.get("function"):
-            name = tc["function"].get("name", "unknown")
-            args = tc["function"].get("arguments", "")
+        function = tc.get("function")
+        if isinstance(function, dict):
+            name = function.get("name", "unknown")
+            args = function.get("arguments", "")
         else:
             name = tc.get("name", "unknown")
             args = tc.get("args", "")
