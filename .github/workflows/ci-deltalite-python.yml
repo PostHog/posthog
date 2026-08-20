@@ -15,8 +15,9 @@ on:
         paths:
             - rust/deltalite/**
             - .github/workflows/ci-deltalite-python.yml
-            # The parity suite runs against the repo's pinned deltalake/pyarrow/duckdb, so
-            # re-run it whenever those pins move.
+            # The parity suite runs against the repo's pinned deltalake/pyarrow/duckdb.
+            # These files hold those pins, so they fire the workflow; the `changes` job
+            # then filters out the many edits that touch neither pin.
             - pyproject.toml
             - uv.lock
     push:
@@ -36,8 +37,68 @@ permissions:
     contents: read
 
 jobs:
+    # The path filter above cannot read file content, so pyproject.toml and uv.lock
+    # fire the suite on any PR that nudges a Python pin. Most of those pins are not
+    # ours. This gate keeps the pin trigger but runs the expensive build only when a
+    # pin the suite installs actually moved. It runs on a GitHub-hosted runner, so a
+    # skipped run costs no depot capacity.
+    changes:
+        name: Decide whether to run the parity suite
+        runs-on: ubuntu-22.04
+        timeout-minutes: 5
+        outputs:
+            run: ${{ steps.decide.outputs.run }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+
+            - name: Detect which trigger paths changed
+              id: changed-files
+              if: github.event_name == 'pull_request'
+              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+              with:
+                  files_yaml: |
+                      code:
+                      - rust/deltalite/**
+                      - .github/workflows/ci-deltalite-python.yml
+                      pins:
+                      - pyproject.toml
+                      - uv.lock
+
+            - name: Decide
+              id: decide
+              shell: bash
+              env:
+                  EVENT: ${{ github.event_name }}
+                  CODE_CHANGED: ${{ steps.changed-files.outputs.code_any_changed }}
+                  PINS_CHANGED: ${{ steps.changed-files.outputs.pins_any_changed }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  set -euo pipefail
+                  # master push: always run, matching the behavior before this gate.
+                  if [[ "$EVENT" != 'pull_request' ]]; then
+                      echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+                  fi
+                  # deltalite sources or this workflow changed: the suite is directly affected.
+                  if [[ "$CODE_CHANGED" == 'true' ]]; then
+                      echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+                  fi
+                  # Only the shared pin files changed. The suite installs deltalake, pyarrow,
+                  # and duckdb straight from pyproject.toml, so diff that file for those names
+                  # and run only when one of them moved.
+                  if [[ "$PINS_CHANGED" == 'true' ]] \
+                      && git diff "$BASE_SHA...HEAD" -- pyproject.toml \
+                          | grep -E '^[+-]' | grep -qiE 'deltalake|pyarrow|duckdb'; then
+                      echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+                  fi
+                  echo "run=false" >> "$GITHUB_OUTPUT"
+
     test:
         name: Build wheel and run parity suite
+        needs: changes
+        if: needs.changes.outputs.run == 'true'
         runs-on: depot-ubuntu-22.04-4
         timeout-minutes: 30
         steps:
