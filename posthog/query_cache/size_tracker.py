@@ -312,8 +312,11 @@ class TeamCacheSizeTracker:
                 current_size -= removed_size
                 continue
 
-            storage.schedule_blob_delete(old_value, team_id=self.team_id, cache_key=cache_key, trigger="evicted")
+            # Tracking removal stays immediately after the entry delete: a concurrent set() of
+            # the same key landing between them loses its accounting (pre-existing, accepted,
+            # self-heals on the key's next write), so the enqueue must not widen that gap.
             removed_size = self._remove_tracking(cache_key)
+            storage.schedule_blob_delete(old_value, team_id=self.team_id, cache_key=cache_key, trigger="evicted")
 
             current_size -= removed_size
             evicted_keys.append(cache_key)
