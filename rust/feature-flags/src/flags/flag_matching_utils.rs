@@ -866,6 +866,11 @@ async fn try_get_feature_flag_hash_key_overrides(
     let rows = fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
     let query_duration = query_start.elapsed();
 
+    // Release the reader connection now that the query is done. The sampled primary check below
+    // awaits on the writer pool, and holding this connection across that await would couple writer
+    // latency to reader pool occupancy.
+    drop(conn);
+
     // The join keeps a person row even when it has no override, so no rows at all means this pool
     // could not see any of the requested distinct IDs. That is a different miss from seeing at
     // least one and finding no override.
