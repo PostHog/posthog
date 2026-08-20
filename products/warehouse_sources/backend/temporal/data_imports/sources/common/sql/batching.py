@@ -92,13 +92,24 @@ def _planned_row_bytes(row: Any, measured: tuple[int, ...], fixed_bytes: int) ->
     total = fixed_bytes
     for index in measured:
         value = row[index]
-        total += len(value) if value.__class__ is str else _value_bytes(value)
+        total += _str_bytes(value) if value.__class__ is str else _value_bytes(value)
     return total
+
+
+def _str_bytes(value: str) -> int:
+    """Encoded size of a text value, without encoding one that does not need it.
+
+    `len` counts code points, so a CJK or emoji column measures a third to a quarter of what it
+    weighs. `isascii` reads a flag the interpreter already keeps, so plain text stays one `len`.
+    """
+    return len(value) if value.isascii() else len(value.encode())
 
 
 def _value_bytes(value: Any) -> int:
     value_type = type(value)
-    if value_type is str or value_type is bytes:
+    if value_type is str:
+        return _str_bytes(value)
+    if value_type is bytes:
         return len(value)
     if value is None:
         return 0

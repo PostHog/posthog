@@ -46,6 +46,12 @@ class TestEstimateRowBytes:
             ("scalars_are_a_constant", (1, 2), 32),
             ("nested_json", ({"k": "vvvv"},), 5),
             ("array", ([b"ab", b"cd"],), 4),
+            # `len` would call these 4, 6 and 2, so a table of them would overrun the budget by
+            # the encoding width rather than by a rounding error.
+            ("accented_text", ("café",), 5),
+            ("cjk_text", ("这是一个测试",), 18),
+            ("emoji_text", ("🎉🎊",), 8),
+            ("non_ascii_inside_json", ({"k": "café"},), 6),
         ]
     )
     def test_measures_the_payload_that_matters(self, _name: str, row: tuple, expected: int) -> None:
@@ -59,6 +65,7 @@ class TestMeasurePlan:
             ("all_fixed_width", (1, 2.5, True, datetime(2026, 8, 20), Decimal("1.5"), UUID(int=1))),
             ("all_variable", ("abcd", b"xy", {"k": "vv"}, ["a", "b"])),
             ("nulls", (None, "abcd", None)),
+            ("non_ascii", (1, "café", "这是一个测试")),
         ]
     )
     def test_matches_measuring_every_column(self, _name: str, row: tuple) -> None:
