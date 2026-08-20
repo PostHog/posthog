@@ -1,4 +1,5 @@
 import json
+import ipaddress
 
 import pytest
 from freezegun import freeze_time
@@ -10,6 +11,7 @@ import requests
 from parameterized import parameterized
 
 from posthog.models import Organization, ProxyRecord
+from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
     CustomHostname,
     CustomHostnameSSL,
@@ -132,6 +134,80 @@ class TestCheckProxyIsLive(TestCase):
         result = await check_proxy_is_live(self.input)
 
         self.assertEqual(result.errors, expected_errors)
+
+    @parameterized.expand(
+        [
+            ("url_authority_polyglot", "169.254.169.254:80/pad.example.com"),
+            ("scheme_and_path", "https://example.com/x"),
+            ("address_literal", "169.254.169.254"),
+        ]
+    )
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
+    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_refuses_a_stored_domain_that_is_not_a_hostname(
+        self, _name, domain, mock_get_record, mock_post, mock_create_connection
+    ):
+        self.proxy_record.domain = domain
+        mock_get_record.return_value = self.proxy_record
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(result.errors, ["Proxy domain is not a plain hostname; recreate this proxy record"])
+        mock_post.assert_not_called()
+        mock_create_connection.assert_not_called()
+
+    @pytest.mark.asyncio
+    @freeze_time("2024-01-16 10:00:00")
+    @patch("posthog.temporal.proxy_service.monitor.validate_url_and_pin_ips")
+    @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
+    @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
+    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_cert_check_connects_to_the_validated_address(
+        self, mock_get_record, mock_post, mock_ssl_context, mock_create_connection, mock_validate
+    ):
+        mock_get_record.return_value = self.proxy_record
+        mock_post.return_value = Mock(status_code=200, raise_for_status=Mock(return_value=None))
+        mock_validate.return_value = PinnedUrlVerdict(
+            allowed=True, reason=None, pinned_ips={ipaddress.ip_address("203.0.113.7")}
+        )
+        mock_create_connection.return_value = MagicMock()
+
+        mock_socket = Mock()
+        mock_socket.getpeercert.return_value = {"notAfter": "Feb  5 10:00:00 2024 GMT"}
+        mock_wrapped_socket = Mock()
+        mock_wrapped_socket.__enter__ = Mock(return_value=mock_socket)
+        mock_wrapped_socket.__exit__ = Mock(return_value=None)
+        mock_context = Mock()
+        mock_context.wrap_socket.return_value = mock_wrapped_socket
+        mock_ssl_context.return_value = mock_context
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(result.errors, [])
+        # The socket carries no proxy settings, so the address it opens is the whole control. SNI
+        # stays on the hostname so certificate verification still checks the configured name.
+        mock_create_connection.assert_called_once_with(("203.0.113.7", 443), timeout=PROXY_LIVE_CHECK_TIMEOUT_S)
+        self.assertEqual(mock_context.wrap_socket.call_args.kwargs["server_hostname"], self.proxy_record.domain)
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.validate_url_and_pin_ips")
+    @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
+    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_cert_check_does_not_connect_to_a_private_address(
+        self, mock_get_record, mock_post, mock_create_connection, mock_validate
+    ):
+        mock_get_record.return_value = self.proxy_record
+        mock_post.return_value = Mock(status_code=200, raise_for_status=Mock(return_value=None))
+        mock_validate.return_value = PinnedUrlVerdict(allowed=False, reason="private address", pinned_ips=set())
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(result.errors, ["Proxy domain does not resolve to a public address"])
+        mock_create_connection.assert_not_called()
         self.assertEqual(result.warnings, [])
 
     @pytest.mark.asyncio

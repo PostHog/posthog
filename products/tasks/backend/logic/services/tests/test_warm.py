@@ -100,6 +100,7 @@ class TestSandboxWarmerWarm(APIBaseTest):
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
             patch(f"{WARM}.is_team_limited", return_value=False),
+            patch("products.tasks.backend.models.settings.TEST", False),
         ):
             result = SandboxWarmer(task, user=self.user).warm()
             m_workflow.assert_not_called()
@@ -118,6 +119,16 @@ class TestSandboxWarmerWarm(APIBaseTest):
 
         assert task.runs.count() == 0
         m_workflow.assert_not_called()
+
+    def test_deactivated_organization_creates_no_run(self):
+        self.organization.is_active = False
+        self.organization.save()
+        task = self._task()
+
+        with self.assertRaises(PermissionDenied):
+            SandboxWarmer(task, user=self.user).warm()
+
+        assert task.runs.count() == 0
 
     def test_unregistered_origin_product_is_rejected(self):
         # Fail-closed: only origin products with a registered quota gate may warm.

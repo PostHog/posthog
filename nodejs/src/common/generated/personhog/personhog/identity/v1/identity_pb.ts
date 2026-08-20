@@ -13,7 +13,7 @@ import { file_personhog_types_v1_person } from '../../types/v1/person_pb'
 export const file_personhog_identity_v1_identity: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiRwZXJzb25ob2cvaWRlbnRpdHkvdjEvaWRlbnRpdHkucHJvdG8SFXBlcnNvbmhvZy5pZGVudGl0eS52MSLOAQoWR2V0T3JDcmVhdGVQZXJzb25FbnRyeRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEhoKEmV4dHJhX2Rpc3RpbmN0X2lkcxgDIAMoCRISCgpldmVudF9uYW1lGAQgASgJEhYKDnNldF9wcm9wZXJ0aWVzGAUgASgMEhsKE3NldF9vbmNlX3Byb3BlcnRpZXMYBiABKAwSEgoKY3JlYXRlZF9hdBgHIAEoAxIVCg1pc19pZGVudGlmaWVkGAggASgIImQKJEdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVxdWVzdBI8CgVlbnRyeRgBIAEoCzItLnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRPckNyZWF0ZVBlcnNvbkVudHJ5ImQKJUdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVzcG9uc2USKgoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbhIPCgdjcmVhdGVkGAIgASgIImgKJkdldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXF1ZXN0Ej4KB2VudHJpZXMYASADKAsyLS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25FbnRyeSKqAQoXR2V0T3JDcmVhdGVQZXJzb25SZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQESDwoHY3JlYXRlZBgEIAEoCBISCgVlcnJvchgFIAEoCUgBiAEBQgkKB19wZXJzb25CCAoGX2Vycm9yImoKJ0dldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRI/CgdyZXN1bHRzGAEgAygLMi4ucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uUmVzdWx0IjEKCVBlcnNvbktleRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJIlAKHkdldFBlcnNvbnNCeURpc3RpbmN0SWRzUmVxdWVzdBIuCgRrZXlzGAEgAygLMiAucGVyc29uaG9nLmlkZW50aXR5LnYxLlBlcnNvbktleSJ/ChtHZXRQZXJzb25CeURpc3RpbmN0SWRSZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQFCCQoHX3BlcnNvbiJmCh9HZXRQZXJzb25zQnlEaXN0aW5jdElkc1Jlc3BvbnNlEkMKB3Jlc3VsdHMYASADKAsyMi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0UGVyc29uQnlEaXN0aW5jdElkUmVzdWx0InoKH0dldERpc3RpbmN0SWRzRm9yUGVyc29uc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxISCgpwZXJzb25faWRzGAIgAygDEh0KEGxpbWl0X3Blcl9wZXJzb24YAyABKANIAIgBAUITChFfbGltaXRfcGVyX3BlcnNvbiJmCiBHZXREaXN0aW5jdElkc0ZvclBlcnNvbnNSZXNwb25zZRJCChNwZXJzb25fZGlzdGluY3RfaWRzGAEgAygLMiUucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkRpc3RpbmN0SWRzIj0KC01lcmdlU291cmNlEhoKEnNvdXJjZV9kaXN0aW5jdF9pZBgBIAEoCRISCgpldmVudF91dWlkGAIgASgJIvsBChNNZXJnZVBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSGgoSdGFyZ2V0X2Rpc3RpbmN0X2lkGAIgASgJEjMKB3NvdXJjZXMYAyADKAsyIi5wZXJzb25ob2cuaWRlbnRpdHkudjEuTWVyZ2VTb3VyY2USEQoJZXZlbnRfc2V0GAQgASgMEhYKDmV2ZW50X3NldF9vbmNlGAUgASgMEg0KBW9wX2lkGAYgASgJEiAKGGFsbG93X2lkZW50aWZpZWRfc291cmNlcxgHIAEoCBIXCgptb3ZlX2xpbWl0GAggASgDSACIAQFCDQoLX21vdmVfbGltaXQiawoRTWVyZ2VTb3VyY2VSZXN1bHQSGgoSc291cmNlX2Rpc3RpbmN0X2lkGAEgASgJEjoKB291dGNvbWUYAiABKA4yKS5wZXJzb25ob2cuaWRlbnRpdHkudjEuTWVyZ2VTb3VyY2VPdXRjb21lIqABChRNZXJnZVBlcnNvbnNSZXNwb25zZRINCgVvcF9pZBgBIAEoCRIxCghzdXJ2aXZvchgCIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25IAIgBARI5CgdyZXN1bHRzGAMgAygLMigucGVyc29uaG9nLmlkZW50aXR5LnYxLk1lcmdlU291cmNlUmVzdWx0QgsKCV9zdXJ2aXZvciqAAwoSTWVyZ2VTb3VyY2VPdXRjb21lEiQKIE1FUkdFX1NPVVJDRV9PVVRDT01FX1VOU1BFQ0lGSUVEEAASHwobTUVSR0VfU09VUkNFX09VVENPTUVfTUVSR0VEEAESKQolTUVSR0VfU09VUkNFX09VVENPTUVfTk9PUF9TQU1FX1BFUlNPThACEiEKHU1FUkdFX1NPVVJDRV9PVVRDT01FX0FUVEFDSEVEEAMSKAokTUVSR0VfU09VUkNFX09VVENPTUVfU0tJUFBFRF9JTExFR0FMEAQSMwovTUVSR0VfU09VUkNFX09VVENPTUVfU0tJUFBFRF9BTFJFQURZX0lERU5USUZJRUQQBRIpCiVNRVJHRV9TT1VSQ0VfT1VUQ09NRV9TS0lQUEVEX0NPTkZMSUNUEAYSKwonTUVSR0VfU09VUkNFX09VVENPTUVfU0tJUFBFRF9NT1ZFX0xJTUlUEAcSHgoaTUVSR0VfU09VUkNFX09VVENPTUVfRVJST1IQCDLVBQoRUGVyc29uSG9nSWRlbnRpdHkSmgEKHUdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkEjsucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVxdWVzdBo8LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRPckNyZWF0ZVBlcnNvbkJ5RGlzdGluY3RJZFJlc3BvbnNlEqABCh9HZXRPckNyZWF0ZVBlcnNvbnNCeURpc3RpbmN0SWRzEj0ucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXF1ZXN0Gj4ucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRKIAQoXR2V0UGVyc29uc0J5RGlzdGluY3RJZHMSNS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0UGVyc29uc0J5RGlzdGluY3RJZHNSZXF1ZXN0GjYucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldFBlcnNvbnNCeURpc3RpbmN0SWRzUmVzcG9uc2USiwEKGEdldERpc3RpbmN0SWRzRm9yUGVyc29ucxI2LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXREaXN0aW5jdElkc0ZvclBlcnNvbnNSZXF1ZXN0GjcucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldERpc3RpbmN0SWRzRm9yUGVyc29uc1Jlc3BvbnNlEmcKDE1lcmdlUGVyc29ucxIqLnBlcnNvbmhvZy5pZGVudGl0eS52MS5NZXJnZVBlcnNvbnNSZXF1ZXN0GisucGVyc29uaG9nLmlkZW50aXR5LnYxLk1lcmdlUGVyc29uc1Jlc3BvbnNlYgZwcm90bzM',
+        'CiRwZXJzb25ob2cvaWRlbnRpdHkvdjEvaWRlbnRpdHkucHJvdG8SFXBlcnNvbmhvZy5pZGVudGl0eS52MSLOAQoWR2V0T3JDcmVhdGVQZXJzb25FbnRyeRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEhoKEmV4dHJhX2Rpc3RpbmN0X2lkcxgDIAMoCRISCgpldmVudF9uYW1lGAQgASgJEhYKDnNldF9wcm9wZXJ0aWVzGAUgASgMEhsKE3NldF9vbmNlX3Byb3BlcnRpZXMYBiABKAwSEgoKY3JlYXRlZF9hdBgHIAEoAxIVCg1pc19pZGVudGlmaWVkGAggASgIImQKJEdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVxdWVzdBI8CgVlbnRyeRgBIAEoCzItLnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRPckNyZWF0ZVBlcnNvbkVudHJ5ImQKJUdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVzcG9uc2USKgoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbhIPCgdjcmVhdGVkGAIgASgIImgKJkdldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXF1ZXN0Ej4KB2VudHJpZXMYASADKAsyLS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25FbnRyeSKqAQoXR2V0T3JDcmVhdGVQZXJzb25SZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQESDwoHY3JlYXRlZBgEIAEoCBISCgVlcnJvchgFIAEoCUgBiAEBQgkKB19wZXJzb25CCAoGX2Vycm9yImoKJ0dldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRI/CgdyZXN1bHRzGAEgAygLMi4ucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uUmVzdWx0IjEKCVBlcnNvbktleRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJIlAKHkdldFBlcnNvbnNCeURpc3RpbmN0SWRzUmVxdWVzdBIuCgRrZXlzGAEgAygLMiAucGVyc29uaG9nLmlkZW50aXR5LnYxLlBlcnNvbktleSJ/ChtHZXRQZXJzb25CeURpc3RpbmN0SWRSZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQFCCQoHX3BlcnNvbiJmCh9HZXRQZXJzb25zQnlEaXN0aW5jdElkc1Jlc3BvbnNlEkMKB3Jlc3VsdHMYASADKAsyMi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0UGVyc29uQnlEaXN0aW5jdElkUmVzdWx0InoKH0dldERpc3RpbmN0SWRzRm9yUGVyc29uc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxISCgpwZXJzb25faWRzGAIgAygDEh0KEGxpbWl0X3Blcl9wZXJzb24YAyABKANIAIgBAUITChFfbGltaXRfcGVyX3BlcnNvbiJmCiBHZXREaXN0aW5jdElkc0ZvclBlcnNvbnNSZXNwb25zZRJCChNwZXJzb25fZGlzdGluY3RfaWRzGAEgAygLMiUucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkRpc3RpbmN0SWRzIj0KC01lcmdlU291cmNlEhoKEnNvdXJjZV9kaXN0aW5jdF9pZBgBIAEoCRISCgpldmVudF91dWlkGAIgASgJIo8CChNNZXJnZVBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSGgoSdGFyZ2V0X2Rpc3RpbmN0X2lkGAIgASgJEjMKB3NvdXJjZXMYAyADKAsyIi5wZXJzb25ob2cuaWRlbnRpdHkudjEuTWVyZ2VTb3VyY2USEQoJZXZlbnRfc2V0GAQgASgMEhYKDmV2ZW50X3NldF9vbmNlGAUgASgMEg0KBW9wX2lkGAYgASgJEiAKGGFsbG93X2lkZW50aWZpZWRfc291cmNlcxgHIAEoCBIXCgptb3ZlX2xpbWl0GAggASgDSACIAQESEgoKY3JlYXRlZF9hdBgJIAEoA0INCgtfbW92ZV9saW1pdCJrChFNZXJnZVNvdXJjZVJlc3VsdBIaChJzb3VyY2VfZGlzdGluY3RfaWQYASABKAkSOgoHb3V0Y29tZRgCIAEoDjIpLnBlcnNvbmhvZy5pZGVudGl0eS52MS5NZXJnZVNvdXJjZU91dGNvbWUioAEKFE1lcmdlUGVyc29uc1Jlc3BvbnNlEg0KBW9wX2lkGAEgASgJEjEKCHN1cnZpdm9yGAIgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkgAiAEBEjkKB3Jlc3VsdHMYAyADKAsyKC5wZXJzb25ob2cuaWRlbnRpdHkudjEuTWVyZ2VTb3VyY2VSZXN1bHRCCwoJX3N1cnZpdm9yKoADChJNZXJnZVNvdXJjZU91dGNvbWUSJAogTUVSR0VfU09VUkNFX09VVENPTUVfVU5TUEVDSUZJRUQQABIfChtNRVJHRV9TT1VSQ0VfT1VUQ09NRV9NRVJHRUQQARIpCiVNRVJHRV9TT1VSQ0VfT1VUQ09NRV9OT09QX1NBTUVfUEVSU09OEAISIQodTUVSR0VfU09VUkNFX09VVENPTUVfQVRUQUNIRUQQAxIoCiRNRVJHRV9TT1VSQ0VfT1VUQ09NRV9TS0lQUEVEX0lMTEVHQUwQBBIzCi9NRVJHRV9TT1VSQ0VfT1VUQ09NRV9TS0lQUEVEX0FMUkVBRFlfSURFTlRJRklFRBAFEikKJU1FUkdFX1NPVVJDRV9PVVRDT01FX1NLSVBQRURfQ09ORkxJQ1QQBhIrCidNRVJHRV9TT1VSQ0VfT1VUQ09NRV9TS0lQUEVEX01PVkVfTElNSVQQBxIeChpNRVJHRV9TT1VSQ0VfT1VUQ09NRV9FUlJPUhAIMtUFChFQZXJzb25Ib2dJZGVudGl0eRKaAQodR2V0T3JDcmVhdGVQZXJzb25CeURpc3RpbmN0SWQSOy5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25CeURpc3RpbmN0SWRSZXF1ZXN0GjwucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVzcG9uc2USoAEKH0dldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHMSPS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25zQnlEaXN0aW5jdElkc1JlcXVlc3QaPi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25zQnlEaXN0aW5jdElkc1Jlc3BvbnNlEogBChdHZXRQZXJzb25zQnlEaXN0aW5jdElkcxI1LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRQZXJzb25zQnlEaXN0aW5jdElkc1JlcXVlc3QaNi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0UGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRKLAQoYR2V0RGlzdGluY3RJZHNGb3JQZXJzb25zEjYucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldERpc3RpbmN0SWRzRm9yUGVyc29uc1JlcXVlc3QaNy5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0RGlzdGluY3RJZHNGb3JQZXJzb25zUmVzcG9uc2USZwoMTWVyZ2VQZXJzb25zEioucGVyc29uaG9nLmlkZW50aXR5LnYxLk1lcmdlUGVyc29uc1JlcXVlc3QaKy5wZXJzb25ob2cuaWRlbnRpdHkudjEuTWVyZ2VQZXJzb25zUmVzcG9uc2ViBnByb3RvMw',
         [file_personhog_types_v1_person]
     )
 
@@ -41,8 +41,8 @@ export type GetOrCreatePersonEntry = Message<'personhog.identity.v1.GetOrCreateP
 
     /**
      * Additional distinct ids mapped to the person on the creation branch.
-     * Their rows get version 1 when the distinct id has personless history
-     * (a posthog_personlessdistinctid row already existed), else version 0.
+     * Their rows always get version 1: there is no proof the distinct id
+     * never sent events, and version 1 is safe either way.
      * An extra already mapped to a different person keeps its existing
      * mapping: get-or-create never re-points or merges, so the conflict is
      * not an error and is not reported — re-pointing distinct ids is the
@@ -455,9 +455,13 @@ export type MergePersonsRequest = Message<'personhog.identity.v1.MergePersonsReq
 
     /**
      * Caller-generated operation id (UUID string), typically the executing
-     * event's uuid. A retried call carrying the same op_id returns the
-     * recorded outcome of the original run instead of merging again, so
-     * callers must reuse the op_id across retries.
+     * event's uuid. Callers must reuse the op_id across retries: when the
+     * original run merged distinct persons (ran the durable saga), a retry
+     * returns the recorded outcome instead of merging again. Calls that
+     * settle entirely inline (no-ops, attaches, skips) write no durable
+     * record; their retries re-execute against the current state and
+     * return an equivalent settlement — an attached source, for example,
+     * re-answers NOOP_SAME_PERSON.
      *
      * @generated from field: string op_id = 6;
      */
@@ -480,6 +484,14 @@ export type MergePersonsRequest = Message<'personhog.identity.v1.MergePersonsReq
      * @generated from field: optional int64 move_limit = 8;
      */
     moveLimit?: bigint
+
+    /**
+     * Merge event created_at, epoch millis. Used as the survivor's
+     * created_at when it predates the current value.
+     *
+     * @generated from field: int64 created_at = 9;
+     */
+    createdAt: bigint
 }
 
 /**
@@ -527,7 +539,8 @@ export type MergePersonsResponse = Message<'personhog.identity.v1.MergePersonsRe
     /**
      * The surviving person's document. Authoritative (the folded document
      * the leader produced) when a merge ran; the resolved person otherwise.
-     * Absent when the operation aborted without merging anything.
+     * An aborted operation still answers the person the event's writes were
+     * delivered to; absent only when the target no longer resolves.
      *
      * @generated from field: optional personhog.types.v1.Person survivor = 2;
      */
@@ -574,8 +587,7 @@ export enum MergeSourceOutcome {
 
     /**
      * The source distinct id had no person, so it was attached to the
-     * survivor with a plain mapping insert. Reserved for the personless-free
-     * world; nothing returns it yet (unresolved sources are ERROR for now).
+     * survivor with a plain mapping insert.
      *
      * @generated from enum value: MERGE_SOURCE_OUTCOME_ATTACHED = 3;
      */
@@ -583,7 +595,8 @@ export enum MergeSourceOutcome {
 
     /**
      * The source distinct id is on the illegal-id list ('anonymous',
-     * 'undefined', ...). Never merged.
+     * 'undefined', ...) or exceeds the 400-character storage limit, so it
+     * can never resolve to a person. Never merged.
      *
      * @generated from enum value: MERGE_SOURCE_OUTCOME_SKIPPED_ILLEGAL = 4;
      */
@@ -613,9 +626,7 @@ export enum MergeSourceOutcome {
     SKIPPED_MOVE_LIMIT = 7,
 
     /**
-     * The pair could not be handled; details in server logs. Currently also
-     * the outcome for sources that resolve to no person (unresolved-source
-     * attach is not implemented yet).
+     * The pair could not be handled; details in server logs.
      *
      * @generated from enum value: MERGE_SOURCE_OUTCOME_ERROR = 8;
      */
@@ -645,8 +656,13 @@ export const MergeSourceOutcomeSchema: GenEnum<MergeSourceOutcome> =
  *
  * MergePersons semantics: the RPC drives the merge to completion before
  * responding. Most merges settle inline (same-person, illegal source); only
- * distinct-person pairs run the durable lifecycle saga. Retries with the same
- * op_id return the recorded outcome.
+ * distinct-person pairs run the durable lifecycle saga. Retries with the
+ * same op_id return the recorded outcome when a saga ran, and an
+ * equivalent re-execution when the call settled inline (see the op_id
+ * field). A definitive refusal is FAILED_PRECONDITION carrying an
+ * x-semantic-refusal reason slug to branch on — "op_id_reused" means the
+ * op_id belongs to a different request. A bare UNAVAILABLE is transient;
+ * retry with the same op_id.
  *
  * @generated from service personhog.identity.v1.PersonHogIdentity
  */
@@ -697,8 +713,9 @@ export const PersonHogIdentity: GenService<{
      * inline, distinct-person pairs run the durable merge saga (fence the
      * sources, fold their sealed documents into the target, repoint distinct
      * ids, tombstone the sources, produce death documents). An unresolved
-     * TARGET refuses the call FAILED_PRECONDITION; an illegal target
-     * distinct id refuses it INVALID_ARGUMENT before any durable work.
+     * TARGET is established first: attached to the first eligible source's
+     * person, or born fresh. An illegal target distinct id refuses the call
+     * INVALID_ARGUMENT before any durable work.
      *
      * @generated from rpc personhog.identity.v1.PersonHogIdentity.MergePersons
      */

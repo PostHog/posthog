@@ -619,6 +619,14 @@
                                             },
                                             {
                                                 "enum": [
+                                                    "unique_group",
+                                                    "first_time_for_group",
+                                                    "first_matching_event_for_group"
+                                                ],
+                                                "type": "string"
+                                            },
+                                            {
+                                                "enum": [
                                                     "total",
                                                     "sum",
                                                     "unique_session",
@@ -633,10 +641,6 @@
                                             },
                                             {
                                                 "enum": ["total", "dau"],
-                                                "type": "string"
-                                            },
-                                            {
-                                                "const": "unique_group",
                                                 "type": "string"
                                             },
                                             {
@@ -1647,6 +1651,14 @@
                                             },
                                             {
                                                 "enum": [
+                                                    "unique_group",
+                                                    "first_time_for_group",
+                                                    "first_matching_event_for_group"
+                                                ],
+                                                "type": "string"
+                                            },
+                                            {
+                                                "enum": [
                                                     "total",
                                                     "sum",
                                                     "unique_session",
@@ -1661,10 +1673,6 @@
                                             },
                                             {
                                                 "enum": ["total", "dau"],
-                                                "type": "string"
-                                            },
-                                            {
-                                                "const": "unique_group",
                                                 "type": "string"
                                             },
                                             {
@@ -2678,6 +2686,14 @@
                                             },
                                             {
                                                 "enum": [
+                                                    "unique_group",
+                                                    "first_time_for_group",
+                                                    "first_matching_event_for_group"
+                                                ],
+                                                "type": "string"
+                                            },
+                                            {
+                                                "enum": [
                                                     "total",
                                                     "sum",
                                                     "unique_session",
@@ -2692,10 +2708,6 @@
                                             },
                                             {
                                                 "enum": ["total", "dau"],
-                                                "type": "string"
-                                            },
-                                            {
-                                                "const": "unique_group",
                                                 "type": "string"
                                             },
                                             {

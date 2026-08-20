@@ -564,7 +564,7 @@ pub fn test_cached_person() -> CachedPerson {
         id: 42,
         uuid: "00000000-0000-0000-0000-000000000042".to_string(),
         team_id: 1,
-        properties: serde_json::json!({"email": "test@example.com"}),
+        properties: serde_json::to_vec(&serde_json::json!({"email": "test@example.com"})).unwrap(),
         created_at: 1700000000,
         version: 1,
         is_identified: false,

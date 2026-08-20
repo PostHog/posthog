@@ -89,6 +89,7 @@ Our signup funnel shows the following conversion rates:
 - Do not include the inline placeholder text, empty `<Prompt question="" />` blocks, or the user's instruction prompt in the final markdown unless the user explicitly asks to keep them
 - Use a direct assistant markdown response instead of this tool only for local answers or small insertions that should replace the inline response placeholder
 - Component tags such as `<Query … />`, `<SQLV2 … />`, and `<PythonV2 … />` render a `title` prop in their block header. Keep the titles already there, and give any tag you add a short one saying what it shows, so a reader can skim the notebook without opening each block
+- `<SQLV2 />` and `<PythonV2 />` carry their body in a `code` prop holding the SQL or Python as a string. Only `<Query />` takes a `query` prop holding a query object, so never give a code cell a `query` prop
 
 # Transient vs saved notebooks:
 - By default, notebooks are created as transient artifacts visible only in this conversation. Do NOT share URLs or references to notebook pages for transient artifacts.

@@ -1,4 +1,16 @@
-import { CaretRightIcon } from "@phosphor-icons/react";
+import {
+  ArchiveIcon,
+  CaretRightIcon,
+  DotsThreeIcon,
+  FolderSimpleIcon,
+  PencilSimpleIcon,
+  PushPinIcon,
+  PushPinSlashIcon,
+  SquaresFourIcon,
+  StopCircle,
+  TrashIcon,
+} from "@phosphor-icons/react";
+import { sessionsLabel } from "@posthog/core/sidebar/selection";
 import {
   Button,
   ContextMenu,
@@ -8,18 +20,23 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
   DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import type { SidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import {
   type MenuFlyoutItem,
   MenuSubFlyout,
   SearchableMenuFlyout,
 } from "@posthog/ui/primitives/SearchableMenuFlyout";
-import { type ComponentType, type ReactNode, useMemo } from "react";
+import { type ComponentType, type ReactNode, useMemo, useState } from "react";
 
 /**
  * What a row's menu can do. The row owns the handlers because they're the same
@@ -42,6 +59,7 @@ export interface TaskRowMenuProps {
   onAddToCommandCenter?: () => void;
   /** Absent where there's no inline rename to open — canvases, for now. */
   onRename?: () => void;
+  onStop?: () => void;
   onTogglePin: () => void;
   /** Tasks are archived; canvases are deleted (with an undo window). */
   onArchive?: () => void;
@@ -67,6 +85,12 @@ const CONTEXT_PARTS: MenuParts = {
   Item: ContextMenuItem,
   Sub: ContextMenuSub,
   SubTrigger: ContextMenuSubTrigger,
+};
+
+const DROPDOWN_PARTS: MenuParts = {
+  Item: DropdownMenuItem,
+  Sub: DropdownMenuSub,
+  SubTrigger: DropdownMenuSubTrigger,
 };
 
 /**
@@ -95,23 +119,46 @@ function TaskRowMenuItems({
     id: channel.id,
     label: channel.name,
     current: channel.id === menu.channelId,
+    starred: channel.starred,
   }));
 
   return (
     <>
-      <Item onClick={menu.onTogglePin}>{menu.isPinned ? "Unpin" : "Pin"}</Item>
-      {menu.onRename && <Item onClick={menu.onRename}>Rename</Item>}
+      <Item onClick={menu.onTogglePin}>
+        {menu.isPinned ? (
+          <PushPinSlashIcon size={14} />
+        ) : (
+          <PushPinIcon size={14} />
+        )}
+        {menu.isPinned ? "Unpin" : "Pin"}
+      </Item>
+      {menu.onRename && (
+        <Item onClick={menu.onRename}>
+          <PencilSimpleIcon size={14} />
+          Rename
+        </Item>
+      )}
+      {menu.onStop && (
+        <Item onClick={menu.onStop}>
+          <StopCircle size={14} />
+          Stop task
+        </Item>
+      )}
       {isTask && (
         <Item
           disabled={!menu.onAddToCommandCenter}
           onClick={menu.onAddToCommandCenter}
         >
+          <SquaresFourIcon size={14} />
           Add to Command Center
         </Item>
       )}
       {isTask && channelItems.length > 0 && (
         <Sub>
-          <SubTrigger>File to…</SubTrigger>
+          <SubTrigger>
+            <FolderSimpleIcon size={14} />
+            File to…
+          </SubTrigger>
           <MenuSubFlyout className="w-64 p-0">
             <SearchableMenuFlyout
               items={channelItems}
@@ -124,14 +171,93 @@ function TaskRowMenuItems({
           </MenuSubFlyout>
         </Sub>
       )}
-      {menu.onArchive && <Item onClick={menu.onArchive}>Archive</Item>}
+      {menu.onArchive && (
+        <Item onClick={menu.onArchive}>
+          <ArchiveIcon size={14} />
+          Archive
+        </Item>
+      )}
       {/* The ellipsis is the promise that a confirm follows — deleting a canvas
           takes it away from everyone in the space. */}
       {menu.onDelete && (
         <Item variant="destructive" onClick={menu.onDelete}>
+          <TrashIcon size={14} />
           Delete…
         </Item>
       )}
+    </>
+  );
+}
+
+/**
+ * What a right-click does when the row it landed on is part of a selection: the
+ * same four actions the selection bar offers, so the two paths can't drift.
+ * Archiving asks first, and the caller owns that confirm because it outlives
+ * the menu.
+ */
+export interface TaskRowBulkMenu {
+  actions: SidebarBulkActions;
+  onArchive: () => void;
+}
+
+function TaskRowBulkMenuItems({
+  parts,
+  bulk,
+}: {
+  parts: MenuParts;
+  bulk: TaskRowBulkMenu;
+}) {
+  const { Item, Sub, SubTrigger } = parts;
+  const { actions } = bulk;
+  const sessions = sessionsLabel(actions.selectedCount);
+  // No tick: a batch can span spaces, so there is no one channel to mark.
+  const channelItems: MenuFlyoutItem[] = actions.channels.map((channel) => ({
+    id: channel.id,
+    label: channel.name,
+    current: false,
+    starred: channel.starred,
+  }));
+
+  return (
+    <>
+      <Item disabled={actions.isPinning} onClick={actions.pinSelected}>
+        {actions.pinDirection === "pin" ? (
+          <PushPinIcon size={14} />
+        ) : (
+          <PushPinSlashIcon size={14} />
+        )}
+        {actions.pinLabel}
+      </Item>
+      <Item onClick={actions.addSelectedToCommandCenter}>
+        <SquaresFourIcon size={14} />
+        Add {sessions} to Command Center
+      </Item>
+      {channelItems.length > 0 && (
+        <Sub>
+          <SubTrigger>
+            <FolderSimpleIcon size={14} />
+            File {sessions} to…
+          </SubTrigger>
+          <MenuSubFlyout className="w-64 p-0">
+            <SearchableMenuFlyout
+              items={channelItems}
+              placeholder="Search spaces…"
+              emptyLabel="No spaces"
+              onSelect={(channelId) => void actions.fileSelectedTo(channelId)}
+            />
+          </MenuSubFlyout>
+        </Sub>
+      )}
+      {/* The ellipsis is the promise that a confirm follows: a bulk archive has
+          no undo toast behind it. */}
+      <Item
+        variant="destructive"
+        disabled={actions.isArchiving}
+        onClick={bulk.onArchive}
+      >
+        <ArchiveIcon size={14} />
+        Archive {sessions}…
+      </Item>
     </>
   );
 }
@@ -147,6 +273,30 @@ function TaskRowMenuItems({
  * `onSubmenuOpenChange` reports the one thing that *is* a popup ("File to…"), so
  * a hover surface can stay open while the pointer is inside it.
  */
+export function TaskRowDropdownMenu({ menu }: { menu: TaskRowMenuProps }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label={`Options for ${menu.title || "task"}`}
+            onClick={(event) => event.stopPropagation()}
+          />
+        }
+      >
+        <DotsThreeIcon size={14} weight="bold" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <TaskRowMenuItems parts={DROPDOWN_PARTS} menu={menu} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function TaskRowMenuList({
   menu,
   onAction,
@@ -161,7 +311,6 @@ export function TaskRowMenuList({
       Item: ({ children, disabled, variant, onClick }) => (
         <Button
           variant={variant === "destructive" ? "destructive" : "default"}
-          size="sm"
           left
           disabled={disabled}
           className="w-full"
@@ -187,8 +336,10 @@ export function TaskRowMenuList({
           delay={150}
           closeDelay={100}
           render={
-            <Button variant="default" size="sm" left className="w-full">
-              <span className="flex-1 text-left">{children}</span>
+            <Button variant="default" left className="w-full">
+              <span className="flex flex-1 items-center gap-2 text-left">
+                {children}
+              </span>
               <CaretRightIcon size={12} />
             </Button>
           }
@@ -205,21 +356,35 @@ export function TaskRowMenuList({
   );
 }
 
-/** The same menu on right-click, wrapping the row. */
+/**
+ * The same menu on right-click, wrapping the row. A row inside a multi-session
+ * selection gets the selection's menu instead of its own: acting on one row
+ * while four are highlighted is the surprise this avoids.
+ */
 export function TaskRowContextMenu({
   menu,
+  bulk,
+  onOpenChange,
   children,
 }: {
   menu: TaskRowMenuProps;
+  bulk?: TaskRowBulkMenu | null;
+  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
   return (
-    <ContextMenu>
+    <ContextMenu onOpenChange={onOpenChange}>
       <ContextMenuTrigger render={<div className="min-w-0" />}>
         {children}
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
-        <TaskRowMenuItems parts={CONTEXT_PARTS} menu={menu} />
+      {/* Wider for a batch: its labels carry a count and a noun ("Add 6
+          sessions to Command Center"), which the row's own labels don't. */}
+      <ContextMenuContent className={bulk ? "w-72" : "w-56"}>
+        {bulk ? (
+          <TaskRowBulkMenuItems parts={CONTEXT_PARTS} bulk={bulk} />
+        ) : (
+          <TaskRowMenuItems parts={CONTEXT_PARTS} menu={menu} />
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

@@ -253,16 +253,16 @@ Use a specialized view when it directly answers the task.
 - [x] Experiments: `summary`, `detail`, `results`
 - [x] Early access features: `summary`, `detail`
 - [x] Cohorts: `summary`, `detail`
-- [ ] Insights: `summary`, `detail`, `editor`, `results`
-- [ ] Session recordings: `summary`, `detail`
-- [ ] Recording playlists: `summary`, `detail`, `conditions`
-- [ ] People: `summary`, `detail`, `activity`
-- [ ] Groups: `summary`, `detail`, `activity`
-- [ ] Error tracking issues: `summary`, `detail`, `activity`
-- [ ] LLM traces: `summary`, `detail`, `activity`
-- [ ] Dashboards: `summary`, `detail`
-- [ ] Actions: `summary`, `detail`, `editor`
-- [ ] Workflows: `summary`, `detail`, `editor`, `results`
+- [x] Insights: `summary`, `detail`, `editor`, `results`
+- [x] Session recordings: `summary`, `detail`
+- [x] Recording playlists: `summary`, `detail`, `conditions`
+- [x] People: `summary`, `detail`, `activity`
+- [x] Groups: `summary`, `detail`, `activity`
+- [x] Error tracking issues: `summary`, `detail`, `activity`
+- [x] LLM traces: `summary`, `detail`, `activity`
+- [x] Dashboards: `summary`, `detail`
+- [x] Actions: `summary`, `detail`, `editor`
+- [x] Workflows: `summary`, `detail`, `editor`, `results`
 
 Named views run trusted, compiled PostHog UI.
 Do not execute agent-generated React through this registry.

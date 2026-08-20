@@ -13,6 +13,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -31,6 +32,7 @@ export function IntegrationView({
     schema?: { requiredScopes?: string }
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const { currentTeam } = useValues(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -151,6 +153,12 @@ export function IntegrationView({
                                 kind: integration.kind,
                                 next: window.location.pathname,
                             }),
+                            onClick: () =>
+                                reportIntegrationConnectClicked(
+                                    integration.kind,
+                                    integration.kind,
+                                    'error_banner_reconnect'
+                                ),
                             disabledReason: restrictedReason,
                         }}
                     >

@@ -44,11 +44,7 @@ class TestEnrichmentBridge(BaseTest):
         )
         inputs, get_group = self._read(group)
 
-        assert inputs == ClayBridgeInputs(
-            est_revenue=25_000_000.0,
-            company_type="private",
-            clay_processed=True,
-        )
+        assert inputs == ClayBridgeInputs(est_revenue=25_000_000.0, clay_processed=True)
         assert get_group.call_args.kwargs["group_type_index"] == 3
         assert get_group.call_args.kwargs["group_key"] == "org-1"
 
@@ -66,7 +62,6 @@ class TestEnrichmentBridge(BaseTest):
         # clay_processed is a raw key-presence check, not the coerced value — Clay fills this
         # column on essentially every row it writes, so presence alone is the ran/didn't-run signal.
         inputs, _ = self._read(Group(group_properties={"icp_company_type": 12}))
-        assert inputs.company_type is None
         assert inputs.clay_processed is True
 
     @parameterized.expand(
@@ -85,11 +80,6 @@ class TestEnrichmentBridge(BaseTest):
     def test_est_revenue_coercion(self, _name, raw, expected):
         inputs, _ = self._read(Group(group_properties={"icp_est_revenue": raw}))
         assert inputs.est_revenue == expected
-
-    @parameterized.expand([("empty_string", "", None), ("non_string", 12, None), ("value", "private", "private")])
-    def test_company_type_coercion(self, _name, raw, expected):
-        inputs, _ = self._read(Group(group_properties={"icp_company_type": raw}))
-        assert inputs.company_type == expected
 
     def test_missing_organization_group_type_raises_rather_than_reading_as_absent(self):
         with self.assertRaises(OrganizationGroupTypeMissing):

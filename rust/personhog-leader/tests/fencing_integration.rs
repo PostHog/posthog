@@ -186,6 +186,134 @@ async fn a_released_partition_discards_its_prepared_connection() {
     );
 }
 
+/// The trigger fires on every convergence pass through a drain window,
+/// so concurrent preconnects for one partition are the normal case, and
+/// each dial is a full TLS client. Without single-flight they stack
+/// until the pod runs out of memory; the claim must collapse them to
+/// one dial.
+#[tokio::test]
+async fn concurrent_preconnects_collapse_to_one_dial() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+
+    let calls: Vec<_> = (0..20)
+        .map(|_| {
+            let p = Arc::clone(&producers);
+            tokio::spawn(async move { p.preconnect(3).await })
+        })
+        .collect();
+    for call in calls {
+        call.await.unwrap();
+    }
+
+    assert_eq!(
+        producers.connect_attempts_for_test(),
+        1,
+        "twenty concurrent preconnects must share one dial"
+    );
+    assert!(
+        producers.has_prepared(3),
+        "the one dial parks its connection"
+    );
+}
+
+/// A failed dial must release its claim: the claim exists to suppress
+/// concurrent dials, not to wedge the partition out of preconnecting
+/// after a broker hiccup.
+#[tokio::test]
+async fn a_failed_preconnect_releases_its_claim() {
+    let mut kafka = test_kafka_config();
+    // An unroutable broker fails the dial at its bounded metadata ping.
+    kafka.kafka_hosts = "127.0.0.1:1".to_string();
+    let producers = FencedChangelogProducers::new(FencedProducerConfig {
+        kafka,
+        topic: "fence_unroutable".to_string(),
+        init_timeout: Duration::from_secs(2),
+        commit_timeout: Duration::from_secs(2),
+        broker_txn_timeout: BROKER_TXN_TIMEOUT,
+        window: Duration::from_millis(5),
+        window_max_writes: 32,
+        settle_budget: Duration::from_secs(5),
+    });
+
+    producers.preconnect(0).await;
+    assert!(!producers.has_prepared(0), "a failed dial parks nothing");
+
+    producers.preconnect(0).await;
+    assert_eq!(
+        producers.connect_attempts_for_test(),
+        2,
+        "the failed dial's claim must not block the retry"
+    );
+}
+
+/// A dial whose claim was removed mid-flight must not resolve the
+/// replacement claim that took its place: releasing another dial's
+/// claim lets convergence start yet more dials, recreating the churn
+/// single-flight exists to stop.
+#[tokio::test]
+async fn a_stale_dials_failure_leaves_the_replacements_claim() {
+    let mut kafka = test_kafka_config();
+    // An unroutable broker holds the dial open until its 2s bound, so
+    // the mid-flight claim churn below happens while it is in flight.
+    kafka.kafka_hosts = "127.0.0.1:1".to_string();
+    let producers = Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
+        kafka,
+        topic: "fence_unroutable".to_string(),
+        init_timeout: Duration::from_secs(2),
+        commit_timeout: Duration::from_secs(2),
+        broker_txn_timeout: BROKER_TXN_TIMEOUT,
+        window: Duration::from_millis(5),
+        window_max_writes: 32,
+        settle_budget: Duration::from_secs(5),
+    }));
+
+    let dial = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.preconnect(0).await })
+    };
+    while !producers.has_connecting_claim_for_test(0) {
+        tokio::task::yield_now().await;
+    }
+    // Ownership churn mid-dial: the claim is discarded and a
+    // replacement dial claims the slot.
+    producers.release(0);
+    producers.stage_connecting_for_test(0, Duration::ZERO);
+
+    dial.await.unwrap();
+
+    assert!(
+        producers.has_connecting_claim_for_test(0),
+        "the stale dial's failure must not release the replacement's claim"
+    );
+}
+
+/// The sweep clears a claim only past the dial bound: an old claim has
+/// no live owner (its task died), and leaving it would silently disable
+/// preconnect for the partition, while a young claim is a live dial
+/// whose head start the sweep must not discard.
+#[tokio::test]
+async fn the_sweep_clears_orphaned_claims_but_not_live_ones() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    let producers = fenced_producers(&topic);
+
+    producers.stage_connecting_for_test(1, Duration::from_secs(60));
+    producers.stage_connecting_for_test(2, Duration::from_secs(0));
+    producers.sweep_prepared();
+
+    producers.preconnect(1).await;
+    assert!(
+        producers.has_prepared(1),
+        "the orphaned claim must clear so preconnect works again"
+    );
+    producers.preconnect(2).await;
+    assert_eq!(
+        producers.connect_attempts_for_test(),
+        1,
+        "the live claim must survive the sweep and keep coalescing"
+    );
+}
+
 /// The core fencing guarantee: after a second owner acquires the
 /// partition, the first owner's produce fails as fenced instead of
 /// landing in the changelog.

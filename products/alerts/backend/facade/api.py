@@ -15,6 +15,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
+from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.destination_configs import (
     DESTINATION_TEMPLATE_IDS,
     AlertDestinationData,
@@ -26,11 +27,13 @@ from products.alerts.backend.destination_configs import (
 from products.alerts.backend.destinations import (
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
+    soft_delete_alert_destinations_for_alerts,
     soft_delete_all_alert_destinations,
 )
 from products.alerts.backend.email_notifications import send_alert_email
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.scheduling import validate_and_normalize_schedule_restriction
 
 logger = structlog.get_logger(__name__)
 
@@ -158,6 +161,7 @@ __all__ = [
     "DESTINATION_TEMPLATE_IDS",
     "AlertDestinationData",
     "AlertDestinationValidationError",
+    "AlertScheduleRestriction",
     "DestinationType",
     "SLACK_SNOOZE_MAX_DAYS",
     "SlackSnoozeOutcome",
@@ -167,7 +171,9 @@ __all__ = [
     "insight_ids_with_alerts",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",
+    "soft_delete_alert_destinations_for_alerts",
     "soft_delete_all_alert_destinations",
     "send_alert_email",
     "validate_destination_data",
+    "validate_and_normalize_schedule_restriction",
 ]

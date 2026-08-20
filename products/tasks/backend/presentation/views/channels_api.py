@@ -581,8 +581,8 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def send_to_agent(self, request, pk=None, **kwargs):
         try:
             kind, message = tasks_facade.forward_thread_message(pk, self._task_id(), self.team_id, self._user_id())
-        except ComputeBillingLimitExceeded:
-            return compute_quota_limit_response()
+        except ComputeBillingLimitExceeded as error:
+            return compute_quota_limit_response(error.reason)
         if kind == "not_found":
             raise NotFound()
         if kind == "forbidden":

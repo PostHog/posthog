@@ -78,6 +78,11 @@ export interface Task {
   description: string;
   created_at: string;
   updated_at: string;
+  /**
+   * When something last happened in the session, as opposed to `updated_at` (when the row was
+   * last written). The timestamp a "recent activity" sort reads. Empty on older responses.
+   */
+  last_activity_at?: string;
   created_by?: UserBasic | null;
   origin_product: string;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")
@@ -159,6 +164,42 @@ export interface TaskThreadMessage {
   author?: UserBasic | null;
   forwarded_to_agent_at?: string | null;
   forwarded_by?: UserBasic | null;
+  /** Users mentioned in the row, indexed at write time. Absent on older backends. */
+  mentioned_user_ids?: number[];
+}
+
+/** The latest resolve or reopen on a comment thread. */
+export interface TaskCommentStateEvent {
+  state: "resolved" | "open";
+  author?: UserBasic | null;
+  created_at: string;
+}
+
+/**
+ * One comment thread on a task, collapsed the way the activity timeline shows it
+ * (`/thread_messages/comment_activity/`). Mirrors `TaskCommentActivityDTO`.
+ */
+export interface TaskCommentThreadSummary {
+  id: string;
+  target: { id: string; type: string; name: string };
+  content: string;
+  content_truncated: boolean;
+  selected_text: string | null;
+  author?: UserBasic | null;
+  created_at: string;
+  last_activity_at: string;
+  reply_count: number;
+  participants: UserBasic[];
+  mentioned_user_ids: number[];
+  resolved: boolean;
+  state_event: TaskCommentStateEvent | null;
+  latest_reply: {
+    author?: UserBasic | null;
+    content: string;
+    /** The excerpt is bounded, so a long reply comes back cut. */
+    content_truncated: boolean;
+    created_at: string;
+  } | null;
 }
 
 /**
@@ -206,6 +247,8 @@ export interface TaskActivity {
   latest_comment_id?: string | null;
   latest_comment_scope?: string | null;
   latest_comment_item_id?: string | null;
+  target_scope?: "desktop_canvas" | null;
+  target_id?: string | null;
   is_unread: boolean;
 }
 
@@ -418,6 +461,10 @@ export interface CloudTaskSnapshotUpdate extends CloudTaskUpdateBase {
   kind: "snapshot";
   newEntries: StoredLogEntry[];
   totalEntryCount: number;
+  /** Chain index of newEntries[0] when the snapshot is a tail window rather
+   *  than the full history; older entries page in on demand. Absent means
+   *  the snapshot starts at the head of the chain. */
+  windowStart?: number;
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
@@ -588,6 +635,16 @@ export interface SignalReport {
   implementation_pr_url?: string | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
+  /** The persistent canvas session generated for this report, when available. */
+  canvas_session?: {
+    canvas_id: string;
+    discussion_task_id: string;
+    generation_task_id?: string | null;
+    generation_status: "pending" | "generating" | "ready" | "failed";
+    collaboration_mode: "managed" | "collaborative";
+    failure_reason: string;
+    updated_at: string;
+  } | null;
   /** The report's PR refund, when one exists (one refund per report, ever). */
   refund?: SignalReportRefund | null;
   /** Marks reports that were never billable ("Free"), so there is nothing to refund. */

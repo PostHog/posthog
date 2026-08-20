@@ -42,6 +42,7 @@ from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.storage import object_storage
 
+from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
@@ -479,6 +480,7 @@ def publish_source_project(
             prompt=prompt or None,
             created_by=created_by,
             capabilities=project.get("capabilities") or {},
+            component_meta=project.get("component"),
         )
         build = _queue_build(version)
 
@@ -506,6 +508,68 @@ def publish_source_project(
     )
 
     return canvas, version, build, first_publish
+
+
+def publish_grid_layout(
+    canvas: Canvas,
+    *,
+    layout: dict[str, Any],
+    prompt: str | None,
+    has_expected_version: bool,
+    expected_version_id: str | None,
+    task_id: UUID | None,
+    created_by: User | None,
+    was_impersonated: bool = False,
+) -> tuple[Canvas, CanvasSourceVersion]:
+    """Publish a validated layout document as a grid canvas's new head version.
+
+    Same upload-then-commit versioning as file projects, but no build is
+    queued and no capacity is consumed: layout is data, so the new version is
+    live the moment the head advances. Raises CanvasVersionConflict or
+    ObjectStorageError.
+    """
+    # Lock-free fail-fast, mirroring the file-project publish: reject a stale
+    # publish before paying for the upload, so a doomed patch does not leave an
+    # orphaned, unreferenced source object behind. Conflicts are routine on this
+    # path (an agent filling a box and a user dragging widgets guard against each
+    # other), so this is the common case, not a rare race. The commit transaction
+    # re-checks authoritatively under the head lock in _claim_canvas_head.
+    if has_expected_version:
+        with team_scope(canvas.team_id):
+            current = Canvas.objects.for_team(canvas.team_id).only("current_source_version_id").get(pk=canvas.pk)
+            current_id = str(current.current_source_version_id) if current.current_source_version_id else None
+            expected = str(expected_version_id) if expected_version_id else None
+            if current_id != expected:
+                raise CanvasVersionConflict(current_id)
+    key, digest, size = upload_source_project(canvas.team_id, canvas.id, layout)
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = _claim_canvas_head(
+            canvas,
+            has_expected_version=has_expected_version,
+            expected_version_id=expected_version_id,
+            check_capacity=False,
+        )
+        version = CanvasSourceVersion.objects.create(
+            team_id=canvas.team_id,
+            canvas=canvas,
+            parent_version_id=canvas.current_source_version_id,
+            source_hash=digest,
+            source_object_key=key,
+            source_size=size,
+            task_id=task_id,
+            prompt=prompt or None,
+            created_by=created_by,
+        )
+        canvas.current_source_version = version
+        canvas.save(update_fields=["current_source_version", "updated_at"])
+    _log_canvas_activity(
+        canvas,
+        user=created_by,
+        was_impersonated=was_impersonated,
+        activity="published",
+        detail=Detail(name=canvas.name),
+    )
+    return canvas, version
 
 
 def publish_current_source_version(
@@ -625,6 +689,7 @@ def create_draft_version(
             prompt=prompt or None,
             created_by=created_by,
             capabilities=project.get("capabilities") or {},
+            component_meta=project.get("component"),
         )
         build = _queue_build(version)
 
@@ -794,7 +859,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             CanvasBuild.objects.for_team(team_id)
             .select_for_update()
             .filter(id=build_id)
-            .select_related("source_version")
+            .select_related("source_version", "canvas")
             .first()
         )
         if build is None:
@@ -821,7 +886,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         )
         return
 
-    diagnostics = validate_source_project(project)
+    diagnostics = validate_source_project(project, kind=build.canvas.kind)
     if has_errors(diagnostics):
         _finish_failed(build, diagnostics)
         return
@@ -1064,6 +1129,7 @@ def _finish_failed(stale_build: CanvasBuild, diagnostics: list[dict[str, Any]]) 
         max(0, (build.finished_at - build.created_at).total_seconds())
     )
     _capture_build_completed(build, outcome="failed")
+    error_reports.report_build_failure(build)
 
 
 def sweep_canvas_builds() -> dict[str, int]:

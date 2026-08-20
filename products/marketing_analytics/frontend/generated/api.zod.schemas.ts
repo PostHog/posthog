@@ -19,7 +19,7 @@ export type ConversionGoalKindEnumApi = zod.input<typeof ConversionGoalKindEnumA
 export type ConversionGoalKindEnumApiOutput = zod.output<typeof ConversionGoalKindEnumApi>
 
 export const ConversionGoalSummaryApi = zod.object({
-    id: zod.string().describe('Unique id of the goal (event name, action id, or DW goal id)'),
+    conversion_goal_id: zod.string().describe('Id of the goal. Pass this to the explain, update and delete endpoints.'),
     name: zod.string().describe('Display name of the conversion goal'),
     kind: zod
         .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
@@ -70,7 +70,9 @@ export const ConversionGoalsListResponseApi = zod.object({
     goals: zod
         .array(
             zod.object({
-                id: zod.string().describe('Unique id of the goal (event name, action id, or DW goal id)'),
+                conversion_goal_id: zod
+                    .string()
+                    .describe('Id of the goal. Pass this to the explain, update and delete endpoints.'),
                 name: zod.string().describe('Display name of the conversion goal'),
                 kind: zod
                     .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
@@ -557,7 +559,9 @@ export const MarketingDiagnosticResponseApi = zod.object({
                 goals: zod
                     .array(
                         zod.object({
-                            id: zod.string().describe('Unique id of the goal (event name, action id, or DW goal id)'),
+                            conversion_goal_id: zod
+                                .string()
+                                .describe('Id of the goal. Pass this to the explain, update and delete endpoints.'),
                             name: zod.string().describe('Display name of the conversion goal'),
                             kind: zod
                                 .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
@@ -668,7 +672,7 @@ export type GoalEventSampleApi = zod.input<typeof GoalEventSampleApi>
 export type GoalEventSampleApiOutput = zod.output<typeof GoalEventSampleApi>
 
 export const GoalExplanationApi = zod.object({
-    goal_id: zod.string().describe('Id of the explained conversion goal'),
+    conversion_goal_id: zod.string().describe('conversion_goal_id of the explained goal'),
     goal_name: zod.string().describe('Display name of the conversion goal'),
     kind: zod
         .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])

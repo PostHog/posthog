@@ -9943,7 +9943,6 @@ export namespace Schemas {
     | "error_tracking"
     | "eval_clusters"
     | "user_created"
-    | "automation"
     | "slack"
     | "support_queue"
     | "session_summaries"
@@ -10997,30 +10996,6 @@ export namespace Schemas {
     next?: (string | null) | undefined;
     previous?: (string | null) | undefined;
     results: Array<Table>;
-  };
-  export type TaskAutomation = {
-    id: string;
-    name: string;
-    prompt: string;
-    repository: string;
-    github_integration?: (number | null) | undefined;
-    cron_expression: string;
-    timezone?: string | undefined;
-    template_id?: (string | null) | undefined;
-    enabled?: boolean | undefined;
-    last_run_at: string | null;
-    last_run_status: string | null;
-    last_task_id: string | null;
-    last_task_run_id: string | null;
-    last_error: string | null;
-    created_at: string;
-    updated_at: string;
-  };
-  export type PaginatedTaskAutomationList = {
-    count: number;
-    next?: (string | null) | undefined;
-    previous?: (string | null) | undefined;
-    results: Array<TaskAutomation>;
   };
   export type SignalReportTaskRelationshipEnum = "implementation";
   export type Task = {
@@ -12799,24 +12774,6 @@ export namespace Schemas {
     updated_at: string;
     created_by: UserBasic & unknown;
     ci_prompt: string | null;
-  }>;
-  export type PatchedTaskAutomation = Partial<{
-    id: string;
-    name: string;
-    prompt: string;
-    repository: string;
-    github_integration: number | null;
-    cron_expression: string;
-    timezone: string;
-    template_id: string | null;
-    enabled: boolean;
-    last_run_at: string | null;
-    last_run_status: string | null;
-    last_task_id: string | null;
-    last_task_run_id: string | null;
-    last_error: string | null;
-    created_at: string;
-    updated_at: string;
   }>;
   export type PatchedTaskRunSetOutputRequest = Partial<{ output: unknown }>;
   export type TaskRunUpdateStatusEnum = "not_started" | "queued" | "in_progress" | "completed" | "failed" | "cancelled";
@@ -24531,78 +24488,6 @@ export namespace Endpoints {
     };
     responses: { 200: Schemas.SurveyGlobalStatsResponse };
   };
-  export type get_Task_automations_list = {
-    method: "GET";
-    path: "/api/projects/{project_id}/task_automations/";
-    requestFormat: "json";
-    parameters: {
-      query: Partial<{ limit: number; offset: number }>;
-      path: { project_id: string };
-    };
-    responses: { 200: Schemas.PaginatedTaskAutomationList };
-  };
-  export type post_Task_automations_create = {
-    method: "POST";
-    path: "/api/projects/{project_id}/task_automations/";
-    requestFormat: "json";
-    parameters: {
-      path: { project_id: string };
-
-      body: Schemas.TaskAutomation;
-    };
-    responses: { 201: Schemas.TaskAutomation };
-  };
-  export type get_Task_automations_retrieve = {
-    method: "GET";
-    path: "/api/projects/{project_id}/task_automations/{id}/";
-    requestFormat: "json";
-    parameters: {
-      path: { id: string; project_id: string };
-    };
-    responses: { 200: Schemas.TaskAutomation };
-  };
-  export type put_Task_automations_update = {
-    method: "PUT";
-    path: "/api/projects/{project_id}/task_automations/{id}/";
-    requestFormat: "json";
-    parameters: {
-      path: { id: string; project_id: string };
-
-      body: Schemas.TaskAutomation;
-    };
-    responses: { 200: Schemas.TaskAutomation };
-  };
-  export type patch_Task_automations_partial_update = {
-    method: "PATCH";
-    path: "/api/projects/{project_id}/task_automations/{id}/";
-    requestFormat: "json";
-    parameters: {
-      path: { id: string; project_id: string };
-
-      body: Schemas.PatchedTaskAutomation;
-    };
-    responses: { 200: Schemas.TaskAutomation };
-  };
-  export type delete_Task_automations_destroy = {
-    method: "DELETE";
-    path: "/api/projects/{project_id}/task_automations/{id}/";
-    requestFormat: "json";
-    parameters: {
-      path: { id: string; project_id: string };
-    };
-    responses: { 204: unknown };
-  };
-  export type post_Task_automations_run_create = {
-    method: "POST";
-    path: "/api/projects/{project_id}/task_automations/{id}/run/";
-    requestFormat: "json";
-    parameters: {
-      path: { id: string; project_id: string };
-
-      body: Schemas.TaskAutomation;
-    };
-    responses: { 200: Schemas.TaskAutomation };
-  };
   export type get_Tasks_list = {
     method: "GET";
     path: "/api/projects/{project_id}/tasks/";
@@ -26131,8 +26016,6 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/surveys/activity/": Endpoints.get_Surveys_all_activity_retrieve;
     "/api/projects/{project_id}/surveys/responses_count/": Endpoints.get_Surveys_responses_count_retrieve;
     "/api/projects/{project_id}/surveys/stats/": Endpoints.get_Surveys_global_stats_retrieve;
-    "/api/projects/{project_id}/task_automations/": Endpoints.get_Task_automations_list;
-    "/api/projects/{project_id}/task_automations/{id}/": Endpoints.get_Task_automations_retrieve;
     "/api/projects/{project_id}/tasks/": Endpoints.get_Tasks_list;
     "/api/projects/{project_id}/tasks/{id}/": Endpoints.get_Tasks_retrieve;
     "/api/projects/{project_id}/tasks/{task_id}/runs/": Endpoints.get_Tasks_runs_list;
@@ -26431,8 +26314,6 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/surveys/{id}/responses/{response_uuid}/unarchive/": Endpoints.post_Surveys_responses_unarchive_create;
     "/api/projects/{project_id}/surveys/{id}/summarize_responses/": Endpoints.post_Surveys_summarize_responses_create;
     "/api/projects/{project_id}/surveys/{id}/summary_headline/": Endpoints.post_Surveys_summary_headline_create;
-    "/api/projects/{project_id}/task_automations/": Endpoints.post_Task_automations_create;
-    "/api/projects/{project_id}/task_automations/{id}/run/": Endpoints.post_Task_automations_run_create;
     "/api/projects/{project_id}/tasks/": Endpoints.post_Tasks_create;
     "/api/projects/{project_id}/tasks/{id}/run/": Endpoints.post_Tasks_run_create;
     "/api/projects/{project_id}/tasks/{id}/staged_artifacts/finalize_upload/": Endpoints.post_Tasks_staged_artifacts_finalize_upload_create;
@@ -26553,7 +26434,6 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/signals/source_configs/{id}/": Endpoints.put_Signals_source_configs_update;
     "/api/projects/{project_id}/subscriptions/{id}/": Endpoints.put_Subscriptions_update;
     "/api/projects/{project_id}/surveys/{id}/": Endpoints.put_Surveys_update;
-    "/api/projects/{project_id}/task_automations/{id}/": Endpoints.put_Task_automations_update;
     "/api/projects/{project_id}/tasks/{id}/": Endpoints.put_Tasks_update;
     "/api/projects/{project_id}/warehouse_saved_queries/{id}/": Endpoints.put_Warehouse_saved_queries_update;
     "/api/projects/{project_id}/warehouse_tables/{id}/": Endpoints.put_Warehouse_tables_update;
@@ -26659,7 +26539,6 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/signals/source_configs/{id}/": Endpoints.patch_Signals_source_configs_partial_update;
     "/api/projects/{project_id}/subscriptions/{id}/": Endpoints.patch_Subscriptions_partial_update;
     "/api/projects/{project_id}/surveys/{id}/": Endpoints.patch_Surveys_partial_update;
-    "/api/projects/{project_id}/task_automations/{id}/": Endpoints.patch_Task_automations_partial_update;
     "/api/projects/{project_id}/tasks/{id}/": Endpoints.patch_Tasks_partial_update;
     "/api/projects/{project_id}/tasks/{task_id}/runs/{id}/": Endpoints.patch_Tasks_runs_partial_update;
     "/api/projects/{project_id}/tasks/{task_id}/runs/{id}/set_output/": Endpoints.patch_Tasks_runs_set_output_partial_update;
@@ -26758,7 +26637,6 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/signals/source_configs/{id}/": Endpoints.delete_Signals_source_configs_destroy;
     "/api/projects/{project_id}/subscriptions/{id}/": Endpoints.delete_Subscriptions_destroy;
     "/api/projects/{project_id}/surveys/{id}/": Endpoints.delete_Surveys_destroy;
-    "/api/projects/{project_id}/task_automations/{id}/": Endpoints.delete_Task_automations_destroy;
     "/api/projects/{project_id}/tasks/{id}/": Endpoints.delete_Tasks_destroy;
     "/api/projects/{project_id}/warehouse_saved_queries/{id}/": Endpoints.delete_Warehouse_saved_queries_destroy;
     "/api/projects/{project_id}/warehouse_saved_query_folders/{id}/": Endpoints.delete_Warehouse_saved_query_folders_destroy;

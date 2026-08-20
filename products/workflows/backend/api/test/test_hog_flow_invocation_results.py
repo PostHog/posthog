@@ -147,6 +147,29 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         results = self._list({"distinct_id": "user-a"}).json()
         assert {r["invocation_id"] for r in results} == {"inv-1"}
 
+    def test_filters_by_error_message_contains_case_insensitively(self):
+        self._seed("inv-match", invocation_status="failed", error_message="The custom sender address is invalid")
+        self._seed("inv-match-case", invocation_status="failed", error_message="the CUSTOM sender address is bad")
+        self._seed("inv-other", invocation_status="failed", error_message="Some unrelated error")
+        results = self._list({"error_message_contains": "The custom sender"}).json()
+        assert {r["invocation_id"] for r in results} == {"inv-match", "inv-match-case"}
+
+    def test_count_matches_list_filters(self):
+        # The count endpoint must apply the same filters as the list endpoint, on the
+        # collapsed latest state - drifting filters would make the incident banner show
+        # a count the rerun wouldn't actually target.
+        self._seed("inv-match", invocation_status="failed", error_message="The custom sender address is invalid")
+        # Replayed since: latest status succeeded, must not count.
+        self._seed("inv-replayed", invocation_status="failed", error_message="The custom sender address is invalid")
+        self._seed("inv-replayed", invocation_status="success", version=2)
+        self._seed("inv-other", invocation_status="failed", error_message="Some unrelated error")
+        res = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/invocation_results_count/",
+            {"status": "failed", "error_message_contains": "the custom sender"},
+        )
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json() == {"count": 1}
+
     @parameterized.expand(
         [
             ({"after": "-15d"}, {"inv-mid", "inv-late"}),

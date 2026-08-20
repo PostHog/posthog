@@ -36,7 +36,9 @@ const DURATION_STRING = z.string().superRefine((v, ctx) => {
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
-    description: z.string(),
+    // The server accepts actions without a description (agents routinely omit it), so an absent
+    // one must not fail the whole step's validation.
+    description: z.string().optional().default(''),
     on_error: z.enum(['continue', 'abort']).optional().nullable(),
     created_at: z.number().optional(),
     updated_at: z.number().optional(),
@@ -176,6 +178,13 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             properties: z.array(z.any()).optional(),
         }),
         key_property: z.string().optional(),
+    }),
+    z.object({
+        type: z.literal('slack-message'),
+        filters: z.object({
+            // Message properties only, channel included — see the trigger registry entry
+            properties: z.array(z.any()).optional(),
+        }),
     }),
 ])
 

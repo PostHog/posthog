@@ -1086,7 +1086,7 @@ describe('Hog Executor', () => {
             // Should be scheduled for retry
             expect(result.invocation.state.attempts).toBe(1)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 1 with status code 500. Retrying in 1500ms.',
+                'HTTP fetch failed on attempt 1 with status code 500. Retrying.',
             ])
             expect(result.invocation.queuePriority).toBe(1) // Priority decreased
             expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
@@ -1096,7 +1096,7 @@ describe('Hog Executor', () => {
             result = await executor.executeFetch(result.invocation)
             expect(result.invocation.state.attempts).toBe(2)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 2 with status code 500. Retrying in 2500ms.',
+                'HTTP fetch failed on attempt 2 with status code 500. Retrying.',
             ])
             expect(result.invocation.queuePriority).toBe(2) // Priority decreased
             expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:02.500Z"`)
@@ -1104,7 +1104,7 @@ describe('Hog Executor', () => {
             // Execute the final retry
             result = await executor.executeFetch(result.invocation)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 3 with status code 500. Retrying in 3500ms.',
+                'HTTP fetch failed on attempt 3 with status code 500.',
             ])
             // All values reset due to no longer retrying
             expect(result.invocation.state.attempts).toBe(0)
@@ -1368,7 +1368,7 @@ describe('Hog Executor', () => {
             expect(result.invocation.queueScheduledAt).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "HTTP fetch failed on attempt 1 with status code (none). Error: Invalid hostname. Retrying in 1500ms.",
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: Invalid hostname. Retrying.",
                 ]
             `)
         })
@@ -1413,7 +1413,7 @@ describe('Hog Executor', () => {
             expect(result.invocation.queueScheduledAt).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "HTTP fetch failed on attempt 1 with status code (none). Error: The operation was aborted due to timeout. Retrying in 1500ms.",
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: The operation was aborted due to timeout. Retrying.",
                 ]
             `)
         })

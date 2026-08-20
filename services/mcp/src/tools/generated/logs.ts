@@ -66,6 +66,9 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
         if (params.cooldown_minutes !== undefined) {
             body['cooldown_minutes'] = params.cooldown_minutes
         }
+        if (params.schedule_restriction !== undefined) {
+            body['schedule_restriction'] = params.schedule_restriction
+        }
         if (params.snooze_until !== undefined) {
             body['snooze_until'] = params.snooze_until
         }
@@ -87,6 +90,7 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
             'evaluation_periods',
             'datapoints_to_alarm',
             'cooldown_minutes',
+            'schedule_restriction',
             'snooze_until',
             'next_check_at',
             'last_notified_at',
@@ -261,6 +265,7 @@ const logsAlertsList = (): ToolBase<
                     'threshold_count',
                     'threshold_operator',
                     'window_minutes',
+                    'schedule_restriction',
                     'created_at',
                     'updated_at',
                 ])
@@ -307,6 +312,9 @@ const logsAlertsPartialUpdate = (): ToolBase<typeof LogsAlertsPartialUpdateSchem
         if (params.cooldown_minutes !== undefined) {
             body['cooldown_minutes'] = params.cooldown_minutes
         }
+        if (params.schedule_restriction !== undefined) {
+            body['schedule_restriction'] = params.schedule_restriction
+        }
         if (params.snooze_until !== undefined) {
             body['snooze_until'] = params.snooze_until
         }
@@ -328,6 +336,7 @@ const logsAlertsPartialUpdate = (): ToolBase<typeof LogsAlertsPartialUpdateSchem
             'evaluation_periods',
             'datapoints_to_alarm',
             'cooldown_minutes',
+            'schedule_restriction',
             'snooze_until',
             'next_check_at',
             'last_notified_at',
@@ -365,6 +374,7 @@ const logsAlertsRetrieve = (): ToolBase<typeof LogsAlertsRetrieveSchema, Schemas
             'evaluation_periods',
             'datapoints_to_alarm',
             'cooldown_minutes',
+            'schedule_restriction',
             'snooze_until',
             'next_check_at',
             'last_notified_at',

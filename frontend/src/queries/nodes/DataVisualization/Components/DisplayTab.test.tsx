@@ -130,4 +130,60 @@ describe('DisplayTab', () => {
             )
         })
     })
+    it('offers scatter axis settings and drops the panels a scatter has no support for', async () => {
+        initKeaTests()
+
+        const key = 'display-tab-scatter-test'
+        let query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select session_duration, revenue from numbers(2)',
+            },
+            display: ChartDisplayType.ScatterPlot,
+            chartSettings: {},
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            setQuery: (setter) => {
+                query = setter(query)
+            },
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const user = userEvent.setup()
+
+        // One gutter per axis, and quill's scatter takes no goal lines.
+        expect(await screen.findByText('X-axis')).toBeInTheDocument()
+        expect(screen.getByText('Y-axis')).toBeInTheDocument()
+        expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
+        expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+
+        await user.click(screen.getByText('Show line of best fit'))
+
+        await user.click(screen.getByText('X-axis'))
+        await user.click(await screen.findByText('Begin at zero'))
+
+        // Both live under `scatter`, so the second write must merge into the first rather than replace it.
+        await waitFor(() => {
+            expect(query.chartSettings).toEqual(
+                expect.objectContaining({
+                    scatter: expect.objectContaining({ showBestFit: true, xStartAtZero: true }),
+                })
+            )
+        })
+    })
 })

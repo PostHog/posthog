@@ -11,6 +11,7 @@ interface CanvasPostHogCapabilities {
     insights?: string[]
     captureEvents?: string[]
     inlineQueries?: boolean
+    agentRequests?: boolean
 }
 
 function posthogCapabilities(value: unknown): CanvasPostHogCapabilities {
@@ -53,6 +54,9 @@ export function describeCapabilitiesChange(change: ActivityChange): Description[
 
     if (!!before.inlineQueries !== !!after.inlineQueries) {
         parts.push(after.inlineQueries ? <>enabled inline queries</> : <>disabled inline queries</>)
+    }
+    if (!!before.agentRequests !== !!after.agentRequests) {
+        parts.push(after.agentRequests ? <>enabled agent requests</> : <>disabled agent requests</>)
     }
 
     return parts

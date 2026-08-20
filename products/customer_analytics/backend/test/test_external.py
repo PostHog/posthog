@@ -121,12 +121,17 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_get_account_returns_fields(self):
+        self.account.churned_at = datetime(2026, 8, 1, 12, 30, tzinfo=UTC)
+        self.account.save(update_fields=["churned_at"])
+
         response = self._get()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["id"], str(self.account.id))
         self.assertEqual(data["external_id"], "acme-1")
         self.assertEqual(data["name"], "Acme Corp")
+        self.assertEqual(data["churned_at"], "2026-08-01T12:30:00Z")
+        self.assertIsNone(data["ignored_at"])
         self.assertEqual(data["relationships"], {})
 
     def test_get_account_returns_active_relationships(self):
@@ -178,6 +183,22 @@ class TestExternalAccountAPI(APIBaseTest):
     def test_patch_requires_auth(self):
         response = self.client.patch(self.url, data={"external_id": "acme-1"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_patch_sets_and_clears_churned_at(self):
+        response = self._patch({"external_id": "acme-1", "churned_at": "2026-08-02T09:00:00Z"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["churned_at"], "2026-08-02T09:00:00Z")
+        self.account.refresh_from_db()
+        assert self.account.churned_at is not None
+        self.assertEqual(self.account.churned_at.isoformat(), "2026-08-02T09:00:00+00:00")
+
+        response = self._patch({"external_id": "acme-1", "churned_at": None})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["churned_at"])
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.churned_at)
 
     def test_patch_requires_external_id(self):
         response = self._patch({"tags": ["enterprise"]})

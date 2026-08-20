@@ -122,7 +122,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Applies from the scout's next run, and changes are activity-logged.
 - `auto_pause_exempt` — defaults to `false`.
   A scout whose reports nobody engages with (no open, rating, or action — the cloud web inbox records reads; other clients don't yet) is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
-  `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout, and marks it exempt so the sweep never overrules a person twice.
+  `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout with a fresh grace window before the sweep may judge it again.
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
@@ -135,6 +135,8 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   The channel also requires `emit`: a dry-run scout has nowhere to record to, so `scout-record-output` fails closed for it.
   Reach for this when the scout's job is a recurring **measurement** (judge each sampled report good/bad/unsure with a reason, score accounts, classify sessions) rather than surfacing anomalies; keep enums small and add a free-text reason field so the series is breakdown-friendly _and_ auditable.
   The skill body should say what to sample, how to judge, and what `subject` to stamp on each record; the schema owns the record shape.
+  Because the records are ordinary events, anything that consumes events can **act** on one — a workflow or CDP destination triggered on `$scout_structured_output`, filtered to your `skill_name` and an `output_<key>` value, turns a measuring scout into the front half of an automation (route the verdict to a channel, a task, a CRM) with no human in between.
+  The measurement pattern in [`references/scout-patterns.md`](references/scout-patterns.md) covers the shape end to end: the rubric, why the unremarkable verdicts have to be recorded too, and what changes once a grade is a routing decision.
 
 ## Steering with notes (no authoring needed)
 

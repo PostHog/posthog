@@ -1,4 +1,3 @@
-from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
 from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
 from .bake_dev_stack_image.workflow import BakeDevStackImageWorkflow
 from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
@@ -35,6 +34,7 @@ from .process_task.activities import (
     post_slack_update,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
+    record_peer_message_outcome,
     refresh_sandbox_credentials,
     relay_agent_design_signals,
     relay_sandbox_events,
@@ -48,6 +48,7 @@ from .process_task.activities import (
     update_task_run_status,
 )
 from .process_task.activities.feature_flags import is_slack_app_agent_design_enabled_for_task_activity
+from .process_task.activities.get_pr_babysit_snapshot import get_pr_babysit_snapshot
 from .process_task.activities.get_pr_context import get_pr_context
 from .process_task.activities.slack_agent_design import (
     append_slack_agent_design_steps,
@@ -63,7 +64,6 @@ WORKFLOWS = [
     SlackAgentDesignRelayWorkflow,
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
-    RunTaskAutomationWorkflow,
     RunLoopWorkflow,
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
@@ -91,6 +91,7 @@ ACTIVITIES = [
     send_permission_denial_guidance,
     send_permission_response_to_sandbox,
     send_followup_to_sandbox,
+    record_peer_message_outcome,
     start_agent_server,
     launch_agent_server,
     await_agent_server_ready,
@@ -104,12 +105,12 @@ ACTIVITIES = [
     post_slack_update,
     update_task_run_status,
     get_pr_context,
+    get_pr_babysit_snapshot,
     relay_slack_message,
     is_slack_app_agent_design_enabled_for_task_activity,
     start_slack_agent_design_stream,
     append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
-    run_task_automation_activity,
     run_loop_trigger_activity,
     # create_snapshot activities
     get_snapshot_context,

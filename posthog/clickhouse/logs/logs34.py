@@ -338,6 +338,34 @@ SETTINGS
 """
 
 
+def KAFKA_LOGS34_AVRO_MV_SELECT():
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    return f"""SELECT
+    uuid,
+    trace_id,
+    span_id,
+    trace_flags,
+    timestamp,
+    observed_timestamp,
+    body,
+    severity_text,
+    severity_number,
+    service_name,
+    instrumentation_scope,
+    event_name,
+    mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
+    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
+    toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+    observed_timestamp + toIntervalDay(toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))) AS original_expiry_timestamp,
+    _partition,
+    _topic,
+    _offset,
+    toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
+    toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
+    toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed
+FROM {db}.{KAFKA_TABLE_NAME}"""
+
+
 def KAFKA_LOGS34_AVRO_MV():
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
@@ -366,19 +394,61 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{TABLE_
     `_bytes_uncompressed` Nullable(Int64),
     `_bytes_compressed` Nullable(Int64)
 )
+AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
+"""
+
+
+def LOGS34_TO_VOLUME_BUCKETS_MV():
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # Groups rows exactly like _rollup_sql in
+    # products/logs/backend/temporal/volume_tick/aggregation.py, which carries
+    # the reasoning for the environment fallback and severity lowercasing. The
+    # 300s grid literal is frozen into the DDL at migration time; BUCKET_SECONDS
+    # there must stay equal to it or the detector reads buckets this MV never
+    # writes.
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.logs_volume_buckets
+(
+    `team_id` Int32,
+    `time_bucket` DateTime('UTC'),
+    `service_name` LowCardinality(String),
+    `namespace` LowCardinality(String),
+    `environment` LowCardinality(String),
+    `severity_text` LowCardinality(String),
+    `log_count` SimpleAggregateFunction(sum, UInt64)
+)
 AS SELECT
-    {KAFKA_TABLE_NAME}.* EXCEPT (created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes, bytes_uncompressed),
-    mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-    toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-    observed_timestamp + toIntervalDay(toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))) AS original_expiry_timestamp,
-    _partition,
-    _topic,
-    _offset,
-    toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
-    toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
-    toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed
-FROM {db}.{KAFKA_TABLE_NAME}
+    team_id,
+    time_bucket,
+    service_name,
+    namespace,
+    environment,
+    severity_text,
+    sumSimpleState(1) AS log_count
+FROM
+(
+    SELECT
+        team_id,
+        toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+        service_name,
+        if(
+            resource_attributes['k8s.namespace.name'] != '',
+            resource_attributes['k8s.namespace.name'],
+            resource_attributes['service.namespace']
+        ) AS namespace,
+        if(
+            resource_attributes['deployment.environment.name'] != '',
+            resource_attributes['deployment.environment.name'],
+            if(
+                resource_attributes['deployment.environment'] != '',
+                resource_attributes['deployment.environment'],
+                resource_attributes['env']
+            )
+        ) AS environment,
+        lower(severity_text) AS severity_text
+    FROM {db}.{TABLE_NAME}
+)
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
 """
 
 

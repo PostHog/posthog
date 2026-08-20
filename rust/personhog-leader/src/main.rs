@@ -121,7 +121,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let kafka_handle = manager.register(
         "kafka-producer",
-        ComponentOptions::new().with_shutdown_phase(1),
+        // The graceful window is the ceiling; the bounded flush task
+        // spawned after the producer is built normally completes well
+        // inside it.
+        ComponentOptions::new()
+            .with_graceful_shutdown(Duration::from_secs(15))
+            .with_shutdown_phase(1),
     );
 
     let authority_metrics_handle = manager.register(
@@ -148,6 +153,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         )
         .route("/_liveness", get(move || async move { liveness.check() }));
+    // Changelog payload sizes: dense through the small-person range,
+    // with the top boundaries straddling the broker's message.max.bytes
+    // (typically 1 MiB) so p99 creeping toward the produce limit is
+    // visible before messages start getting rejected.
+    const CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES: &[f64] = &[
+        256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 524288.0, 1048576.0, 2097152.0,
+    ];
     // The write path and warms are tuned in single-digit milliseconds;
     // the default ladder's 10 → 50 ms step blurs exactly the spans the
     // fencing and warm work steers by, and pins interpolated quantiles
@@ -200,6 +212,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Matcher::Full("personhog_leader_warm_span_ms".into()),
                 WARM_LATENCY_BUCKETS_MS,
             ),
+            (
+                Matcher::Full("personhog_leader_kafka_produce_bytes".into()),
+                CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES,
+            ),
         ],
     );
     preregister_metrics();
@@ -248,13 +264,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize partitioned cache and Kafka producer
     let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity_bytes));
 
-    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle).await {
+    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
         Ok(producer) => producer,
         Err(e) => {
             tracing::error!(error = %e, "failed to create Kafka producer");
             return Err(e.into());
         }
     };
+    // Runs at phase 1, after the coordination drain, so the drain's last
+    // records are in the queue it flushes.
+    personhog_leader::kafka::spawn_bounded_flush_on_shutdown(
+        kafka_producer.clone(),
+        kafka_handle,
+        Duration::from_secs(10),
+    );
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)
     let fallback = if config.fallback_database_url.is_empty() {
