@@ -83,6 +83,16 @@ export function IntegrationEmailDomainView({
                                     <LemonTag type="highlight">Custom SMTP</LemonTag>
                                 </Tooltip>
                             )}
+                            {(integration.errors || integration.config.verified === false) && (
+                                <Tooltip
+                                    title={
+                                        integration.errors ||
+                                        'This sender is not verified, so workflows cannot send from it.'
+                                    }
+                                >
+                                    <LemonTag type="danger">Not sending</LemonTag>
+                                </Tooltip>
+                            )}
                             <LemonButton
                                 type="primary"
                                 size="small"
