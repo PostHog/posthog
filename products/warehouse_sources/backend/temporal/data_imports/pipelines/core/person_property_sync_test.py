@@ -453,6 +453,27 @@ class TestGroupTarget:
         assert result.per_source[0].error is not None
 
     @pytest.mark.asyncio
+    async def test_unresolved_group_type_records_reason_on_idle_run(self):
+        # The group type is resolved before the changed-row check, so a run that stages no changes
+        # still records the reason. Otherwise an idle run would clear a prior failed run's error and
+        # the source would read as "Synced" while the deleted group type keeps it broken.
+        team = MagicMock(api_token="tok", uuid="team-uuid")
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._group_source()]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=[])),
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}._group_type_name", return_value=None),
+            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = team
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+
+        produce.assert_not_called()
+        assert result.per_source[0].error is not None
+
+    @pytest.mark.asyncio
     async def test_group_source_without_a_type_index_records_the_reason(self):
         # A group source with no group type can never produce a valid $groupidentify. It must record
         # the reason rather than look idle.

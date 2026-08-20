@@ -467,6 +467,30 @@ async def _process_source_bundles(
             "This source has no group type set, so no group properties can be written. Set a group type for the source."
         )
         return ps
+    group_type_name = None
+    if source.target == _GROUP_TARGET and source.group_type_index is not None:
+        # Resolve the group-type name before the changed-row checks below. A deleted group type breaks
+        # the source whether or not this run staged changes, so an idle run must record the reason too
+        # — resolving it only when there are rows to send lets the next idle run clear the error and
+        # read as "Synced" while the source stays broken. Without the name the consumer can't build a
+        # valid $groupidentify and would DLQ every message, so skip rather than produce doomed intents.
+        group_type_name = await database_sync_to_async(_group_type_name, thread_sensitive=False)(
+            team_id, source.group_type_index
+        )
+        if group_type_name is None:
+            logger.warning(
+                "person-property sync: group type not found, skipping source",
+                team_id=team_id,
+                **_log_fields(binding),
+                source_id=str(source.source_id),
+                group_type_index=source.group_type_index,
+            )
+            ps.error = (
+                f"Group type {source.group_type_index} was not found, so no group properties were "
+                "written. Check that the group type still exists."
+            )
+            return ps
+
     prior = await _read_snapshot_hashes(team_id, binding, str(source.source_id))
     changed, new_hashes = select_changed(bundles, prior)
     ps.changed = len(changed)
@@ -490,28 +514,6 @@ async def _process_source_bundles(
         )
         return ps
 
-    group_type_name = None
-    if source.target == _GROUP_TARGET and source.group_type_index is not None:
-        group_type_name = await database_sync_to_async(_group_type_name, thread_sensitive=False)(
-            team_id, source.group_type_index
-        )
-        if group_type_name is None:
-            # Without the group-type name the consumer can't build a valid $groupidentify and would
-            # DLQ every message — skip the source instead of producing intents doomed to fail. The
-            # rows matched groups (existing > 0), so a clean "completed" run would read as "Synced";
-            # record the reason instead.
-            logger.warning(
-                "person-property sync: group type not found, skipping source",
-                team_id=team_id,
-                **_log_fields(binding),
-                source_id=str(source.source_id),
-                group_type_index=source.group_type_index,
-            )
-            ps.error = (
-                f"Group type {source.group_type_index} was not found, so no group properties were "
-                "written. Check that the group type still exists."
-            )
-            return ps
     produced = await asyncio.to_thread(
         _produce_intents, team_id, team_api_token, source, to_send, team_uuid=team_uuid, group_type_name=group_type_name
     )
