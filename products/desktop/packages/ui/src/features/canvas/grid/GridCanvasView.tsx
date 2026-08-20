@@ -1,8 +1,4 @@
-import {
-  ChatCircleIcon,
-  SidebarSimpleIcon,
-  SquaresFourIcon,
-} from "@phosphor-icons/react";
+import { SidebarSimpleIcon, SquaresFourIcon } from "@phosphor-icons/react";
 import type {
   GridPlacement,
   LayoutOperation,
@@ -28,6 +24,7 @@ import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canv
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GridChatPanel, type GridChatTarget } from "./GridChatPanel";
+import { GridPlacementMenu } from "./GridPlacementMenu";
 import {
   GridPlacementTile,
   type PlacementTileActions,
@@ -426,19 +423,11 @@ export function GridCanvasView({
                     patching={isPatching}
                     actions={actions}
                   />
-                  {interactive && placement.generationTaskId ? (
-                    // Opens the widget's own conversation in the side panel so a
-                    // broken query or tweak goes straight back to its agent.
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="absolute top-1 right-1 z-20 opacity-0 transition-opacity group-hover:opacity-100"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={() => actions.discuss(placement)}
-                    >
-                      <ChatCircleIcon size={14} />
-                    </Button>
-                  ) : null}
+                  <GridPlacementMenu
+                    placement={placement}
+                    patching={isPatching}
+                    actions={actions}
+                  />
                   {interactive ? (
                     <div
                       className="absolute right-0 bottom-0 z-10 h-4 w-4 cursor-nwse-resize bg-(--gray-6) opacity-0 transition-opacity group-hover:opacity-100"

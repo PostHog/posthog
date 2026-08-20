@@ -59,7 +59,6 @@ export function GridPlacementTile({
       placement={placement}
       failed={placement.status === "failed"}
       interactive={interactive}
-      patching={patching}
       actions={actions}
     />
   );
@@ -146,16 +145,6 @@ function GeneratingTile({
               Review request
             </Button>
           ) : null}
-          {interactive ? (
-            <Button
-              variant="default"
-              size="sm"
-              disabled={patching}
-              onClick={() => actions.remove(placement)}
-            >
-              Remove
-            </Button>
-          ) : null}
         </div>
       </div>
     );
@@ -167,19 +156,7 @@ function GeneratingTile({
       <Text size="sm" className="line-clamp-2">
         {placement.prompt ?? "Building this widget…"}
       </Text>
-      <div className="flex items-center gap-1">
-        {viewTask}
-        {interactive ? (
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={patching}
-            onClick={() => actions.remove(placement)}
-          >
-            Remove
-          </Button>
-        ) : null}
-      </div>
+      {viewTask}
     </div>
   );
 }
@@ -188,13 +165,11 @@ function DescribeTile({
   placement,
   failed,
   interactive,
-  patching,
   actions,
 }: {
   placement: GridPlacement;
   failed: boolean;
   interactive: boolean;
-  patching: boolean;
   actions: PlacementTileActions;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -225,8 +200,8 @@ function DescribeTile({
       ) : null}
       {/* The task composer's editor, as the freeform canvas uses it: markdown
           as you type, shift+enter for a new line, @ for files and / for
-          skills. Its own toolbar stays hidden — the only control this box
-          needs beside send is the one that takes the box away. */}
+          skills. Its own toolbar stays hidden; card actions live in the shared
+          overflow menu above this tile. */}
       <PromptInput
         sessionId={`grid-placement-${placement.id}`}
         placeholder="What should go here?"
@@ -240,16 +215,6 @@ function DescribeTile({
         enableBashMode={false}
         hideDefaultToolbar
         onSubmit={(text) => void submit(text)}
-        toolbarEndSlot={
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={patching}
-            onClick={() => actions.remove(placement)}
-          >
-            Remove
-          </Button>
-        }
       />
     </div>
   );
