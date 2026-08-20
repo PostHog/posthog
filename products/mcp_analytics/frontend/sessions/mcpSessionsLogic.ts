@@ -111,11 +111,13 @@ export interface mcpSessionsLogicValues {
         hasNext: boolean
         loading: boolean
         loadingMore: boolean
+        error: string | null
     }
     sessions: MCPSessionApi[]
     sessionsLoading: boolean
     sorting: MCPSessionSorting | null
     toolCalls: SessionToolCalls
+    toolCallsError: string | null
     toolCallsLoading: boolean
 }
 
@@ -252,12 +254,14 @@ export interface mcpSessionsLogicMeta {
         selectedSessionToolCalls: (
             toolCalls: SessionToolCalls,
             selectedSessionId: string | null,
-            toolCallsLoading: boolean
+            toolCallsLoading: boolean,
+            toolCallsError: string | null
         ) => {
             calls: MCPToolCallApi[]
             hasNext: boolean
             loading: boolean
             loadingMore: boolean
+            error: string | null
         }
     }
 }
@@ -455,6 +459,19 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 generateIntentFailure: () => null,
             },
         ],
+        // The first-page tool-calls load can fail — most often a session id the detail route
+        // can't match (a slash survives encodeURIComponent as %2F and is decoded back before
+        // routing). Hold the message so the panel shows an error instead of a stuck skeleton.
+        // A new load (session switch) or a success clears it.
+        toolCallsError: [
+            null as string | null,
+            {
+                loadToolCalls: () => null,
+                loadToolCallsSuccess: () => null,
+                loadToolCallsFailure: () =>
+                    "Couldn't load this session's tool calls. Try another session, and if it keeps happening contact support.",
+            },
+        ],
     }),
     selectors({
         selectedSession: [
@@ -494,20 +511,29 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         // the new session's header. A plain comparison — no shared loader flag a concurrent load
         // more could flip.
         selectedSessionToolCalls: [
-            (s) => [s.toolCalls, s.selectedSessionId, s.toolCallsLoading],
+            (s) => [s.toolCalls, s.selectedSessionId, s.toolCallsLoading, s.toolCallsError],
             (
                 toolCalls: SessionToolCalls,
                 selectedSessionId: string | null,
-                toolCallsLoading: boolean
-            ): { calls: MCPToolCallApi[]; hasNext: boolean; loading: boolean; loadingMore: boolean } => {
+                toolCallsLoading: boolean,
+                toolCallsError: string | null
+            ): {
+                calls: MCPToolCallApi[]
+                hasNext: boolean
+                loading: boolean
+                loadingMore: boolean
+                error: string | null
+            } => {
                 const isCurrent = toolCalls.sessionId === selectedSessionId
                 return {
                     calls: isCurrent ? toolCalls.calls : [],
                     hasNext: isCurrent && toolCalls.hasNext,
                     // First page still loading: the loaded value isn't for the selected session yet.
-                    loading: selectedSessionId !== null && !isCurrent,
+                    // An error ends the load, so stop the skeleton and let the error branch render.
+                    loading: selectedSessionId !== null && !isCurrent && !toolCallsError,
                     // A "Load more" append is in flight for the session already on screen.
                     loadingMore: isCurrent && toolCallsLoading,
+                    error: toolCallsError,
                 }
             },
         ],
@@ -532,6 +558,11 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         // knows the request failed (e.g. a 503 when intent generation is unavailable).
         generateIntentFailure: () => {
             lemonToast.error('Could not generate the session intent. Please try again.')
+        },
+        // A first-page failure renders inline (toolCallsError). A "Load more" failure keeps the
+        // calls already on screen, so surface a toast rather than replacing the panel.
+        loadMoreToolCallsFailure: () => {
+            lemonToast.error('Could not load more tool calls. Please try again.')
         },
         // Only fires on a reset load (not on loadMore), so appending more pages doesn't
         // steal the user's selection. Auto-selects the first row when the set changes.

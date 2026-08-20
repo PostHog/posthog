@@ -70,4 +70,22 @@ describe('mcpSessionsLogic', () => {
         expect(logic.values.selectedSessionToolCalls.loading).toBe(true)
         expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).not.toContain('a2')
     })
+
+    it('surfaces an error and stops the skeleton when the first tool-calls page fails', async () => {
+        toolCallsMock.mockRejectedValueOnce(new Error('Endpoint not found.'))
+        await expectLogic(logic, () => {
+            logic.actions.selectSession('bad.id')
+        }).toDispatchActions(['loadToolCallsFailure'])
+        // A failure must end the skeleton and show the error, not spin forever.
+        expect(logic.values.selectedSessionToolCalls.loading).toBe(false)
+        expect(logic.values.selectedSessionToolCalls.error).toBeTruthy()
+
+        // Retrying clears the error and loads the calls.
+        toolCallsMock.mockResolvedValueOnce({ results: [toolCall('c1')], has_next: false })
+        await expectLogic(logic, () => {
+            logic.actions.loadToolCalls('bad.id')
+        }).toDispatchActions(['loadToolCallsSuccess'])
+        expect(logic.values.selectedSessionToolCalls.error).toBeNull()
+        expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).toEqual(['c1'])
+    })
 })

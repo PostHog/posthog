@@ -158,6 +158,12 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
 
 class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPSessionSerializer
+    # The detail pk is a client-sent $session_id, not one of our keys. DRF's default lookup regex
+    # ([^/.]+) rejects any id that contains a dot, so those requests miss every route and fall to
+    # the api_not_found catch-all with a bare 404. Widen it to accept dots (still barring slashes,
+    # which would change the route depth) so a dotted session id reaches tool_calls and
+    # generate_intent instead.
+    lookup_value_regex = "[^/]+"
     scope_object = "mcp_analytics"
     # tool_calls, activity_overview, and intent_digest are GETs in spirit (they just read/compute
     # cached data, not persist a mutation the caller controls) even though intent_digest is wired

@@ -624,6 +624,18 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.json() == {"session_id": session_id, "intent": "Generated summary."}
         assert MCPSession.objects.get(team=self.team, session_id=session_id).intent == "Generated summary."
 
+    def test_dotted_session_id_reaches_the_endpoint(self) -> None:
+        # $session_id is client-sent and can contain dots. Without a widened lookup_value_regex the
+        # detail route rejects it and the request falls to the api_not_found catch-all (404).
+        session_id = "1.2.3-abc"
+        MCPSession.objects.create(team=self.team, session_id=session_id, intent="A persisted summary.")
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(self._url(session_id))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
+
     def test_returns_503_when_generation_unavailable(self) -> None:
         session_id = "session-unavailable"
         with (
