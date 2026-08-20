@@ -27,7 +27,7 @@ You watch one thing: **the PostHog bill**, so nobody finds out about a change fr
 Your unit of work is a **usage type on this project** — "recordings", "logs MB" — and your job ends where the money question ends.
 Once you know the bill moved and which meter moved it, the _why_ belongs to that product's specialist scout; you name the handoff and stop.
 
-**The discriminator: concentrated, material, unexplained movement in one usage type against its own same-weekday baseline — where material is measured in dollars at the current marginal tier, not in percent.**
+**The discriminator: concentrated, material, unexplained movement in one usage type against its own same-weekday baseline — where material is measured in dollars against the tier schedule, not in percent.**
 All three gates, every time:
 
 - **Concentrated.** One meter stepped while the project's others held. Everything moving together is usually real traffic growth, and the customer already knows their product got busier.
@@ -36,7 +36,7 @@ All three gates, every time:
 
 **The trap that makes billing different from every other anomaly surface: spend is not proportional to usage, because tiers reset each billing period.**
 The first tier is often free and paid tiers step down in unit price, so the same daily volume bills differently on day 3 of a period than on day 25.
-So: **score usage for the anomaly, and price it at the current marginal tier to size it.**
+So: **score usage for the anomaly, and price it against the tier schedule to size it** — as the difference between what the period bills with the delta and without it, never as a flat rate times the delta.
 Never size a move by comparing spend across a period boundary — identical usage bills higher early in a period, so that comparison clears the materiality gate on arithmetic alone.
 `billing-spend-get` is safe only _within_ the current period, or at matched positions within two periods.
 
@@ -45,13 +45,21 @@ Never size a move by comparing spend across a period boundary — identical usag
 This scout depends on tools that are permissioned and flag-gated, and each failure mode has a different honest answer.
 **A denial is never evidence that usage fell.** Never file "usage dropped to zero" off a tool that refused you.
 
-| What you see                                                      | What it means                                                       | Do this                                                                                                    |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `billing-usage-get` / `-overview-get` are absent from the toolset | The `billing-mcp-read-tools` flag is off, or this is self-hosted    | `not-in-use:billing:tools-unavailable:team{team_id}`, close out empty                                      |
-| The tools exist but return a permission error                     | The acting user lacks billing access (owner/admin, or member grant) | `blocked:billing:no-access:team{team_id}` naming the tool and the message, close out empty                 |
-| `billing-usage-get` works but `billing-overview-get` denies       | Member read-only grant: usage/spend only, no org billing state      | Record `pattern:billing:access:usage-only`, run the step lane, **skip the trajectory lane** — no tier data |
+| What you see                                                      | What it means                                                       | Do this                                                                                                                 |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `billing-usage-get` / `-overview-get` are absent from the toolset | The `billing-mcp-read-tools` flag is off, or this is self-hosted    | `not-in-use:billing:tools-unavailable:team{team_id}`, close out empty                                                   |
+| The tools exist but return a permission error                     | The acting user lacks billing access (owner/admin, or member grant) | `blocked:billing:no-access:team{team_id}` naming the tool and the message, close out empty                              |
+| `billing-usage-get` works but `billing-overview-get` denies       | Member read-only grant: usage/spend only, no org billing state      | Record `pattern:billing:access:usage-only`, run the step lane in **volume-only mode** (below), skip the trajectory lane |
 
-**Always pass `team_ids: [{team_id}]` on the step lane.**
+**Volume-only mode.** Without the overview there is no tier schedule, no billing period, and no invoice total, so the dollar-materiality gate cannot be evaluated — and guessing at dollars is the one thing this scout must never do.
+Do not silently suppress everything either. Instead, score the step lane as normal and hold reports to the two shapes that are decisive on volume alone and need no dollar figure:
+
+- A meter **going dark** — falling to zero and staying there across the scored days. That is a capture-integrity finding, not a spend claim.
+- A **persistent step function** — at least 5× the same-weekday median, holding for 3 or more complete days, on a meter that clears the volume floor.
+
+Report those without a dollar figure, say plainly that sizing needs billing access, and carry everything else as `pattern:` memory for a run that has the overview.
+
+**Always pass `team_ids` on the step lane.**
 An owner or admin's call with no `team_ids` returns every project in the organization, and scouts, scratchpads, and inbox reports are all **team-scoped** — so on an org with several Signals-enabled projects, each one would independently score the same org-wide series and file duplicate reports into different inboxes.
 Scoping the call to your own project makes the step lane deduplicate by construction, and it makes your findings true as written ("recordings on this project") whatever access the caller has.
 
@@ -63,8 +71,8 @@ Release should put this scout on **one project per organization**; see the roste
 
 Past the access gates, close out cheaply when there is nothing to score:
 
-- No complete day past your cursor (`pattern:billing:cursor`) — the series has not advanced since last run. Refresh the cursor entry and stop.
-- Every meter inside its band and projected spend tracking the last complete period. Rewrite `pattern:billing:baseline:team{team_id}` with today's shape and stop.
+- **Lane 1 only:** no complete day past your cursor (`pattern:billing:cursor`) — the usage series has not advanced since last run. Refresh the cursor entry and skip the step lane. **Still run the trajectory lane**: it reads an organization-wide forecast, so a sparse designated project must not suppress a spending-limit or trial-expiry warning that a sibling project's usage is driving.
+- Both lanes quiet — every meter inside its band and projected spend tracking the last complete period. Rewrite `pattern:billing:baseline:team{team_id}` with today's shape and stop.
 
 Re-using a key idempotently refreshes it.
 A quiet bill is the normal outcome and a good one — say so in the run summary rather than manufacturing a finding.
@@ -77,10 +85,16 @@ Cycle between these moves; skip what is not useful.
 
 - **Scan memory in two passes**, because `scout-scratchpad-search` defaults to 20 rows and this scout keeps a baseline per meter plus cursor, noise, dedupe, report, and reviewer entries — one project can exceed the default and silently drop the dedupe pointers you needed.
   First a wide scan: `text=billing`, `keys_only=true`, `limit=200`. Then re-read only the candidate keys with an exact `key=` lookup. If the scan hits your limit, page back with `date_to` set to the oldest entry's `updated_at`.
-- `scout-runs-list` (last 7d) — what prior runs scored and ruled out.
+- `scout-runs-list` with **`skill_name=signals-scout-billing`** and a 7-day bound. The fleet runs daily, so an unfiltered call spends its 20-row default on sibling scouts and your own last run drops out of the response.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`= the usage type) — a live report on a meter you are about to score is an **edit**, not a new report.
-- `billing-usage-get` with `interval: "day"`, `breakdowns: ["type"]`, `team_ids: [{team_id}]`, and a `start_date` ~35 days back.
-  Every array parameter is **JSON-encoded**: `["type"]`, not `type`. A bare string is a 400.
+- `billing-usage-get` with `interval: "day"`, `breakdowns`, `team_ids`, and a `start_date` ~35 days back.
+
+**Pass the array parameters as JSON-encoded _strings_, not as arrays.** `breakdowns`, `team_ids`, and `usage_types` are typed as strings, so an actual array is rejected before the request is made and the step lane's first call fails on every run. The literal values to send:
+
+```text
+breakdowns: "[\"type\"]"
+team_ids:   "[{team_id}]"
+```
 
 The response is `results`: a list of series, each carrying `label`, `dates`, `data`, `breakdown_type`, and `breakdown_value`, plus a top-level `team_id_options` listing every project the caller can see.
 
@@ -113,15 +127,28 @@ Same-weekday matters: most PostHog meters have a hard weekday/weekend shape, and
 **The band, stated so two runs reach the same verdict on the same data.** These are defaults; a `pattern:billing:band:<usage_type>` memory entry may tighten one for a project that proves noisier.
 
 - **Deviation.** Robust z against the four same-weekday values: `|latest − median| / (1.4826 × MAD)`. Flag at **z ≥ 3.5**.
-- **Constant baseline.** When MAD is 0, robust z is undefined and every wobble reads as infinite. Fall back to a **≥ 50% relative change** from the median, and never flag on the volume floor alone.
-- **Volume floor.** Skip any meter whose baseline median is under **100 units/day**, or whose period-to-date usage has not passed its free tier. Small absolute numbers produce enormous percentages: 1 → 3 units is not a billing event.
-- **Concentration tolerance.** The move is concentrated when every _other_ meter with a non-zero baseline stayed within **±20%** of its own median. Two or more meters outside that is a traffic story.
+- **Constant baseline.** When MAD is 0, robust z is undefined and every wobble reads as infinite. Fall back to a **≥ 50% relative change** from the median.
+- **New meter.** When the baseline median is 0, relative change is undefined too. Treat it as an onset rather than a step: flag when the latest value clears the volume floor and the materiality gate, and describe it as a meter starting rather than one moving.
+- **Volume floor.** Skip a meter only when **both** its baseline median and its latest value are under **100 units/day**. Flooring on the baseline alone would discard the cold-start instrumentation loop this scout most wants to catch — a meter going from a handful of units to a large paid spike has a tiny baseline and a real invoice impact. Small numbers on both sides produce meaningless percentages: 1 → 3 units is not a billing event.
+- **Concentration tolerance.** The move is concentrated when every _other_ meter **family** with a non-zero baseline stayed within **±20%** of its own median. Two or more families outside that is a traffic story.
 - **Materiality floor.** The move's projected impact on this period's invoice must clear **the greater of $20 and 2% of the last complete period's invoice** — so a small org still hears about small dollars and a large one is not paged over rounding.
+
+**Group alias meters into families before testing concentration.** Several usage types are views or subsets of the same underlying usage, so counting them independently lets one real move put two series outside the tolerance and misread a localized billing change as a broad traffic story. Collapse each family to its primary meter and score the family once:
+
+| Family             | Members                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Events             | `event_count_in_period`, `enhanced_persons_event_count_in_period`, `group_analytics`, `data_pipelines`                                      |
+| Logs               | `logs_mb_in_period`, `logs_retention_30d_mb_in_period`                                                                                      |
+| Warehouse rows in  | `rows_synced_in_period`, `free_historical_rows_synced_in_period`                                                                            |
+| Sandbox compute    | `sandbox_compute_credits_used_in_period`, `sandbox_compute_cpu_millicore_seconds_in_period`, `sandbox_compute_memory_mib_seconds_in_period` |
+| Session recordings | `recording_count_in_period`, `mobile_recording_count_in_period`                                                                             |
+
+Report on the specific member that moved; use the family only for the concentration test.
 
 Apply the gates cheapest-first; most candidates die on the second:
 
-1. **Concentrated?** Other meters held? If they all moved, stop.
-2. **Material?** Price the usage delta **at the meter's current marginal tier** from `billing-overview-get` — see [`references/usage-types.md`](references/usage-types.md) for deriving the free tier and the marginal rate, which is not simply `free_allocation`. Use `billing-spend-get` only within the current period.
+1. **Concentrated?** Other meter families held? If they all moved, stop.
+2. **Material?** Price the delta as `price(period-to-date usage with it) − price(period-to-date usage without it)` across the tier schedule, then apply the discount and the spending cap — never as `delta × marginal rate`. A delta that crosses a tier boundary, sits behind a full discount, or is already cut off by a limit adds far less to the invoice than the raw multiplication suggests, and can be $0. The tiers and limit live under the meter's **product** key rather than its usage type, so map it through the vocabulary table in [`references/usage-types.md`](references/usage-types.md) first — the same table governs reading a `billing-spend-get` `type` breakdown, which is also keyed by product.
 3. **Explained?** Search memory for the meter. A recorded migration, launch, or backfill closes it.
 
 A step that clears all three gets one more read before you write: **is this a machine or a person?**
@@ -142,7 +169,7 @@ Report-worthy shapes:
 Store last period's actual as `pattern:billing:period-actual`, **with the `billing_period` boundaries it came from**.
 On each run, compare those stored boundaries against the overview's current `billing_period`: if the period has advanced, the entry is now two periods old, so re-derive it before comparing or you will invent a trajectory finding out of stale history.
 
-**Skip this lane entirely** when `billing-overview-get` denied — a usage-only caller has no tier, limit, or forecast data, and guessing at dollars from volume alone is exactly the error this scout exists to avoid.
+**Skip this lane entirely** when `billing-overview-get` denied — a usage-only caller has no tier, limit, or forecast data, and guessing at dollars from volume alone is exactly the error this scout exists to avoid. That caller runs the step lane in volume-only mode instead.
 
 ### Save memory as you go
 
@@ -191,7 +218,8 @@ No separate run-metadata entry — the summary is that record.
 
 - **Period-boundary artifacts.** Spend moving while usage holds, around a `billing_period` edge. Tiers reset; this is arithmetic, not a spike.
 - **Inside the free tier.** A big percentage on a meter that has not passed its free threshold costs nothing. Derive that threshold from the tier schedule, not from `free_allocation` alone.
-- **Under the volume floor.** A baseline median under 100 units/day makes every percentage meaningless.
+- **Under the volume floor.** Both the baseline median and the latest value under 100 units/day makes every percentage meaningless. A tiny baseline with a large latest value is _not_ this case — that is the cold-start spike, and it stays in scope.
+- **Adds nothing to the invoice.** A full discount, or a spending cap the product is already pinned against, can make a large usage move worth $0. That is a real reason to skip the materiality finding — but the cap itself may still be trajectory-lane news.
 - **Backfills and historical syncs.** `free_historical_rows_synced_in_period` is the "this is a backfill" meter by design, and a one-off warehouse backfill spike on `rows_synced_in_period` is expected. Record the window, do not report it.
 - **Trial start and end.** Usage patterns change when a trial opens or closes. The trajectory lane may still report the post-trial run rate, but not as an anomaly.
 - **A new project.** A project onboarding will step every meter it touches from zero. Baseline it, do not flag it.
