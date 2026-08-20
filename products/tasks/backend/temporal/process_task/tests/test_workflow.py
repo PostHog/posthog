@@ -923,22 +923,25 @@ class TestProcessTaskWorkflowUnit:
         assert workflow._pending_permission_responses == []
 
     @pytest.mark.parametrize(
-        "state, expected",
+        "state, prewarmed, expected",
         [
-            ({"mode": "interactive", "pending_user_message": "this is nice"}, False),
-            ({"mode": "background", "pending_user_message": "this is nice"}, True),
+            ({"mode": "interactive", "pending_user_message": "this is nice"}, True, False),
+            ({"mode": "background", "pending_user_message": "this is nice"}, False, False),
+            ({"mode": "background", "pending_user_message": "this is nice"}, True, True),
             (
                 {
                     "mode": "background",
                     "pending_user_message": "this is nice",
                     "resume_from_run_id": "previous-run-id",
                 },
+                True,
                 False,
             ),
         ],
     )
-    def test_should_forward_pending_message(self, state: dict, expected: bool):
+    def test_should_forward_pending_message(self, state: dict, prewarmed: bool, expected: bool):
         workflow = ProcessTaskWorkflow()
+        workflow._prewarmed = prewarmed
         workflow._context = _build_context(
             github_integration_id=123,
             state=state,

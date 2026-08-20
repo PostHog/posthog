@@ -2094,7 +2094,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
-        return self.context.mode != "interactive" and not is_resume
+        # Cold agent servers consume the pending message during startup. Prewarmed servers skip
+        # that startup turn, so the workflow must deliver their first message after activation.
+        return self._prewarmed and self.context.mode != "interactive" and not is_resume
 
     async def _track_workflow_event(self, event_name: str, properties: dict, capture_analytics: bool = True) -> None:
         track_input = TrackWorkflowEventInput(
