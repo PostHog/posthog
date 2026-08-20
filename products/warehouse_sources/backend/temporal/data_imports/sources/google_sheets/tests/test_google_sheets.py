@@ -519,6 +519,11 @@ def test_google_sheets_source_rejects_duplicate_named_headers():
         # Values-read 404s stay a raw APIError (not SpreadsheetNotFound), so str() is
         # "APIError: [404]: Requested entity was not found." — a deleted/moved/unshared sheet hit mid-read.
         pytest.param(_api_error(404, "Requested entity was not found.", "NOT_FOUND"), id="entity_not_found_404"),
+        # A header read on a worksheet with no columns returns a deterministic 400 "Unable to parse range".
+        pytest.param(
+            _api_error(400, "Unable to parse range: 'csm_followups'!1:1", "INVALID_ARGUMENT"),
+            id="unable_to_parse_range_400",
+        ),
     ],
 )
 def test_error_string_matches_a_non_retryable_key(error):
@@ -729,6 +734,34 @@ def test_get_schema_incremental_fields_reraises_other_api_errors():
         pytest.raises(gspread.exceptions.APIError),
     ):
         get_schema_incremental_fields(config, "sheet1")
+
+    assert mock_worksheet.get_all_values.call_count == 10
+
+
+def test_google_sheets_source_reraises_other_header_api_errors():
+    """Only the deterministic 'Unable to parse range' 400 is swallowed. A transient 5xx is retried
+    with backoff and, once retries are exhausted, must still propagate so Temporal can retry the
+    activity rather than the sync silently emitting an empty table."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.side_effect = _api_error(500, "Internal error encountered.", "INTERNAL")
+
+    with (
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("sheet1", 123)],
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+        pytest.raises(gspread.exceptions.APIError),
+    ):
+        google_sheets_source(
+            config, "sheet1", db_incremental_field_last_value=None, api_version=GOOGLE_SHEETS_API_VERSION_V4
+        )
 
     assert mock_worksheet.get_all_values.call_count == 10
 
