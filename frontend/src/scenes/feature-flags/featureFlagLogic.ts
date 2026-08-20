@@ -3688,7 +3688,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveSidebarExperimentFeatureFlagFailure: ({ errorObject }) => {
             if (isEditConflictError(errorObject)) {
-                showEditConflictToast(errorObject, () => actions.loadFeatureFlag())
+                showEditConflictToast(errorObject, () => {
+                    actions.loadFeatureFlag()
+                    // The sidebar caller optimistically copies the edited conditions into
+                    // experimentLogic before the save resolves, so on a conflict the experiment view
+                    // shows the conditions the server rejected. Reload experimentLogic too, matching
+                    // the success path, so Refresh restores the release-conditions table and not just
+                    // the flag.
+                    const experimentId = router.values.currentLocation.pathname.split('/').pop()
+                    if (experimentId) {
+                        experimentLogic({ experimentId: parseInt(experimentId) }).actions.loadExperiment()
+                    }
+                })
             }
             // Other failures already toast where they are raised (e.g. cohort errors in the loader).
         },
