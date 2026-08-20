@@ -410,6 +410,44 @@ describe('featureFlagLogic', () => {
                 openSpy.mockRestore()
             }
         })
+
+        it('surfaces a refresh toast on a concurrent-edit 409 instead of failing silently', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        409,
+                        {
+                            type: 'server_error',
+                            code: 'flag_edit_conflict',
+                            detail: 'The feature flag was changed by another user since you started editing it. Please refresh and try again.',
+                            extra: { edited_by: 'Robin Kim' },
+                        },
+                    ],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                })
+                    .toDispatchActions(['saveFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                expect(toastSpy).toHaveBeenCalledTimes(1)
+                const [message, options] = toastSpy.mock.calls[0] as [
+                    string,
+                    { button?: { label: string; action: () => void } } | undefined,
+                ]
+                expect(message).toContain('Robin Kim')
+                expect(options?.button?.label).toBe('Refresh')
+
+                await expectLogic(logic, () => {
+                    options?.button?.action()
+                }).toDispatchActions(['loadFeatureFlag'])
+            } finally {
+                toastSpy.mockRestore()
+            }
+        })
     })
 
     describe('saveFeatureFlag navigation', () => {

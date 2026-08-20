@@ -22,7 +22,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, isEditConflictError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -482,6 +482,21 @@ export interface FeatureFlagLogicProps {
 
 function isOnFeatureFlagPage(id: FeatureFlagLogicProps['id']): boolean {
     return removeProjectIdIfPresent(router.values.location.pathname) === urls.featureFlag(id)
+}
+
+// A concurrent edit hit a 409 the global handler neither toasts nor reports. Tell the user who
+// changed the flag and offer a refresh, so their save no longer fails in silence.
+function showEditConflictToast(errorObject: any, onRefresh: () => void): void {
+    const editedBy = errorObject?.data?.extra?.edited_by
+    const message = editedBy
+        ? `${editedBy} changed this feature flag while you were editing it. Refresh to load their changes, then make your edits again.`
+        : 'Someone changed this feature flag while you were editing it. Refresh to load their changes, then make your edits again.'
+    lemonToast.error(message, {
+        button: {
+            label: 'Refresh',
+            action: onRefresh,
+        },
+    })
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -3529,6 +3544,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
         saveFeatureFlagFailure: async ({ errorObject }) => {
+            // Check the concurrent-edit conflict first: handleApprovalRequired treats every 409 as
+            // an approval gate, which would mislabel this one and skip the refresh prompt.
+            if (isEditConflictError(errorObject)) {
+                showEditConflictToast(errorObject, () => actions.loadFeatureFlag())
+                return
+            }
+
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 if (isOnFeatureFlagPage(props.id)) {
                     // Redirect to detail page so user can see the CR banner
@@ -3660,6 +3682,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
             // For non-approval errors, let the global error handler show the toast to avoid duplicates
+        },
+        saveSidebarExperimentFeatureFlagFailure: ({ errorObject }) => {
+            if (isEditConflictError(errorObject)) {
+                showEditConflictToast(errorObject, () => actions.loadFeatureFlag())
+            }
+            // Other failures already toast where they are raised (e.g. cohort errors in the loader).
         },
         saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Release conditions updated')
