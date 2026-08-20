@@ -49,4 +49,18 @@ describe('writeToClipboard', () => {
         await expect(writeToClipboard('some text')).resolves.toBe(expected)
         expect(execCommand).toHaveBeenCalledTimes(expectedFallbackCalls)
     })
+
+    // Browsers do not all accept text/html in a ClipboardItem, so a rich copy that a browser refuses has
+    // to land as plain text rather than reporting failure.
+    it.each([
+        ['lands', () => Promise.resolve(), 0],
+        ['is refused', () => Promise.reject(new Error('unsupported')), 1],
+    ])('writes plain text when the rich write %s', async (_description, write, expectedWriteTextCalls) => {
+        Object.defineProperty(globalThis, 'ClipboardItem', { value: class {}, configurable: true })
+        const writeText = jest.fn(() => Promise.resolve())
+        setClipboard({ write: jest.fn(write), writeText })
+
+        await expect(writeToClipboard('some text', '<b>some text</b>')).resolves.toBe('copied')
+        expect(writeText).toHaveBeenCalledTimes(expectedWriteTextCalls)
+    })
 })
