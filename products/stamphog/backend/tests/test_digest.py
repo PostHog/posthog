@@ -49,7 +49,7 @@ def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSum
     """Stand in for the LLM so the task never reaches a gateway. Keeps every PR: a summary that
     keeps nothing is its own path (the digest posts nothing and releases the claim)."""
     return DigestSummary(
-        intro=f"{len(prs)} merged.",
+        considered=len(prs),
         prs=[
             DigestPRSummary(
                 pr_number=pr.pr_number,
@@ -413,9 +413,7 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         _pr_stub("acme/a", 123, "A change", "https://github.com/acme/a/pull/123"),
         _pr_stub("acme/b", 123, "B change", "https://github.com/acme/b/pull/123"),
     ]
-    content = json.dumps(
-        {"intro": "two", "prs": [{"index": 0, "summary": "repo a change"}, {"index": 1, "summary": "repo b change"}]}
-    )
+    content = json.dumps({"prs": [{"index": 0, "summary": "repo a change"}, {"index": 1, "summary": "repo b change"}]})
 
     with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_fake_llm_client(content)):
         summary = summarize_merged_prs(prs)
@@ -430,9 +428,9 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
 
 @parameterized.expand(
     [
-        ("empty_list_is_intentional_filtering", '{"intro": "quiet week", "prs": []}', True),
-        ("unrecognizable_entries_are_not", '{"intro": "x", "prs": [{"index": 99}, "junk"]}', False),
-        ("missing_key_is_not", '{"intro": "x"}', False),
+        ("empty_list_is_intentional_filtering", '{"prs": []}', True),
+        ("unrecognizable_entries_are_not", '{"prs": [{"index": 99}, "junk"]}', False),
+        ("missing_key_is_not", '{"summary": "x"}', False),
     ]
 )
 def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, accepted: bool) -> None:
@@ -506,7 +504,7 @@ def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
         slack_channel_name="team-devex",
     )
     summary = DigestSummary(
-        intro="1 merged.",
+        considered=1,
         prs=[
             DigestPRSummary(
                 pr_number=1,

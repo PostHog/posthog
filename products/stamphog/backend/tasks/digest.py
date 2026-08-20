@@ -34,7 +34,7 @@ DIGEST_LOOKBACK_DAYS = 7
 # Per-run claim ceiling. An unbounded claim grows the LLM prompt, the stored summary, and the Slack
 # payload with the burst size — and if either rejects the oversized payload, the failure handler
 # unlinks the same PRs and every later run retries the identical oversized batch forever. Capping the
-# claim drains a backlog across daily runs instead; Slack rendering caps at 40 sections regardless.
+# claim drains a backlog across daily runs instead; the digest itself renders at most MAX_DIGEST_PRS.
 DIGEST_MAX_PRS_PER_RUN = 100
 
 # A PENDING DigestRun older than this had its worker die between claiming its PRs and posting (or
