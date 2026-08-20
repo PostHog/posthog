@@ -12,6 +12,7 @@ import {
 } from "@posthog/quill";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { useEffect, useState } from "react";
+import type { Components } from "react-markdown";
 import {
   useContextWikiPage,
   useContextWikiPageMutation,
@@ -22,6 +23,19 @@ type Mode = "rendered" | "edit";
 interface ContextWikiPagePaneProps {
   path: string;
 }
+
+// Wiki pages are org-shared and agent-writable, so their markdown is untrusted.
+// A remote <img> would make every viewer's machine issue a GET to an
+// author-chosen URL, which is a tracking beacon or an internal-network probe.
+// Block images the way ChatMarkdown does; there is no wiki image-upload path,
+// so nothing legitimate is lost.
+const wikiMarkdownComponents: Partial<Components> = {
+  img: ({ alt }) => (
+    <span className="text-[13px] text-gray-10">
+      Remote image blocked{alt ? `: ${alt}` : ""}
+    </span>
+  ),
+};
 
 /**
  * One wiki page: rendered markdown, or a plain-text editor. Saves send the
@@ -205,7 +219,10 @@ export function ContextWikiPagePane({ path }: ContextWikiPagePaneProps) {
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="p-4 text-[13px]">
-            <MarkdownRenderer content={page.content} />
+            <MarkdownRenderer
+              content={page.content}
+              componentsOverride={wikiMarkdownComponents}
+            />
           </div>
         </div>
       )}
