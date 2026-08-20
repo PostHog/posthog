@@ -64,6 +64,8 @@ from .model import (
     integration_secret_decrypt_counter,
 )
 from .oauth import (
+    AMAZON_LWA_TOKEN_URL,
+    AMAZON_SELLING_PARTNER_CONSENT_HOSTS,
     INSTAGRAM_OAUTH_SCOPE,
     POSTHOG_CONNECT_ALLOWED_REGIONS,
     POSTHOG_CONNECT_DEFAULT_SCOPES,
@@ -170,6 +172,8 @@ __all__ = [
     "ApplePushIntegration",
     "INSTAGRAM_OAUTH_SCOPE",
     "OauthConfig",
+    "AMAZON_LWA_TOKEN_URL",
+    "AMAZON_SELLING_PARTNER_CONSENT_HOSTS",
     "POSTHOG_SLACK_SCOPE",
     "SALESFORCE_OAUTH_KINDS",
     "POSTHOG_CONNECT_KIND",

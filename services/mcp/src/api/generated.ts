@@ -6254,6 +6254,9 @@ export namespace Schemas {
 
     export const IntegrationKind = {
       Slack: 'slack',
+      AmazonSellingPartnerNa: 'amazon-selling-partner-na',
+      AmazonSellingPartnerEu: 'amazon-selling-partner-eu',
+      AmazonSellingPartnerFe: 'amazon-selling-partner-fe',
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
@@ -43898,6 +43901,9 @@ export namespace Schemas {
     }
 
     /**
+     * * `amazon-selling-partner-eu` - Amazon Selling Partner (Europe)
+     * * `amazon-selling-partner-fe` - Amazon Selling Partner (Far East)
+     * * `amazon-selling-partner-na` - Amazon Selling Partner (North America)
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
@@ -43950,6 +43956,9 @@ export namespace Schemas {
 
 
     export const IntegrationKindEnum = {
+      AmazonSellingPartnerEu: 'amazon-selling-partner-eu',
+      AmazonSellingPartnerFe: 'amazon-selling-partner-fe',
+      AmazonSellingPartnerNa: 'amazon-selling-partner-na',
       Anthropic: 'anthropic',
       Apns: 'apns',
       AwsRedshift: 'aws-redshift',
@@ -44002,6 +44011,9 @@ export namespace Schemas {
     export interface IntegrationAccessRequest {
       /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
        *
+       * * `amazon-selling-partner-eu` - Amazon Selling Partner (Europe)
+       * * `amazon-selling-partner-fe` - Amazon Selling Partner (Far East)
+       * * `amazon-selling-partner-na` - Amazon Selling Partner (North America)
        * * `anthropic` - Anthropic
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
@@ -90536,6 +90548,9 @@ export namespace Schemas {
 
     export type IntegrationsListParams = {
     /**
+     * * `amazon-selling-partner-eu` - Amazon Selling Partner (Europe)
+     * * `amazon-selling-partner-fe` - Amazon Selling Partner (Far East)
+     * * `amazon-selling-partner-na` - Amazon Selling Partner (North America)
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
@@ -90599,6 +90614,9 @@ export namespace Schemas {
 
 
     export const IntegrationsListKind = {
+      AmazonSellingPartnerEu: 'amazon-selling-partner-eu',
+      AmazonSellingPartnerFe: 'amazon-selling-partner-fe',
+      AmazonSellingPartnerNa: 'amazon-selling-partner-na',
       Anthropic: 'anthropic',
       Apns: 'apns',
       AwsRedshift: 'aws-redshift',

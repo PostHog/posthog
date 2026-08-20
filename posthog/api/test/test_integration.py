@@ -5941,6 +5941,52 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         assert existing.config["project_id"] == "original-project"
         assert Integration.objects.filter(team=self.team, kind="google-cloud-service-account").count() == 1
 
+    @override_settings(
+        AMAZON_SELLING_PARTNER_APP_ID="amzn1.sellerapps.app.example",
+        AMAZON_SELLING_PARTNER_APP_CLIENT_ID="amzn1.application-oa2-client.example",
+        AMAZON_SELLING_PARTNER_APP_CLIENT_SECRET="amzn-secret",
+    )
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_member_cannot_overwrite_an_amazon_integration_with_a_spoofed_seller_id(self, mock_post):
+        # Amazon names the authorizing seller in a callback *query parameter*, not in the token
+        # response, so `selling_partner_id` reaches the backend under browser control and becomes the
+        # integration_id. Swapping in someone else's seller id therefore resolves the upsert onto
+        # their integration — which is an edit, and edits need admin. The create-vs-modify guard has
+        # to catch that and roll the token write back, or a plain member could repoint an existing
+        # seller connection at their own SP-API grant.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "Atza|attacker",
+            "refresh_token": "Atzr|attacker",
+            "expires_in": 3600,
+        }
+        existing = Integration.objects.create(
+            team=self.team,
+            kind="amazon-selling-partner-na",
+            integration_id="A1VICTIM",
+            config={"selling_partner_id": "A1VICTIM"},
+            sensitive_config={"access_token": "Atza|victim", "refresh_token": "Atzr|victim"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "amazon-selling-partner-na",
+                "config": {
+                    "state": "token=state_token",
+                    "spapi_oauth_code": "attacker-code",
+                    "selling_partner_id": "A1VICTIM",
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        existing.refresh_from_db()
+        assert existing.sensitive_config["access_token"] == "Atza|victim"
+        assert existing.sensitive_config["refresh_token"] == "Atzr|victim"
+        assert Integration.objects.filter(team=self.team, kind="amazon-selling-partner-na").count() == 1
+
 
 class TestPosthogConnectAuthorize:
     @pytest.fixture(autouse=True)

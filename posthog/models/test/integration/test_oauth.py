@@ -1582,3 +1582,94 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+@override_settings(
+    AMAZON_SELLING_PARTNER_APP_ID="amzn1.sellerapps.app.example",
+    AMAZON_SELLING_PARTNER_APP_CLIENT_ID="amzn1.application-oa2-client.example",
+    AMAZON_SELLING_PARTNER_APP_CLIENT_SECRET="amzn-secret",
+    AMAZON_SELLING_PARTNER_APP_DRAFT=False,
+)
+class TestAmazonSellingPartnerIntegrationModel(BaseTest):
+    @parameterized.expand(
+        [
+            ("amazon-selling-partner-na", "https://sellercentral.amazon.com/apps/authorize/consent"),
+            ("amazon-selling-partner-eu", "https://sellercentral-europe.amazon.com/apps/authorize/consent"),
+            ("amazon-selling-partner-fe", "https://sellercentral.amazon.co.jp/apps/authorize/consent"),
+        ]
+    )
+    def test_oauth_config_per_region(self, kind, expected_authorize_url):
+        config = OauthIntegration.oauth_config_for_kind(kind)
+
+        assert config.authorize_url == expected_authorize_url
+        assert config.token_url == "https://api.amazon.com/auth/o2/token"
+        assert config.client_id == "amzn1.application-oa2-client.example"
+        assert config.client_secret == "amzn-secret"
+        assert config.scope == ""
+        assert config.id_path == "selling_partner_id"
+
+    @override_settings(AMAZON_SELLING_PARTNER_APP_ID="", AMAZON_SELLING_PARTNER_APP_CLIENT_ID="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Amazon Selling Partner app not configured"):
+            OauthIntegration.oauth_config_for_kind("amazon-selling-partner-na")
+
+    def test_authorize_url_uses_the_application_id_and_omits_oauth_params(self):
+        url = OauthIntegration.authorize_url("amazon-selling-partner-na", token="state_token")
+        params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+
+        assert url.startswith("https://sellercentral.amazon.com/apps/authorize/consent?")
+        assert params["application_id"] == "amzn1.sellerapps.app.example"
+        # Amazon's consent page is not an OAuth authorize endpoint: these would be rejected.
+        assert "client_id" not in params
+        assert "response_type" not in params
+        assert "scope" not in params
+        assert "version" not in params
+
+    @override_settings(AMAZON_SELLING_PARTNER_APP_DRAFT=True)
+    def test_authorize_url_opts_into_the_draft_flow_before_the_app_is_published(self):
+        url = OauthIntegration.authorize_url("amazon-selling-partner-na", token="state_token")
+        params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+
+        assert params["version"] == "beta"
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_exchanges_the_spapi_code(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "Atza|access",
+            "refresh_token": "Atzr|refresh",
+            "expires_in": 3600,
+            "token_type": "bearer",
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "amazon-selling-partner-eu",
+            self.team.id,
+            self.user,
+            {
+                "spapi_oauth_code": "spapi-code",
+                "selling_partner_id": "A1SELLER",
+                "state": "token=state_token",
+            },
+        )
+
+        assert mock_post.call_args.kwargs["data"]["code"] == "spapi-code"
+        assert mock_post.call_args.kwargs["data"]["grant_type"] == "authorization_code"
+        assert integration.kind == "amazon-selling-partner-eu"
+        assert integration.integration_id == "A1SELLER"
+        assert integration.config["selling_partner_id"] == "A1SELLER"
+        assert integration.sensitive_config["access_token"] == "Atza|access"
+        assert integration.sensitive_config["refresh_token"] == "Atzr|refresh"
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_without_selling_partner_id_raises(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "Atza|access", "expires_in": 3600}
+
+        with pytest.raises(Exception, match="failed to extract integration ID"):
+            OauthIntegration.integration_from_oauth_response(
+                "amazon-selling-partner-na",
+                self.team.id,
+                self.user,
+                {"spapi_oauth_code": "spapi-code", "state": "token=state_token"},
+            )

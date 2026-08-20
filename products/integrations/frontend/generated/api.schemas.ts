@@ -151,6 +151,9 @@ export interface RoleLookupResponseApi {
 }
 
 /**
+ * * `amazon-selling-partner-eu` - Amazon Selling Partner (Europe)
+ * * `amazon-selling-partner-fe` - Amazon Selling Partner (Far East)
+ * * `amazon-selling-partner-na` - Amazon Selling Partner (North America)
  * * `anthropic` - Anthropic
  * * `apns` - Apple Push
  * * `aws-redshift` - Aws Redshift
@@ -202,6 +205,9 @@ export interface RoleLookupResponseApi {
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
+    AmazonSellingPartnerEu: 'amazon-selling-partner-eu',
+    AmazonSellingPartnerFe: 'amazon-selling-partner-fe',
+    AmazonSellingPartnerNa: 'amazon-selling-partner-na',
     Anthropic: 'anthropic',
     Apns: 'apns',
     AwsRedshift: 'aws-redshift',
@@ -471,6 +477,9 @@ export interface GitHubPrepareCallbackRequestApi {
 export interface IntegrationAccessRequestApi {
     /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
      *
+     * * `amazon-selling-partner-eu` - Amazon Selling Partner (Europe)
+     * * `amazon-selling-partner-fe` - Amazon Selling Partner (Far East)
+     * * `amazon-selling-partner-na` - Amazon Selling Partner (North America)
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
@@ -634,6 +643,9 @@ export type RoleExternalReferencesLookupRetrieveParams = {
 
 export type IntegrationsListParams = {
     /**
+     * * `amazon-selling-partner-eu` - Amazon Selling Partner (Europe)
+     * * `amazon-selling-partner-fe` - Amazon Selling Partner (Far East)
+     * * `amazon-selling-partner-na` - Amazon Selling Partner (North America)
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
@@ -696,6 +708,9 @@ export type IntegrationsListParams = {
 export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof IntegrationsListKind]
 
 export const IntegrationsListKind = {
+    AmazonSellingPartnerEu: 'amazon-selling-partner-eu',
+    AmazonSellingPartnerFe: 'amazon-selling-partner-fe',
+    AmazonSellingPartnerNa: 'amazon-selling-partner-na',
     Anthropic: 'anthropic',
     Apns: 'apns',
     AwsRedshift: 'aws-redshift',

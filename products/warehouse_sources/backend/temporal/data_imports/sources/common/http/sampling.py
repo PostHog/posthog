@@ -79,6 +79,7 @@ _AUTH_HEADER_NAMES: frozenset[str] = frozenset(
         "x-sn-apikey",
         "x-ck-api-key",
         "x-auth-token",
+        "x-amz-access-token",  # Amazon SP-API bearer token
         "x-metabase-session",
         "ob-token-v1",
         "cookie",
