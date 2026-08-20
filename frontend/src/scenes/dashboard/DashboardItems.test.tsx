@@ -92,7 +92,12 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
         tile: { id: number }
         showResizeHandles: boolean
         apiErrored?: boolean
-        apiError?: Error & { status?: number; detail?: string | null; code?: string | null; data?: { queryId?: string } }
+        apiError?: Error & {
+            status?: number
+            detail?: string | null
+            code?: string | null
+            data?: { queryId?: string }
+        }
         refresh?: () => void
     }) => (
         <div
