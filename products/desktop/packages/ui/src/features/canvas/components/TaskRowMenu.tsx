@@ -44,8 +44,9 @@ import { type ComponentType, type ReactNode, useMemo, useState } from "react";
  * ones its list already has (pin, archive, delete, rename inline); only filing —
  * which needs the channel list and a mutation — belongs to the menu.
  *
- * Canvases share this menu but not all of it: they can be pinned, filed, and
- * deleted, but not given a command-centre cell. `kind` is what decides, so a canvas gets a menu of the
+ * Canvases share this menu but not all of it: they can be pinned and deleted,
+ * and they can't be filed to a space or given a command-centre cell, both of
+ * which are task-shaped. `kind` is what decides, so a canvas gets a menu of the
  * actions it has rather than a full one with half its items dead.
  */
 export interface TaskRowMenuProps {
@@ -53,7 +54,7 @@ export interface TaskRowMenuProps {
   id: string;
   title: string;
   isPinned: boolean;
-  /** The channel this item is already filed to, ticked in "File to…". */
+  /** The channel this task is already filed to, ticked in "File to…". */
   channelId?: string;
   /** Absent when the command centre is full, which disables the item. */
   onAddToCommandCenter?: () => void;
@@ -61,8 +62,6 @@ export interface TaskRowMenuProps {
   onRename?: () => void;
   onStop?: () => void;
   onTogglePin: () => void;
-  /** Canvases supply their own filing mutation; task filing is shared here. */
-  onFile?: (channelId: string) => void;
   /** Tasks are archived; canvases are deleted (with an undo window). */
   onArchive?: () => void;
   onDelete?: () => void;
@@ -116,7 +115,7 @@ function TaskRowMenuItems({
     import.meta.env.DEV,
   );
   const isTask = menu.kind === "task";
-  const { channels } = useChannels({ enabled: bluebirdEnabled });
+  const { channels } = useChannels({ enabled: bluebirdEnabled && isTask });
   const fileToChannel = useFileTaskToChannel();
 
   const channelItems: MenuFlyoutItem[] = channels.map((channel) => ({
@@ -157,7 +156,7 @@ function TaskRowMenuItems({
           Add to Command Center
         </Item>
       )}
-      {channelItems.length > 0 && (
+      {isTask && channelItems.length > 0 && (
         <Sub>
           <SubTrigger>
             <FolderSimpleIcon size={14} />
@@ -169,9 +168,7 @@ function TaskRowMenuItems({
               placeholder="Search spaces…"
               emptyLabel="No spaces"
               onSelect={(channelId) =>
-                menu.kind === "canvas"
-                  ? menu.onFile?.(channelId)
-                  : fileToChannel(channelId, menu.id, menu.title)
+                fileToChannel(channelId, menu.id, menu.title)
               }
             />
           </MenuSubFlyout>
