@@ -1,5 +1,6 @@
 import { Tooltip } from "@base-ui/react/tooltip";
 import React from "react";
+import { createPortal } from "react-dom";
 
 /** Long: a grip is a target people cross on the way elsewhere. */
 const TOOLTIP_DELAY_MS = 1000;
@@ -128,11 +129,19 @@ export function ResizeHandle({
       ) : (
         grip
       )}
-      {/* pointer-events-auto: a panel being drag-closed turns its own off, and
+      {/* Portalled to the body so the shield spans the window. The panels that
+          host this handle carry a transform, which makes a fixed-position child
+          resolve to the panel box instead of the viewport, and the shield has to
+          reach the whole window to hold the col-resize cursor and swallow
+          pointer events over other panes and embedded iframes for the length of
+          the drag.
+          pointer-events-auto: a panel being drag-closed turns its own off, and
           a shield that isn't a hit target has no cursor to give. */}
-      {isResizing && (
-        <div className="pointer-events-auto fixed inset-0 z-[200] cursor-col-resize" />
-      )}
+      {isResizing &&
+        createPortal(
+          <div className="pointer-events-auto fixed inset-0 z-[200] cursor-col-resize" />,
+          document.body,
+        )}
     </>
   );
 }
