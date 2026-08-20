@@ -972,11 +972,25 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.save(skip_activity_log=True)
 
     def soft_delete(self):
-        self.deleted = True
-        self.deleted_at = timezone.now()
-        self.save()
-        if self.table is not None and not self.table.deleted:
-            self.table.soft_delete()
+        with transaction.atomic():
+            self.deleted = True
+            self.deleted_at = timezone.now()
+            self.save()
+            if self.table is not None and not self.table.deleted:
+                # Guard against shared-table states left by legacy ghost-table bugs:
+                # a DataWarehouseTable is many-to-one, so multiple ExternalDataSchema rows
+                # can point to the same table_id. Only propagate soft-deletion when this
+                # schema is the sole remaining active (non-deleted) owner of the table.
+                other_active_owner_exists = (
+                    ExternalDataSchema.objects.filter(
+                        table_id=self.table_id,
+                        deleted=False,
+                    )
+                    .exclude(pk=self.pk)
+                    .exists()
+                )
+                if not other_active_owner_exists:
+                    self.table.soft_delete()
 
 
     def delete_table(self):

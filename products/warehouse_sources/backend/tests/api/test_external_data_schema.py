@@ -3886,6 +3886,52 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
         assert schema.deleted
         assert table.deleted
 
+    def test_schema_soft_delete_does_not_delete_table_if_shared_with_another_active_schema(self):
+        # Regression: legacy ghost-table bugs can leave two ExternalDataSchema rows pointing
+        # to the same DataWarehouseTable (many-to-one). Deleting the ghost schema must NOT
+        # cascade to the table while the active schema still references it, otherwise the
+        # active schema's queries and sync pipeline break. The table should only be soft-deleted
+        # once no other non-deleted schema claims it.
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="shared_table",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/shared/*",
+        )
+        # Active (legitimate) schema — owns the table
+        active_schema = ExternalDataSchema.objects.create(
+            name="shared_table",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+        # Ghost schema — shares the same table due to a past discovery bug
+        ghost_schema = ExternalDataSchema.objects.create(
+            name="shared_table_ghost",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        assert not active_schema.deleted
+        assert not ghost_schema.deleted
+        assert not table.deleted
+
+        # Deleting the ghost must leave the table (and the active schema) untouched.
+        ghost_schema.soft_delete()
+
+        ghost_schema.refresh_from_db()
+        active_schema.refresh_from_db()
+        table.refresh_from_db()
+
+        assert ghost_schema.deleted
+        assert not active_schema.deleted
+        assert not table.deleted, (
+            "DataWarehouseTable must NOT be soft-deleted while another active schema still references it"
+        )
+
+
 
 class TestFanoutParentSelection(APIBaseTest):
     """Fan-out parents and children are selected independently.
