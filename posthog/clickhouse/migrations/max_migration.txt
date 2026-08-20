@@ -1,1 +1,1 @@
-0302_drop_writable_sharded_query_log_archive
+0303_drop_writable_sharded_query_log_archive

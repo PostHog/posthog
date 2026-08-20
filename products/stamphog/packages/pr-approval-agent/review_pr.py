@@ -50,6 +50,7 @@ from gates import (
     has_ci_workflow_changes,
     has_dependency_changes,
     is_allow_listed_only,
+    manifest_basenames,
     parse_conventional_commit,
     scope_breadth,
     substantive_size,
@@ -622,7 +623,8 @@ class Pipeline:
         deny = self.classification["deny_categories"]
         risky = self.classification.get("manifest_script_changes", [])
         if risky:
-            return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {', '.join(risky)})"
+            risky_names = ", ".join(manifest_basenames(risky))
+            return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {risky_names})"
         if deny:
             return False, f"matches: {', '.join(deny)}"
         return True, "no deny categories matched"

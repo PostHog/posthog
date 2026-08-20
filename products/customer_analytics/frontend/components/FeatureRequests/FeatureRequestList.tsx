@@ -57,9 +57,9 @@ export function FeatureRequestList(): JSX.Element {
             ),
         },
         {
-            title: 'Account',
-            key: 'account',
-            render: (_, request) => request.account.name,
+            title: 'Accounts',
+            key: 'account_links',
+            render: (_, request) => request.account_links.map((link) => link.account.name).join(', '),
         },
         {
             title: 'Product areas',
