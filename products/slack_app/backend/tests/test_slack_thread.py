@@ -329,6 +329,38 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
         assert kwargs["text"].startswith(expected_text_start)
 
 
+class TestPostPrOpenedPersonalGithubHint(SimpleTestCase):
+    @parameterized.expand([("bot_authored", True, True), ("user_authored", False, False)])
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "_get_integration", return_value=Integration(team_id=7))
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_only_a_bot_authored_pr_asks_for_a_personal_github(
+        self,
+        _name: str,
+        bot_authored: bool,
+        expect_hint: bool,
+        mock_get_client,
+        _mock_get_integration,
+        _mock_delete_progress,
+    ):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(SlackThreadContext(integration_id=1, channel="C001", thread_ts="1.0"))
+
+        handler.post_pr_opened(
+            "https://github.com/org/repo/pull/1",
+            task_url=None,
+            bot_authored=bot_authored,
+        )
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        contexts = [b for b in blocks if b["type"] == "context"]
+        assert bool(contexts) is expect_hint
+        if expect_hint:
+            text = contexts[0]["elements"][0]["text"]
+            assert "/project/7/settings/user-personal-integrations|Connect your GitHub>" in text
+
+
 class TestReplyFooterGate(SimpleTestCase):
     def _handler(self, footer: RunFooter | None = None) -> SlackThreadHandler:
         context = SlackThreadContext(
