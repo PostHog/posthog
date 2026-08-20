@@ -111,10 +111,13 @@ export function useArtifactPreviewData({
       artifactId,
     ],
     queryFn: async () => {
-      const artifacts = await sessionService.getCloudRunArtifacts(
-        taskId,
-        runId,
-      );
+      // The parallel pair shares one in-flight manifest read; a reference
+      // artifact resolves to a null URL there without a presign, so checking
+      // its metadata after the pair costs no extra request.
+      const [artifacts, url] = await Promise.all([
+        sessionService.getCloudRunArtifacts(taskId, runId),
+        sessionService.getCloudAttachmentPreviewUrl(taskId, runId, artifactId),
+      ]);
       const artifact = artifacts.find(
         (candidate) => candidate.id === artifactId,
       );
@@ -127,11 +130,6 @@ export function useArtifactPreviewData({
           preview: { kind: "posthog-object", metadata: reference },
         };
       }
-      const url = await sessionService.getCloudAttachmentPreviewUrl(
-        taskId,
-        runId,
-        artifactId,
-      );
       if (!url) throw new Error("Artifact is unavailable");
       const response = await fetch(url);
       if (!response.ok) throw new Error("Artifact preview failed");

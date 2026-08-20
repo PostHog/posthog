@@ -290,7 +290,7 @@ describe("ArtifactPreview", () => {
     ).toBeUndefined();
   });
 
-  it("loads the manifest before requesting a file preview", async () => {
+  it("requests the manifest and the preview URL in parallel", async () => {
     let resolveArtifacts: (artifacts: unknown[]) => void = () => undefined;
     artifactMocks.getCloudRunArtifacts.mockReturnValue(
       new Promise((resolve) => {
@@ -311,7 +311,12 @@ describe("ArtifactPreview", () => {
     const queryFn = useQuery.mock.calls[0]?.[0]
       .queryFn as () => Promise<unknown>;
     const result = queryFn();
-    expect(artifactMocks.getCloudAttachmentPreviewUrl).not.toHaveBeenCalled();
+    // The URL request must not wait for the manifest to resolve.
+    expect(artifactMocks.getCloudAttachmentPreviewUrl).toHaveBeenCalledWith(
+      "task-1",
+      "run-1",
+      "artifact-1",
+    );
     resolveArtifacts([
       {
         id: "artifact-1",
@@ -321,14 +326,9 @@ describe("ArtifactPreview", () => {
       },
     ]);
     await expect(result).rejects.toThrow("Artifact is unavailable");
-    expect(artifactMocks.getCloudAttachmentPreviewUrl).toHaveBeenCalledWith(
-      "task-1",
-      "run-1",
-      "artifact-1",
-    );
   });
 
-  it("renders PostHog references without requesting a file preview", async () => {
+  it("renders PostHog references even when no preview URL exists", async () => {
     const metadata = {
       reference_type: "posthog_object",
       object_kind: "insight",
@@ -343,6 +343,8 @@ describe("ArtifactPreview", () => {
       metadata,
     };
     artifactMocks.getCloudRunArtifacts.mockResolvedValue([artifact]);
+    // A reference has no storage path, so the parallel URL read is a no-op.
+    artifactMocks.getCloudAttachmentPreviewUrl.mockResolvedValue(null);
 
     render(
       <ArtifactPreview
@@ -359,7 +361,6 @@ describe("ArtifactPreview", () => {
       artifacts: [artifact],
       preview: { kind: "posthog-object", metadata },
     });
-    expect(artifactMocks.getCloudAttachmentPreviewUrl).not.toHaveBeenCalled();
 
     useQuery.mockReturnValue({
       data: {
