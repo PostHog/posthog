@@ -1141,6 +1141,13 @@ class ErrorTrackingOrderBy(StrEnum):
     SESSIONS = "sessions"
 
 
+class ErrorTrackingQueryIssueSeverity(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 class EvaluationRuntime(StrEnum):
     HOG = "hog"
     LLM_JUDGE = "llm_judge"
@@ -2563,6 +2570,7 @@ class ExternalDataSourceType(StrEnum):
     PROFOUND = "Profound"
     AIRWALLEX = "Airwallex"
     POLYMARKET = "Polymarket"
+    KALSHI = "Kalshi"
 
 
 class ExternalQueryErrorCode(StrEnum):
