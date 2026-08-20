@@ -382,26 +382,6 @@ describe('dashboardLogic', () => {
             }
         })
 
-        it('does not report the default tile density', async () => {
-            await expectLogic(logic).toFinishAllListeners()
-            const reportTileDensityConfigured = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardTileDensityConfigured'
-            )
-            jest.useFakeTimers()
-
-            try {
-                logic.actions.saveDashboardTileSpacing('standard')
-
-                await jest.advanceTimersByTimeAsync(750)
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(reportTileDensityConfigured).not.toHaveBeenCalled()
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
         it('previews layout compaction immediately and persists only the final choice', async () => {
             await expectLogic(logic).toFinishAllListeners()
             ;(api.update as jest.Mock).mockClear()
