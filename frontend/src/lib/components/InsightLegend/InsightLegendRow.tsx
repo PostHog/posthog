@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
 import { getSeriesBackgroundColor } from 'lib/colors'
+import { captureLegendMenuAction } from 'lib/components/ChartLegendSeriesMenu/captureLegendMenuAction'
+import { ChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/ChartLegendSeriesMenu'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -16,8 +17,6 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType } from '~/types'
-
-import { InsightLegendRowContextMenu } from './InsightLegendRowContextMenu'
 
 type InsightLegendRowProps = {
     item: IndexedTrendResult
@@ -40,7 +39,6 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
         resultCustomizationBy,
         indexedResults,
         areAllSeriesVisible,
-        showLegendIsolateSeriesItem,
         legendSeriesIsolationMenuEligible,
         getIsOnlyVisibleSeriesInLegend,
     } = useValues(trendsDataLogic(insightProps))
@@ -127,29 +125,43 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
     }
 
     return (
-        <InsightLegendRowContextMenu
-            areAllSeriesVisible={areAllSeriesVisible}
-            showLegendIsolateSeriesItem={showLegendIsolateSeriesItem}
+        <ChartLegendSeriesMenu
+            seriesLabel={item.label}
+            seriesColor={mainColor}
             isHidden={isHidden}
-            isOnlyThisVisible={isOnlyThisVisible}
-            onToggleOtherSeries={() => {
-                posthog.capture('insight_legend_context_menu', {
+            isOnlyVisible={isOnlyThisVisible}
+            areAllVisible={areAllSeriesVisible}
+            canIsolate={legendSeriesIsolationMenuEligible}
+            showGestureHints={false}
+            onToggle={() => {
+                captureLegendMenuAction({
+                    action: isHidden ? 'show_series' : 'hide_series',
+                    source: 'toggle_row',
+                    surface: 'insight_legend_table',
+                    seriesCount: indexedResults.length,
+                })
+                toggleResultHidden(item)
+            }}
+            onIsolate={() => {
+                captureLegendMenuAction({
                     action: isOnlyThisVisible ? 'show_all_series' : 'hide_other_series',
                     source: 'isolate_row',
-                    series_count: indexedResults.length,
+                    surface: 'insight_legend_table',
+                    seriesCount: indexedResults.length,
                 })
                 toggleOtherSeriesHidden(item)
             }}
-            onToggleAllSeries={() => {
-                posthog.capture('insight_legend_context_menu', {
+            onToggleAll={() => {
+                captureLegendMenuAction({
                     action: areAllSeriesVisible ? 'hide_all_series' : 'show_all_series',
                     source: 'toggle_all_row',
-                    series_count: indexedResults.length,
+                    surface: 'insight_legend_table',
+                    seriesCount: indexedResults.length,
                 })
                 toggleAllResultsHidden(indexedResults, areAllSeriesVisible)
             }}
         >
             {row}
-        </InsightLegendRowContextMenu>
+        </ChartLegendSeriesMenu>
     )
 }

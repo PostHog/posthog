@@ -159,10 +159,7 @@ export type ConversationTaskApiJsonSchema = { [key: string]: unknown } | null
 /**
  * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
  * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
- * avoids presigning a log URL per conversation.
- *
- * Read access here follows the conversation (the share-by-link unit), not per-creator task
- * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
+ * avoids presigning a log URL per conversation. Task data follows the task's space visibility.
  */
 export interface ConversationTaskApi {
     id: string
@@ -928,6 +925,8 @@ export interface TicketMessageApi {
     readonly author_name: string
     /** True for internal notes not visible to the customer. */
     readonly is_private: boolean
+    /** Edit count. 0 means never edited. */
+    readonly version: number
     readonly created_at: string
 }
 
@@ -938,6 +937,24 @@ export interface PaginatedTicketMessageListApi {
     /** @nullable */
     previous?: string | null
     results: TicketMessageApi[]
+}
+
+/**
+ * Payload for updating a private note on a ticket.
+ */
+export interface PatchedTicketNoteUpdateRequestApi {
+    /**
+     * Updated note content in markdown.
+     * @maxLength 5000
+     */
+    message?: string
+    /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
+    rich_content?: unknown
+}
+
+export interface TicketErrorApi {
+    detail: string
+    error_type?: string
 }
 
 /**
@@ -1051,11 +1068,6 @@ export interface ComposeTicketResponseApi {
     id: string
     /** Human-readable ticket number. */
     ticket_number: number
-}
-
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
 }
 
 /**

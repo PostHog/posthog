@@ -151,6 +151,7 @@ const agentStubRouter = router({
         getLlmGatewayUrl(input.apiHost),
         input.region,
         accessToken,
+        auth.getState().currentProjectId ?? undefined,
       );
     }),
   // Model/mode/effort options for the task-input preview + cloud run creation

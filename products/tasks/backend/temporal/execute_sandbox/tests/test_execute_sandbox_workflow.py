@@ -738,6 +738,19 @@ class TestPersistSandboxId:
 
 
 class TestRun:
+    async def test_relay_detected_sandbox_loss_marks_sandbox_gone(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        execute_activity_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "execute_activity", execute_activity_mock)
+
+        await workflow._relay_sandbox_events(
+            StartAgentServerOutput(sandbox_url="https://sandbox.example", connect_token="token"),
+            "sandbox-123",
+        )
+
+        assert workflow._sandbox_gone is True
+
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()

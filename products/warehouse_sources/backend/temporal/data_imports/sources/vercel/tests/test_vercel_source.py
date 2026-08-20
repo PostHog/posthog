@@ -65,13 +65,30 @@ class TestVercelSource:
 
     def test_get_schemas_sync_capabilities_per_endpoint(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
-        assert set(schemas) == {"deployments", "projects", "teams", "domains", "aliases", "billing_charges"}
+        assert set(schemas) == {
+            "deployments",
+            "events",
+            "projects",
+            "teams",
+            "domains",
+            "aliases",
+            "check_runs",
+            "billing_charges",
+        }
 
         deployments = schemas["deployments"]
         assert deployments.supports_incremental is True
         assert deployments.supports_append is True
         assert [f["field"] for f in deployments.incremental_fields] == ["created"]
         assert deployments.incremental_fields[0]["field_type"] == IncrementalFieldType.Integer
+
+        # The activity stream cursors on the event's own creation time, which never changes, and
+        # supports append because events are immutable once emitted.
+        events = schemas["events"]
+        assert events.supports_incremental is True
+        assert events.supports_append is True
+        assert [f["field"] for f in events.incremental_fields] == ["createdAt"]
+        assert events.incremental_fields[0]["field_type"] == IncrementalFieldType.Integer
 
         # Billing supports incremental merge but not append (append would duplicate restated charges),
         # cursors on the charge period, and carries a lookback so restatements get re-read and merged.
@@ -82,7 +99,9 @@ class TestVercelSource:
         assert billing.incremental_fields[0]["field_type"] == IncrementalFieldType.DateTime
         assert billing.default_incremental_lookback_seconds == 60 * 60 * 24 * 35
 
-        for full_refresh in ("projects", "teams", "domains", "aliases"):
+        # check_runs is a full-refresh fan-out over deployments: Vercel documents no server-side time
+        # filter on the check-runs endpoint, so it re-fans every sync with no incremental cursor.
+        for full_refresh in ("projects", "teams", "domains", "aliases", "check_runs"):
             assert schemas[full_refresh].supports_incremental is False
             assert schemas[full_refresh].supports_append is False
             assert schemas[full_refresh].incremental_fields == []
@@ -92,7 +111,16 @@ class TestVercelSource:
         assert [s.name for s in schemas] == ["deployments"]
 
     @parameterized.expand(
-        [("valid", (True, None)), ("invalid", (False, "Invalid or unauthorized Vercel access token"))]
+        [
+            ("valid", (True, None)),
+            (
+                "invalid",
+                (
+                    False,
+                    "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel account settings, then reconnect.",
+                ),
+            ),
+        ]
     )
     def test_validate_credentials_delegates(self, _name: str, result: tuple) -> None:
         with mock.patch.object(vercel_source_module, "validate_vercel_credentials", lambda token: result):

@@ -96,20 +96,28 @@ export const MinHeightParent: Story = {
     render: () => renderTrendsPieChart(trendsPieBreakdownFixture, MinHeightStage),
 }
 
-export const BreakdownWithLabels: Story = {
-    render: () =>
-        renderTrendsPieChart({
-            ...trendsPieBreakdownFixture,
-            query: {
-                ...trendsPieBreakdownFixture.query,
-                source: {
-                    ...trendsPieBreakdownFixture.query.source,
-                    trendsFilter: {
-                        ...trendsPieBreakdownFixture.query.source.trendsFilter,
-                        showLabelOnSeries: true,
-                        showValuesOnSeries: true,
-                    },
-                },
+function renderBreakdownPieWithFilter(trendsFilter: Record<string, unknown>): JSX.Element {
+    return renderTrendsPieChart({
+        ...trendsPieBreakdownFixture,
+        query: {
+            ...trendsPieBreakdownFixture.query,
+            source: {
+                ...trendsPieBreakdownFixture.query.source,
+                trendsFilter: { ...trendsPieBreakdownFixture.query.source.trendsFilter, ...trendsFilter },
             },
+        },
+    })
+}
+
+export const BreakdownWithLabels: Story = {
+    render: () => renderBreakdownPieWithFilter({ showLabelsOnSeries: true, showValuesOnSeries: true }),
+}
+
+export const BreakdownWithValueAndPercentage: Story = {
+    render: () =>
+        renderBreakdownPieWithFilter({
+            showLabelsOnSeries: true,
+            showValuesOnSeries: true,
+            showPercentStackView: true,
         }),
 }

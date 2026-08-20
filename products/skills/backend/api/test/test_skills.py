@@ -152,6 +152,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("reserved_new", "new"),
             ("reserved_scouts", "scouts"),
             ("reserved_review_hog", "review-hog"),
+            ("reserved_community", "community"),
         ]
     )
     def test_create_skill_validates_name_format(self, _label, skill_name):
@@ -230,7 +231,7 @@ class TestLLMSkillAPI(APIBaseTest):
                 "name": "many-files-skill",
                 "description": "Has too many files.",
                 "body": "# Body",
-                "files": [{"path": f"file-{i}.txt", "content": "content"} for i in range(51)],
+                "files": [{"path": f"file-{i}.txt", "content": "content"} for i in range(201)],
             },
             format="json",
         )
@@ -478,6 +479,23 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["version"] == 2
         assert data["body"] == "# V2 - improved"
         assert data["is_latest"] is True
+
+    def test_publish_stores_version_description(self):
+        self.create_skill(name="described-skill", body="# V1")
+
+        response = self.client.patch(
+            self._url("name/described-skill"),
+            data={"body": "# V2", "base_version": 1, "version_description": "  Tightened the steps.  "},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version_description"] == "Tightened the steps."
+
+        resolve = self.client.get(self._url("resolve/name/described-skill"))
+        versions = resolve.json()["versions"]
+        assert versions[0]["version_description"] == "Tightened the steps."
+        assert versions[1]["version_description"] is None
 
     def test_publish_carries_forward_unchanged_fields(self):
         self.create_skill(
@@ -878,6 +896,28 @@ class TestLLMSkillAPI(APIBaseTest):
 
         copy_skill = LLMSkill.objects.get(name="the-copy", deleted=False)
         assert LLMSkillFile.objects.filter(skill=copy_skill).count() == 1
+
+    @parameterized.expand(
+        [
+            ("plain-name-copy", "", ""),
+            ("review-hog-perspective-my-lens", "", "review_hog"),
+            ("plain-copy-of-scout", "scout", ""),
+        ]
+    )
+    def test_duplicate_derives_category_from_new_name(
+        self, new_name: str, source_category: str, expected_category: str
+    ):
+        self.create_skill(name="category-source", category=source_category)
+
+        response = self.client.post(
+            self._url("name/category-source/duplicate"),
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["category"] == expected_category
+        assert LLMSkill.objects.get(name=new_name, deleted=False).category == expected_category
 
     def test_duplicate_to_existing_name_fails(self):
         self.create_skill(name="source")

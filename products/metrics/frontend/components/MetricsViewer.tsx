@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
     LemonButton,
@@ -16,7 +16,6 @@ import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboar
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
-import { AnyScaleOptions, Sparkline, SparklineMarker } from 'lib/components/Sparkline'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -40,9 +39,10 @@ import { traceUrl } from 'products/tracing/frontend/traceLinks'
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { MetricsChartLegend } from './MetricsChartLegend'
+import { type MetricsExemplar } from './MetricsExemplarMarkers'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
+import { MetricsSeriesChart } from './MetricsSeriesChart'
 import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { MetricStatPanel } from './MetricStatPanel'
@@ -111,6 +111,10 @@ const DATE_OPTIONS: DateMappingOption[] = [
         defaultInterval: 'day',
     },
 ]
+
+function renderLabel(label: string): string {
+    return dayjs(label).format('D MMM YYYY HH:mm:ss')
+}
 
 export const MetricsViewer = (): JSX.Element => {
     const logic = metricsViewerLogic()
@@ -181,13 +185,12 @@ export const MetricsViewer = (): JSX.Element => {
     // Traced emissions as clickable dots along the bottom of the chart — the
     // metric->trace pivot without opening the Samples tab. Skipped entirely when
     // the user can't view traces, so a dot never leads to a dead end.
-    const exemplarMarkers: SparklineMarker[] = useMemo(
+    const exemplarMarkers: MetricsExemplar[] = useMemo(
         () =>
             tracingDisabledReason
                 ? []
                 : traceExemplars.map((exemplar) => ({
-                      xValue: dayjs(exemplar.timestamp).valueOf(),
-                      color: 'primary',
+                      timeMs: dayjs(exemplar.timestamp).valueOf(),
                       onClick: () => {
                           exemplarDotClicked(!!exemplar.spanId)
                           router.actions.push(
@@ -221,48 +224,6 @@ export const MetricsViewer = (): JSX.Element => {
         [pickerItems, metricName]
     )
     const recommendedAggregation = selectedMetricType ? RECOMMENDED_AGGREGATION_BY_TYPE[selectedMetricType] : undefined
-
-    // Mirrors the format/timeUnit ladder LogsSparkline uses so the X-axis density
-    // matches the selected range.
-    const { timeUnit, tickFormat } = useMemo(() => {
-        if (!sparklineLabels.length) {
-            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm' }
-        }
-        const first = dayjs(sparklineLabels[0])
-        const last = dayjs(sparklineLabels[sparklineLabels.length - 1])
-        const hoursDiff = last.diff(first, 'hours')
-        if (hoursDiff <= 1) {
-            return { timeUnit: 'second' as const, tickFormat: 'HH:mm:ss' }
-        }
-        if (hoursDiff <= 6) {
-            return { timeUnit: 'minute' as const, tickFormat: 'HH:mm:ss' }
-        }
-        if (hoursDiff <= 48) {
-            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm' }
-        }
-        return { timeUnit: 'day' as const, tickFormat: 'D MMM HH:mm' }
-    }, [sparklineLabels])
-
-    const withXScale = useCallback(
-        (scale: AnyScaleOptions): AnyScaleOptions =>
-            ({
-                ...scale,
-                type: 'timeseries',
-                ticks: {
-                    display: true,
-                    maxRotation: 0,
-                    maxTicksLimit: 6,
-                    font: { size: 10, lineHeight: 1 },
-                    callback: function (value: string | number) {
-                        return dayjs(value).format(tickFormat)
-                    },
-                },
-                time: { unit: timeUnit },
-            }) as AnyScaleOptions,
-        [timeUnit, tickFormat]
-    )
-
-    const renderLabel = useCallback((label: string): string => dayjs(label).format('D MMM YYYY HH:mm:ss'), [])
 
     const hasResults = sparklineValues.length > 0
 
@@ -422,14 +383,10 @@ export const MetricsViewer = (): JSX.Element => {
                                 anomaly={anomalyBadge}
                             />
                         ) : hasResults ? (
-                            <Sparkline
-                                type="line"
-                                data={chartSeries}
-                                labels={sparklineLabels}
-                                className="w-full h-full"
-                                withXScale={withXScale}
-                                renderLabel={renderLabel}
-                                markers={exemplarMarkers}
+                            <MetricsSeriesChart
+                                series={chartSeries}
+                                fallbackName={metricName}
+                                exemplars={exemplarMarkers}
                             />
                         ) : !queryResultsLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">
@@ -438,7 +395,6 @@ export const MetricsViewer = (): JSX.Element => {
                         ) : null}
                         {queryResultsLoading && <SpinnerOverlay />}
                     </div>
-                    {viewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
                 </div>
                 {viewMode === 'chart' && hasMetricName && (
                     <div className="xl:w-[26rem] shrink-0 xl:max-h-[360px] flex flex-col">

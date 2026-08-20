@@ -490,6 +490,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -589,7 +590,10 @@
          "posthog_insightvariable"."code_name",
          "posthog_insightvariable"."type",
          "posthog_insightvariable"."default_value",
-         "posthog_insightvariable"."values"
+         "posthog_insightvariable"."values",
+         "posthog_insightvariable"."is_multi",
+         "posthog_insightvariable"."values_query",
+         "posthog_insightvariable"."values_query_connection_id"
   FROM "posthog_insightvariable"
   WHERE "posthog_insightvariable"."team_id" = 99999
   '''
@@ -624,6 +628,7 @@
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."quick_filter_ids",
+         "posthog_dashboard"."customization",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -733,6 +738,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -872,6 +878,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1012,6 +1019,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1064,6 +1072,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1094,7 +1103,8 @@
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -1141,6 +1151,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1379,7 +1390,8 @@
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
-         "posthog_taggeditem"."endpoint_id"
+         "posthog_taggeditem"."endpoint_id",
+         "posthog_taggeditem"."replay_scanner_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."insight_id" IN (1,
                                               2,
@@ -1402,6 +1414,7 @@
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
+         "posthog_taggeditem"."replay_scanner_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -1456,6 +1469,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1486,7 +1500,8 @@
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -1533,6 +1548,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1561,6 +1577,7 @@
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."quick_filter_ids",
+         "posthog_dashboard"."customization",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -1611,6 +1628,7 @@
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."quick_filter_ids",
+         "posthog_dashboard"."customization",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",

@@ -17,6 +17,17 @@ from .custom_property_value import CustomPropertyValue
 from .customer_journey import CustomerJourney
 from .customer_profile_config import CustomerProfileConfig
 from .event_stream import EventStream, EventStreamMember
+from .feature_request import (
+    FeatureRequest,
+    FeatureRequestAccountLink,
+    FeatureRequestHistory,
+    FeatureRequestHistorySource,
+    FeatureRequestPriority,
+    FeatureRequestProductArea,
+    FeatureRequestProductAreaLink,
+    FeatureRequestStatus,
+)
+from .meeting import Meeting, MeetingParticipant, MeetingResponseStatus, MeetingStatus
 from .relationship import AccountRelationship, AccountRelationshipDefinition
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
 
@@ -40,6 +51,18 @@ __all__ = [
     "DisplayType",
     "EventStream",
     "EventStreamMember",
+    "FeatureRequest",
+    "FeatureRequestAccountLink",
+    "FeatureRequestHistory",
+    "FeatureRequestHistorySource",
+    "FeatureRequestPriority",
+    "FeatureRequestProductArea",
+    "FeatureRequestProductAreaLink",
+    "FeatureRequestStatus",
+    "Meeting",
+    "MeetingParticipant",
+    "MeetingResponseStatus",
+    "MeetingStatus",
     "RelationshipDefinition",
     "SlackSummaryCadence",
     "SyncStatus",

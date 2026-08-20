@@ -3114,6 +3114,39 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    @parameterized.expand(
+        [
+            ("time_series_without_day", None, None),
+            ("total_value_with_day", "BoldNumber", "2026-07-01"),
+        ]
+    )
+    def test_creating_static_cohort_from_trends_actors_with_invalid_day_is_rejected(
+        self, _name: str, display: str | None, day: str | None
+    ) -> None:
+        trends_filter = {"display": display} if display else None
+        actors_source: dict[str, Any] = {
+            "kind": "InsightActorsQuery",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                **({"trendsFilter": trends_filter} if trends_filter else {}),
+            },
+            **({"day": day} if day else {}),
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "is_static": True,
+                "query": {
+                    "kind": "ActorsQuery",
+                    "select": ["person"],
+                    "source": actors_source,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_with_query_and_fields(self, patch_capture):
         _create_person(
@@ -6540,8 +6573,8 @@ class TestCohortTypeIntegration(APIBaseTest):
 
     def test_person_metadata_cohort_not_classified_realtime(self):
         """person_metadata cohorts must route to the non-realtime path: the realtime
-        precalculated_person_properties table only carries JSON-blob values, not top-level
-        persons-table columns, so HogQLRealtimeCohortQuery raises for them."""
+        evaluator's person scope exposes only person.id and person.properties, not
+        top-level persons-table columns."""
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",

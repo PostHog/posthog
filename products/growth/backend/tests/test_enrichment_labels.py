@@ -9,6 +9,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
+import openai
 from parameterized import parameterized
 
 from posthog.models.organization import Organization, OrganizationMembership
@@ -254,6 +255,83 @@ class TestConfigurableOutputFields(SimpleTestCase):
         client.chat.completions.create.return_value = response
 
         assert classify_payload(config, {"company": "Acme"}, None, client)["flag"] is True
+
+
+class TestCallAndParseRetryAllowlist(SimpleTestCase):
+    """The retry predicate is an allowlist, not a blacklist: a transient failure (connection
+    error, timeout, 429, 5xx) earns tenacity's 3 attempts; anything else — most importantly
+    AuthenticationError, which used to retry 3x under the old not-OutputParseError blacklist and
+    stack with the SDK's own retries on top — fails on the first attempt."""
+
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label",
+            version="test-v1",
+            prompt_text="judge it.",
+            model="gpt-5-mini",
+            input_fields=["company"],
+            output_fields=[{"key": "flag", "type": "boolean", "description": ""}],
+        )
+
+    @parameterized.expand(
+        [
+            ("connection_error", lambda: openai.APIConnectionError(request=MagicMock())),
+            ("timeout_error", lambda: openai.APITimeoutError(request=MagicMock())),
+            ("rate_limit", lambda: openai.RateLimitError(message="rate limited", response=MagicMock(), body={})),
+            (
+                "server_error",
+                lambda: openai.InternalServerError(message="upstream boom", response=MagicMock(), body={}),
+            ),
+        ]
+    )
+    def test_transient_failures_are_retried_to_the_full_attempt_budget(self, _name, make_error):
+        config = self._config()
+        client = MagicMock()
+        error = make_error()
+        client.chat.completions.create.side_effect = error
+
+        with patch("tenacity.nap.time.sleep"), self.assertRaises(type(error)):
+            classify_payload(config, {"company": "Acme"}, None, client)
+
+        assert client.chat.completions.create.call_count == 3
+
+    @parameterized.expand(
+        [
+            (
+                "authentication_error",
+                lambda: openai.AuthenticationError(message="bad key", response=MagicMock(), body={}),
+            ),
+            ("bad_request", lambda: openai.BadRequestError(message="bad request", response=MagicMock(), body={})),
+            ("permission_denied", lambda: openai.PermissionDeniedError(message="nope", response=MagicMock(), body={})),
+            ("unrelated_bug", lambda: RuntimeError("unexpected")),
+        ]
+    )
+    def test_non_transient_failures_are_not_retried(self, _name, make_error):
+        config = self._config()
+        client = MagicMock()
+        error = make_error()
+        client.chat.completions.create.side_effect = error
+
+        with patch("tenacity.nap.time.sleep"), self.assertRaises(type(error)):
+            classify_payload(config, {"company": "Acme"}, None, client)
+
+        assert client.chat.completions.create.call_count == 1
+
+    def test_a_transient_failure_that_then_succeeds_is_billed_for_exactly_two_calls(self):
+        config = self._config()
+        client = MagicMock()
+        good_response = MagicMock()
+        good_response.choices[0].message.content = json.dumps({"flag": True})
+        client.chat.completions.create.side_effect = [
+            openai.RateLimitError(message="rate limited", response=MagicMock(), body={}),
+            good_response,
+        ]
+
+        with patch("tenacity.nap.time.sleep"):
+            result = classify_payload(config, {"company": "Acme"}, None, client)
+
+        assert result["flag"] is True
+        assert client.chat.completions.create.call_count == 2
 
 
 class TestEnrichmentLabelBatch(BaseTest):

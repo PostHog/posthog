@@ -7,9 +7,13 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from django.utils import timezone
 
+from celery.exceptions import Retry
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks.calculate_cohort import (
     COHORT_STUCK_COUNT_GAUGE,
     COHORTS_STALE_COUNT_GAUGE,
@@ -25,6 +29,7 @@ from posthog.tasks.calculate_cohort import (
     trigger_cohort_backfill_run_task,
     update_cohort_metrics,
 )
+from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
 from products.cohorts.backend.models.cohort import Cohort, CohortType
@@ -1262,6 +1267,39 @@ class TestCohortCalculationTasks(APIBaseTest):
             self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
             self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
 
+    @parameterized.expand(
+        [
+            # (exception raised, expected capture_exception call count)
+            ("system_error", Exception("Simulated query processing error"), 1),
+            ("user_query_error", QueryError("Unable to resolve field: distinct_ids"), 0),
+        ]
+    )
+    def test_insert_cohort_from_query_only_captures_system_errors(
+        self, _name: str, raised: Exception, expected_capture_calls: int
+    ) -> None:
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="test_query_cohort",
+            is_static=True,
+            count=0,
+            query={"kind": "HogQLQuery", "query": "SELECT distinct_ids FROM persons LIMIT 10"},
+        )
+
+        with (
+            patch("products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch") as mock_insert_ch,
+            patch("posthog.tasks.calculate_cohort.capture_exception") as mock_capture,
+        ):
+            mock_insert_ch.side_effect = raised
+
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+            self.assertEqual(mock_capture.call_count, expected_capture_calls)
+            cohort.refresh_from_db()
+            self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
+            self.assertGreater(cohort.errors_calculating, 0, "Failure should be recorded regardless of error type")
+
     def test_insert_cohort_from_filters_count_updated_on_exception(self) -> None:
         cohort = Cohort.objects.create(
             team_id=self.team.pk,
@@ -1398,3 +1436,87 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort_b.refresh_from_db()
         self.assertFalse(cohort_a.is_calculating)
         self.assertFalse(cohort_b.is_calculating)
+
+
+class TestCalculateCohortFromListRetries(APIBaseTest):
+    def _create_static_cohort(self) -> Cohort:
+        # Mirrors the enqueue site, which flips is_calculating before dispatching the task.
+        return Cohort.objects.create(
+            team_id=self.team.pk,
+            name="csv_upload_cohort",
+            is_static=True,
+            is_calculating=True,
+        )
+
+    def _run_task(self, cohort: Cohort, *, retries: int, called_directly: bool) -> None:
+        task = calculate_cohort_from_list
+        task.push_request(retries=retries, called_directly=called_directly, is_eager=True)
+        try:
+            task.run(cohort.id, ["user123"], team_id=self.team.id, id_type="distinct_id")
+        finally:
+            task.pop_request()
+
+    @parameterized.expand(
+        [
+            ("retries_exhausted", ClickHouseAtCapacity, calculate_cohort_from_list.max_retries, False),
+            ("called_directly", ClickHouseAtCapacity, 0, True),
+            ("not_retryable", ValueError, 0, False),
+        ]
+    )
+    @patch("products.cohorts.backend.models.util.insert_static_cohort")
+    def test_records_failure_when_nothing_will_retry(
+        self,
+        _name: str,
+        error_class: type[Exception],
+        retries: int,
+        called_directly: bool,
+        mock_insert_ch: MagicMock,
+    ) -> None:
+        # raise_on_error hands terminal-state finalization to the task, so whenever no retry
+        # follows, the task itself has to clear is_calculating and bump errors_calculating.
+        # Otherwise the cohort is stranded looking in-flight forever with no recorded error.
+        mock_insert_ch.side_effect = error_class("boom")
+        create_person(team=self.team, distinct_ids=["user123"])
+        cohort = self._create_static_cohort()
+
+        with self.assertRaises(error_class):
+            self._run_task(cohort, retries=retries, called_directly=called_directly)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        self.assertIsNotNone(cohort.last_error_at)
+
+    @patch("products.cohorts.backend.models.util.insert_static_cohort")
+    def test_leaves_state_untouched_while_retries_remain(self, mock_insert_ch: MagicMock) -> None:
+        # A transient failure with attempts left belongs to the pending autoretry, so recording it
+        # now would show a cohort that is still being retried as errored and no longer calculating.
+        # Celery raising Retry rather than the original error is what confirms one was scheduled.
+        mock_insert_ch.side_effect = ClickHouseAtCapacity()
+        create_person(team=self.team, distinct_ids=["user123"])
+        cohort = self._create_static_cohort()
+
+        with self.assertRaises(Retry):
+            self._run_task(cohort, retries=0, called_directly=False)
+
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
+
+    @patch("products.cohorts.backend.models.util.insert_static_cohort")
+    def test_retry_after_transient_failure_completes_the_cohort(self, mock_insert_ch: MagicMock) -> None:
+        # What the retry buys: the attempt that follows a capacity blip populates every member and
+        # finalizes clean state, and re-running the whole list adds no duplicate members.
+        mock_insert_ch.side_effect = [ClickHouseAtCapacity(), None]
+        create_person(team=self.team, distinct_ids=["user123"])
+        cohort = self._create_static_cohort()
+
+        with self.assertRaises(Retry):
+            self._run_task(cohort, retries=0, called_directly=False)
+
+        self._run_task(cohort, retries=1, called_directly=False)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)

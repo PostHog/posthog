@@ -190,6 +190,10 @@ def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
     ``InterfaceError`` on first use. Evict the dead connection and retry once; a second
     failure propagates, left to the caller's retry posture.
 
+    The single retry leans on the activity's outer Temporal retry policy. Code without
+    one (e.g. a Celery task) needs multi-attempt backoff instead; see
+    ``posthog.storage.hypercache_verifier._fetch_team_batch``.
+
     Pass a zero-arg callable that *produces* the result, so the retry can issue a fresh
     query:
 

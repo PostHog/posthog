@@ -27,6 +27,7 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
@@ -102,12 +103,16 @@ export function TrendsLineChart({
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
-    const labels = currentPeriodResult?.labels ?? []
+    // The chart keys x positions off these strings, so they must be unique per point. The
+    // backend's display labels are not: week and hour labels omit the year, so a multi-year
+    // range repeats them and every repeated point snaps back to the first occurrence's x,
+    // drawing the line backwards. Pass the ISO days instead; the interval-aware tick and
+    // tooltip formatters already render display text from them. Stickiness x values are
+    // interval counts rather than dates, so it keeps its (already unique) labels.
+    const days = currentPeriodResult?.days
+    const labels = (!isStickiness && days?.length ? days : currentPeriodResult?.labels) ?? []
 
-    const hasData =
-        indexedResults &&
-        indexedResults[0]?.data &&
-        indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
+    const hasData = hasTrendsChartData(indexedResults)
 
     const valueLabelFormatter = useCallback(
         (value: number) => {
@@ -137,8 +142,7 @@ export function TrendsLineChart({
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
     // The persons modal is intentionally unavailable for multi-series formulas (there's no
-    // single series of actors behind a computed ratio), so surface that instead of leaving
-    // the chart looking interactive with no explanation. On dashboard/card tiles a click
+    // single series of actors behind a computed ratio). On dashboard/card tiles a click
     // instead opens the underlying insight, since there's nowhere else for the click to go.
     const isFormulaDrillDownDisabled = !canHandleClick && isMultiSeriesFormula(formula)
     const canNavigateToInsight = embedded && !inSharedMode && isFormulaDrillDownDisabled && !!insight.short_id
@@ -151,11 +155,8 @@ export function TrendsLineChart({
         router.actions.push(urls.insightView(insight.short_id, insightProps.dashboardId))
     }, [insight.short_id, insightProps.dashboardId])
 
-    const noDrillDownFooter = isFormulaDrillDownDisabled
-        ? canNavigateToInsight
-            ? "Drill-down isn't available for formula insights. Click to view the insight."
-            : "Drill-down isn't available for formula insights"
-        : undefined
+    // The default footer offers persons, which isn't where this click goes.
+    const viewInsightFooter = canNavigateToInsight ? 'Click to view the insight' : undefined
 
     const clickDeps = useMemo(
         () => ({
@@ -220,7 +221,7 @@ export function TrendsLineChart({
                 groupTypeLabel: resolvedGroupTypeLabel,
                 formatCompareLabel: context?.formatCompareLabel,
                 onRowClick,
-                footerOverride: noDrillDownFooter,
+                footerOverride: viewInsightFooter,
             }
             return <InsightSeriesTooltip {...tooltipProps} />
         },
@@ -239,7 +240,7 @@ export function TrendsLineChart({
             canHandlePointInteraction,
             canHandleClick,
             navigateToInsight,
-            noDrillDownFooter,
+            viewInsightFooter,
             clickDeps,
         ]
     )
@@ -283,6 +284,9 @@ export function TrendsLineChart({
                 allDays: currentPeriodResult?.days ?? [],
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
+                yAxisStartAtZero: trendsFilter?.yAxisStartAtZero,
+                yAxisMin: trendsFilter?.yAxisMin,
+                yAxisMax: trendsFilter?.yAxisMax,
                 goalLines,
                 incompletenessOffsetFromEnd,
                 getHidden: getTrendsHidden,

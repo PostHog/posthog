@@ -36,6 +36,16 @@ SCOPE_CHOICES = [
     ("shared", "Shared"),
 ]
 
+# How far an agent grant reaches. "personal" applies only to runs whose
+# credential owner is the granting member; "team" lets any of the team's agent
+# runs borrow that member's credential, including runs with no owner at all
+# (autonomous support replies, scout runs). It never lets another human
+# use the credential.
+AGENT_GRANT_SCOPE_CHOICES = [
+    ("personal", "Personal"),
+    ("team", "Team"),
+]
+
 SERVICE_ACCOUNT_STATUS_CHOICES = [
     ("active", "Active"),
     ("paused", "Paused"),
@@ -167,6 +177,9 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
     is_enabled = models.BooleanField(default=True)
+    # Deprecated: "shared" let teammates borrow one member's credential, which is being
+    # removed in favor of per-member connections plus agent grants. The column drop is a
+    # follow-up.
     # db_default keeps a real Postgres DEFAULT so inserts from code predating
     # this column (old pods during a rolling deploy) don't hit the NOT NULL.
     scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default="personal", db_default="personal")
@@ -382,11 +395,31 @@ class MCPServiceAccount(TeamScopedRootMixin, UUIDModel):
 
 
 class MCPServiceAccountServerAccess(TeamScopedRootMixin, UUIDModel):
-    """Grant row: this agent may call this gateway server using one credential."""
+    """Grant row: this agent may call this gateway server using one person's
+    credential, and only while acting on behalf of that person."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     service_account = models.ForeignKey(MCPServiceAccount, on_delete=models.CASCADE, related_name="server_access")
     gateway_server = models.ForeignKey(MCPGatewayServer, on_delete=models.CASCADE, related_name="agent_access")
+    # The person the grant belongs to. An agent run mounts a grant only when
+    # this user is the run's credential owner, so one member's connection never
+    # backs another member's agent run.
+    #
+    # Nullable only for the rolling deploy: pods running the previous release
+    # write grants without this column, so a NOT NULL constraint would make
+    # their inserts fail mid-deploy. Every read path filters on an explicit user
+    # id or excludes user__isnull=True, so a transient null row resolves
+    # nowhere. NOT NULL is deferred to a follow-up once no deployed code writes
+    # grants without a user.
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False, null=True)
+    # Who the grant reaches (see AGENT_GRANT_SCOPE_CHOICES). Deliberately not part of any
+    # uniqueness constraint: several members may each team-share the same (agent, server),
+    # and every one of those credentials mounts side by side for a run that has none of its
+    # own. db_default keeps a real Postgres DEFAULT so grant inserts from pods running the
+    # previous release don't hit the NOT NULL mid-deploy.
+    scope = models.CharField(
+        max_length=20, choices=AGENT_GRANT_SCOPE_CHOICES, default="personal", db_default="personal"
+    )
     # Null preserves the grant when its exact credential is deleted, so the UI
     # can surface that the agent needs a new connection.
     installation = models.ForeignKey(
@@ -411,7 +444,10 @@ class MCPServiceAccountServerAccess(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "mcp_store_mcpserviceaccountserveraccess"
         constraints = [
-            models.UniqueConstraint(fields=["service_account", "gateway_server"], name="uniq_agent_server_access"),
+            models.UniqueConstraint(
+                fields=["service_account", "gateway_server", "user"],
+                name="uniq_agent_server_access_per_user",
+            ),
         ]
 
 
@@ -487,6 +523,26 @@ class MCPAuditEvent(TeamScopedRootMixin, UUIDModel):
         MCPServiceAccount, on_delete=models.SET_NULL, null=True, blank=True, related_name="audit_events"
     )
     actor_label = models.CharField(max_length=254, blank=True, default="")
+    # Whose credential an agent call rode, and under which grant scope. Without these,
+    # a team-scoped grant makes "which member's connection did this agent use"
+    # unanswerable after the fact. Both stay empty for member calls.
+    # db_index=False: nothing filters the trail by credential owner, and building an
+    # index on an existing audit table would lock it for the length of the build.
+    # DO_NOTHING with db_constraint=False because the alternatives both cost more than
+    # the dangling id does: SET_NULL would make every user deletion (SCIM
+    # deprovisioning included) seq-scan and rewrite this whole unindexed table, and it
+    # would erase the attribution the column exists to preserve. Read paths render a
+    # deleted owner as absent, and actor_label keeps the denormalized identity.
+    credential_owner = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    grant_scope = models.CharField(max_length=20, blank=True, default="", db_default="")
     server_name = models.CharField(max_length=200, blank=True, default="")
     tool_name = models.CharField(max_length=200, blank=True, default="")
     decision = models.CharField(max_length=20, choices=AUDIT_DECISION_CHOICES)

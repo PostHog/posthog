@@ -1,4 +1,5 @@
 import uuid
+import socket
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -32,13 +33,26 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
+    batch_max_seq,
+    has_engine_seq,
+    is_cdc_write_resolution_enabled,
+    persist_load_position,
+    read_load_position,
+    resolve_batch,
+    verify_delete_enrichment,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     run_post_load_operations,
     supports_partial_data_loading,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    SchemaColumnTypeChangedException,
     evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
+    maybe_schedule_auto_widen_resync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
@@ -54,19 +68,21 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import (
-    ExportSignalMessage,
-    SyncTypeLiteral,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
     is_batch_already_processed,
     mark_batch_as_processed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL,
+    CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
     DELTA_ROWS_WRITTEN_TOTAL,
     DELTA_WRITE_DURATION_SECONDS,
     IDEMPOTENCY_HIT_TOTAL,
     PARQUET_READ_DURATION_SECONDS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
+    ExportSignalMessage,
+    SyncTypeLiteral,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -74,6 +90,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import workload_reporting
 
 logger = structlog.get_logger(__name__)
 
@@ -117,6 +134,8 @@ def _enrich_cdc_rows(
     cdc_write_mode: str | None,
     existing_delta_table: deltalake.DeltaTable | None,
     batch_index: int,
+    verify_deletes: bool = False,
+    team_id: str = "",
 ) -> pa.Table:
     """Cross-batch CDC enrichment against the existing DeltaLake state.
 
@@ -192,10 +211,58 @@ def _enrich_cdc_rows(
                 pa_table = enrich_toast_omitted_rows(pa_table, primary_keys, existing_rows)
                 pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
 
+                # Only place the previous state is still in hand to compare against.
+                if verify_deletes and delete_key_set:
+                    report = verify_delete_enrichment(pa_table, present_pks, existing_rows)
+                    if not report.ok:
+                        CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL.labels(team_id=team_id).inc(
+                            report.rows_with_nulled_columns
+                        )
+                        logger.warning(
+                            "cdc_delete_enrichment_violation",
+                            delete_rows_checked=report.delete_rows_checked,
+                            rows_with_nulled_columns=report.rows_with_nulled_columns,
+                            columns=list(report.columns),
+                            cdc_write_mode=cdc_write_mode,
+                            batch_index=batch_index,
+                        )
+
     if TOAST_OMITTED_COLUMN in pa_table.column_names:
         pa_table = pa_table.drop_columns([TOAST_OMITTED_COLUMN])
 
     return pa_table
+
+
+def _resolve_cdc_positions(
+    pa_table: pa.Table,
+    *,
+    sync_type_config: dict | None,
+    resource_name: str,
+    primary_keys: list[str],
+    cdc_write_mode: str | None,
+    team_id: str,
+) -> tuple[pa.Table, int | None]:
+    """Drop rows this lane's table has already applied.
+
+    Returns the batch and the position to record, which the caller persists only once the write
+    commits — a position ahead of the table would skip rows that never landed.
+    """
+    if not has_engine_seq(pa_table):
+        return pa_table, None
+
+    watermark = read_load_position(sync_type_config, resource_name)
+
+    pa_table, stats = resolve_batch(
+        pa_table,
+        primary_keys,
+        watermark=watermark,
+        cdc_write_mode=cdc_write_mode,
+    )
+    for reason, dropped in (("superseded", stats.superseded), ("duplicate_key", stats.duplicate_key)):
+        if dropped:
+            CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason=reason).inc(dropped)
+
+    return pa_table, batch_max_seq(pa_table)
 
 
 def _apply_partitioning(
@@ -234,23 +301,23 @@ def _apply_partitioning(
     )
 
     if partition_result is not None:
-        pa_table, partition_mode, partition_format, updated_partition_keys = partition_result
+        pa_table = partition_result.table
 
         if (
             not schema.partitioning_enabled
-            or schema.partition_mode != partition_mode
-            or schema.partition_format != partition_format
-            or schema.partitioning_keys != updated_partition_keys
+            or schema.partition_mode != partition_result.partition_mode
+            or schema.partition_format != partition_result.partition_format
+            or schema.partitioning_keys != partition_result.partition_keys
         ):
             logger.debug(
-                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={export_signal.partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
+                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={export_signal.partition_count}. partition_mode={partition_result.partition_mode}. partition_format={partition_result.partition_format}"
             )
             schema.set_partitioning_enabled(
-                updated_partition_keys,
+                partition_result.partition_keys,
                 export_signal.partition_count,
                 export_signal.partition_size,
-                partition_mode,
-                partition_format,
+                partition_result.partition_mode,
+                partition_result.partition_format,
             )
 
     return pa_table
@@ -379,6 +446,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             table_schema_dict=table_schema_dict,
             resource_name=export_signal.resource_name,
             logger=logger,
+            cdc_write_mode=export_signal.cdc_write_mode,
         )
 
         logger.debug("post_load_operations_complete_for_already_processed_batch")
@@ -510,8 +578,6 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
                 id=build_register_data_imports_workflow_id(
                     team_id=export_signal.team_id,
                     schema_id=export_signal.schema_id,
-                    job_id=export_signal.job_id,
-                    prepared_queryable_folder=prepared_queryable_folder,
                 ),
                 task_queue=settings.DUCKLAKE_TASK_QUEUE,
             )
@@ -524,8 +590,8 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
             external_data_job_id=export_signal.job_id,
         )
     except WorkflowAlreadyStartedError:
-        # The id is scoped to this prepared generation, so a collision means this exact
-        # generation is already being registered and dropping the duplicate is correct.
+        # The id is one per schema, so a collision means a register is already
+        # in flight. The next import after that run finishes can start.
         logger.info(
             "ducklake_registration_workflow_already_started",
             team_id=export_signal.team_id,
@@ -675,6 +741,25 @@ def process_message(
     re-checked before each lasting side effect since the heartbeat only detects loss between beats."""
     export_signal = ExportSignalMessage.from_dict(message)
 
+    # The consumer is where v3 merges — the memory-heavy phase — actually run, so it must self-report
+    # like the import activity does. Its own span key: extract (activity) and load (here) run
+    # concurrently for the same job and must not clobber each other's reports.
+    with workload_reporting(
+        team_id=export_signal.team_id,
+        schema_id=str(export_signal.schema_id),
+        run_id=f"{export_signal.job_id}:load",
+        host=socket.gethostname(),
+        initial_phase="load",
+    ):
+        _process_message_reported(message, export_signal, progress_callback, verify_ownership)
+
+
+def _process_message_reported(
+    message: Any,
+    export_signal: "ExportSignalMessage",
+    progress_callback: Callable[[], None] | None,
+    verify_ownership: Callable[[], None] | None,
+) -> None:
     # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
     close_old_connections()
 
@@ -786,16 +871,43 @@ def process_message(
             "batch_index": str(export_signal.batch_index),
         }
 
+        resolution_enabled = cdc_write_mode is not None and is_cdc_write_resolution_enabled(
+            export_signal.team_id, schema_id_str, export_signal.run_uuid
+        )
+
         pa_table = _enrich_cdc_rows(
             pa_table,
             primary_keys=primary_keys,
             cdc_write_mode=cdc_write_mode,
             existing_delta_table=existing_delta_table,
             batch_index=export_signal.batch_index,
+            verify_deletes=resolution_enabled,
+            team_id=team_id_str,
         )
 
+        pending_load_position: int | None = None
+        if resolution_enabled:
+            pa_table, pending_load_position = _resolve_cdc_positions(
+                pa_table,
+                sync_type_config=schema.sync_type_config,
+                resource_name=export_signal.resource_name,
+                primary_keys=primary_keys or [],
+                cdc_write_mode=cdc_write_mode,
+                team_id=team_id_str,
+            )
+
         if existing_delta_table is not None:
-            pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
+            try:
+                pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
+            except SchemaColumnTypeChangedException as e:
+                # A safe numeric widening is mechanically recoverable: stamp reset_pipeline so the
+                # next scheduled sync resets and re-syncs the table, and reword the failure so
+                # latest_error stops telling the customer to reset manually. Unsafe transitions
+                # (and everything with the flag off) re-raise unchanged.
+                amended_message = maybe_schedule_auto_widen_resync(schema=schema, job=job, error=e)
+                if amended_message is not None:
+                    e.args = (amended_message,)
+                raise
 
         if verify_ownership is not None:
             verify_ownership()
@@ -848,6 +960,16 @@ def process_message(
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
+        if pending_load_position is not None:
+            # Best-effort: failing here would fail a batch that is already written, and the cost of
+            # losing the position is re-applying rows next time, which is a no-op.
+            try:
+                persist_load_position(
+                    schema.id, export_signal.team_id, export_signal.resource_name, pending_load_position
+                )
+            except Exception:  # noqa: BLE001 - bookkeeping must never fail a committed write
+                logger.warning("cdc_load_position_persist_failed", exc_info=True)
+
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
         # all batches, then overlay the current batch for JSON detection.
@@ -860,7 +982,6 @@ def process_message(
             file_count=len(delta_table.file_uris()),
         )
 
-        # Handle partial data loading for first-ever sync
         async_to_sync(_handle_partial_data_loading)(
             export_signal=export_signal,
             job=job,

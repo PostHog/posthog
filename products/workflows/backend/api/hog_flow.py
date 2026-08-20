@@ -5,8 +5,10 @@ import hashlib
 import dataclasses
 from copy import deepcopy
 from datetime import timedelta
-from typing import Any, Optional, cast
+from time import monotonic
+from typing import Any, NamedTuple, Optional, cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -32,13 +34,20 @@ from posthog.schema import ProductKey
 
 from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.hog_invocation_cancel import (
+    HogInvocationCancelRequestSerializer,
+    HogInvocationCancelResponseSerializer,
+)
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.hog_invocation_results import (
     HogInvocationResultDetailSerializer,
+    HogInvocationResultsCountSerializer,
     HogInvocationResultSerializer,
+    HogInvocationResultsFiltersSerializer,
     HogInvocationResultsRequestSerializer,
     fetch_hog_invocation_result,
     fetch_hog_invocation_results,
+    fetch_hog_invocation_results_count,
     tag_invocation_results_query,
 )
 from posthog.api.log_entries import LogEntryMixin
@@ -58,6 +67,8 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
+    cancel_hog_flow_batch_job,
+    cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
     get_hog_flow_in_flight_count,
@@ -80,12 +91,16 @@ from products.feature_flags.backend.user_blast_radius import (
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
+from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
-from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
+from products.workflows.backend.api.hog_flow_batch_job import (
+    HogFlowBatchJobCancelResponseSerializer,
+    HogFlowBatchJobSerializer,
+)
 from products.workflows.backend.api.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
@@ -132,9 +147,23 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 
 logger = structlog.get_logger(__name__)
 
-# Delay durations are strings like "30m", "2h", "1.5d". Must match the regex in the Node.js executor
-# (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
-DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
+# Delay durations are strings like "30s", "30m", "2h", "1.5d". Must match the regex in the Node.js
+# executor (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
+# wait_until_condition's max_wait_duration reaches the same parser via conditional_branch.ts, so it
+# is held to the same format.
+DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhms]$")
+
+
+def _is_valid_duration(value: Any) -> bool:
+    return isinstance(value, str) and bool(DELAY_DURATION_REGEX.match(value))
+
+
+def _duration_error(field: str) -> str:
+    return (
+        f"{field} must be a string matching ^\\d*\\.?\\d+[dhms]$ "
+        "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
+    )
+
 
 # The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
 # else. Metadata (name, description) and lifecycle (status) always apply to the live row. The draft
@@ -307,12 +336,47 @@ def partition_flow_secrets(
     return stripped, encrypted
 
 
+def plaintext_secret_map(actions: Any, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
+    # The secret inputs still sitting in plaintext inside an actions blob, as an {action_id: {key:
+    # value}} map. Non-empty only for legacy rows written before encryption shipped - the recovery
+    # base that lets a masked re-save migrate their secrets instead of wiping them.
+    if not isinstance(actions, list):
+        return {}
+    return partition_flow_secrets(actions, template_cache)[1]
+
+
+def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
+    # Every stored secret a masked re-save may need to recover, later sources winning: legacy
+    # plaintext (live, then draft), then the encrypted live map, then the encrypted draft map.
+    result = plaintext_secret_map(instance.actions, template_cache)
+    result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
+    result = merge_secret_maps(result, instance.encrypted_inputs)
+    return merge_secret_maps(result, instance.draft_encrypted_inputs)
+
+
 def merge_secret_maps(base: Optional[dict], overlay: Optional[dict]) -> dict[str, dict]:
     # Per-action, per-key merge of two {action_id: {key: value}} maps; overlay wins on conflicts.
     result: dict[str, dict] = {action_id: dict(values) for action_id, values in (base or {}).items()}
     for action_id, values in (overlay or {}).items():
         result[action_id] = {**result.get(action_id, {}), **values}
     return result
+
+
+def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> None:
+    # A lenient (web draft) save keeps the raw inputs when validation fails. A {"secret": true}
+    # read-back marker in that raw payload must never persist as a stored value - the worker would
+    # treat the marker object as the real input (e.g. compare it against a webhook's auth header and
+    # reject every request). Swap it for the stored secret, or drop the key when there is none.
+    if not isinstance(inputs, dict):
+        return
+    for key in secret_keys:
+        value = inputs.get(key)
+        if isinstance(value, dict) and value.get("secret") and "value" not in value:
+            stored = existing.get(key)
+            if stored:
+                inputs[key] = stored
+            else:
+                inputs.pop(key, None)
 
 
 def mask_secret_action_inputs(
@@ -460,6 +524,28 @@ _FIXED_TEMPLATE_IDS = {
 }
 
 
+class _TriggerSourceTemplate(NamedTuple):
+    template_id: str
+    event: str
+    distinct_id: str
+
+
+# Non-event trigger types are each backed by one fixed built-in "source" template. These live outside
+# the destination template catalog (cdp-function-templates-list is type=destination), so callers told to
+# "discover the template like a function node" never find them and loop on a bare "Template not found".
+# Name the exact literal instead, along with the event/distinct_id inputs that template needs: the
+# request reaching it differs per trigger type, and a webhook-shaped mapping on the other two saves
+# fine and only fails once triggered (manual 400s every run; a pixel silently drops the hit and still
+# returns its 200 GIF), which just moves the authoring loop one step later.
+_FIXED_TRIGGER_TEMPLATES = {
+    "webhook": _TriggerSourceTemplate("template-source-webhook", "{request.body.event}", "{request.body.distinct_id}"),
+    "manual": _TriggerSourceTemplate("template-source-webhook", "$workflow_triggered", "{request.body.user_id}"),
+    "tracking_pixel": _TriggerSourceTemplate(
+        "template-source-webhook-pixel", "{request.query.ph_event}", "{request.query.ph_distinct_id}"
+    ),
+}
+
+
 def _looks_like_uuid(value: str) -> bool:
     try:
         uuid_mod.UUID(value)
@@ -468,7 +554,149 @@ def _looks_like_uuid(value: str) -> bool:
         return False
 
 
+def _parse_uuid_or_none(value: Any) -> Optional[uuid_mod.UUID]:
+    try:
+        return uuid_mod.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: str) -> str:
+    """template_id on fixed-template steps is fully determined by the step type, so infer it when
+    omitted instead of rejecting for leaving out a constant, and move a UUID-shaped value (a saved
+    library template reference, the dominant authoring mistake) into config.template_uuid where it
+    belongs. Returns the template_id the step should resolve."""
+    if not template_id:
+        config["template_id"] = fixed_template_id
+        return fixed_template_id
+    if template_id == fixed_template_id:
+        return template_id
+    library_uuid = _parse_uuid_or_none(template_id)
+    if library_uuid is None:
+        return template_id
+    if config.get("template_uuid") and _parse_uuid_or_none(config["template_uuid"]) != library_uuid:
+        raise serializers.ValidationError(
+            {
+                "template_id": (
+                    f"Ambiguous template reference: template_id holds UUID '{template_id}' but "
+                    f"config.template_uuid is already '{config['template_uuid']}'. Set template_id "
+                    f"to the literal '{fixed_template_id}' and keep the saved template's UUID in "
+                    "config.template_uuid."
+                )
+            }
+        )
+    # Persist the canonical hyphenated form: uuid.UUID also accepts 32-hex, braced, and URN
+    # forms, but the CDP worker validates function_push's template_uuid with a strict UUID
+    # schema, so a non-canonical form would save fine and then fail the worker's parse.
+    config["template_uuid"] = str(library_uuid)
+    config["template_id"] = fixed_template_id
+    return fixed_template_id
+
+
+# Email-body keys a saved library template can supply. `from`/`to` are deliberately absent:
+# sender identity and the recipient expression are step-level decisions, so they always come
+# from the caller.
+_TEMPLATE_EMAIL_BODY_KEYS = ("subject", "text", "html", "design")
+
+# Materialization must not persist more content than the request-body ceiling lets a caller
+# send inline: many tiny steps referencing one large template would otherwise amplify a small
+# request into an oversized write. Cumulative across all steps in one save.
+MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+
+
+def _apply_email_template_content(config: dict, team: Team, strict: bool, context: dict) -> None:
+    """Materialize a referenced saved template's email body into the step's inputs at save,
+    mirroring what the web editor does when a template is picked (snapshot semantics: later
+    template edits don't propagate). Only fires when the caller supplied no body at all — a
+    caller-authored body always wins, and then template_uuid is provenance only. Under strict
+    (programmatic) validation an unresolvable reference is a 400; lenient web/internal saves
+    skip it so re-saves of already-accepted drafts can't start failing."""
+    template_uuid = config.get("template_uuid")
+    if not template_uuid:
+        return
+    inputs = config.get("inputs")
+    email_input = inputs.get("email") if isinstance(inputs, dict) else None
+    value = email_input.get("value") if isinstance(email_input, dict) else None
+    if isinstance(value, dict) and any(value.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
+        return
+
+    try:
+        parsed_uuid = uuid_mod.UUID(str(template_uuid))
+    except (ValueError, AttributeError, TypeError):
+        parsed_uuid = None
+    # Memoized per request: a drip sequence reuses one template across steps, and the actions
+    # list validates one action at a time, so without this each step re-queries the same row.
+    # The context dict is shared across the many=True action list, so the memo (and the
+    # materialized-bytes counter below) span all steps in one request.
+    template_cache: dict[str, Optional[MessageTemplate]] = context.setdefault("_message_template_cache", {})
+    cache_key = str(parsed_uuid)
+    if parsed_uuid is None:
+        template = None
+    elif cache_key in template_cache:
+        template = template_cache[cache_key]
+    else:
+        template = MessageTemplate.objects.filter(team_id=team.id, id=parsed_uuid, deleted=False).first()
+        template_cache[cache_key] = template
+    email_content = (template.content or {}).get("email") if template else None
+    if not isinstance(email_content, dict) or not any(email_content.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
+        if strict:
+            raise serializers.ValidationError(
+                {
+                    "template_uuid": (
+                        f"template_uuid '{str(template_uuid)[:100]}' doesn't match a saved email template in "
+                        "this project. List templates with workflows-list-email-templates, or author the email "
+                        "inline in config.inputs.email.value."
+                    )
+                }
+            )
+        return
+
+    body = {key: email_content[key] for key in _TEMPLATE_EMAIL_BODY_KEYS if email_content.get(key)}
+    # Applies on lenient saves too: the lenient path is caller-selectable (a request header),
+    # so a strict-only cap would leave the amplification open.
+    materialized_bytes = context.get("_materialized_template_bytes", 0) + len(json.dumps(body))
+    if materialized_bytes > MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES:
+        raise serializers.ValidationError(
+            {
+                "template_uuid": (
+                    "Referenced templates expand into too much email content for one workflow save. "
+                    "Use fewer or smaller templates, or author the email bodies inline."
+                )
+            }
+        )
+    context["_materialized_template_bytes"] = materialized_bytes
+    # Body keys are template-sourced once materialization is decided: a falsy placeholder the
+    # detection above just ignored (subject: null) must not clobber the template's content.
+    carried_over = (
+        {key: item for key, item in value.items() if key not in _TEMPLATE_EMAIL_BODY_KEYS}
+        if isinstance(value, dict)
+        else {}
+    )
+    merged_value = {**body, **carried_over}
+    merged_input = dict(email_input) if isinstance(email_input, dict) else {}
+    merged_input["value"] = merged_value
+    # Library template content is always Liquid; only default it, never override the caller.
+    merged_input.setdefault("templating", "liquid")
+    if not isinstance(inputs, dict):
+        inputs = {}
+        config["inputs"] = inputs
+    inputs["email"] = merged_input
+
+
 def _describe_unknown_template(action: dict, template_id: str) -> str:
+    if action.get("type") == "trigger":
+        trigger_type = (action.get("config") or {}).get("type", "")
+        source = _FIXED_TRIGGER_TEMPLATES.get(trigger_type)
+        if source:
+            return (
+                f"Template not found. A '{trigger_type}' trigger uses the built-in source template "
+                f"'{source.template_id}' - set config.template_id to that exact literal. It is NOT in the "
+                "destination template catalog, so don't look it up there. This trigger type also needs "
+                f"config.inputs.event = {{value: '{source.event}'}} and "
+                f"config.inputs.distinct_id = {{value: '{source.distinct_id}'}} - these values are specific "
+                f"to a '{trigger_type}' trigger, so don't copy another type's."
+            )
+
     fixed_id = _FIXED_TEMPLATE_IDS.get(action.get("type", ""))
     if fixed_id and _looks_like_uuid(template_id):
         return (
@@ -669,7 +897,7 @@ HOG_FLOW_ACTION_CONFIG_SCHEMA = {
                 },
                 "max_wait_duration": {
                     "type": "string",
-                    "description": "'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay).",
+                    "description": "'<number><unit>' with unit s|m|h|d, e.g. '30m' (same rules as delay).",
                 },
             },
         },
@@ -785,12 +1013,13 @@ class HogFlowActionSerializer(serializers.Serializer):
             "so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
-            "delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; "
-            "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
+            "delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). "
+            "Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
             "random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' "
-            "edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). "
+            "edge with index:N; percentages are relative weights, so they should sum to 100 but a total above "
+            "or below that still splits traffic in the given proportions. "
             "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
             "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
             "delay). Continues when condition.filters match OR any events entry fires; each events entry "
@@ -989,7 +1218,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
 
         if "function" in data.get("type", "") or trigger_is_function:
-            template_id = data.get("config", {}).get("template_id", "")
+            config = data.setdefault("config", {})
+            template_id = config.get("template_id", "")
+            fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
+            if fixed_template_id:
+                template_id = _apply_fixed_template_id(config, template_id, fixed_template_id)
+            # After the fixed-id coercion, so a library UUID sent as template_id (the dominant
+            # authoring mistake) lands in template_uuid first and still gets materialized.
+            if data.get("type") == "function_email" and config.get("template_uuid"):
+                # get_team is absent when the serializer runs outside a request (internal
+                # re-saves, direct construction) - no team to resolve against, so skip.
+                get_team = self.context.get("get_team")
+                if get_team is not None:
+                    _apply_email_template_content(config, get_team(), strict, self.context)
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 if strict:
@@ -1016,6 +1257,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if not strict:
                     if function_config_serializer.is_valid():
                         data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                    else:
+                        recover_or_drop_masked_inputs(
+                            inputs,
+                            {schema["key"] for schema in (input_schema or []) if schema.get("secret")},
+                            (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
+                        )
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
@@ -1125,20 +1372,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                         event_config["filters"] = serializer.validated_data
             if strict and not _wait_condition_already_stored(data, self.context):
                 _reject_clock_based_wait(data["config"], self.context["get_team"]())
+            max_wait_duration = data.get("config", {}).get("max_wait_duration")
+            # A falsy timeout means "wait indefinitely": conditional_branch.ts skips the parse
+            # entirely for it, so only a value that actually reaches the parser needs the format.
+            if strict and max_wait_duration and not _is_valid_duration(max_wait_duration):
+                raise serializers.ValidationError({"config": _duration_error("max_wait_duration")})
 
         if data.get("type") == "delay":
-            delay_duration = data.get("config", {}).get("delay_duration")
-            if not isinstance(delay_duration, str) or not DELAY_DURATION_REGEX.match(delay_duration):
-                if strict:
-                    raise serializers.ValidationError(
-                        {
-                            "config": (
-                                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
-                                "(e.g. '30m', '2h', '1d'). ISO-8601 formats are not supported. "
-                                "For seconds, use a fraction of a minute."
-                            )
-                        }
-                    )
+            if strict and not _is_valid_duration(data.get("config", {}).get("delay_duration")):
+                raise serializers.ValidationError({"config": _duration_error("delay_duration")})
 
         return data
 
@@ -1705,6 +1947,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         ),
     )
 
+    def _stages_draft(self) -> bool:
+        # stage_draft rides the raw request body rather than being a serializer field, mirroring
+        # base_updated_at (see perform_update, which does the actual draft routing off it).
+        request = self.context.get("request")
+        return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
+
     def to_internal_value(self, data):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
@@ -1724,15 +1972,26 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             status = instance.status
         if status != "active":
             self.context["is_draft"] = True
+        elif (
+            instance is not None
+            and instance.status == HogFlow.State.ACTIVE
+            and isinstance(data, dict)
+            and bool(set(data.keys()) & set(DRAFT_CONTENT_FIELDS))
+            and self._stages_draft()
+        ):
+            # A stage_draft content save writes the draft blob, not the live row (perform_update
+            # routes it there), so it validates like any other draft: the web builder saves
+            # incomplete steps mid-edit, and publish revalidates strictly before promoting
+            # anything. _should_validate_strictly keeps programmatic callers strict regardless.
+            self.context["is_draft"] = True
 
         # Existing decrypted secrets, keyed by action id, so child action validation can recover a
-        # resent {"secret": true} marker. Merge live over draft (draft wins) so an in-progress draft
-        # edit recovers the value the client actually saw. Must be set before super() runs, since the
-        # nested action serializers validate inside it.
+        # resent {"secret": true} marker. Includes legacy plaintext still inside the stored actions
+        # (rows written before encryption shipped) as the base, then the encrypted live and draft
+        # maps (draft wins) so an in-progress draft edit recovers the value the client actually saw.
+        # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
-            self.context["existing_encrypted_inputs"] = merge_secret_maps(
-                instance.encrypted_inputs, instance.draft_encrypted_inputs
-            )
+            self.context["existing_encrypted_inputs"] = existing_secret_map(instance, template_cache={})
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
@@ -2072,8 +2331,10 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, "
-            "preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is "
-            "always re-rendered from it."
+            "preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, "
+            "where email and name are optional templated overrides resolved per invocation; the address must "
+            "resolve to the selected sender's verified domain or the send fails. The design is edited via "
+            "operations, and html is always re-rendered from it."
         ),
     )
 
@@ -2342,6 +2603,15 @@ class HogFlowRevisionRestoreRequestSerializer(serializers.Serializer):
             "a draft is open returns 409."
         ),
     )
+    expected_draft_updated_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The draft_updated_at of the staged draft this overwrite was confirmed against. If a draft "
+            "exists with a different stamp (it was staged or edited since the confirmation was shown), "
+            "the restore returns 409 instead of overwriting it. Omit to overwrite unconditionally."
+        ),
+    )
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -2464,6 +2734,8 @@ class HogFlowViewSet(
         "schedule_detail",
         "bulk_delete",
         "rerun",
+        "cancel_invocations",
+        "cancel_batch_job",
         "graph",
         "action_email",
         "publish",
@@ -2498,8 +2770,9 @@ class HogFlowViewSet(
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read
         # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
-        # able to enumerate who a workflow ran for.
-        if self.action in ("invocation_results", "invocation_result"):
+        # able to enumerate who a workflow ran for. The count endpoint returns no person data but
+        # accepts a distinct_id filter, so without person:read it would be a person-existence oracle.
+        if self.action in ("invocation_results", "invocation_result", "invocation_results_count"):
             return ["hog_flow:read", "person:read"]
         # Assets expose recipient/distinct_id/person_id and the message bytes — require
         # person:read so a hog_flow:read-only token can't enumerate who got emailed.
@@ -2628,15 +2901,90 @@ class HogFlowViewSet(
 
         return Response(res.json())
 
+    @extend_schema(
+        request=HogInvocationCancelRequestSerializer,
+        responses={200: HogInvocationCancelResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"], url_path="invocations/cancel")
+    def cancel_invocations(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Cancel in-flight invocations of this workflow, by id or all at once.
+
+        Cancellation is asynchronous: runs are flagged here, then terminated by
+        the workflow workers, promptly for parked runs (delays and waits) and at
+        the next step boundary for runs mid-execution. Steps that already
+        executed are not undone. Canceled runs can be re-run later via `rerun`.
+        """
+        # Workflow deletes are hard deletes, so a flow deleted with runs still parked has no row
+        # here while its jobs live on. Cancel must still reach those jobs: fall back to the URL id,
+        # which is safe because the service JWT pins team + flow and the sweep filters on both, so
+        # an id that never belonged to this team matches nothing.
+        try:
+            hog_flow = self.get_object()
+            hog_flow_id = str(hog_flow.id)
+        except Http404:
+            hog_flow = None
+            # The row is gone, so get_object's per-object access check never ran. Require
+            # project-wide workflow editor access instead - without this, a member whose editor
+            # access came from per-object grants could cancel any deleted flow's runs by UUID.
+            if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+                raise exceptions.NotFound()
+            try:
+                hog_flow_id = str(uuid_mod.UUID(self.kwargs["pk"]))
+            except (ValueError, KeyError):
+                raise exceptions.NotFound()
+
+        serializer = HogInvocationCancelRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        invocation_ids = serializer.validated_data.get("invocation_ids")
+        payload: dict = (
+            {"invocation_ids": [str(i) for i in invocation_ids]} if invocation_ids is not None else {"all": True}
+        )
+
+        # One CDP call flags a bounded chunk of rows, so a very large workflow needs several.
+        # Two stopping conditions keep one request from pinning a worker on a pathological
+        # backlog: a cap on the number of calls, and a wall-clock budget so that a
+        # slow-but-responsive CDP cannot stack several near-timeout (30s each) calls into a
+        # multi-minute hold. Either way the response's `done: false` tells the caller to
+        # request again for the rest.
+        sweep_deadline = monotonic() + 20
+        data: dict = {"marked": 0, "remaining": 0, "done": False}
+        for _ in range(5):
+            res = cancel_hog_flow_invocations(team_id=self.team_id, hog_flow_id=hog_flow_id, payload=payload)
+            if res.status_code != 200:
+                raise exceptions.APIException(detail=res.text, code="cancel_failed")
+            page = res.json()
+            data = {
+                "marked": data["marked"] + page.get("marked", 0),
+                "remaining": page.get("remaining", 0),
+                "done": page.get("done", False),
+            }
+            if data["done"] or monotonic() >= sweep_deadline:
+                break
+
+        if hog_flow is not None:
+            self._report_workflow_action(
+                "hog_flow_invocations_cancel_requested",
+                hog_flow,
+                {"mode": "ids" if invocation_ids is not None else "all", "marked": data["marked"]},
+            )
+        return Response(data)
+
     def _emit_resource_edited(self, instance: HogFlow) -> None:
         # Realtime "edited elsewhere" signal so an open builder (or another tab) can refresh instead of
         # clobbering edits made via a different channel (UI/MCP/API). Fires for every channel; the
         # frontend dedupes its own echo by comparing updated_at. Transient — no inbox notification.
+        # Draft writes don't touch the live updated_at, so broadcast the newer of the two stamps;
+        # otherwise an open builder never hears about content staged from another channel.
+        edited_at = instance.updated_at
+        if instance.draft_updated_at and instance.draft_updated_at > edited_at:
+            edited_at = instance.draft_updated_at
         publish_resource_edited(
             team=self.team,
             resource_type="HogFlow",
             resource_id=str(instance.id),
-            updated_at=instance.updated_at.isoformat(),
+            updated_at=edited_at.isoformat(),
             actor_user_id=getattr(self.request.user, "id", None),
             ac_resource_type=self.scope_object,
         )
@@ -2714,6 +3062,11 @@ class HogFlowViewSet(
             # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
             if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
                 route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
+        elif serializer.instance.status == HogFlow.State.ACTIVE and self.request.data.get("stage_draft"):
+            # The web builder opts into the same draft routing per request ("stage_draft" rides the
+            # raw body like "base_updated_at"). Callers that don't send it keep deploy-on-save, so
+            # existing raw-API automation is unaffected.
+            route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
 
         instance_id = serializer.instance.id
 
@@ -2756,6 +3109,16 @@ class HogFlowViewSet(
                     if k not in DRAFT_CONTENT_FIELDS and k != "billable_action_types"
                 }
                 if remaining:
+                    # The draft-stamp guard above doesn't protect this live write: a concurrent
+                    # live-metadata edit bumps updated_at but not draft_updated_at, so a staged save
+                    # would silently overwrite it. Clients that write metadata alongside a staged
+                    # draft send the live stamp they loaded as a second fence.
+                    base_live_raw = self.request.data.get("base_live_updated_at")
+                    base_live = parse_datetime(base_live_raw) if base_live_raw else None
+                    if base_live is not None and timezone.is_naive(base_live):
+                        base_live = timezone.make_aware(base_live)
+                    if base_live and before_update.updated_at and before_update.updated_at > base_live:
+                        raise StaleWorkflowUpdateError()
                     serializer.validated_data.clear()
                     serializer.validated_data.update(remaining)
                     serializer.save()
@@ -3267,7 +3630,12 @@ class HogFlowViewSet(
             locked.draft = None
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
-            locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
+            # updated_at (auto_now) is deliberately bumped: without a fresh live stamp the
+            # resource_edited broadcast carries the old updated_at — older than the draft stamp
+            # concurrent editors loaded, so they'd ignore the discard, and their next draft save
+            # would pass the staleness guard (which falls back to the live stamp once the draft is
+            # gone) and silently resurrect the discarded draft.
+            locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs", "updated_at"])
 
         log_activity_from_viewset(self, locked, activity="draft_discarded", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
@@ -3325,6 +3693,16 @@ class HogFlowViewSet(
                 raise exceptions.NotFound("No such revision for this workflow.")
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
+            # Overwrite fencing: the client confirms against the draft stamp it saw. A draft staged
+            # or edited between the confirmation dialog and this call carries a different stamp, and
+            # overwriting it would lose unpublished content that no revision snapshots.
+            expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
+            if (
+                locked.draft
+                and expected_draft_updated_at is not None
+                and locked.draft_updated_at != expected_draft_updated_at
+            ):
+                raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             locked.draft = dict(revision.content)
@@ -3490,10 +3868,48 @@ class HogFlowViewSet(
             limit=params["limit"],
             status=params["status"].split(",") if params.get("status") else None,
             distinct_id=params.get("distinct_id"),
+            error_message_contains=params.get("error_message_contains"),
             after=after_date,
             before=before_date,
         )
         return Response(HogInvocationResultSerializer(data, many=True).data)
+
+    @extend_schema(
+        operation_id="hog_flows_invocation_results_count_retrieve",
+        parameters=[HogInvocationResultsFiltersSerializer],
+        responses=HogInvocationResultsCountSerializer,
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
+    def invocation_results_count(self, request: Request, *args, **kwargs):
+        """
+        Count invocations matching the same filters as the list endpoint,
+        without its 500-row cap.
+        """
+        obj = self.get_object()
+        tag_invocation_results_query(self.function_kind)
+
+        param_serializer = HogInvocationResultsFiltersSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        after_date = None
+        before_date = None
+        if params.get("after"):
+            after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        count = fetch_hog_invocation_results_count(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            status=params["status"].split(",") if params.get("status") else None,
+            distinct_id=params.get("distinct_id"),
+            error_message_contains=params.get("error_message_contains"),
+            after=after_date,
+            before=before_date,
+        )
+        return Response(HogInvocationResultsCountSerializer({"count": count}).data)
 
     @extend_schema(
         operation_id="hog_flows_invocation_result_retrieve",
@@ -3914,6 +4330,80 @@ class HogFlowViewSet(
             batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "batch_job_id",
+                OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the batch run to stop.",
+            ),
+        ],
+        responses={200: HogFlowBatchJobCancelResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"], url_path="batch_jobs/(?P<batch_job_id>[^/.]+)/cancel")
+    def cancel_batch_job(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Stop a batch run: no more of its audience is enrolled, and every run of it
+        still in flight is canceled.
+
+        Stopping is asynchronous: runs are flagged here, then terminated by the
+        workflow workers. Steps that already executed, like sent messages, are not
+        undone. Already-finished batch runs are left untouched.
+        """
+        hog_flow = self.get_object()
+
+        try:
+            batch_job = HogFlowBatchJob.objects.get(id=kwargs["batch_job_id"], hog_flow=hog_flow, team_id=self.team_id)
+        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
+            # DjangoValidationError fires when the id is not a parseable UUID — surface
+            # as 404 rather than a 500 reported to error tracking.
+            raise exceptions.NotFound("Batch job not found")
+
+        non_terminal = {
+            HogFlowBatchJob.State.WAITING,
+            HogFlowBatchJob.State.QUEUED,
+            HogFlowBatchJob.State.ACTIVE,
+        }
+        if batch_job.status not in non_terminal:
+            return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
+
+        # One CDP call flags a bounded chunk of rows; a large batch needs several. Same
+        # shape as cancel_invocations — `done: false` after the cap tells the caller to
+        # request again for the rest.
+        data: dict = {"marked": 0, "remaining": 0, "done": False}
+        for _ in range(5):
+            res = cancel_hog_flow_batch_job(
+                team_id=self.team_id, hog_flow_id=str(hog_flow.id), batch_job_id=str(batch_job.id)
+            )
+            if res.status_code != 200:
+                raise exceptions.APIException(detail=res.text, code="cancel_failed")
+            page = res.json()
+            data = {
+                "marked": data["marked"] + page.get("marked", 0),
+                "remaining": page.get("remaining", 0),
+                "done": page.get("done", False),
+            }
+            if data["done"]:
+                break
+
+        if data["done"]:
+            # Conditional so a completion that landed mid-cancel wins over the flip; the
+            # resolver's own terminal write absorbs the reverse race. `.update()` bypasses
+            # auto_now, so stamp updated_at explicitly.
+            HogFlowBatchJob.objects.filter(id=batch_job.id, status__in=non_terminal).update(
+                status=HogFlowBatchJob.State.CANCELLED, updated_at=timezone.now()
+            )
+
+        batch_job.refresh_from_db()
+        self._report_workflow_action(
+            "hog_flow_batch_job_cancel_requested",
+            hog_flow,
+            {"batch_job_id": str(batch_job.id), "marked": data["marked"], "done": data["done"]},
+        )
+        return Response({"status": batch_job.status, **data})
 
     @extend_schema(methods=["GET"], responses=HogFlowScheduleSerializer(many=True))
     @extend_schema(methods=["POST"], request=HogFlowScheduleSerializer, responses=HogFlowScheduleSerializer)

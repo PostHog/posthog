@@ -46,6 +46,7 @@ export function ThreadSidebar({
       task_id: taskId,
     });
   };
+
   const panelProps = {
     taskId,
     channelId,

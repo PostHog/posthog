@@ -31,7 +31,7 @@ from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WIND
 from ee.tasks.subscriptions.slack_subscriptions import (
     UTM_TAGS_BASE,
     SlackDeliveryResult,
-    SlackMessageData,
+    SlackMessage,
     deliver_slack_message_data,
 )
 
@@ -245,7 +245,9 @@ def send_email_ai_subscription_report(
         template_context={
             "title": title,
             "rendered_html": html,
-            "subscription_url": f"{subscription_url}?{utm_tags}",
+            # `delivery` lets the frontend capture `ai_report_clicked` on landing — the
+            # click-through signal for whether delivered reports actually get read.
+            "subscription_url": f"{subscription_url}?{utm_tags}&delivery={delivery_id}",
             "unsubscribe_url": unsubscribe_url,
             "feedback_positive_url": _build_feedback_url(subscription_url, delivery_id, "positive", "email"),
             "feedback_negative_url": _build_feedback_url(subscription_url, delivery_id, "negative", "email"),
@@ -295,7 +297,7 @@ def _build_ai_slack_message(
     *,
     delivery_id: uuid.UUID,
     integration: Integration | None = None,
-) -> SlackMessageData:
+) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = subscription.target_value.split("|")[0]
     sections = _split_text_into_chunks(_SLACK_CONVERTER.convert(strip_external_links_markdown(markdown)))
@@ -350,7 +352,7 @@ def _build_ai_slack_message(
         {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": section}}]} for section in sections[1:]
     ]
     # unfurl=False: report content is LLM-generated; never let Slack auto-fetch a link it contains.
-    return SlackMessageData(channel=channel, blocks=blocks, title=title, thread_messages=thread_messages, unfurl=False)
+    return SlackMessage(channel=channel, blocks=blocks, title=title, thread_messages=thread_messages, unfurl=False)
 
 
 async def send_slack_ai_subscription_report(

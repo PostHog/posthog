@@ -18,13 +18,65 @@ import * as zod from 'zod'
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
  *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
  * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensCreateBodyLabelMax = 40
 
-export const CimdVerificationTokensCreateBody = /* @__PURE__ */ zod.object({
-    label: zod.string().max(cimdVerificationTokensCreateBodyLabelMax),
-})
+export const cimdVerificationTokensCreateBodyCimdUrlMax = 2048
+
+export const CimdVerificationTokensCreateBody = /* @__PURE__ */ zod
+    .object({
+        label: zod
+            .string()
+            .max(cimdVerificationTokensCreateBodyLabelMax)
+            .describe("Human-readable name to identify this token later, e.g. 'Production CIMD partner'."),
+        cimd_url: zod
+            .string()
+            .max(cimdVerificationTokensCreateBodyCimdUrlMax)
+            .describe(
+                'HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this URL, so a copy hosted anywhere else is rejected. Host case, an explicit :443 and a trailing slash are normalized away; the path is case-sensitive.'
+            ),
+    })
+    .describe(
+        'Write shape for `create`. `cimd_url` is required and non-null: only tokens\nissued before URL binding existed are nullable, not new ones.'
+    )
+
+/**
+ * Manage CIMD verification tokens for an organization.
+ *
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
+ *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
+ * The plaintext value is only available on creation; we store a hash.
+ */
+export const cimdVerificationTokensPartialUpdateBodyCimdUrlMax = 2048
+
+export const CimdVerificationTokensPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        cimd_url: zod
+            .string()
+            .max(cimdVerificationTokensPartialUpdateBodyCimdUrlMax)
+            .optional()
+            .describe(
+                'HTTPS URL of the CIMD metadata document to bind this token to. Only settable once, on a token with no existing binding; an already-bound token must be reissued instead.'
+            ),
+    })
+    .describe(
+        'Write shape for `partial_update` (PATCH). Exposes only `cimd_url`, and only ever\nperforms a null -> value transition: `validate` rejects any instance whose `cimd_url`\nis already set, so an existing binding can never be re-pointed through this endpoint.'
+    )
 
 export const domainsCreateBodyDomainMax = 128
 
@@ -454,6 +506,9 @@ export const ExportsCreateBody = /* @__PURE__ */ zod
             ])
             .describe(
                 '\* `image\/png` - image\/png\n\* `application\/pdf` - application\/pdf\n\* `text\/csv` - text\/csv\n\* `application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet\n\* `video\/webm` - video\/webm\n\* `video\/mp4` - video\/mp4\n\* `image\/gif` - image\/gif\n\* `application\/json` - application\/json'
+            )
+            .describe(
+                'File format to generate. Dataset JSONL exports use the dataset export endpoint.\n\n\* `image\/png` - image\/png\n\* `application\/pdf` - application\/pdf\n\* `text\/csv` - text\/csv\n\* `application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application\/vnd.openxmlformats-officedocument.spreadsheetml.sheet\n\* `video\/webm` - video\/webm\n\* `video\/mp4` - video\/mp4\n\* `image\/gif` - image\/gif\n\* `application\/json` - application\/json'
             ),
         export_context: zod.unknown().optional(),
     })
@@ -860,6 +915,23 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
         password_required: zod.boolean().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
+ *
+ * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
+ * @summary Report and revoke a leaked PostHog API key or token
+ */
+export const revokeLeakedKeyCreateBodyTokenMax = 200
+
+export const RevokeLeakedKeyCreateBody = /* @__PURE__ */ zod.object({
+    token: zod
+        .string()
+        .max(revokeLeakedKeyCreateBodyTokenMax)
+        .describe(
+            'The leaked PostHog personal API key, project secret API key, or OAuth access\/refresh token to revoke.'
+        ),
+})
 
 /**
  * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.

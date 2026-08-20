@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -15,6 +15,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
@@ -318,7 +319,16 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         errors = self._validate_identity_provider_config_organization()
         if errors:
             raise ValidationError(errors)
-        super().save(*args, **kwargs)
+
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.identity_provider_config_id is None:
+                return
+
+            LinkedIdentityProviderConfig.objects.get_or_create(
+                organization_domain=self,
+                identity_provider_config_id=self.identity_provider_config_id,
+            )
 
     @property
     def is_verified(self) -> bool:

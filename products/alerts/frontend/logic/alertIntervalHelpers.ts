@@ -59,6 +59,10 @@ const CADENCE_DURATION_MINUTES: Record<AlertCalculationInterval, number> = {
     [AlertCalculationInterval.MONTHLY]: 60 * 24 * 30,
 }
 
+export function alertCadenceMinutes(interval: AlertCalculationInterval): number {
+    return CADENCE_DURATION_MINUTES[interval]
+}
+
 const INSIGHT_INTERVAL_DURATION_MINUTES: Record<IntervalType, number> = {
     second: 1 / 60,
     minute: 1,
@@ -80,7 +84,7 @@ export function cadenceFinerThanInsightInterval(
     const insightMinutes =
         INSIGHT_INTERVAL_DURATION_MINUTES[(insightInterval as IntervalType | null) ?? 'day'] ??
         INSIGHT_INTERVAL_DURATION_MINUTES.day
-    return CADENCE_DURATION_MINUTES[cadence] < insightMinutes
+    return alertCadenceMinutes(cadence) < insightMinutes
 }
 
 type EntitlementResult =

@@ -23,6 +23,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client.escape import substitute_params_for_display
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
@@ -35,7 +36,7 @@ from products.experiments.stats.frequentist.method import (
     FrequentistMethod,
     TestType,
 )
-from products.experiments.stats.shared.cuped import CupedData, cuped_adjust
+from products.experiments.stats.shared.cuped import CupedCovariate, cuped_adjust
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
@@ -274,6 +275,10 @@ def validate_variant_result(
     if isinstance(metric, (ExperimentFunnelMetric | ExperimentRetentionMetric)) and variant_result.sum < 5:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
+    # A zero denominator makes the ratio undefined, so no statistical result can be computed
+    if isinstance(metric, ExperimentRatioMetric) and not variant_result.denominator_sum:
+        validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
+
     if is_baseline and variant_result.sum == 0:
         validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
 
@@ -370,8 +375,8 @@ def metric_variant_to_statistic(
         )
 
 
-def metric_variant_to_cuped_data(variant: ExperimentStatsBaseValidated) -> CupedData:
-    return CupedData(
+def metric_variant_to_cuped_data(variant: ExperimentStatsBaseValidated) -> CupedCovariate:
+    return CupedCovariate(
         pre_statistic=SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.covariate_sum or 0.0,
@@ -396,6 +401,13 @@ def _copy_cuped_fields(
 ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic
 
 
+@frozen
+class CupedAdjustment:
+    test_stat: ExperimentStatistic
+    control_stat: ExperimentStatistic
+    control_unadjusted_mean: float | None
+
+
 def _apply_cuped_adjustment_if_enabled(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     cuped_config: CupedQueryConfig,
@@ -403,18 +415,20 @@ def _apply_cuped_adjustment_if_enabled(
     control_stat: ExperimentStatistic,
     test_variant: ExperimentStatsBaseValidated,
     control_variant: ExperimentStatsBaseValidated,
-) -> tuple[ExperimentStatistic, ExperimentStatistic, float | None]:
+) -> CupedAdjustment:
+    unadjusted = CupedAdjustment(test_stat=test_stat, control_stat=control_stat, control_unadjusted_mean=None)
+
     if not cuped_config.enabled:
-        return test_stat, control_stat, None
+        return unadjusted
 
     if not isinstance(metric, (ExperimentMeanMetric, ExperimentFunnelMetric)):
-        return test_stat, control_stat, None
+        return unadjusted
 
     # cuped_adjust supports SampleMeanStatistic and ProportionStatistic, but not RatioStatistic.
     if not isinstance(test_stat, (SampleMeanStatistic, ProportionStatistic)) or not isinstance(
         control_stat, (SampleMeanStatistic, ProportionStatistic)
     ):
-        return test_stat, control_stat, None
+        return unadjusted
 
     cuped_result = cuped_adjust(
         test_stat,
@@ -423,10 +437,10 @@ def _apply_cuped_adjustment_if_enabled(
         metric_variant_to_cuped_data(control_variant),
     )
 
-    return (
-        cuped_result.treatment_adjusted,
-        cuped_result.control_adjusted,
-        cuped_result.control_unadjusted_mean,
+    return CupedAdjustment(
+        test_stat=cuped_result.treatment_adjusted,
+        control_stat=cuped_result.control_adjusted,
+        control_unadjusted_mean=cuped_result.control_unadjusted_mean,
     )
 
 
@@ -529,7 +543,7 @@ def get_frequentist_experiment_result(
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                test_stat_for_result, control_stat_for_result, unadjusted_mean = _apply_cuped_adjustment_if_enabled(
+                cuped_adjustment = _apply_cuped_adjustment_if_enabled(
                     metric,
                     resolved_cuped_config,
                     test_stat,
@@ -538,13 +552,13 @@ def get_frequentist_experiment_result(
                     control_variant_validated,
                 )
 
-                if unadjusted_mean is None:
-                    result = method.run_test(test_stat_for_result, control_stat_for_result)
+                if cuped_adjustment.control_unadjusted_mean is None:
+                    result = method.run_test(cuped_adjustment.test_stat, cuped_adjustment.control_stat)
                 else:
                     result = method.run_test(
-                        test_stat_for_result,
-                        control_stat_for_result,
-                        unadjusted_mean=unadjusted_mean,
+                        cuped_adjustment.test_stat,
+                        cuped_adjustment.control_stat,
+                        unadjusted_mean=cuped_adjustment.control_unadjusted_mean,
                     )
 
                 confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
@@ -632,7 +646,7 @@ def get_bayesian_experiment_result(
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                test_stat_for_result, control_stat_for_result, unadjusted_mean = _apply_cuped_adjustment_if_enabled(
+                cuped_adjustment = _apply_cuped_adjustment_if_enabled(
                     metric,
                     resolved_cuped_config,
                     test_stat,
@@ -641,13 +655,13 @@ def get_bayesian_experiment_result(
                     control_variant_validated,
                 )
 
-                if unadjusted_mean is None:
-                    result = method.run_test(test_stat_for_result, control_stat_for_result)
+                if cuped_adjustment.control_unadjusted_mean is None:
+                    result = method.run_test(cuped_adjustment.test_stat, cuped_adjustment.control_stat)
                 else:
                     result = method.run_test(
-                        test_stat_for_result,
-                        control_stat_for_result,
-                        unadjusted_mean=unadjusted_mean,
+                        cuped_adjustment.test_stat,
+                        cuped_adjustment.control_stat,
+                        unadjusted_mean=cuped_adjustment.control_unadjusted_mean,
                     )
 
                 # Convert credible interval to percentage

@@ -73,6 +73,9 @@ const getDefaultVariableForType = (variableType: VariableType): Variable => {
             values: [],
             default_value: '',
             code_name: '',
+            is_multi: false,
+            values_query: null,
+            values_query_connection_id: null,
         } as ListVariable
     }
 

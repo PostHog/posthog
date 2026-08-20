@@ -1,3 +1,4 @@
+import errno
 import socket
 import threading
 from collections.abc import Generator, Iterable, Iterator
@@ -30,13 +31,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     TemporaryFileSizeExceedsLimitException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
     ForeignServerUnreachableError,
-    PostHogDatabaseConnectionError,
     XminUnsupportedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
@@ -109,6 +110,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _rls_active_from_conn,
     _role_subject_to_rls,
     _safe_close_connection,
+    _schema_discovery_timeout_error,
     _schemas_from_conn,
     _statement_timeout_as_non_retryable,
     _tunnel_with_handshake_translation,
@@ -275,14 +277,17 @@ class TestPostgresImplementationWiring:
 
 
 class TestPostgresSourceMetadataConnectionErrors:
-    def test_posthog_database_connection_failure_stays_retryable(self):
+    def test_posthog_database_connection_failure_propagates_unwrapped(self):
         # `source_for_pipeline` first reads sync metadata from PostHog's own database. A transient
-        # connection failure there (e.g. a DNS blip resolving our host) surfaces the same
-        # "Name or service not known" wording a customer host misconfig would, so it must be
-        # re-raised as PostHogDatabaseConnectionError to avoid being misclassified as non-retryable.
+        # connection failure there (e.g. a DNS blip resolving our host) must propagate as the same
+        # Django `OperationalError` it was raised as. `_handle_import_error` already classifies that
+        # type, regardless of message, as a self-recovering app-DB blip and keeps it out of error
+        # tracking — wrapping it in a source-specific exception type would hide it from that check
+        # and report it as a new bug on every occurrence instead.
         source = PostgresSource()
         config = MagicMock()
         inputs = MagicMock()
+        original_error = DjangoOperationalError("[Errno -2] Name or service not known")
 
         with (
             patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=None),
@@ -290,16 +295,11 @@ class TestPostgresSourceMetadataConnectionErrors:
                 "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
             ) as mock_schema_model,
         ):
-            mock_schema_model.objects.select_related.return_value.get.side_effect = DjangoOperationalError(
-                "[Errno -2] Name or service not known"
-            )
-            with pytest.raises(PostHogDatabaseConnectionError) as exc_info:
+            mock_schema_model.objects.select_related.return_value.get.side_effect = original_error
+            with pytest.raises(DjangoOperationalError) as exc_info:
                 source.source_for_pipeline(config, inputs)
 
-        non_retryable = source.get_non_retryable_errors()
-        error_msg = str(exc_info.value)
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert not is_non_retryable, f"A PostHog-side DB connection failure must stay retryable: {error_msg}"
+        assert exc_info.value is original_error
 
 
 class TestPostgresSourceForeignServerConnectionError:
@@ -418,12 +418,98 @@ class TestPostgresSourceNonRetryableErrors:
             # Newlines are normalized to spaces upstream, so the FATAL/DETAIL pair arrives on one line.
             # Permanent until the replica's config changes or it's promoted — must not keep retrying.
             'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  the database system is not accepting connections DETAIL:  Hot standby mode is disabled.',
+            # A custom app.* session GUC the connecting role doesn't set (SQLSTATE 42704), read by a
+            # customer RLS policy, view, or pooler. Permanent until the customer changes it — must not
+            # keep retrying. Parameter name is invented, not a real customer value.
+            'unrecognized configuration parameter "app.current_tenant"',
+            # A database proxy (e.g. Prisma Accelerate) refuses the connection because the account
+            # hit a plan limit. Account-level state only the customer can lift, so retrying re-hits
+            # the same refusal — must not keep retrying. Host/port are invented, not a real value.
+            'connection failed: connection to server at "db.example.com", port 5432 failed: Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    def test_unrecognized_session_parameter_surfaces_actionable_message(self, source):
+        # A missing custom app.* session setting must stop retrying and explain the pooler/RLS/view
+        # source, rather than storing the raw driver text. Mirror the finalizer's first-match
+        # selection so a future reorder that shadows it with an earlier None-valued key is caught.
+        error_msg = 'unrecognized configuration parameter "app.current_tenant"'
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "unrecognized session parameter must be classified non-retryable"
+        assert matches[0] is not None, "unrecognized session parameter must surface an actionable message"
+        assert "session setting" in matches[0].lower()
+
+    def test_connect_timeout_surfaces_actionable_message(self, source):
+        # A persistently timing-out connect stays non-retryable, but must surface firewall/reachability
+        # guidance rather than the bare "connection timeout expired" driver text. Mirror the finalizer's
+        # first-match selection (external_data_job.py) so a future reorder that shadows it with an
+        # earlier None-valued timeout key is caught.
+        error_msg = "connection timeout expired"
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "connect timeout must be classified non-retryable"
+        assert matches[0] is not None, "connect timeout must surface an actionable message, not raw driver text"
+        assert "firewall" in matches[0].lower()
+
+    def test_plan_limit_restriction_surfaces_actionable_message(self, source):
+        # A proxy plan-limit refusal must stop retrying and explain how to lift the restriction,
+        # rather than storing the raw provider text. Mirror the finalizer's first-match selection.
+        error_msg = "Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions."
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "plan-limit restriction must be classified non-retryable"
+        assert matches[0] is not None, "plan-limit restriction must surface an actionable message, not raw driver text"
+        assert "plan" in matches[0].lower()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'could not translate host name "bad-hostname.example.com" to address: Name or service not known',
+            "[Errno -2] Name or service not known",
+            "OperationalError: [Errno -5] No address associated with hostname",
+        ],
+    )
+    def test_dns_resolution_failure_surfaces_actionable_message(self, source, error_msg):
+        # A host that doesn't resolve is non-retryable, but must explain that the host can't be
+        # resolved rather than store the bare getaddrinfo/libpq text. Mirror the finalizer's
+        # first-match selection so a reorder that shadows it with an earlier None key is caught.
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, f"DNS resolution failure must be classified non-retryable: {error_msg}"
+        assert matches[0] is not None, "DNS resolution failure must surface an actionable message, not raw driver text"
+        assert "resolve" in matches[0].lower()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: server closed the connection unexpectedly',
+            'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: SSL connection has been closed unexpectedly',
+        ],
+    )
+    def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
+        # These transient drops are retried in-process, then re-raised once that budget is exhausted.
+        # If they drop out of get_retryable_errors, _handle_import_error logs the self-recovering
+        # failure as a tracked exception again instead of a warning. They must also stay out of
+        # get_non_retryable_errors so the sync keeps retrying rather than being disabled.
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -772,6 +858,23 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            'connection to server at "203.0.113.30", port 5432 failed: FATAL:  password authentication failed for user "u"',
+            'connection to server at "203.0.113.30", port 5432 failed: FATAL:  password authentication failed\nuser "u"',
+            "connection failed: error received from server in SCRAM exchange: Wrong password",
+        ],
+    )
+    def test_password_authentication_failure_surfaces_a_host_free_message(self, source, error_msg):
+        # The raw driver string embeds the host/IP and port; the surfaced message must be actionable
+        # and carry neither. Guards a regression back to the raw error (value `None`).
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "A rejected password should surface an actionable message"
+        assert "username or password" in friendly[0]
+        assert "203.0.113.30" not in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Cannot build decimal array from values",
             "ValueError: Cannot build decimal array from values",
         ],
@@ -881,6 +984,22 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Read-replica timeout error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw activity-level message (what `sync_new_schemas_activity` sees via str(e)) — no
+            # class name. Raised by `_schemas_from_conn` when the column-listing catalog scan
+            # itself exhausts the raised METADATA_STATEMENT_TIMEOUT_MS.
+            str(_schema_discovery_timeout_error()),
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            f"QueryTimeoutException: {_schema_discovery_timeout_error()}",
+        ],
+    )
+    def test_schema_discovery_catalog_timeout_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Schema discovery catalog timeout should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1116,6 +1235,27 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'value too long for type character varying(3)\nCONTEXT:  column "currency" of foreign table "accounttransaction"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "StringDataRightTruncation: value too long for type character varying(3)",
+        ],
+    )
+    def test_fdw_string_truncation_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"FDW column-width mismatch error should be non-retryable: {error_msg}"
+
+    def test_fdw_string_truncation_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'value too long for type character varying(3)\nCONTEXT:  column "currency" of foreign table "accounttransaction"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "FDW column-width mismatch error should surface an actionable message"
+        assert "Widen the local" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A single recovery conflict is retried in-process; on its own it must stay retryable.
             "canceling statement due to conflict with recovery",
             "could not serialize access due to conflict with recovery",
@@ -1237,6 +1377,56 @@ class TestPostgresSourceRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Server-shutting-down error should not be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQLSTATE 53300: the source (or a pooler in front of it) refuses a new connection
+            # because only the superuser-reserved slots remain. `_connect_with_dropped_retry`
+            # already retries this in-process on the read/sync connect path; this is the
+            # whole-activity-retry fallback for when a sustained shortage outlasts that budget.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+            "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute",
+            "sorry, too many clients already",
+            "too many connections for role",
+        ],
+    )
+    def test_connection_limit_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg.lower() for pattern in retryable)
+        assert is_retryable, f"Connection-limit error should be classified retryable: {error_msg}"
+
+    def test_connection_limit_is_not_also_non_retryable(self, source):
+        error_msg = "remaining connection slots are reserved for roles with the SUPERUSER attribute"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Connection-limit error should not be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # psycopg's own message when libpq finds the socket already gone (e.g. the setup
+            # commit at the end of `get_connection`). `_connect_with_dropped_retry` already
+            # retries this in-process on the read/sync connect path; this is the
+            # whole-activity-retry fallback for when a sustained outage (e.g. a saturated pooler)
+            # outlasts that bounded budget.
+            "the connection is lost",
+            "OperationalError: the connection is lost",
+            # Supavisor's transaction-mode pooler checkout timeout, surfaced as a generic XX000
+            # InternalError_ rather than the libpq/PgBouncer wordings above.
+            "(ECHECKOUTTIMEOUT) unable to check out connection from the pool after 60000ms in Transaction mode",
+        ],
+    )
+    def test_connection_dropped_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern.lower() in error_msg.lower() for pattern in retryable)
+        assert is_retryable, f"Connection-dropped error should be classified retryable: {error_msg}"
+
+    def test_connection_dropped_is_not_also_non_retryable(self, source):
+        error_msg = "the connection is lost"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Connection-dropped error should not be non-retryable: {error_msg}"
 
 
 def _raise_eof() -> None:
@@ -1512,6 +1702,7 @@ class TestSetupStatementTimeoutUnsupported:
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(is_setup=False)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=100),
@@ -1622,11 +1813,25 @@ class TestIsConnectionDroppedError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (EAUTHQUERY) auth_query secret check timed out"
             ),
+            # Supavisor's own credential fetch fails repeatedly and trips its internal circuit
+            # breaker, rejecting new connects with a bare OperationalError carrying its
+            # "(ECIRCUITBREAKER)" code. Same transient pooler-bookkeeping class as EAUTHQUERY —
+            # recovers once the breaker resets — so the reconnect must catch it.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (ECIRCUITBREAKER) failed to retrieve database credentials after multiple "
+                "attempts, new connections are temporarily blocked"
+            ),
             # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
             # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the
             # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
             # passing health check or once its ban expires — so the reconnect must catch it.
             psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
+            # psycopg's own message when `PQconnectStart` reports the connection BAD before the
+            # handshake begins and libpq has no server-reported error text to attach — a purely
+            # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
+            # server-side rejection. Transient; the reconnect must catch it.
+            psycopg.OperationalError("connection is bad: no error details available"),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -1659,6 +1864,10 @@ class TestIsConnectionDroppedError:
             # transient Erlang-tuple "{:error, :econnrefused}" — broadening the match to a plain
             # "refused" substring would wrongly retry it.
             psycopg.OperationalError('connection to server at "10.0.0.1", port 5432 failed: Connection refused'),
+            # A "connection is bad" failure that *does* carry a server-reported detail is a genuine,
+            # permanent rejection — only the "no error details available" variant (a purely local,
+            # pre-handshake failure) is transient, so the match must not broaden to the bare prefix.
+            psycopg.OperationalError("connection is bad: FATAL: password authentication failed"),
         ],
     )
     def test_unrelated_errors_are_not_detected(self, error):
@@ -1703,6 +1912,12 @@ class TestDroppedOrConnectTimeout:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  the database system is shutting down"
             ),
+            # This worker's process-wide (EMFILE) or system-wide (ENFILE) file-descriptor table is
+            # full while opening the socket for a fresh connect. Transient on our side of the wire —
+            # a descriptor frees the moment another connection/cursor in this worker closes — so the
+            # connect retry must recover instead of failing the whole activity on the first blip.
+            OSError(errno.EMFILE, "Too many open files"),
+            OSError(errno.ENFILE, "Too many open files in system"),
         ],
     )
     def test_transient_connect_path_errors_are_retryable(self, error):
@@ -1725,6 +1940,9 @@ class TestDroppedOrConnectTimeout:
                 "FATAL:  the database system is not accepting connections "
                 "DETAIL:  Hot standby mode is disabled."
             ),
+            # An unrelated OSError must not be absorbed just because OSError is now one of the
+            # caught types — only the EMFILE/ENFILE fd-exhaustion errno is retryable.
+            OSError(errno.ENOSPC, "No space left on device"),
         ],
     )
     def test_permanent_and_non_connect_errors_are_not_retryable(self, error):
@@ -2003,9 +2221,7 @@ class TestResolveHostaddrWithTimeout:
         ],
     )
     def test_hosts_that_need_no_lookup_short_circuit(self, host):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo"
-        ) as getaddrinfo_mock:
+        with patch("posthog.psycopg_helpers.socket.getaddrinfo") as getaddrinfo_mock:
             assert _resolve_hostaddr_with_timeout(host, 5432, 15) is None
         getaddrinfo_mock.assert_not_called()
 
@@ -2019,7 +2235,7 @@ class TestResolveHostaddrWithTimeout:
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
         ]
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            "posthog.psycopg_helpers.socket.getaddrinfo",
             return_value=addrinfo,
         ):
             assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["2001:db8::5", "10.0.0.5"]
@@ -2032,7 +2248,7 @@ class TestResolveHostaddrWithTimeout:
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
         ]
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            "posthog.psycopg_helpers.socket.getaddrinfo",
             return_value=addrinfo,
         ):
             assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["10.0.0.5"]
@@ -2041,16 +2257,38 @@ class TestResolveHostaddrWithTimeout:
         # A host that doesn't resolve must return None (not raise) so psycopg connects as before and
         # its own "Name or service not known" error still reaches the non-retryable classifier.
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            "posthog.psycopg_helpers.socket.getaddrinfo",
             side_effect=socket.gaierror(-2, "Name or service not known"),
         ):
             assert _resolve_hostaddr_with_timeout("does-not-exist.example.com", 5432, 15) is None
+
+    @pytest.mark.parametrize(
+        "resolver_result",
+        [
+            socket.gaierror(-2, "Name or service not known"),
+            [],
+        ],
+    )
+    def test_strict_resolution_failure_raises(self, resolver_result):
+        patch_kwargs = (
+            {"side_effect": resolver_result}
+            if isinstance(resolver_result, BaseException)
+            else {"return_value": resolver_result}
+        )
+        with patch("posthog.psycopg_helpers.socket.getaddrinfo", **patch_kwargs):
+            with pytest.raises(psycopg.OperationalError, match="Could not resolve database host name"):
+                _resolve_hostaddr_with_timeout(
+                    "does-not-exist.example.com",
+                    5432,
+                    15,
+                    fail_on_resolution_error=True,
+                )
 
     def test_stalled_resolver_raises_fast_retryable_error(self):
         release = threading.Event()
         try:
             with patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                "posthog.psycopg_helpers.socket.getaddrinfo",
                 side_effect=lambda *a, **k: release.wait(),
             ):
                 with pytest.raises(psycopg.OperationalError) as exc_info:
@@ -2063,6 +2301,23 @@ class TestResolveHostaddrWithTimeout:
         # Must stay retryable: it must not carry any of the non-retryable resolution fragments.
         assert "could not translate host name" not in message
         assert "Name or service not known" not in message
+
+    def test_abort_check_interrupts_stalled_resolution(self):
+        release = threading.Event()
+        try:
+            with patch(
+                "posthog.psycopg_helpers.socket.getaddrinfo",
+                side_effect=lambda *a, **k: release.wait(),
+            ):
+                with pytest.raises(RuntimeError, match="resolution canceled"):
+                    _resolve_hostaddr_with_timeout(
+                        "db.example.com",
+                        5432,
+                        15,
+                        abort_check=MagicMock(side_effect=RuntimeError("resolution canceled")),
+                    )
+        finally:
+            release.set()
 
 
 # A dual-stack host (e.g. Neon) can resolve to both an IPv6 and an IPv4 address. Passing psycopg a
@@ -2082,7 +2337,7 @@ class TestConnectToPostgresMultiAddressFailover:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
             ) as mock_settings,
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                "posthog.psycopg_helpers.socket.getaddrinfo",
                 return_value=addrinfo,
             ),
             patch(
@@ -2110,7 +2365,7 @@ class TestConnectToPostgresMultiAddressFailover:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
             ) as mock_settings,
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                "posthog.psycopg_helpers.socket.getaddrinfo",
                 return_value=addrinfo,
             ),
             patch(
@@ -2437,6 +2692,7 @@ class TestServerCursorStatementTimeout:
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(raise_on_fetch=False)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=100),
@@ -2559,6 +2815,7 @@ class TestServerCursorCloseStatementTimeout:
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(named=False)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=100),
@@ -2594,6 +2851,110 @@ class TestServerCursorCloseStatementTimeout:
         # QueryTimeoutException should escape teardown.
         gen.close()
         assert connection.closed
+
+
+class TestGetRowsSkipsServerCursorForDuckDB:
+    """DuckDB/duckgres-backed Postgres-wire engines don't implement `DECLARE CURSOR`, nor the
+    `pg_catalog.pg_cursors` check psycopg's ServerCursor runs before it — opening a named cursor
+    against one raises a `Catalog Error: Table with name pg_cursors does not exist!`. `get_rows`
+    must route these connections through the plain-cursor offset-chunking path instead.
+    """
+
+    class _Cursor:
+        def __init__(self, rows: list[tuple[Any, ...]]):
+            self._rows = rows
+            self._fetched = False
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchall(self):
+            if self._fetched:
+                return []
+            self._fetched = True
+            return self._rows
+
+        def fetchmany(self, _n: int):
+            raise AssertionError("a server-side cursor FETCH must not run against a duckdb connection")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, rows: list[tuple[Any, ...]]):
+            self._rows = rows
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+
+        def cursor(self, *args, **kwargs):
+            if "name" in kwargs:
+                raise AssertionError("get_rows must not open a named/server-side cursor against a duckdb connection")
+            return TestGetRowsSkipsServerCursorForDuckDB._Cursor(self._rows)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def test_duckdb_connection_reads_via_offset_chunking(self):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        connection = self._Connection(rows=[(1,)])
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=connection),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(rows=[(1,)])),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=True),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            tables = list(cast(Iterable[Any], response.items()))
+
+        assert len(tables) == 1
+        assert tables[0].to_pylist() == [{"id": 1}]
 
 
 class TestOffsetChunkingConnectRecoveryConflict:
@@ -2711,6 +3072,7 @@ class TestOffsetChunkingConnectRecoveryConflict:
             patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._OffsetCursor()),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=1000),
@@ -2779,6 +3141,7 @@ class TestOffsetChunkingConnectTimeout:
             ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=1000),
@@ -2892,6 +3255,7 @@ class TestOffsetChunkingRecoveryConflictTimeout:
             patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._OffsetCursor()),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=1000),
@@ -3223,7 +3587,7 @@ class TestValidateCredentialsErrorMapping:
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
                 "error received from server in SCRAM exchange: Wrong password",
-                "Invalid user or password",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
             ),
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
@@ -3935,6 +4299,40 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
     def _config(self):
         return mock.MagicMock(user="u", password="p", database="db", schema="", ssh_tunnel=None)
 
+    def test_required_ssl_is_used_for_every_schema_discovery_connection(self, source):
+        tunnel_cm = mock.MagicMock()
+        tunnel_cm.__enter__.return_value = ("localhost", 5432)
+        tunnel_cm.__exit__.return_value = None
+        metadata_connection = mock.MagicMock()
+        metadata_connection.__enter__.return_value = mock.MagicMock()
+        metadata_connection.__exit__.return_value = None
+
+        with (
+            mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                return_value={},
+            ) as get_schemas,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                return_value={},
+            ) as get_foreign_keys,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
+                return_value={},
+            ) as get_row_count,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.pg_connection",
+                return_value=metadata_connection,
+            ) as pg_connection,
+        ):
+            source.get_schemas(self._config(), team_id=1, with_counts=True, require_ssl=True)
+
+        assert get_schemas.call_args.kwargs["require_ssl"] is True
+        assert get_foreign_keys.call_args.kwargs["require_ssl"] is True
+        assert get_row_count.call_args.kwargs["require_ssl"] is True
+        assert pg_connection.call_args.kwargs["require_ssl"] is True
+
     @pytest.mark.parametrize(
         "exc",
         [
@@ -4258,6 +4656,19 @@ class TestBuildQuery:
         with pytest.raises(ValueError):
             _build_query("public", "events", True, "table", "id", None, None)
 
+    @pytest.mark.parametrize(
+        "field_type",
+        [IncrementalFieldType.Numeric, IncrementalFieldType.Integer],
+    )
+    def test_empty_string_last_value_falls_back_to_initial_value(self, field_type):
+        # Regression: a stored watermark of "" used to become a literal `''` in the WHERE
+        # clause, which Postgres rejects for a numeric/integer column with "invalid input
+        # syntax for type numeric" instead of falling back like a missing (None) watermark.
+        query = _build_query("public", "events", True, "table", "cursor", field_type, "")
+        rendered = self._render(query)
+        assert "''" not in rendered
+        assert '"cursor" > 0' in rendered
+
     def test_sampling_table(self):
         query = _build_query("public", "users", False, "table", None, None, None, add_sampling=True)
         rendered = self._render(query)
@@ -4550,22 +4961,33 @@ class TestBuildXminQuery:
     def _render(self, composed: sql.Composed) -> str:
         return composed.as_string()
 
-    def _bounds(self, *, lower=0, upper=5000, num_wraparound=0, wraparound_or_range=False) -> XminBounds:
+    def _bounds(
+        self, *, lower=0, upper=5000, num_wraparound=0, wraparound_or_range=False, full_scan=False
+    ) -> XminBounds:
         return XminBounds(
             lower=lower,
             upper=upper,
             ceiling_xid8=(num_wraparound << 32) | upper,
             num_wraparound=num_wraparound,
             wraparound_or_range=wraparound_or_range,
+            full_scan=full_scan,
         )
 
-    def test_first_run_reads_below_ceiling(self):
-        query = _build_query("public", "users", False, "table", None, None, None, xmin_bounds=self._bounds(lower=0))
+    def test_full_scan_drops_the_xmin_window(self):
+        query = _build_query(
+            "public", "users", False, "table", None, None, None, xmin_bounds=self._bounds(full_scan=True)
+        )
         rendered = self._render(query)
         assert f'xmin::text::bigint AS "{XMIN_PROJECTED_COLUMN}"' in rendered
-        assert "xmin::text::bigint >= 0 AND xmin::text::bigint < 5000" in rendered
-        assert "OR xmin::text::bigint" not in rendered
+        assert "xmin::text::bigint >=" not in rendered
+        assert "xmin::text::bigint <" not in rendered
         assert rendered.rstrip().endswith("ORDER BY xmin::text::bigint ASC")
+
+    def test_full_scan_count_query_counts_every_row(self):
+        query = _build_count_query("public", "users", False, None, None, None, xmin_bounds=self._bounds(full_scan=True))
+        rendered = self._render(query)
+        assert "xmin::text::bigint >=" not in rendered
+        assert "xmin::text::bigint <" not in rendered
 
     def test_steady_state_single_range(self):
         query = _build_query(
@@ -4636,18 +5058,27 @@ class TestCaptureXminCeiling:
         with pytest.raises(XminUnsupportedError, match="PostgreSQL 13"):
             _capture_xmin_ceiling(cursor, None, None, MagicMock())
 
-    def test_first_run_seeds_zero_lower_bound(self):
-        cursor = self._cursor(server_version=150000, ceiling_xid8=5000, ceiling_xid=5000)
-        bounds = _capture_xmin_ceiling(cursor, None, None, MagicMock())
-        assert bounds.lower == 0
-        assert bounds.upper == 5000
-        assert bounds.wraparound_or_range is False
+    @parameterized.expand(
+        [
+            ("first_run", None, None),
+            ("multi_wrap", 4000000000, 0),
+        ]
+    )
+    def test_reads_whole_table_when_no_window_is_safe(self, _name, stored_last_value, stored_num_wraparound):
+        # Backfills and multi-wrap re-reads can't use a 32-bit window: `ceiling_xid` is only the low
+        # half of the ceiling, so tuples written in earlier epochs sit above it.
+        cursor = self._cursor(server_version=150000, ceiling_xid8=(12 << 32) | 500, ceiling_xid=500)
+        bounds = _capture_xmin_ceiling(cursor, stored_last_value, stored_num_wraparound, MagicMock())
+        assert bounds.full_scan is True
+        assert bounds.ceiling_xid8 == (12 << 32) | 500
+        assert bounds.num_wraparound == 12
 
     def test_steady_state_uses_stored_lower_bound(self):
         cursor = self._cursor(server_version=150000, ceiling_xid8=5000, ceiling_xid=5000)
         bounds = _capture_xmin_ceiling(cursor, 100, 0, MagicMock())
         assert bounds.lower == 100
         assert bounds.wraparound_or_range is False
+        assert bounds.full_scan is False
 
     def test_single_wrap_sets_or_range(self):
         # Epoch advanced by exactly 1 since last sync.
@@ -4656,12 +5087,36 @@ class TestCaptureXminCeiling:
         assert bounds.num_wraparound == 1
         assert bounds.wraparound_or_range is True
         assert bounds.lower == 4000000000
+        assert bounds.full_scan is False
 
-    def test_multi_wrap_forces_full_reread(self):
-        cursor = self._cursor(server_version=150000, ceiling_xid8=(3 << 32) | 500, ceiling_xid=500)
-        bounds = _capture_xmin_ceiling(cursor, 4000000000, 0, MagicMock())
-        assert bounds.lower == 0
-        assert bounds.wraparound_or_range is False
+
+class TestXminBackfillAgainstPostgres:
+    @pytest.mark.django_db
+    def test_backfill_reads_tuples_above_the_ceiling_remainder(self):
+        # Reproduces the reported silent data loss. On a cluster past a wraparound the ceiling's
+        # low 32 bits are a small remainder while every tuple written in an earlier epoch keeps a
+        # much larger raw `xmin`, so the old `[0, remainder)` backfill window matched no rows and
+        # the run still completed and advanced the cursor.
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE xmin_wraparound_probe (id int PRIMARY KEY)")
+            dj_cursor.execute("INSERT INTO xmin_wraparound_probe SELECT generate_series(1, 10)")
+            dj_cursor.execute("SELECT MIN(xmin::text::bigint) FROM xmin_wraparound_probe")
+            lowest_tuple_xmin = dj_cursor.fetchone()[0]
+
+            snapshot_cursor = MagicMock()
+            snapshot_cursor.connection.info.server_version = 150000
+            snapshot_cursor.fetchone.return_value = ((12 << 32) | lowest_tuple_xmin,)
+            bounds = _capture_xmin_ceiling(snapshot_cursor, None, None, MagicMock())
+
+            dj_cursor.execute(
+                _build_query("public", "xmin_wraparound_probe", False, "table", None, None, None, xmin_bounds=bounds)
+            )
+            assert len(dj_cursor.fetchall()) == 10
+
+            dj_cursor.execute(
+                _build_count_query("public", "xmin_wraparound_probe", False, None, None, None, xmin_bounds=bounds)
+            )
+            assert dj_cursor.fetchone()[0] == 10
 
 
 class TestXminCapableTablesFromConn:
@@ -4736,6 +5191,19 @@ class TestBuildPartitionQuery:
         rendered = self._render(query)
         assert f'"cursor" {expected_operator} ' in rendered
 
+    def test_empty_string_last_value_falls_back_to_initial_value(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="cursor",
+            incremental_field_type=IncrementalFieldType.Numeric,
+            db_incremental_field_last_value="",
+        )
+        rendered = self._render(query)
+        assert "''" not in rendered
+        assert '"cursor" > 0' in rendered
+
     def test_row_filter_full_refresh(self):
         query = build_partition_query(
             "public",
@@ -4787,6 +5255,12 @@ class TestBuildCountQuery:
         assert "'2024-01-01'" in rendered
         assert "ORDER BY" not in rendered
         assert "FROM (" not in rendered
+
+    def test_empty_string_last_value_falls_back_to_initial_value(self):
+        query = _build_count_query("public", "events", True, "cursor", IncrementalFieldType.Numeric, "")
+        rendered = self._render(query)
+        assert "''" not in rendered
+        assert '"cursor" > 0' in rendered
 
 
 class TestIsPartitionedTable:
@@ -5898,6 +6372,24 @@ class TestGetTable:
             assert set_timeout_idx < first_probe_idx < info_schema_idx
 
     @pytest.mark.django_db
+    def test_dropped_connection_on_statement_timeout_reraises_without_rollback(self):
+        # Before the fix, any `psycopg.Error` on the protective `SET statement_timeout` triggered a
+        # blind `cursor.connection.rollback()`. When the error meant the connection itself was
+        # dropped, rolling back a dead socket raised a fresh, misleading "the connection is lost"
+        # that buried the real cause instead of letting the caller retry on a fresh connection
+        # (mirrors the same fix already applied to `_schemas_from_conn`).
+        logger = structlog.get_logger()
+        cursor = mock.MagicMock()
+        drop_error = psycopg.OperationalError("server closed the connection unexpectedly")
+        cursor.execute.side_effect = drop_error
+
+        with pytest.raises(psycopg.OperationalError) as exc_info:
+            _get_table(cast(Any, cursor), "public", "test_get_table_dropped_conn", logger)
+
+        assert exc_info.value is drop_error
+        cursor.connection.rollback.assert_not_called()
+
+    @pytest.mark.django_db
     def test_schemas_from_conn_runs_under_scoped_statement_timeout(self):
         """`_schemas_from_conn` (the discovery path `sync_new_schemas_activity` and credential
         validation use) raises statement_timeout before scanning the catalog, so a short
@@ -5919,6 +6411,49 @@ class TestGetTable:
         )
         column_query_idx = next(i for i, q in enumerate(conn.executed) if "information_schema.columns" in q)
         assert set_timeout_idx < column_query_idx
+
+    @pytest.mark.django_db
+    def test_schemas_from_conn_catalog_scan_timeout_is_non_retryable(self):
+        # A catalog wide enough that the column-listing query itself exhausts the raised
+        # METADATA_STATEMENT_TIMEOUT_MS: retrying re-runs the same futile scan, so it must be
+        # converted to the non-retryable QueryTimeoutException instead of the raw, retried QueryCanceled.
+        cursor = MagicMock()
+        cursor.execute.side_effect = [
+            None,  # SET statement_timeout
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),  # catalog scan
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_discovered_tables",
+            return_value=({"big_table": (None, "public", "big_table")}, False),
+        ):
+            with pytest.raises(QueryTimeoutException) as exc_info:
+                _schemas_from_conn(cast(Any, connection), "public", None)
+
+        assert str(exc_info.value) == str(_schema_discovery_timeout_error())
+
+    @pytest.mark.django_db
+    def test_schemas_from_conn_recovery_conflict_stays_retryable(self):
+        # A hot-standby recovery conflict during the catalog scan is also a QueryCanceled, but it's
+        # transient and already retried by `get_schemas`'s outer `_retry_on_connection_dropped` (via
+        # `_is_recovery_conflict_error`). It must propagate unconverted, not get mapped to the
+        # non-retryable timeout error meant for a genuinely oversized catalog.
+        cursor = MagicMock()
+        cursor.execute.side_effect = [
+            None,  # SET statement_timeout
+            psycopg.errors.QueryCanceled("canceling statement due to conflict with recovery"),
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_discovered_tables",
+            return_value=({"big_table": (None, "public", "big_table")}, False),
+        ):
+            with pytest.raises(psycopg.errors.QueryCanceled, match="conflict with recovery"):
+                _schemas_from_conn(cast(Any, connection), "public", None)
 
     @pytest.mark.django_db
     def test_regular_table(self):
@@ -7223,6 +7758,7 @@ class TestGetRowsInitialReadDropRetry:
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(batches=[], drop_on_execute=False)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=100),
@@ -7370,6 +7906,7 @@ class TestGetRowsInitialReadLockTimeoutRetry:
             patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(batches=[], state={"declare_locks_left": 0})),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
             patch(f"{module}._get_table_chunk_size", return_value=100),
@@ -7531,6 +8068,7 @@ class TestPartitionIterationConnectRetry:
             ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=True),
             patch(f"{module}.list_child_partitions", return_value=[child]),

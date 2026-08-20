@@ -13,11 +13,13 @@ export const AssigneeSelect = ({
     onChange,
     children,
     disabledReason,
+    loadOnOpen = false,
 }: {
     assignee: TicketAssignee
     onChange: (assignee: TicketAssignee) => void
     children: (assignee: Assignee, isOpen: boolean) => JSX.Element
     disabledReason?: string
+    loadOnOpen?: boolean
 }): JSX.Element => {
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
@@ -29,8 +31,10 @@ export const AssigneeSelect = ({
     }
 
     useEffect(() => {
-        ensureAssigneeTypesLoaded()
-    }, [ensureAssigneeTypesLoaded])
+        if (!loadOnOpen) {
+            ensureAssigneeTypesLoaded()
+        }
+    }, [ensureAssigneeTypesLoaded, loadOnOpen])
 
     if (disabledReason) {
         return (
@@ -47,7 +51,12 @@ export const AssigneeSelect = ({
             closeOnClickInside={false}
             visible={showPopover}
             matchWidth={false}
-            onVisibilityChange={(visible) => setShowPopover(visible)}
+            onVisibilityChange={(visible) => {
+                setShowPopover(visible)
+                if (visible && loadOnOpen) {
+                    ensureAssigneeTypesLoaded()
+                }
+            }}
             overlay={<AssigneeDropdown assignee={assignee} onChange={_onChange} />}
         >
             <div>

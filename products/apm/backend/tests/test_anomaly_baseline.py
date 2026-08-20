@@ -1,10 +1,17 @@
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 import numpy as np
 from parameterized import parameterized
 
-from products.apm.backend.logic.anomaly_detection.baseline import MINUTES_PER_WEEK, TimeGrid, select_baseline
+from products.apm.backend.logic.anomaly_detection.baseline import (
+    MINUTES_PER_WEEK,
+    TimeGrid,
+    candidate_slice_pad_buckets,
+    select_baseline,
+)
 from products.apm.backend.logic.anomaly_detection.config import DetectionConfig
 from products.apm.backend.logic.anomaly_detection.constants import BUCKET_MINUTES, BUCKETS_PER_DAY, BUCKETS_PER_WEEK
 from products.apm.backend.logic.anomaly_detection.types import BaselineStage, SeriesHistory
@@ -131,3 +138,54 @@ class TestDst:
         after_shift = 3 * BUCKETS_PER_WEEK
         assert not grid.is_dst_shift_week(before_shift)
         assert grid.is_dst_shift_week(after_shift)
+
+
+DST_GRID_START = datetime(2026, 10, 5, tzinfo=UTC)  # a Monday; US DST ends 2026-11-01
+DST_GRID_LENGTH = 5 * BUCKETS_PER_WEEK
+DST_GRID = TimeGrid.build(DST_GRID_START, DST_GRID_LENGTH, ZoneInfo("America/Los_Angeles"))
+
+
+class TestCandidateSlicePadding:
+    # Evaluated after the DST shift, so local-time matching selects candidates
+    # through the slack region beyond the pool — the padding guarantee's edge.
+    @parameterized.expand(
+        [
+            (
+                "cold_start",
+                DetectionConfig(level_adjustment_enabled=False, cold_start_until_buckets=100 * BUCKETS_PER_WEEK),
+                BaselineStage.COLD_START,
+                BUCKETS_PER_DAY,
+            ),
+            ("developing", NO_LEVEL_CONFIG, BaselineStage.DEVELOPING, BUCKETS_PER_WEEK),
+            (
+                "mature",
+                DetectionConfig(level_adjustment_enabled=False, developing_until_buckets=4 * BUCKETS_PER_WEEK),
+                BaselineStage.MATURE,
+                BUCKETS_PER_WEEK,
+            ),
+        ]
+    )
+    def test_samples_stay_within_padded_slices(
+        self, _name: str, config: DetectionConfig, expected_stage: BaselineStage, step_buckets: int
+    ) -> None:
+        index = DST_GRID_LENGTH - 1
+        counts = np.arange(DST_GRID_LENGTH, dtype=float) + 1.0  # value i+1 marks position i
+        history = SeriesHistory(grid_start=DST_GRID_START, counts=counts)
+        result = select_baseline(history, index, DST_GRID, config)
+        assert result.stage is expected_stage
+        assert result.samples.size > 0
+        positions = result.samples - 1.0
+        step_offset = (index - positions) % step_buckets
+        distance = np.minimum(step_offset, step_buckets - step_offset)
+        assert float(distance.max()) <= candidate_slice_pad_buckets(config)
+
+
+class TestDetectionConfigValidation:
+    @parameterized.expand([("zero", 0.0), ("default", 0.5), ("one", 1.0)])
+    def test_accepts_fractional_exclusion_cap(self, _name: str, fraction: float) -> None:
+        assert DetectionConfig(exclusion_cap_fraction=fraction).exclusion_cap_fraction == fraction
+
+    @parameterized.expand([("negative", -0.1), ("above_one", 1.1), ("percent_style", 50.0)])
+    def test_rejects_out_of_range_exclusion_cap(self, _name: str, fraction: float) -> None:
+        with pytest.raises(ValueError, match="exclusion_cap_fraction"):
+            DetectionConfig(exclusion_cap_fraction=fraction)

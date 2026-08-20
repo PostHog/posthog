@@ -9,6 +9,7 @@ import posthoganalytics
 from dateutil import parser
 from simple_salesforce.format import format_soql
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
 
@@ -307,12 +308,18 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
     return filtered_update_data
 
 
+@frozen
+class BulkUpdateResult:
+    succeeded: int
+    failed: int
+
+
 def bulk_update_salesforce_accounts(
     sf,
     update_records,
     *,
     raise_on_batch_error: bool = False,
-) -> tuple[int, int]:
+) -> BulkUpdateResult:
     """Update Salesforce accounts in batches of 200 using sObject Collections API.
 
     Args:
@@ -321,12 +328,12 @@ def bulk_update_salesforce_accounts(
         raise_on_batch_error: When True, re-raise exceptions from the batch HTTP call
 
     Returns:
-        Tuple of (succeeded, failed) counts.
+        BulkUpdateResult with succeeded and failed counts.
     """
     logger = LOGGER.bind(function="bulk_update_salesforce_accounts")
 
     if not update_records:
-        return 0, 0
+        return BulkUpdateResult(succeeded=0, failed=0)
 
     # Split records into batches of 200 (Salesforce sObject Collections API limit)
     batches = [
@@ -387,7 +394,7 @@ def bulk_update_salesforce_accounts(
         success_rate=round(success_rate, 1),
     )
 
-    return total_success, total_errors
+    return BulkUpdateResult(succeeded=total_success, failed=total_errors)
 
 
 def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:

@@ -15,7 +15,17 @@ import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
 import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import {
+  TaskRepositoryChip,
+  TaskRepositoryDialog,
+} from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
+import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import {
+  resolveTaskRepositoryDraft,
+  useTaskRepositoryDraftStore,
+} from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
@@ -137,6 +147,8 @@ interface TaskInputProps {
    * needs a repo and attaches one lazily.
    */
   allowNoRepo?: boolean;
+  channelRepositories?: string[];
+  channelGithubIntegration?: number | null;
   /**
    * Channels new-task starter prompts. When provided, a column of suggestion
    * cards renders below the input while it's empty; clicking one fills the
@@ -179,6 +191,8 @@ export function TaskInput({
   channelId,
   channelContextId,
   allowNoRepo,
+  channelRepositories = [],
+  channelGithubIntegration = null,
   suggestions,
   onSuggestionSelect,
   onContextChipClick,
@@ -204,6 +218,24 @@ export function TaskInput({
   );
   const selectedDirectory = useActiveRepoStore((s) => s.path);
   const setSelectedDirectory = useActiveRepoStore((s) => s.setPath);
+  const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
+  // "" only on channel-less repo-optional surfaces (none today); a real space
+  // id keys the draft shared with the space home composer.
+  const repositoryDraftKey = channelId ?? "";
+  const repositoryDraft = useTaskRepositoryDraftStore(
+    (s) => s.drafts[repositoryDraftKey],
+  );
+  const setRepositoryDraft = useTaskRepositoryDraftStore((s) => s.setDraft);
+  const {
+    repositories: taskRepositories,
+    githubIntegration: taskGithubIntegration,
+    folder: taskFolder,
+  } = resolveTaskRepositoryDraft(
+    repositoryDraft,
+    channelRepositories,
+    channelGithubIntegration,
+  );
+  const updateChannelRepositories = useUpdateTaskChannelRepositories();
   // Inline file preview opened from the command palette's file search.
   const previewFile = useFileSearchStore((s) => s.previewFile);
   const closePreviewFile = useFileSearchStore((s) => s.closePreview);
@@ -265,6 +297,8 @@ export function TaskInput({
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<AgentRuntime>("acp");
+  // Keep the menu open when a harness switch swaps its ACP/Pi control.
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const didResolveRuntimeRef = useRef(false);
   const [selectedPiModelId, setSelectedPiModelId] = useState<string | null>(
     null,
@@ -460,6 +494,7 @@ export function TaskInput({
   const {
     repositories: visibleCloudRepositories,
     isPending: cloudRepositoriesLoading,
+    isFetchingMore: cloudRepositoriesFetchingMore,
     hasMore: cloudRepositoriesHasMore,
     loadMore: loadMoreCloudRepositories,
   } = useUserGithubRepositories(cloudRepoSearchQuery, isCloudRepoPickerOpen);
@@ -827,7 +862,11 @@ export function TaskInput({
   useWarmTask({
     workspaceMode,
     selectedRepository: selectedCloudRepository,
-    githubIntegrationId: orgGithubIntegrationId,
+    repositories: allowNoRepo ? taskRepositories : undefined,
+    githubIntegrationId: allowNoRepo
+      ? (taskGithubIntegration ?? undefined)
+      : orgGithubIntegrationId,
+    allowNoRepo,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     runtimeAdapter: adapter ?? null,
@@ -937,6 +976,7 @@ export function TaskInput({
 
   const {
     isCreatingTask,
+    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,
@@ -944,8 +984,14 @@ export function TaskInput({
   } = useTaskCreation({
     editorRef,
     sessionId,
-    selectedDirectory,
+    selectedDirectory: allowNoRepo ? taskFolder : selectedDirectory,
     selectedRepository: selectedCloudRepository,
+    repositories:
+      allowNoRepo && workspaceMode === "cloud" ? taskRepositories : undefined,
+    githubIntegrationId:
+      allowNoRepo && workspaceMode === "cloud"
+        ? (taskGithubIntegration ?? undefined)
+        : undefined,
     githubUserIntegrationId: selectedGithubUserIntegrationId,
     workspaceMode: effectiveWorkspaceMode,
     branch: branchForTaskCreation,
@@ -1221,8 +1267,16 @@ export function TaskInput({
                 // suggestions fade out (and back in when the prompt is cleared).
                 top: suggestions && suggestions.length > 0 ? "38%" : "50%",
                 transform: "translate(-50%, -50%)",
+                // Once the task is on its way, the whole composer fades out and
+                // the pending chat fades in over it.
+                opacity: isExitingComposer ? 0 : 1,
+                transitionProperty: "opacity",
+                transitionDuration: `${NEW_TASK_COMPOSER_FADE_MS}ms`,
+                transitionTimingFunction: "ease-out",
               }}
-              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
+              className={`absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2 ${
+                isExitingComposer ? "pointer-events-none" : ""
+              }`}
             >
               <Flex
                 gap="2"
@@ -1239,6 +1293,15 @@ export function TaskInput({
                   onCustomImageChange={setSelectedCustomImageId}
                   size="1"
                 />
+                {allowNoRepo && (
+                  <TaskRepositoryChip
+                    cloud={workspaceMode === "cloud"}
+                    repositoryCount={taskRepositories.length}
+                    hasFolder={!!taskFolder}
+                    disabled={isCreatingTask}
+                    onOpen={() => setRepositoryDialogOpen(true)}
+                  />
+                )}
                 {!allowNoRepo && workspaceMode === "worktree" && (
                   <EnvironmentSelector
                     repoPath={effectiveRepoPath ?? null}
@@ -1279,6 +1342,7 @@ export function TaskInput({
                           isLoadingRepos ||
                           (isCloudRepoPickerOpen && cloudRepositoriesLoading)
                         }
+                        isLoadingMore={cloudRepositoriesFetchingMore}
                         isRefreshing={isRefreshingRepos}
                         onRefresh={handleRefreshRepositories}
                         open={isCloudRepoPickerOpen}
@@ -1441,9 +1505,12 @@ export function TaskInput({
                         }
                         thinkingLevels={piThinkingLevels}
                         disabled={isCreatingTask || isPiConfigLoading}
+                        isLoading={isPiConfigLoading}
                         onChange={handlePiModelChange}
                         onThinkingLevelChange={handlePiThinkingLevelChange}
                         onHarnessChange={handleHarnessChange}
+                        menuOpen={modelMenuOpen}
+                        onMenuOpenChange={setModelMenuOpen}
                       />
                     ) : null
                   }
@@ -1470,6 +1537,8 @@ export function TaskInput({
                         }
                         includePiHarness={piHarnessEnabled}
                         onConfigOptionChange={setConfigOption}
+                        menuOpen={modelMenuOpen}
+                        onMenuOpenChange={setModelMenuOpen}
                         disabled={isCreatingTask}
                         isLoading={isPreviewLoading}
                       />
@@ -1586,6 +1655,41 @@ export function TaskInput({
           </Flex>
         </Box>
       </Flex>
+
+      {allowNoRepo && (
+        <TaskRepositoryDialog
+          open={repositoryDialogOpen}
+          onOpenChange={setRepositoryDialogOpen}
+          cloud={workspaceMode === "cloud"}
+          repositories={taskRepositories}
+          integrationId={taskGithubIntegration}
+          folder={taskFolder}
+          onApply={(selection) => {
+            setRepositoryDraft(repositoryDraftKey, {
+              repositories: selection.repositories,
+              githubIntegration: selection.integrationId,
+              folder: selection.folder,
+            });
+            if (
+              selection.saveToSpace &&
+              channelId &&
+              workspaceMode === "cloud"
+            ) {
+              updateChannelRepositories.mutate(
+                {
+                  channelId,
+                  githubIntegration: selection.integrationId,
+                  repositories: selection.repositories,
+                },
+                {
+                  onError: () =>
+                    toast.error("Couldn't save repositories to the space"),
+                },
+              );
+            }
+          }}
+        />
+      )}
 
       <GitBranchDialog
         open={branchOpen}

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { limitTasksPerGroup, sliceVisibleTasks } from "./buildSidebarData";
+import {
+  limitTasksPerGroup,
+  readRunMode,
+  sliceVisibleTasks,
+} from "./buildSidebarData";
 import type { TaskData, TaskGroup } from "./sidebarData.types";
 
 function makeTask(id: string): TaskData {
@@ -72,5 +76,21 @@ describe("limitTasksPerGroup", () => {
     const { groups: limited, hasMore } = limitTasksPerGroup(groups, 25);
     expect(limited[0]).toBe(groups[0]);
     expect(hasMore).toBe(false);
+  });
+});
+
+// The mode decides whether a run's `in_progress` is a claim that work is
+// happening. Defaulting the wrong way marks every finished interactive session
+// as pending, which is what this replaced.
+describe("readRunMode", () => {
+  it.each([
+    ["an interactive run", { mode: "interactive" }, "interactive"],
+    ["a background run", { mode: "background" }, "background"],
+    // The backend's own default for a run whose state never carried a mode.
+    ["a run with no mode", {}, "background"],
+    ["a run with no state at all", undefined, "background"],
+    ["a mode that is not a mode", { mode: 7 }, "background"],
+  ])("reads %s", (_case, state, expected) => {
+    expect(readRunMode(state)).toBe(expected);
   });
 });

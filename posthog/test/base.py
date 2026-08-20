@@ -32,7 +32,10 @@ import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
-from rest_framework.test import APITestCase as DRFTestCase
+from rest_framework.test import (
+    APITestCase as DRFTestCase,
+    APITransactionTestCase,
+)
 from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import (
@@ -122,6 +125,13 @@ from posthog.models.exchange_rate.sql import (
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
     EXCHANGE_RATE_DICTIONARY_SQL,
     EXCHANGE_RATE_TABLE_SQL,
+)
+from posthog.models.flag_evaluations.sql import (
+    DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
+    DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL,
+    DROP_FLAG_EVALUATIONS_TABLE_SQL,
+    FLAG_EVALUATIONS_TABLE_SQL,
+    WRITABLE_FLAG_EVALUATIONS_TABLE_SQL,
 )
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
@@ -1111,6 +1121,39 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
             yield
 
 
+class NonAtomicAPIBaseTest(PostHogTestCase, ErrorResponsesMixin, APITransactionTestCase):
+    """Like APIBaseTest, but on TransactionTestCase (via DRF's APITransactionTestCase) rather
+    than TestCase - for endpoints that hand work to real worker threads which must see this
+    test's own DB writes. TestCase wraps each test in an outer, never-committed transaction that
+    only the test's own connection can see; a worker thread opens its own connection and a fresh
+    query on it finds no such row at all, not a stale one. See NonAtomicBaseTest for the same
+    trade-off outside DRF, and its docstring's link for background.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
+
+    def setUp(self):
+        super().setUp()
+
+        cache.clear()
+        TEST_clear_instance_license_cache()
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
+
+        if self.CONFIG_AUTO_LOGIN and self.user:
+            self.client.force_login(self.user)
+
+    def _fixture_teardown(self):
+        for db_name in cast(Any, self)._databases_names(include_mirrors=False):
+            try:
+                _selective_flush(db_name, reset_sequences=True)
+            except Exception:
+                logger.exception("Selective flush of %r failed; falling back to the stock flush command", db_name)
+                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+
+
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
     if len(response):
         for attr in remove:
@@ -2021,6 +2064,8 @@ def reset_clickhouse_database() -> None:
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
             TRUNCATE_AI_EVENTS_TABLE_SQL(),
+            DROP_FLAG_EVALUATIONS_TABLE_SQL(),
+            *DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -2028,6 +2073,9 @@ def reset_clickhouse_database() -> None:
             CHANNEL_DEFINITION_TABLE_SQL(),
             EXCHANGE_RATE_TABLE_SQL(),
             *clickhouse_events_data_table_sqls(),
+            FLAG_EVALUATIONS_TABLE_SQL(),
+            WRITABLE_FLAG_EVALUATIONS_TABLE_SQL(),
+            DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL(),
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
@@ -2127,6 +2175,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         reset_clickhouse_database_if_dirty()
 
 
+def skip_clickhouse_query_snapshots(fn: Callable) -> Callable:
+    cast(Any, fn)._skip_clickhouse_query_snapshots = True
+    return fn
+
+
 def snapshot_clickhouse_queries(fn_or_class):
     """
     Captures and snapshots SELECT queries from test using `syrupy` library.
@@ -2137,12 +2190,16 @@ def snapshot_clickhouse_queries(fn_or_class):
     Update snapshots via --snapshot-update.
     """
 
+    if getattr(fn_or_class, "_skip_clickhouse_query_snapshots", False):
+        return fn_or_class
+
     # check if fn_or_class is a class
     if inspect.isclass(fn_or_class):
         # wrap every class method that starts with test_ with this decorator
         for attr in dir(fn_or_class):
-            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
-                setattr(fn_or_class, attr, snapshot_clickhouse_queries(getattr(fn_or_class, attr)))
+            method = getattr(fn_or_class, attr)
+            if callable(method) and attr.startswith("test_"):
+                setattr(fn_or_class, attr, snapshot_clickhouse_queries(method))
         return fn_or_class
 
     @wraps(fn_or_class)

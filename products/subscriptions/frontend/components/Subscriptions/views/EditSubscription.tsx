@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconChevronLeft } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconSend } from '@posthog/icons'
+import { LemonCheckbox, LemonDropdown, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -35,9 +35,9 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes, WeekdayType } from '~/types'
 
-import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { AIWindowConfigApi, SubscriptionDeliveryApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { InsightSelector } from '../InsightSelector'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
@@ -45,17 +45,22 @@ import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
+    ALL_DAYS,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     intervalOptions,
     monthlyWeekdayOptions,
+    selectedDaysToDayPickerLabel,
+    shouldShowDayPicker,
     targetTypeOptions,
     timeOptions,
+    toggleSelectedDay,
     weekdayOptions,
     WEEKDAYS,
     AI_PROMPT_MAX_LENGTH,
+    isFreeTierCreateAtLimit,
 } from '../utils'
 
 // Shown wherever AI subscriptions are gated off (org hasn't approved AI data
@@ -68,6 +73,96 @@ function AiConsentGateMessage(): JSX.Element {
         <>
             {AI_NOT_ALLOWED_REASON}{' '}
             <Link to={urls.settings('organization-details', 'organization-ai-consent')}>Manage AI data processing</Link>
+        </>
+    )
+}
+
+function SubscriptionDayPicker({
+    value,
+    onChange,
+}: {
+    value: WeekdayType[]
+    onChange: (value: WeekdayType[]) => void
+}): JSX.Element {
+    let selectAllChecked: boolean | 'indeterminate' = false
+    if (value.length === ALL_DAYS.length) {
+        selectAllChecked = true
+    } else if (value.length > 0) {
+        selectAllChecked = 'indeterminate'
+    }
+
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            placement="bottom-start"
+            overlay={
+                <div className="w-48 flex flex-col gap-0.5">
+                    <div className="flex items-center mb-0.5">
+                        <LemonButton
+                            size="small"
+                            className="flex-1"
+                            icon={<LemonCheckbox checked={selectAllChecked} className="pointer-events-none" />}
+                            disabledReason={value.length === ALL_DAYS.length ? 'All days are selected' : undefined}
+                            onClick={() => onChange([...ALL_DAYS])}
+                        >
+                            Select all
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            disabledReason={value.length === 0 ? 'No days are selected' : undefined}
+                            onClick={() => onChange([])}
+                        >
+                            Clear all
+                        </LemonButton>
+                    </div>
+                    {weekdayOptions.map((day) => (
+                        <LemonCheckbox
+                            key={day.value}
+                            checked={value.includes(day.value)}
+                            label={day.label}
+                            fullWidth
+                            className="px-2 py-1 rounded hover:bg-bg-3000"
+                            onChange={() => onChange(toggleSelectedDay(value, day.value))}
+                        />
+                    ))}
+                </div>
+            }
+        >
+            <LemonButton type="secondary">{selectedDaysToDayPickerLabel(value)}</LemonButton>
+        </LemonDropdown>
+    )
+}
+
+function LastDeliveryStatus({
+    lastDelivery,
+    loading,
+    failed,
+    currentTimezone,
+}: {
+    lastDelivery: SubscriptionDeliveryApi | null
+    loading: boolean
+    failed: boolean
+    currentTimezone: string | undefined
+}): JSX.Element {
+    if (loading) {
+        return <LemonSkeleton className="w-32 h-4 inline-block" />
+    }
+    if (failed) {
+        return <>Last run unavailable</>
+    }
+    if (!lastDelivery) {
+        return <>No deliveries yet</>
+    }
+    return (
+        <>
+            Last run:{' '}
+            <TZLabel
+                time={lastDelivery.finished_at ?? lastDelivery.created_at}
+                formatDate="ddd, MMM D"
+                formatTime="h:mm A"
+                timestampStyle="absolute"
+            />{' '}
+            {currentTimezone}
         </>
     )
 }
@@ -101,11 +196,6 @@ interface EditSubscriptionProps {
     dashboard?: DashboardType<any> | null
     onCancel: () => void
     onDelete: () => void
-}
-
-// A null count (loading or fetch failed) fails open — the backend POST check is the hard limit.
-export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
-    return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
 }
 
 export function EditSubscription(props: EditSubscriptionProps): JSX.Element {
@@ -350,10 +440,19 @@ function EditSubscriptionForm({
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
-        useValues(logic)
+    const {
+        subscription,
+        subscriptionLoading,
+        isSubscriptionSubmitting,
+        subscriptionChanged,
+        lastDelivery,
+        lastDeliveryLoadFailed,
+        lastDeliveryLoading,
+        summaryQuota,
+        testDeliveryLoading,
+    } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -474,7 +573,7 @@ function EditSubscriptionForm({
                             </LemonField>
                             <LemonField name="enabled" className="pb-2">
                                 {({ value, onChange }) => (
-                                    <LemonCheckbox
+                                    <LemonSwitch
                                         checked={value !== false}
                                         onChange={onChange}
                                         data-attr="subscription-enabled"
@@ -643,108 +742,134 @@ function EditSubscriptionForm({
                         ) : null}
 
                         <div>
-                            <div className="flex items-baseline justify-between w-full">
-                                <LemonLabel className="mb-2">Recurrence</LemonLabel>
-                                <div className="text-xs text-secondary text-right">{currentTimezone}</div>
-                            </div>
-                            <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
-                                <span>Send every</span>
-                                <LemonField name="interval">
-                                    <LemonSelect options={intervalOptions} />
-                                </LemonField>
-                                <LemonField name="frequency">
-                                    <LemonSelect options={availableFrequencyOptions} />
-                                </LemonField>
+                            <LemonLabel className="mb-2">Recurrence</LemonLabel>
+                            <div className="rounded border p-2">
+                                <div className="flex gap-2 items-center flex-wrap">
+                                    <span>Send every</span>
+                                    <LemonField name="interval">
+                                        <LemonSelect options={intervalOptions} />
+                                    </LemonField>
+                                    <LemonField name="frequency" renderError={() => null}>
+                                        <LemonSelect options={availableFrequencyOptions} />
+                                    </LemonField>
 
-                                {subscription.frequency === 'weekly' && (
-                                    <>
-                                        <span>on</span>
-                                        <LemonField name="byweekday">
-                                            {({ value, onChange }) => (
-                                                <LemonSelect
-                                                    options={weekdayOptions}
-                                                    value={value ? value[0] : null}
-                                                    onChange={(val) => onChange([val])}
-                                                />
-                                            )}
-                                        </LemonField>
-                                    </>
-                                )}
-
-                                {subscription.frequency === 'monthly' && (
-                                    <>
-                                        <span>on the</span>
-                                        <LemonField name="bysetpos">
-                                            {({ value, onChange }) => (
-                                                <LemonSelect
-                                                    options={bysetposOptions}
-                                                    value={value ? String(value) : null}
-                                                    onChange={(val) => {
-                                                        onChange(typeof val === 'string' ? parseInt(val, 10) : null)
-                                                    }}
-                                                />
-                                            )}
-                                        </LemonField>
-                                        <LemonField name="byweekday">
-                                            {({ value, onChange }) => {
-                                                const isWeekday =
-                                                    value?.length === 5 && value.every((d: string) => WEEKDAYS.has(d))
-                                                const displayValue = value
-                                                    ? isWeekday
-                                                        ? 'weekday'
-                                                        : value.length === 1
-                                                          ? value[0]
-                                                          : 'day'
-                                                    : null
-
-                                                return (
-                                                    <LemonSelect
-                                                        dropdownMatchSelectWidth={false}
-                                                        options={monthlyWeekdayOptions}
-                                                        value={displayValue}
-                                                        onChange={(val) =>
-                                                            onChange(
-                                                                val === 'day'
-                                                                    ? Object.values(weekdayOptions).map((v) => v.value)
-                                                                    : val === 'weekday'
-                                                                      ? [...WEEKDAYS]
-                                                                      : [val]
-                                                            )
-                                                        }
-                                                    />
-                                                )
-                                            }}
-                                        </LemonField>
-                                    </>
-                                )}
-                                <span>by</span>
-                                <LemonField name="start_date">
-                                    {({ value, onChange }) => (
-                                        <LemonSelect
-                                            options={timeOptions}
-                                            value={dayjs(value).hour().toString()}
-                                            onChange={(val) => {
-                                                onChange(
-                                                    dayjs()
-                                                        .hour(typeof val === 'string' ? parseInt(val, 10) : 0)
-                                                        .minute(0)
-                                                        .second(0)
-                                                        .toISOString()
-                                                )
-                                            }}
-                                        />
+                                    {shouldShowDayPicker(subscription.frequency, subscription.interval) && (
+                                        <>
+                                            <LemonField name="byweekday">
+                                                {({ value, onChange }) => (
+                                                    <SubscriptionDayPicker value={value ?? []} onChange={onChange} />
+                                                )}
+                                            </LemonField>
+                                        </>
                                     )}
-                                </LemonField>
+                                    {subscription.frequency === 'monthly' && (
+                                        <>
+                                            <span>on the</span>
+                                            <LemonField name="bysetpos">
+                                                {({ value, onChange }) => (
+                                                    <LemonSelect
+                                                        options={bysetposOptions}
+                                                        value={value ? String(value) : null}
+                                                        onChange={(val) => {
+                                                            onChange(val === null ? null : Number(val))
+                                                        }}
+                                                    />
+                                                )}
+                                            </LemonField>
+                                            <LemonField name="byweekday">
+                                                {({ value, onChange }) => {
+                                                    const isWeekday =
+                                                        value?.length === 5 &&
+                                                        value.every((d: string) => WEEKDAYS.has(d))
+                                                    let displayValue = null
+                                                    if (isWeekday) {
+                                                        displayValue = 'weekday'
+                                                    } else if (value?.length === 1) {
+                                                        displayValue = value[0]
+                                                    } else if (value) {
+                                                        displayValue = 'day'
+                                                    }
+
+                                                    return (
+                                                        <LemonSelect
+                                                            dropdownMatchSelectWidth={false}
+                                                            options={monthlyWeekdayOptions}
+                                                            value={displayValue}
+                                                            onChange={(val) => {
+                                                                if (val === 'day') {
+                                                                    onChange(weekdayOptions.map(({ value }) => value))
+                                                                    return
+                                                                }
+                                                                if (val === 'weekday') {
+                                                                    onChange([...WEEKDAYS])
+                                                                    return
+                                                                }
+                                                                onChange([val])
+                                                            }}
+                                                        />
+                                                    )
+                                                }}
+                                            </LemonField>
+                                        </>
+                                    )}
+                                    <span>at</span>
+                                    <LemonField name="start_date">
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                options={timeOptions}
+                                                value={dayjs(value).hour().toString()}
+                                                onChange={(val) => {
+                                                    onChange(
+                                                        dayjs()
+                                                            .hour(Number(val ?? 0))
+                                                            .minute(0)
+                                                            .second(0)
+                                                            .toISOString()
+                                                    )
+                                                }}
+                                            />
+                                        )}
+                                    </LemonField>
+                                </div>
                             </div>
                             {nextDeliveryDate && (
-                                <div className="text-xs text-secondary mt-1">
+                                <div className="text-sm text-secondary mt-1">
                                     Next delivery:{' '}
                                     <TZLabel
                                         time={dayjs(nextDeliveryDate)}
                                         formatDate="ddd, MMM D"
-                                        formatTime="HH:mm"
+                                        formatTime="h:mm A"
                                         timestampStyle="absolute"
-                                    />
+                                    />{' '}
+                                    {currentTimezone}
+                                </div>
+                            )}
+                            {id !== 'new' && (
+                                <div className="flex items-center justify-between gap-2 mt-1">
+                                    <div className="text-sm text-secondary">
+                                        <LastDeliveryStatus
+                                            lastDelivery={lastDelivery}
+                                            loading={lastDeliveryLoading}
+                                            failed={lastDeliveryLoadFailed}
+                                            currentTimezone={currentTimezone}
+                                        />
+                                        {' · '}
+                                        <Link to={urls.subscription(id)}>View history</Link>
+                                    </div>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconSend />}
+                                        onClick={sendTestDelivery}
+                                        loading={testDeliveryLoading}
+                                        disabledReason={
+                                            subscription.enabled === false
+                                                ? 'Re-enable this subscription before sending a test delivery'
+                                                : undefined
+                                        }
+                                    >
+                                        Send test delivery
+                                    </LemonButton>
                                 </div>
                             )}
                         </div>
@@ -834,7 +959,7 @@ function EditSubscriptionForm({
                                             <TZLabel
                                                 time={dayjs(nextDeliveryDate)}
                                                 formatDate="ddd, MMM D"
-                                                formatTime="HH:mm"
+                                                formatTime="h:mm A"
                                                 timestampStyle="absolute"
                                             />
                                             )

@@ -20,6 +20,9 @@ jest.mock('lib/api', () => ({
         get: jest.fn(),
         update: jest.fn(),
         create: jest.fn(),
+        recordings: {
+            listPlaylists: jest.fn(),
+        },
     },
 }))
 
@@ -40,8 +43,16 @@ describe('sidePanelLogic', () => {
 
     beforeEach(async () => {
         initKeaTests()
-        ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+        ;(api.get as jest.Mock).mockResolvedValue({
+            tabs: [],
+            homepage: null,
+            count: 0,
+            next: null,
+            previous: null,
+            results: [],
+        })
         ;(api.update as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+        ;(api.recordings.listPlaylists as jest.Mock).mockResolvedValue({ results: [], count: 0, filters: null })
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         sceneLogic.build({ scenes: testScenes }).mount()
@@ -65,10 +76,24 @@ describe('sidePanelLogic', () => {
         }
     )
 
-    it('stays open when navigating within the same scene', async () => {
+    it('closes a context-bound tab when navigating between settings sections', async () => {
         await navigate(urls.settings('user'))
         sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Discussion)
         await navigate(urls.settings('project'))
+        await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: false })
+    })
+
+    it('keeps a persisted tab open when navigating between settings sections', async () => {
+        await navigate(urls.settings('user'))
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+        await navigate(urls.settings('project'))
+        await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: true, selectedTab: SidePanelTab.Max })
+    })
+
+    it('stays open across search param changes within the same settings section', async () => {
+        await navigate(urls.settings('user'))
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Discussion)
+        router.actions.push(urls.settings('user'), { access_tab: 'members' })
         await expectLogic(sidePanelStateLogic).toMatchValues({
             sidePanelOpen: true,
             selectedTab: SidePanelTab.Discussion,

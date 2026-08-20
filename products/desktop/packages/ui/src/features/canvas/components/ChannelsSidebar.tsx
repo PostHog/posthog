@@ -1,7 +1,11 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  PROJECT_BLUEBIRD_FLAG,
+  REPORT_CANVAS_INBOX_FLAG,
+} from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
 import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSidebar";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
@@ -10,15 +14,17 @@ import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
+import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
+import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
+  consumeKeepListForNextRoute,
   showChannelList,
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { LoopsPromoCard } from "@posthog/ui/features/loops/components/LoopsPromoCard";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu";
@@ -38,7 +44,6 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
-import { Box, Flex } from "@radix-ui/themes";
 import { useParams } from "@tanstack/react-router";
 import { useDeferredValue, useEffect, useRef } from "react";
 
@@ -57,10 +62,19 @@ import { useDeferredValue, useEffect, useRef } from "react";
 function ChannelPanes({
   channelId,
   showList,
+  sidebarVisible,
 }: {
   channelId: string | null;
   showList: boolean;
+  sidebarVisible: boolean;
 }) {
+  // Mark the channel seen only while a reader can see its pane: this pane is
+  // the one showing (not the list) and the sidebar is on screen. A collapsed
+  // sidebar keeps both panes mounted, so without the visibility gate a mention
+  // landing behind it would clear the unread emphasis nobody saw.
+  const visibleChannelId =
+    !showList && sidebarVisible ? (channelId ?? undefined) : undefined;
+  useMarkChannelSeen(visibleChannelId);
   const panesRef = useRef<HTMLDivElement | null>(null);
   useChannelPaneSwipe(panesRef, {
     // With no channel to slide to, the list is all there is — leave the gesture
@@ -71,7 +85,7 @@ function ChannelPanes({
   });
 
   return (
-    <Box ref={panesRef} className="min-h-0 flex-1 overflow-hidden">
+    <div ref={panesRef} className="min-h-0 flex-1 overflow-hidden">
       <div
         className={cn(
           "flex h-full w-[200%] transition-transform duration-200 ease-out motion-reduce:transition-none",
@@ -94,10 +108,15 @@ function ChannelPanes({
           )}
         </div>
       </div>
-    </Box>
+    </div>
   );
 }
 export function ChannelsSidebar() {
+  const reportCanvasesEnabled = useFeatureFlag(
+    REPORT_CANVAS_INBOX_FLAG,
+    import.meta.env.DEV,
+  );
+  useReportSpace(reportCanvasesEnabled);
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
   const isResizing = useChannelsSidebarStore((state) => state.isResizing);
@@ -176,7 +195,9 @@ export function ChannelsSidebar() {
     setCurrentChannel(routeChannelId);
     // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
     // it, so the slider follows the route even if the list was being browsed.
-    showChannelPane();
+    // Unless the navigation said otherwise: opening a session from the list's
+    // tree loads it without taking the tree off the screen.
+    if (!consumeKeepListForNextRoute()) showChannelPane();
   }, [channelsLayout, routeChannelId, setCurrentChannel]);
 
   // Browsing the list is view state, not navigation: you stay in the channel
@@ -223,67 +244,73 @@ export function ChannelsSidebar() {
       onPeekLeave={() => endSidebarPeek()}
       onPeekDismiss={cancelSidebarPeek}
     >
-      <Flex direction="column" className="h-full bg-chrome">
-        {!channelsLayout && (
-          <>
-            <SidebarNavSection />
-            <TasksHeader />
-          </>
-        )}
+      {/* One preview card for every row in here — the channel's own list and
+          the space tree both draw their rows as triggers on it. */}
+      <ChannelItemPreviewCardProvider>
+        <div className="flex h-full flex-col bg-chrome">
+          {!channelsLayout && (
+            <>
+              <SidebarNavSection />
+              <TasksHeader />
+            </>
+          )}
 
-        {channelsLayout ? (
-          <>
-            {/* Which project you're in is the outermost thing about this window,
-                so under the layout it sits above the nav row rather than in the
-                footer. Its menu opens downward, which is the right direction
-                from the top of a sidebar. */}
-            <Box className="shrink-0 px-2 pb-1">
-              <ProjectSwitcher />
-            </Box>
-            <ChannelNav />
-            <ChannelPanes channelId={currentChannelId} showList={showList} />
-          </>
-        ) : bodyChannelsWorld ? (
-          <>
-            <Separator />
-            <Box className="relative min-h-0 flex-1">
-              <ChannelsList />
-              <ChannelsFab />
-            </Box>
-          </>
-        ) : (
-          <Box className="min-h-0 flex-1">
-            <SidebarMenu />
-          </Box>
-        )}
+          {channelsLayout ? (
+            <>
+              {/* Which project you're in is the outermost thing about this
+                  window, so under the layout it sits above the nav row rather
+                  than in the footer. Its menu opens downward, which is the
+                  right direction from the top of a sidebar. */}
+              <div className="shrink-0 px-2 pb-1">
+                <ProjectSwitcher />
+              </div>
+              <ChannelNav />
+              <ChannelPanes
+                channelId={currentChannelId}
+                showList={showList}
+                sidebarVisible={open || peek}
+              />
+            </>
+          ) : bodyChannelsWorld ? (
+            <>
+              <Separator />
+              <div className="relative min-h-0 flex-1">
+                <ChannelsList />
+                <ChannelsFab />
+              </div>
+            </>
+          ) : (
+            <div className="min-h-0 flex-1">
+              <SidebarMenu />
+            </div>
+          )}
 
-        <UpdateBanner />
+          <UpdateBanner />
 
-        {showArchivedRow && archivedTaskIds.size > 0 && (
-          <Box className="shrink-0 border-border border-t">
-            <button
-              type="button"
-              className="flex w-full items-center gap-1 bg-transparent px-2 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3"
-              onClick={navigateToArchived}
-            >
-              <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-gray-10">
-                <ArchiveIcon size={14} />
-              </span>
-              <span className="text-gray-11">Archived</span>
-            </button>
-          </Box>
-        )}
+          {showArchivedRow && archivedTaskIds.size > 0 && (
+            <div className="shrink-0 border-border border-t">
+              <button
+                type="button"
+                className="flex w-full items-center gap-1 bg-transparent px-2 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3"
+                onClick={navigateToArchived}
+              >
+                <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-gray-10">
+                  <ArchiveIcon size={14} />
+                </span>
+                <span className="text-gray-11">Archived</span>
+              </button>
+            </div>
+          )}
 
-        <LoopsPromoCard />
-
-        {/* The code layout keeps it in the footer: that sidebar's top is the nav
+          {/* The code layout keeps it in the footer: that sidebar's top is the nav
             section and task header, and there's no nav row to sit above. */}
-        {!channelsLayout && (
-          <Box className="shrink-0 px-2 pb-2">
-            <ProjectSwitcher />
-          </Box>
-        )}
-      </Flex>
+          {!channelsLayout && (
+            <div className="shrink-0 px-2 pb-2">
+              <ProjectSwitcher />
+            </div>
+          )}
+        </div>
+      </ChannelItemPreviewCardProvider>
     </ResizableSidebar>
   );
 }

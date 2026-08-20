@@ -41,10 +41,6 @@
                     },
                     "type": "array"
                 },
-                "bytecode": {},
-                "bytecode_error": {
-                    "type": "string"
-                },
                 "data_warehouse": {
                     "items": {
                         "additionalProperties": {},
@@ -83,8 +79,7 @@
                     "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
                     "enum": ["events", "person-updates", "data-warehouse-table"],
                     "type": "string"
-                },
-                "transpiled": {}
+                }
             },
             "type": "object"
         },
@@ -392,9 +387,6 @@
             "anyOf": [
                 {
                     "properties": {
-                        "bytecode": {
-                            "description": "Compiled bytecode for the hash expression. Auto-generated."
-                        },
                         "hash": {
                             "description": "Hog expression used to compute the masking hash.",
                             "type": "string"

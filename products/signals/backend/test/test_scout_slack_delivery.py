@@ -133,6 +133,75 @@ class TestScoutSlackDelivery(BaseTest):
         assert reply["thread_ts"] == "1785418710.000200"
         assert reply["blocks"][0]["type"] == "context"
 
+    def test_note_only_edit_delivers_the_note_instead_of_the_report(self) -> None:
+        # Without the edit_note branch a note-only edit re-posts the full report message, which is
+        # byte-identical to the one already in the channel and reads as a duplicate.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="**Checkout** failed for many users",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000300"}
+        delivery_id = "0198f2a1-4c31-7a52-9f1e-3c5d6e7f8a9b"
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                delivery_id,
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                "Re-checked after the fix: **error rate** is back to baseline <!channel>",
+            )
+
+        call = fake_client.chat_postMessage.call_args_list[0].kwargs
+        assert call["client_msg_id"] == delivery_id
+        context = call["blocks"][0]["elements"][0]["text"]
+        assert "added a note to an existing report" in context
+        assert call["blocks"][1]["text"]["text"] == "Checkout failures"
+        section = call["blocks"][2]["text"]["text"]
+        assert "*error rate*" in section
+        assert "<!channel>" not in section
+        assert "&lt;!channel&gt;" in section
+        assert "failed for many users" not in section
+        assert call["blocks"][-1]["elements"][0]["url"] == (
+            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
+        )
+
+    def test_enqueue_omits_edit_note_kwarg_when_unset(self) -> None:
+        # A worker still running the previous task signature rejects an unknown kwarg, so every
+        # delivery without a note must keep the exact payload shape it had before edit_note existed.
+        with patch.object(deliver_scout_slack_output, "delay") as delay:
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="b316c1d1-6901-49eb-8223-96d4df69f67f",
+                integration_id=9,
+                channel="CSCOUTS|#scout-findings",
+            )
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="c4f7d2e2-7012-4afc-9334-a7e5df70a80a",
+                integration_id=9,
+                channel="CSCOUTS|#scout-findings",
+                edit_note="Re-validated on the next run",
+            )
+
+        assert delay.call_args_list[0].kwargs == {}
+        assert delay.call_args_list[1].kwargs == {"edit_note": "Re-validated on the next run"}
+
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.
         self.organization.is_ai_data_processing_approved = False

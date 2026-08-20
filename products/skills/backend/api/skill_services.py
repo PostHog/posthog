@@ -18,7 +18,7 @@ from ..models.skills import (
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
-MAX_SKILL_FILE_COUNT = 50
+MAX_SKILL_FILE_COUNT = 200
 
 
 class LLMSkillNotFoundError(Exception):
@@ -223,6 +223,7 @@ def publish_skill_version(
     files: list[dict[str, str]] | None = None,
     file_edits: list[dict[str, Any]] | None = None,
     base_version: int,
+    version_description: str | None = None,
 ) -> LLMSkill:
     with transaction.atomic():
         current_latest = (
@@ -263,6 +264,7 @@ def publish_skill_version(
             category=current_latest.category,
             version=current_latest.version + 1,
             is_latest=True,
+            version_description=version_description,
             created_by=user,
         )
 
@@ -428,11 +430,13 @@ def duplicate_skill(
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
 
-        # A duplicate is a brand-new, user-authored skill under a new name, so it does not inherit the
-        # source's provenance or classification: drop the harness seed marker, and leave `category`
-        # at its default empty (the copy isn't a registered scout — it would only become one if named
-        # `signals-scout-*` and picked up by scout registration). This keeps non-runnable rows out of
-        # the Scouts tab and avoids mislabeling a fork as canonical.
+        # A duplicate is a brand-new, user-authored skill under a new name, so it inherits nothing
+        # from the source's provenance or classification: the harness seed marker is dropped, and
+        # `category` is derived from the new name exactly like the create paths do (empty unless the
+        # new name carries a registered prefix). Deriving instead of copying keeps a fork of a scout
+        # or canonical from carrying that grouping under an unrelated name, while a copy named into
+        # a registered prefix (e.g. adopting a skill as a ReviewHog perspective) groups like any
+        # other skill of that kind.
         duplicated_metadata = dict(source_latest.metadata or {})
         duplicated_metadata.pop("seeded_by", None)
 
@@ -446,6 +450,7 @@ def duplicate_skill(
                 compatibility=source_latest.compatibility,
                 allowed_tools=source_latest.allowed_tools,
                 metadata=duplicated_metadata,
+                category=category_for_skill_name(new_name),
                 version=1,
                 is_latest=True,
                 created_by=user,

@@ -11,7 +11,11 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+    ResumableSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -23,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LlamaCloudSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.llama_cloud import (
+    LLAMA_CLOUD_API_VERSION_V2,
     LlamaCloudResumeConfig,
     llama_cloud_source,
     validate_credentials as validate_llama_cloud_credentials,
@@ -38,7 +43,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LlamaCloudSource(ResumableSource[LlamaCloudSourceConfig, LlamaCloudResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    api_docs_url = "https://docs.cloud.llamaindex.ai"
+    api_docs_url = "https://developers.llamaindex.ai/python/cloud/"
+
+    # LlamaCloud versions its API in the endpoint path (see LLAMA_CLOUD_API_VERSION_V2): this source
+    # already reads the v2-generation endpoints, so the legacy unversioned label and "v2" drive
+    # identical requests. New sources default to "v2"; existing pins keep syncing byte-for-byte.
+    supported_versions = (UNVERSIONED_API_VERSION, LLAMA_CLOUD_API_VERSION_V2)
+    default_version = LLAMA_CLOUD_API_VERSION_V2
 
     @property
     def source_type(self) -> ExternalDataSourceType:

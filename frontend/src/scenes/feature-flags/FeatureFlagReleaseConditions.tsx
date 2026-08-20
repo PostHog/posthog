@@ -43,8 +43,10 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
+
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -52,6 +54,7 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
 
 function PropertyValueComponent({
@@ -506,6 +509,11 @@ export function FeatureFlagReleaseConditions({
                                                 <b>~{pluralize(receivingFlag, singularName, pluralName)}</b> -{' '}
                                                 <b>{rolloutPct}%</b>
                                             </span>
+                                            <MatchingActorsLink
+                                                properties={group.properties}
+                                                resolvedGroupTypeIndex={resolvedGroupTypeIndex}
+                                                targetName={pluralName}
+                                            />
                                         </div>
                                     )
                                 })()}
@@ -577,6 +585,7 @@ export function FeatureFlagReleaseConditions({
                     it.
                 </LemonBanner>
             )}
+            <FractionalRolloutWarning filterGroups={filterGroups} className="mb-3" />
             {!readOnly &&
                 !filterGroups.every(
                     (group) => filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2
@@ -693,7 +702,7 @@ export function FeatureFlagReleaseConditions({
                                 description:
                                     'Stable assignment for everyone in an organization, company, or other custom group type.',
                                 disabledReason: hasEarlyAccessFeatures
-                                    ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
+                                    ? EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON
                                     : groupTypes.size === 0
                                       ? 'No group types defined. Set up group analytics first.'
                                       : undefined,

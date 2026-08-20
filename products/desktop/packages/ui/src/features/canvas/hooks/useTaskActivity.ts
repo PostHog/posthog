@@ -11,10 +11,12 @@ import { TASK_ACTIVITY_QUERY_KEY } from "../task-activity/taskActivityQuery";
 
 export { TASK_ACTIVITY_QUERY_KEY } from "../task-activity/taskActivityQuery";
 
+const TASK_ACTIVITY_REFETCH_INTERVAL_MS = 60_000;
+
 /**
- * Tasks the current user is involved in — created, @-mentioned in, or messaged
- * in — one row per task, newest activity first, from the backend task-activity
- * index. Mount once per surface (sidebar badge, Activity page) — results are
+ * Task lifecycle and comment activity for the current user, newest first. Task
+ * lifecycle rows collapse per task while comment notifications remain separate.
+ * Mount once per surface (sidebar badge, Activity page); results are
  * shared through the react-query cache.
  */
 export function useTaskActivity(options?: { enabled?: boolean }): {
@@ -40,7 +42,10 @@ export function useTaskActivity(options?: { enabled?: boolean }): {
         ? { before: page.next_before, beforeId: page.next_before_id }
         : undefined,
     enabled: !!client && (options?.enabled ?? true),
-    staleTime: Number.POSITIVE_INFINITY,
+    staleTime: TASK_ACTIVITY_REFETCH_INTERVAL_MS,
+    refetchInterval: TASK_ACTIVITY_REFETCH_INTERVAL_MS,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
     meta: AUTH_SCOPED_QUERY_META,
   });
   const items = useMemo(

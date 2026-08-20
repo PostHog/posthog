@@ -1,19 +1,40 @@
 import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities";
 import {
+  type CanvasCommentHighlight,
   type CanvasNavIntent,
+  type CanvasTextSelection,
+  type CanvasTheme,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import type { CanvasCapabilities } from "@posthog/shared";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useLayoutEffect, useRef } from "react";
+import { useThemeStore } from "@posthog/ui/shell/themeStore";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
+import { translateCanvasTextSelection } from "./canvasSelection";
 
 const log = logger.scope("built-canvas");
+const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
 
-function buildArtifactHostDocument(artifactUrl: string): string {
+function buildArtifactHostDocument(
+  artifactUrl: string,
+  theme: CanvasTheme,
+  config?: Record<string, unknown>,
+): string {
   const artifactOrigin = new URL(artifactUrl).origin;
-  const serializedArtifactUrl = JSON.stringify(artifactUrl).replaceAll(
+  // The theme rides the fragment so the artifact runtime (a synchronous head
+  // script) applies `.dark` before first paint — the bridge port only connects
+  // at the load event, far too late to prevent a light flash. Fragments don't
+  // reach the server, so signed artifact URLs stay valid. Placement config
+  // rides the same fragment: the runtime freezes it as ph.config at boot.
+  const fragment = new URLSearchParams({ theme });
+  if (config && Object.keys(config).length > 0) {
+    fragment.set("config", JSON.stringify(config));
+  }
+  const themedUrl = new URL(artifactUrl);
+  themedUrl.hash = fragment.toString();
+  const serializedArtifactUrl = JSON.stringify(themedUrl.href).replaceAll(
     "<",
     "\\u003c",
   );
@@ -75,25 +96,50 @@ export interface BuiltCanvasProps {
    * data requests. */
   capabilities: CanvasCapabilities | undefined;
   onDataRequest: (method: string, payload: unknown) => Promise<unknown>;
+  /** Per-placement settings, exposed to the artifact as ph.config (frozen at
+   * boot). A changed config remounts the artifact. */
+  config?: Record<string, unknown>;
   onError?: (message: string, stack?: string) => void;
   /** The artifact's runtime booted and posted "ready" — proof the signed URL
    * actually loaded (an expired URL never gets this far). */
   onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
+  commentHighlights?: CanvasCommentHighlight[];
+  clearTextSelectionKey?: number;
 }
 
 export function BuiltCanvas({
   artifactUrl,
   capabilities,
   onDataRequest,
+  config,
   onError,
   onReady,
   onRendered,
   onNavigate,
+  onTextSelection,
+  onCommentActivate,
+  commentHighlights = EMPTY_COMMENT_HIGHLIGHTS,
+  clearTextSelectionKey = 0,
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const hostDocument = buildArtifactHostDocument(artifactUrl);
+  // Mirrors the host's light/dark theme, like FreeformCanvas — sent over the
+  // artifact bridge port right after connect and again on every change.
+  const theme = useThemeStore(
+    (s): CanvasTheme => (s.isDarkMode ? "dark" : "light"),
+  );
+  const artifactPortRef = useRef<MessagePort | null>(null);
+  // The srcDoc bakes in the mount-time theme only — folding the live theme in
+  // would reload the artifact on every toggle. Live changes go over the port.
+  const initialTheme = useRef(theme).current;
+  const hostDocument = buildArtifactHostDocument(
+    artifactUrl,
+    initialTheme,
+    config,
+  );
   const latest = useRef({
     capabilities,
     onDataRequest,
@@ -101,6 +147,10 @@ export function BuiltCanvas({
     onReady,
     onRendered,
     onNavigate,
+    theme,
+    onTextSelection,
+    onCommentActivate,
+    commentHighlights,
   });
   latest.current = {
     capabilities,
@@ -109,15 +159,18 @@ export function BuiltCanvas({
     onReady,
     onRendered,
     onNavigate,
+    theme,
+    onTextSelection,
+    onCommentActivate,
+    commentHighlights,
   };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new host document needs a fresh bridge even though the effect reads it only through the iframe.
   useLayoutEffect(() => {
     const iframe = iframeRef.current;
-    let artifactPort: MessagePort | null = null;
 
     const route = createCanvasHostMessageRouter({
-      post: (message) => artifactPort?.postMessage(message),
+      post: (message) => artifactPortRef.current?.postMessage(message),
       callbacks: () => ({
         onDataRequest: (method, payload) => {
           // Gating lives here so every consumer of BuiltCanvas gets it by
@@ -129,9 +182,27 @@ export function BuiltCanvas({
           log.warn("Built canvas error", { message });
           latest.current.onError?.(message, stack);
         },
-        onReady: () => latest.current.onReady?.(),
+        onReady: () => {
+          artifactPortRef.current?.postMessage({
+            channel: "posthog-canvas",
+            type: "set-comment-highlights",
+            highlights: latest.current.commentHighlights,
+          });
+          latest.current.onReady?.();
+        },
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
+        onTextSelection: (selection) => {
+          if (!selection) {
+            latest.current.onTextSelection?.(null);
+            return;
+          }
+          const frame = iframeRef.current?.getBoundingClientRect();
+          latest.current.onTextSelection?.(
+            translateCanvasTextSelection(selection, frame),
+          );
+        },
+        onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
       // Built artifacts run arbitrary published code, so an external open asks
@@ -149,16 +220,23 @@ export function BuiltCanvas({
     };
 
     const onLoad = () => {
-      if (artifactPort) return;
+      if (artifactPortRef.current) return;
       const bridge = new MessageChannel();
-      artifactPort = bridge.port1;
-      artifactPort.addEventListener("message", onMessage);
-      artifactPort.start();
+      artifactPortRef.current = bridge.port1;
+      artifactPortRef.current.addEventListener("message", onMessage);
+      artifactPortRef.current.start();
       iframe?.contentWindow?.postMessage(
         { channel: "posthog-canvas-host", type: "connect" },
         "*",
         [bridge.port2],
       );
+      // Queued on the port until the artifact runtime starts it, so the first
+      // themed paint happens before any data renders.
+      artifactPortRef.current.postMessage({
+        channel: "posthog-canvas",
+        type: "set-theme",
+        theme: latest.current.theme,
+      });
     };
 
     const onHostMessage = (event: MessageEvent) => {
@@ -169,8 +247,8 @@ export function BuiltCanvas({
       ) {
         return;
       }
-      artifactPort?.close();
-      artifactPort = null;
+      artifactPortRef.current?.close();
+      artifactPortRef.current = null;
     };
 
     iframe?.addEventListener("load", onLoad);
@@ -178,9 +256,36 @@ export function BuiltCanvas({
     return () => {
       iframe?.removeEventListener("load", onLoad);
       window.removeEventListener("message", onHostMessage);
-      artifactPort?.close();
+      artifactPortRef.current?.close();
+      artifactPortRef.current = null;
     };
   }, [hostDocument]);
+
+  // Live theme change: re-theme the running artifact without reloading it. On
+  // mount the port is still null — the initial theme goes out in onLoad above.
+  useEffect(() => {
+    artifactPortRef.current?.postMessage({
+      channel: "posthog-canvas",
+      type: "set-theme",
+      theme,
+    });
+  }, [theme]);
+
+  useEffect(() => {
+    artifactPortRef.current?.postMessage({
+      channel: "posthog-canvas",
+      type: "set-comment-highlights",
+      highlights: commentHighlights,
+    });
+  }, [commentHighlights]);
+
+  useEffect(() => {
+    if (clearTextSelectionKey === 0) return;
+    artifactPortRef.current?.postMessage({
+      channel: "posthog-canvas",
+      type: "clear-text-selection",
+    });
+  }, [clearTextSelectionKey]);
 
   return (
     <iframe
@@ -189,6 +294,10 @@ export function BuiltCanvas({
       sandbox="allow-scripts"
       srcDoc={hostDocument}
       referrerPolicy="no-referrer"
+      // Like FreeformCanvas: without a matching color-scheme the UA paints the
+      // embedded documents' base canvas opaque white, flashing over a dark app
+      // before the artifact's stylesheets and theme land.
+      style={{ colorScheme: theme }}
       className="h-full w-full border-0 bg-background"
     />
   );

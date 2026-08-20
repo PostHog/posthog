@@ -17,6 +17,8 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 
+from products.messaging.backend.api.design_validation import validate_design
+
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
@@ -411,6 +413,143 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         validated = validate_inputs(inputs_schema, inputs)
         assert validated["field"]["value"] == "Hey {{ person.properties.name }}"
+
+    @parameterized.expand([("email",), ("native_email",)])
+    def test_html_only_email_value_gets_design_wrapping_the_html(self, item_type):
+        inputs_schema = [{"key": "email", "type": item_type, "required": True, "templating": "liquid"}]
+        html = "<html><body><p>Hello</p></body></html>"
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": html, "text": "Hello"}
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        result = validated["email"]["value"]
+        assert result["html"] == html
+        contents = result["design"]["body"]["rows"][0]["columns"][0]["contents"]
+        assert len(contents) == 1
+        assert contents[0]["type"] == "html"
+        assert contents[0]["values"]["html"] == html
+        assert validate_design(result["design"]) == []
+
+    @parameterized.expand(
+        [
+            (
+                "existing_design_untouched",
+                {
+                    "from": "hi@posthog.com",
+                    "to": "a@b.com",
+                    "subject": "hi",
+                    "html": "<p>hi</p>",
+                    "design": {"body": {"rows": []}},
+                },
+                {"body": {"rows": []}},
+            ),
+            (
+                "text_only_email_gets_no_design",
+                {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "text": "hi"},
+                None,
+            ),
+        ]
+    )
+    def test_email_value_wrap_no_ops(self, _name, value, expected_design):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"].get("design") == expected_design
+
+    def test_html_only_email_wrap_is_deterministic(self):
+        # Callers resend the same html-only value on every save; a fresh design each time would
+        # register as a content change in revision and draft-diff equality checks.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": "<p>Hello</p>"}
+
+        first = validate_inputs(inputs_schema, {"email": {"value": dict(value)}})["email"]["value"]["design"]
+        second = validate_inputs(inputs_schema, {"email": {"value": dict(value)}})["email"]["value"]["design"]
+
+        assert first == second
+
+    @parameterized.expand(
+        [
+            (
+                "single_missing_key_keeps_the_familiar_message",
+                {"to": "a@b.com", "subject": "hi", "html": "<p>hi</p>"},
+                "Missing value for 'from'.",
+            ),
+            (
+                "multiple_missing_keys_reported_at_once",
+                {"to": "a@b.com"},
+                "Missing values for 'from', 'subject', either 'text' or 'html'.",
+            ),
+            (
+                "body_alternatives_named_together",
+                {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi"},
+                "Missing value for either 'text' or 'html'.",
+            ),
+        ]
+    )
+    def test_email_input_reports_all_missing_keys_in_one_error(self, _name, value, expected):
+        # Email objects are typically authored programmatically; raising on the first absent
+        # key forces a validate round trip per key, so every missing key is named at once.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        inputs = {"email": {"value": value}}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert expected in str(ctx.value.detail)
+
+    @parameterized.expand(
+        [
+            ("email_not_a_string", {"email": 123}, "Expected string value for 'from.email'."),
+            (
+                "both_not_strings",
+                {"email": 123, "name": ["x"]},
+                "Expected string values for 'from.email', 'from.name'.",
+            ),
+        ]
+    )
+    def test_email_from_overrides_must_be_strings(self, _name, overrides, expected):
+        # A non-string override saves fine without this check and then fails every send in the
+        # runtime's schema parse, so the shape error must surface at authoring time instead.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": {"integrationId": 1, **overrides},
+            "to": "a@b.com",
+            "subject": "hi",
+            "text": "hi",
+        }
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, {"email": {"value": value}})
+        assert expected in str(ctx.value.detail)
+
+    def test_email_from_overrides_accept_templated_strings(self):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": {"integrationId": 1, "email": "{{ event.properties.sender_email }}", "name": "Community"},
+            "to": "a@b.com",
+            "subject": "hi",
+            "text": "hi",
+        }
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+        assert validated["email"]["value"]["from"] == {
+            "integrationId": 1,
+            "email": "{{ event.properties.sender_email }}",
+            "name": "Community",
+        }
+
+    def test_email_sender_rotation_rejects_more_than_ten_senders(self):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": {"integrationId": 1, "integrationIds": list(range(1, 12))},
+            "to": "a@b.com",
+            "subject": "hi",
+            "text": "hi",
+        }
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, {"email": {"value": value}})
+        assert "At most 10 email senders are allowed." in str(ctx.value.detail)
 
     @parameterized.expand(
         [

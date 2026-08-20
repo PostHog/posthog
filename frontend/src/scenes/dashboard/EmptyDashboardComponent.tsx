@@ -3,15 +3,14 @@ import { router } from 'kea-router'
 
 import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconPlus } from '@posthog/icons'
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
@@ -24,6 +23,7 @@ import {
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
+import { getAddTileMenuItems } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
 import { EmptyDashboardAiStarterPrompts } from './emptyDashboardAiStarterPrompts'
 
@@ -55,80 +55,45 @@ function DashboardEmptyActions({
 }): JSX.Element {
     const chipDisabledReason = !canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : aiDisabledReason || undefined
 
-    const addInsightButton = (
-        <LemonButton
-            data-attr="dashboard-add-graph-header"
-            onClick={onAddInsight}
-            type="primary"
-            icon={<IconPlus />}
-            disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
-            sideAction={
-                dashboard
-                    ? {
-                          dropdown: {
-                              placement: 'bottom-end',
-                              overlay: (
-                                  <>
-                                      <AccessControlAction
-                                          resourceType={AccessControlResourceType.Dashboard}
-                                          minAccessLevel={AccessControlLevel.Editor}
-                                          userAccessLevel={dashboard.user_access_level}
-                                      >
-                                          <LemonButton
-                                              fullWidth
-                                              onClick={() => {
-                                                  push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                              }}
-                                              data-attr="add-text-tile-to-dashboard"
-                                          >
-                                              Add text card
-                                          </LemonButton>
-                                      </AccessControlAction>
-                                      <AccessControlAction
-                                          resourceType={AccessControlResourceType.Dashboard}
-                                          minAccessLevel={AccessControlLevel.Editor}
-                                          userAccessLevel={dashboard.user_access_level}
-                                      >
-                                          <LemonButton
-                                              fullWidth
-                                              onClick={
-                                                  dashboardWidgetsEnabled
-                                                      ? onAddWidget
-                                                      : () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
-                                              }
-                                              data-attr={
-                                                  dashboardWidgetsEnabled
-                                                      ? 'dashboard-add-widget'
-                                                      : 'dashboard-add-widget-preview'
-                                              }
-                                          >
-                                              Add widget
-                                              <LemonTag
-                                                  type={dashboardWidgetsEnabled ? 'success' : 'warning'}
-                                                  size="small"
-                                                  className="ml-2"
-                                              >
-                                                  {dashboardWidgetsEnabled ? 'NEW' : 'BETA'}
-                                              </LemonTag>
-                                          </LemonButton>
-                                      </AccessControlAction>
-                                  </>
-                              ),
-                          },
-                          disabled: false,
-                          'data-attr': 'dashboard-add-dropdown',
-                      }
-                    : undefined
-            }
-        >
-            Get started
-        </LemonButton>
-    )
-
     return (
         <div className="flex flex-col gap-4 w-full max-w-full">
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 @min-[48rem]/main-content:justify-start">
-                {addInsightButton}
+                {dashboard && (
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Dashboard}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={dashboard.user_access_level}
+                    >
+                        <LemonButton
+                            data-attr="dashboard-add-graph-header"
+                            type="primary"
+                            icon={<IconPlus />}
+                            onClick={onAddInsight}
+                            disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
+                            sideAction={{
+                                dropdown: {
+                                    placement: 'bottom-end',
+                                    overlay: (
+                                        <LemonMenuOverlay
+                                            items={getAddTileMenuItems({
+                                                dashboardId: dashboard.id,
+                                                dashboardWidgetsEnabled,
+                                                onAddInsight,
+                                                push,
+                                                setAddWidgetModalOpen: onAddWidget,
+                                            })}
+                                        />
+                                    ),
+                                },
+                                disabled: !canEdit,
+                                disabledReason: canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE,
+                                'data-attr': 'dashboard-add-dropdown',
+                            }}
+                        >
+                            Get started
+                        </LemonButton>
+                    </AccessControlAction>
+                )}
             </div>
             <EmptyDashboardAiStarterPrompts
                 dashboardId={dashboard?.id}
@@ -192,11 +157,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
 
 export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
     if (loading) {
-        return (
-            <div className="flex justify-center items-center min-h-[24rem] py-8">
-                <Spinner />
-            </div>
-        )
+        return <DashboardLoadingState />
     }
 
     return <EmptyDashboardContent canEdit={canEdit} />

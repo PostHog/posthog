@@ -30,7 +30,7 @@ When the user wants analytics data (trends, funnels, retention, paths, sessions,
 
 When the user asks for a governed business number (MRR, activation rate, active users, ...), check the data catalog's semantic layer before deriving it from raw data — the project may have a canonical, human-approved definition to reuse instead of guessing.
 
-1. Look for a canonical metric with `posthog:execute-sql` (there is no list tool). The table is usually empty; an empty result just means no governed definition exists, so derive the number normally.
+1. Look for a canonical metric with `posthog:execute-sql` (there is no list tool). Do this before the first `query-*` or `execute-sql` call that would produce the number. An empty result means no governed definition exists, and an unknown-table error means this project has no data catalog at all; either way, derive the number yourself and label it noncanonical.
 
    ```sql
    SELECT name, description, status, is_drifted, definition_kind, unit
@@ -67,7 +67,9 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Hog Functions](./references/models-hog-functions.md)
 - [Integrations](./references/models-integrations.md)
 - [AI observability events (`posthog.ai_events`)](./references/models-ai-observability-events.md)
+- [AI observability evaluations](./references/models-ai-observability-evaluations.md)
 - [AI observability reviews](./references/models-ai-observability-reviews.md)
+- [AI observability datasets](./references/models-datasets.md)
 - [Logs (`logs` data plane + saved views and alerts)](./references/models-logs.md)
 - [MCP analytics (`$mcp_tool_call` events)](./references/models-mcp.md)
 - [Messaging opt-outs (`system.message_recipient_preferences`, `system.message_categories`)](./references/models-messaging-opt-outs.md)
