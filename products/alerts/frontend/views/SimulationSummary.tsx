@@ -128,7 +128,9 @@ function SimulationChart({
                     legend: hasSubScores ? { show: true, position: 'bottom' } : undefined,
                     tooltip: {
                         valueFormatter: (value, entry) =>
-                            entry.series.meta?.isScore ? `${Math.round(value * 100)}%` : humanFriendlyNumber(value),
+                            (entry.series.meta as SimSeriesMeta | undefined)?.isScore
+                                ? `${Math.round(value * 100)}%`
+                                : humanFriendlyNumber(value),
                     },
                 }}
                 onError={handleChartError}
