@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import resolve_source_location
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
@@ -51,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     SSLRequiredError,
     _rls_active_from_conn,
     _xmin_capable_tables_from_conn,
+    build_has_new_rows_query,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
@@ -1266,13 +1268,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         cursor Postgres tracks itself (xmin, CDC), or any error reaching the source — so the
         caller runs the full sync.
         """
-        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-        from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
-            resolve_source_location,
-        )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
-            build_has_new_rows_query,
-        )
+        # Deferred like the sibling read path below: the source registry imports this module at
+        # startup, before the Django app registry is ready to hand out models.
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema  # noqa: PLC0415
 
         if (
             not inputs.should_use_incremental_field
