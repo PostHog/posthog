@@ -219,7 +219,7 @@ The identifier used for hashing depends on the flag configuration:
 | Flag type   | Bucketing     | Identifier (in priority order)                                     |
 | ----------- | ------------- | ------------------------------------------------------------------ |
 | Group flag  | N/A           | Group key from `groups` map                                        |
-| Person flag | `device_id`   | `$device_id` from request (no fallback, see below)                |
+| Person flag | `device_id`   | `$device_id` from request (no fallback, see below)                 |
 | Person flag | `distinct_id` | DB hash_key_override > request `$anon_distinct_id` > `distinct_id` |
 
 ### Device bucketing
