@@ -185,7 +185,7 @@ pub fn upload_with_retry_and_concurrency(
         Err(e) => return (summary, Err(e)),
     };
     let transport = match context()
-        .build_http_client()
+        .build_upload_http_client()
         .context("Failed to initialize upload HTTP client")
     {
         Ok(client) => UploadTransport {
