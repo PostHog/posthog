@@ -534,12 +534,22 @@ const teardownContainer = async (): Promise<void> => {
   } catch (error) {
     log.warn("Failed to unbind container", error);
   }
+  // Runs after the shutdown sequence succeeded and before `app.exit()`, which
+  // skips `will-quit`. A shutdown that times out force-kills before reaching
+  // here, and leaving the sentinel behind is the correct outcome then.
+  memoryWatchdog.markCleanShutdown();
 };
 
+// Covers the quit paths that never build a container or never call
+// `gracefulExit`, such as quitting to install an update.
+app.on("will-quit", () => {
+  memoryWatchdog.markCleanShutdown();
+});
+
 app.on("before-quit", async (event) => {
-  // Clear the sentinel first: reaching here at all means this is not the kind
-  // of death the watchdog is looking for.
-  await memoryWatchdog.markCleanShutdown();
+  // Stop sampling now, but leave the sentinel until the shutdown has actually
+  // finished — this handler also runs on quits that go on to be force-killed.
+  memoryWatchdog.stop();
   try {
     container.get<WorkspaceServerService>(WORKSPACE_SERVER_SERVICE).stop();
   } catch {}
@@ -571,7 +581,7 @@ app.on("before-quit", async (event) => {
 
 const handleShutdownSignal = async (signal: string) => {
   log.info(`Received ${signal}, starting shutdown`);
-  await memoryWatchdog.markCleanShutdown();
+  memoryWatchdog.stop();
   try {
     const lifecycleService = container.get<AppLifecycleService>(
       APP_LIFECYCLE_SERVICE,
@@ -632,6 +642,9 @@ process.on("unhandledRejection", (reason) => {
   }
   log.error("Unhandled rejection", reason);
   const error = reason instanceof Error ? reason : new Error(String(reason));
+  void memoryWatchdog.capture("uncaught-exception", error.message, {
+    stack: error.stack,
+  });
   posthogNodeAnalytics.captureException(error, {
     source: "main",
     type: "unhandledRejection",

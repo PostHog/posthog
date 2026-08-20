@@ -158,7 +158,9 @@ describe("MemoryWatchdog", () => {
     await first.start();
     first.stop();
 
-    // No markCleanShutdown: this is what an OOM kill looks like on disk.
+    // stop() without markCleanShutdown: what a force-killed quit leaves behind,
+    // since before-quit stops sampling but only a completed shutdown clears the
+    // sentinel.
     const second = createWatchdog();
     await second.start();
     second.stop();
@@ -173,7 +175,7 @@ describe("MemoryWatchdog", () => {
     collectSample.mockResolvedValue(sampleWithRss(0.1 * GB));
     const first = createWatchdog();
     await first.start();
-    await first.markCleanShutdown();
+    first.markCleanShutdown();
 
     const second = createWatchdog();
     await second.start();
@@ -193,7 +195,12 @@ describe("MemoryWatchdog", () => {
 
   // The host registers its crash handlers whether or not the watchdog is on, so
   // they are the path by which an opted-out install could still write to disk.
-  it.each(["render-process-gone", "uncaught-exception", "manual"] as const)(
+  it.each([
+    "render-process-gone",
+    "child-process-gone",
+    "uncaught-exception",
+    "manual",
+  ] as const)(
     "writes nothing on a %s capture when disabled",
     async (trigger) => {
       collectSample.mockResolvedValue(sampleWithRss(2 * GB));

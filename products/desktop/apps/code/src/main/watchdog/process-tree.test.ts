@@ -3,6 +3,7 @@ import {
   type OsProcess,
   parsePsOutput,
   redactCommand,
+  safeProcessLabel,
 } from "@main/watchdog/process-tree";
 import { describe, expect, it } from "vitest";
 
@@ -99,6 +100,40 @@ describe("redactCommand", () => {
     expect(
       redactCommand("node cli.js --api-key sk-ant-abc123def456 --task 42"),
     ).toBe("node cli.js --api-key [redacted] --task 42");
+  });
+});
+
+describe("safeProcessLabel", () => {
+  it("keeps only the executable name, dropping every argument", () => {
+    expect(
+      safeProcessLabel(
+        "/usr/bin/node cli.js --api-key sk-ant-abc123def456 --task 42",
+      ),
+    ).toBe("node");
+  });
+
+  it("keeps Electron's process role, which is a string we ship", () => {
+    expect(
+      safeProcessLabel(
+        "/Applications/PostHog.app/Contents/MacOS/PostHog --type=renderer --enable-features=x",
+      ),
+    ).toBe("PostHog --type=renderer");
+  });
+
+  it.each([
+    ["curl -H 'Authorization: Bearer abcdefghijklmnop' https://x", "curl"],
+    ["psql postgres://user:hunter2@db.internal/prod", "psql"],
+    ["env API_KEY=abcdefghijklmnop ./deploy.sh", "env"],
+    ["./run.sh hunter2", "run.sh"],
+  ])("drops credentials no denylist would catch: %s", (command, expected) => {
+    const label = safeProcessLabel(command);
+
+    expect(label).toBe(expected);
+    expect(label).not.toMatch(/hunter2|abcdefghijklmnop/);
+  });
+
+  it("falls back to a placeholder for an empty command", () => {
+    expect(safeProcessLabel("")).toBe("unknown");
   });
 });
 

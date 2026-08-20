@@ -1,5 +1,9 @@
 import os from "node:os";
-import { type OsProcess, readProcessTree } from "@main/watchdog/process-tree";
+import {
+  type OsProcess,
+  readProcessTree,
+  safeProcessLabel,
+} from "@main/watchdog/process-tree";
 import type { MemorySample, ProcessSample } from "@main/watchdog/types";
 import type { AppProcessMetric } from "@posthog/platform/app-metrics";
 
@@ -22,6 +26,7 @@ function truncate(value: string): string {
 export function mergeProcesses(
   metrics: AppProcessMetric[],
   tree: OsProcess[] | null,
+  fullCommandLines = false,
 ): ProcessSample[] {
   const byPid = new Map<number, OsProcess>(
     (tree ?? []).map((proc) => [proc.pid, proc]),
@@ -49,7 +54,10 @@ export function mergeProcesses(
       pid: proc.pid,
       ppid: proc.ppid,
       origin: "descendant",
-      label: truncate(proc.command || `pid ${proc.pid}`),
+      label: truncate(
+        (fullCommandLines ? proc.command : safeProcessLabel(proc.command)) ||
+          `pid ${proc.pid}`,
+      ),
       rssBytes: proc.rssBytes,
       cpuPercent: proc.cpuPercent,
     });
@@ -100,6 +108,7 @@ function buildSample(
 
 export async function collectSample(
   getAppMetrics: () => AppProcessMetric[],
+  fullCommandLines = false,
 ): Promise<MemorySample> {
   let tree: OsProcess[] | null = null;
   try {
@@ -116,5 +125,8 @@ export async function collectSample(
     metrics = [];
   }
 
-  return buildSample(mergeProcesses(metrics, tree), tree !== null);
+  return buildSample(
+    mergeProcesses(metrics, tree, fullCommandLines),
+    tree !== null,
+  );
 }

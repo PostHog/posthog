@@ -185,14 +185,14 @@ function buildFileMenu(): MenuItemConstructorOptions {
           },
           {
             label: "Capture memory snapshot",
-            click: () => {
+            click: async () => {
               const watchdog = getMemoryWatchdog();
               if (!watchdog) return;
-              void watchdog
-                .capture("manual", "Requested from the Developer menu")
-                .then((report) => {
-                  if (report) shell.showItemInFolder(report.directory);
-                });
+              const report = await watchdog.capture(
+                "manual",
+                "Requested from the Developer menu",
+              );
+              if (report) shell.showItemInFolder(report.directory);
             },
           },
           {

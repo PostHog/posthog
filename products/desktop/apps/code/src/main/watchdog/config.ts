@@ -34,6 +34,11 @@ export interface WatchdogConfig {
   heapSnapshots: boolean;
   /** Size the breadcrumb log may reach before it rotates. */
   breadcrumbMaxBytes: number;
+  /**
+   * Whether to record full process command lines instead of just executable
+   * names. Off by default — see `safeProcessLabel`.
+   */
+  fullCommandLines: boolean;
 }
 
 export interface ConfigWarning {
@@ -117,6 +122,10 @@ export function loadWatchdogConfig(
       heapSnapshots: readFlag("POSTHOG_CODE_WATCHDOG_HEAP_SNAPSHOTS", env),
       breadcrumbMaxBytes:
         readInt("POSTHOG_CODE_WATCHDOG_BREADCRUMB_MB", 16, 1, 1024) * MB,
+      fullCommandLines: readFlag(
+        "POSTHOG_CODE_WATCHDOG_FULL_COMMAND_LINES",
+        env,
+      ),
     },
   };
 }

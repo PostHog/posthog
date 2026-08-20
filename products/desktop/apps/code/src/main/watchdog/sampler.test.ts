@@ -43,9 +43,24 @@ describe("mergeProcesses", () => {
     const agent = merged.find((proc) => proc.pid === 502);
     expect(agent).toMatchObject({
       origin: "descendant",
-      label: "node cli.js --task 42",
       rssBytes: 2_000_000_000,
     });
+  });
+
+  it("labels descendants by executable name only, so argv cannot leak", () => {
+    const agent = mergeProcesses(METRICS, TREE).find(
+      (proc) => proc.pid === 502,
+    );
+
+    expect(agent?.label).toBe("node");
+  });
+
+  it("records the full command line when explicitly opted in", () => {
+    const agent = mergeProcesses(METRICS, TREE, true).find(
+      (proc) => proc.pid === 502,
+    );
+
+    expect(agent?.label).toBe("node cli.js --task 42");
   });
 
   it("prefers RSS from the process tree over Electron's working set", () => {

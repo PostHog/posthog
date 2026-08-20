@@ -129,10 +129,14 @@ export class MemoryWatchdog {
     }
   }
 
-  /** Called on a clean quit so the next launch does not report a crash. */
-  async markCleanShutdown(): Promise<void> {
+  /**
+   * Called once a shutdown has actually succeeded, so the next launch does not
+   * report a crash. Synchronous because the paths that reach it are exit
+   * handlers — `app.exit()` and `process.exit()` do not wait for a promise.
+   */
+  markCleanShutdown(): void {
     this.stop();
-    await this.store.clearSessionSentinel();
+    this.store.clearSessionSentinelSync();
   }
 
   async capture(
@@ -140,8 +144,9 @@ export class MemoryWatchdog {
     detail?: string,
     context?: Record<string, unknown>,
   ): Promise<WatchdogReport | null> {
-    // The crash handlers are registered unconditionally by the host, so this is
-    // where an opted-out install stops writing diagnostics — not just `start()`.
+    // The crash handlers and the Developer menu call this directly whether or
+    // not the watchdog is on, so this is where an opted-out install stops
+    // writing diagnostics — not just `start()`.
     if (!this.config.enabled) {
       this.log.debug("Watchdog disabled, not capturing", { trigger });
       return null;
@@ -159,7 +164,10 @@ export class MemoryWatchdog {
       const sample =
         trigger === "unclean-shutdown"
           ? this.latestSample
-          : await collectSample(this.deps.getAppMetrics);
+          : await collectSample(
+              this.deps.getAppMetrics,
+              this.config.fullCommandLines,
+            );
 
       const report = await writeReport({
         store: this.store,
@@ -202,7 +210,10 @@ export class MemoryWatchdog {
     this.sampling = true;
 
     try {
-      const sample = await collectSample(this.deps.getAppMetrics);
+      const sample = await collectSample(
+        this.deps.getAppMetrics,
+        this.config.fullCommandLines,
+      );
       this.latestSample = sample;
 
       this.history.push(sample);

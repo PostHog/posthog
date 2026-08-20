@@ -35,6 +35,7 @@ const SECRET_ASSIGNMENT = new RegExp(
 const URL_CREDENTIALS = /([a-z][\w+.-]*:\/\/[^\s:/@]+:)[^\s/@]+@/gi;
 
 const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/;
+const ELECTRON_TYPE_FLAG = /--type=([a-z-]+)/;
 
 export interface OsProcess {
   pid: number;
@@ -51,6 +52,24 @@ export function redactCommand(command: string): string {
     .replace(SECRET_ASSIGNMENT, "$1[redacted]")
     .replace(URL_CREDENTIALS, "$1[redacted]@")
     .replace(SECRET_TOKEN, "[redacted]");
+}
+
+/**
+ * A process label safe to put in a report a user will attach to an issue.
+ *
+ * The shell service runs arbitrary user commands as descendants of this
+ * process, so their argv can hold anything: a bearer token in a curl header, a
+ * database URL with a password, a key pasted into a one-off command. No
+ * denylist keeps up with that, so the default keeps only the executable name
+ * plus Electron's own process role — both fixed strings we ship. Full command
+ * lines are available behind POSTHOG_CODE_WATCHDOG_FULL_COMMAND_LINES for
+ * local debugging, where `redactCommand` is the best-effort second line.
+ */
+export function safeProcessLabel(command: string): string {
+  const executable = command.trim().split(/\s+/)[0] ?? "";
+  const name = executable.split("/").pop() || "unknown";
+  const electronType = ELECTRON_TYPE_FLAG.exec(command);
+  return electronType ? `${name} --type=${electronType[1]}` : name;
 }
 
 export function parsePsOutput(stdout: string): OsProcess[] {

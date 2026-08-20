@@ -108,11 +108,33 @@ export class WatchdogStore {
     }
   }
 
-  async clearSessionSentinel(): Promise<void> {
+  /** Synchronous: the callers are exit handlers that will not await. */
+  clearSessionSentinelSync(): void {
     try {
-      await fsPromises.unlink(path.join(this.baseDirectory, SESSION_FILE));
+      fs.unlinkSync(path.join(this.baseDirectory, SESSION_FILE));
     } catch {
       // Already gone.
+    }
+  }
+
+  /**
+   * Report ids start with an ISO timestamp, so lexicographic order is
+   * chronological.
+   */
+  private async readReportDirectoryNames(): Promise<string[]> {
+    try {
+      const entries = await fsPromises.readdir(this.reportsDirectory, {
+        withFileTypes: true,
+      });
+      const names: string[] = [];
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          names.push(entry.name);
+        }
+      }
+      return names.sort();
+    } catch {
+      return [];
     }
   }
 
@@ -134,52 +156,34 @@ export class WatchdogStore {
   }
 
   async listReports(): Promise<WatchdogReport[]> {
-    let entries: fs.Dirent[];
-    try {
-      entries = await fsPromises.readdir(this.reportsDirectory, {
-        withFileTypes: true,
-      });
-    } catch {
-      return [];
-    }
+    const names = await this.readReportDirectoryNames();
 
     const summaries = await Promise.all(
-      entries
-        .filter((entry) => entry.isDirectory())
-        .map(async (entry) => {
-          try {
-            const content = await fsPromises.readFile(
-              path.join(this.reportsDirectory, entry.name, SUMMARY_FILE),
-              "utf-8",
-            );
-            return JSON.parse(content) as WatchdogReport;
-          } catch {
-            return null;
-          }
-        }),
+      names.map(async (name) => {
+        try {
+          const content = await fsPromises.readFile(
+            path.join(this.reportsDirectory, name, SUMMARY_FILE),
+            "utf-8",
+          );
+          return JSON.parse(content) as WatchdogReport;
+        } catch {
+          return null;
+        }
+      }),
     );
 
-    return summaries
-      .filter((summary): summary is WatchdogReport => summary !== null)
-      .sort((a, b) => b.at.localeCompare(a.at));
+    const found: WatchdogReport[] = [];
+    for (const summary of summaries) {
+      if (summary !== null) {
+        found.push(summary);
+      }
+    }
+    return found.sort((a, b) => b.at.localeCompare(a.at));
   }
 
   /** Report directories can hold heap snapshots, so old ones cannot linger. */
   async pruneReports(maxReports: number): Promise<string[]> {
-    let names: string[];
-    try {
-      const entries = await fsPromises.readdir(this.reportsDirectory, {
-        withFileTypes: true,
-      });
-      // Ids start with an ISO timestamp, so lexicographic order is chronological.
-      names = entries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort();
-    } catch {
-      return [];
-    }
-
+    const names = await this.readReportDirectoryNames();
     const doomed = names.slice(0, Math.max(0, names.length - maxReports));
     for (const name of doomed) {
       await fsPromises.rm(path.join(this.reportsDirectory, name), {

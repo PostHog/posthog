@@ -68,6 +68,11 @@ All optional, all environment variables:
 | `POSTHOG_CODE_WATCHDOG_MAX_REPORTS`     | `3`                                    | Older report directories are pruned          |
 | `POSTHOG_CODE_WATCHDOG_HEAP_SNAPSHOTS`  | unset (off)                            | See below                                    |
 | `POSTHOG_CODE_WATCHDOG_BREADCRUMB_MB`   | `16`                                   | Breadcrumb log size before rotation          |
+| `POSTHOG_CODE_WATCHDOG_FULL_COMMAND_LINES` | unset (off)                         | Record full argv instead of executable names |
+
+`POSTHOG_CODE_WATCHDOG_DISABLE` stops everything, including the crash-triggered
+and manual captures — with it set, no report, breadcrumb, or sentinel is
+written.
 
 Heap snapshots are off by default because writing one is synchronous and
 produces a file roughly the size of the heap — capturing a 4GB renderer freezes
@@ -82,11 +87,19 @@ and which process owns it, not as an exact figure.
 Agent CLI processes cannot be heap-snapshotted from the main process. If a
 report points at one, attach a Node inspector to its pid.
 
-Command lines from `ps` go through a redaction pass before they reach a report:
-known token prefixes, secret-looking flags and environment assignments,
-`Authorization`-style headers, and the password in a connection URL. It is a
-denylist, so a credential passed as a bare positional argument still survives.
-Treat a report as sensitive and read it before attaching it anywhere.
+Processes are labelled by executable name, plus Electron's own `--type=` role.
+Arguments are dropped by default: the shell service runs arbitrary user commands
+as descendants of the app, so their argv can hold a bearer token, a database URL
+with a password, or a key pasted into a one-off command — and reports are meant
+to be attached to issues.
+
+The cost is that several agent processes look alike in a report; tell them apart
+by pid and RSS. `POSTHOG_CODE_WATCHDOG_FULL_COMMAND_LINES=1` records full command
+lines when you need more. Those go through a redaction pass — known token
+prefixes, secret-looking flags and environment assignments,
+`Authorization`-style headers, and the password in a connection URL — but it is
+a denylist, so a credential passed as a bare positional argument survives. Read
+a report from that mode before attaching it anywhere.
 
 ## Where it lives, and why
 
