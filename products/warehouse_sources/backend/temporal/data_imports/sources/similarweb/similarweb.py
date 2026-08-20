@@ -8,7 +8,6 @@ requested stamped onto them because the payload doesn't carry them.
 """
 
 import re
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -16,6 +15,8 @@ from urllib.parse import quote
 
 import requests
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -42,7 +43,7 @@ _MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 _COUNTRY_PATTERN = re.compile(r"^[a-z]{2}$")
 
 
-@dataclasses.dataclass
+@frozen
 class SimilarwebResumeConfig:
     # Index into the configured domain list that the next request should start from.
     next_domain_index: int

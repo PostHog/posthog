@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
@@ -50,7 +52,7 @@ TRAFFIC_SOURCES = "traffic_sources"
 TRAFFIC_BY_COUNTRY = "traffic_by_country"
 
 
-@dataclass
+@frozen
 class SimilarwebEndpointConfig:
     name: str
     # `{domain}` is substituted with each configured domain.
