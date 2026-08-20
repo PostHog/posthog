@@ -297,7 +297,7 @@ export function EvidenceHoverCard({
                 )
               }
             >
-              Expand on it
+              Ask about this
             </Button>
           )}
           {url && (

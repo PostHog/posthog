@@ -19,7 +19,7 @@ export function buildEvidenceComposerContent({
     segments: [
       {
         type: "text",
-        text: isContentEmpty(currentDraft) ? "Expand on " : "\n\nExpand on ",
+        text: isContentEmpty(currentDraft) ? "Ask about " : "\n\nAsk about ",
       },
       {
         type: "chip",

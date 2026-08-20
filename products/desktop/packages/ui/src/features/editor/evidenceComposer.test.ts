@@ -4,10 +4,10 @@ import { buildEvidenceComposerContent } from "./evidenceComposer";
 
 describe("buildEvidenceComposerContent", () => {
   it.each([
-    [null, "Expand on "],
+    [null, "Ask about "],
     [
       { segments: [{ type: "text", text: "Compare the variants" }] },
-      "\n\nExpand on ",
+      "\n\nAsk about ",
     ],
   ] as const)(
     "preserves the current draft boundary",

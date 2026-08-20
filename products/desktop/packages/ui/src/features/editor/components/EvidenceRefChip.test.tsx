@@ -150,7 +150,7 @@ describe("EvidenceRefChip", () => {
         screen.getByRole("button", { name: `${kind} reference` }),
       );
       expect(
-        screen.getByRole("button", { name: "Expand on it" }),
+        screen.getByRole("button", { name: "Ask about this" }),
       ).toBeDefined();
     },
   );
@@ -163,7 +163,7 @@ describe("EvidenceRefChip", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "new-checkout" }));
-    expect(screen.queryByRole("button", { name: "Expand on it" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ask about this" })).toBeNull();
   });
 
   it("adds the exact object reference after an existing composer draft", () => {
@@ -180,11 +180,11 @@ describe("EvidenceRefChip", () => {
     );
 
     fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
-    fireEvent.click(screen.getByRole("button", { name: "Expand on it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask about this" }));
 
     expect(useDraftStore.getState().pendingInsert["task-1"]).toEqual({
       segments: [
-        { type: "text", text: "\n\nExpand on " },
+        { type: "text", text: "\n\nAsk about " },
         {
           type: "chip",
           chip: {
