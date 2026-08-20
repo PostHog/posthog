@@ -1,4 +1,4 @@
-import { RightPanelButtons } from "@posthog/ui/features/navigation/components/RightPanel";
+import { RightPanelButtons } from "@posthog/ui/features/navigation/components/RightPanelButtons";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta: Meta<typeof RightPanelButtons> = {

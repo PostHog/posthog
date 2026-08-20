@@ -1141,6 +1141,13 @@ class ErrorTrackingOrderBy(StrEnum):
     SESSIONS = "sessions"
 
 
+class ErrorTrackingQueryIssueSeverity(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 class EvaluationRuntime(StrEnum):
     HOG = "hog"
     LLM_JUDGE = "llm_judge"
@@ -3423,6 +3430,7 @@ class ProductIntentContext(StrEnum):
     EXPERIMENT_ANALYZED = "experiment analyzed"
     EXPERIMENT_VIEW_RECORDINGS = "experiment view recordings"
     EXPERIMENT_REPLAY_VISION_SCANNER_CREATED = "experiment replay vision scanner created"
+    EXPERIMENT_CREATE_SCANNER = "experiment create scanner"
     FEATURE_FLAG_CREATED = "feature flag created"
     SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = "session_replay_experiment_link_clicked"

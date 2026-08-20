@@ -1345,7 +1345,7 @@ export const ANALYTICS_EVENTS = {
   APP_QUIT: "App quit",
 
   // Authentication
-  USER_LOGGED_IN: "User logged in",
+  USER_LOGGED_IN: "Desktop user logged in",
   USER_LOGGED_OUT: "User logged out",
 
   // Task management
