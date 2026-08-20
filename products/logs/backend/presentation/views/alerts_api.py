@@ -100,6 +100,10 @@ STATE_TIMELINE_LOOKBACK_HOURS = 24
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
+# create_destination (POST) and list_destinations (GET) share one route via
+# @action.mapping. required_scopes doesn't compose with .mapping — it resolves from a
+# single attribute on the action — so these two declare their per-method scopes here,
+# applied by dangerously_get_required_scopes. Single-method actions use @action(required_scopes=...).
 _DESTINATIONS_URL_REQUIRED_SCOPES: Final[dict[str, list[str]]] = {
     "list_destinations": ["logs:read"],
     "create_destination": ["logs:write"],
