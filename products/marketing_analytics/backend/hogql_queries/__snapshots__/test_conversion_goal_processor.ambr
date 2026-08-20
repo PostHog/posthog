@@ -832,7 +832,8 @@
       if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
       if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
       '-' AS campaign_id,
-      multiply(toFloat(conversion_math_value), attribution_weight) AS conversion_value
+      multiply(toFloat(conversion_math_value), attribution_weight) AS conversion_value,
+      attribution_weight
     FROM
     (
       SELECT
@@ -948,7 +949,8 @@
       if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
       if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
       '-' AS campaign_id,
-      multiply(1, attribution_weight) AS conversion_value
+      multiply(1, attribution_weight) AS conversion_value,
+      attribution_weight
     FROM
     (
       SELECT
@@ -1064,7 +1066,8 @@
       if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
       if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
       '-' AS campaign_id,
-      multiply(1, attribution_weight) AS conversion_value
+      multiply(1, attribution_weight) AS conversion_value,
+      attribution_weight
     FROM
     (
       SELECT
@@ -1180,7 +1183,8 @@
       if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
       if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
       '-' AS campaign_id,
-      multiply(1, attribution_weight) AS conversion_value
+      multiply(1, attribution_weight) AS conversion_value,
+      attribution_weight
     FROM
     (
       SELECT
