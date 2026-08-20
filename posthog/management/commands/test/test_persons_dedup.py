@@ -884,19 +884,23 @@ class TestPersonsDedupReplicaLag:
 
 
 class TestPersonsDedupConnectionRouting:
-    # The reads can scan for minutes on large teams; silently moving them back to the
-    # primary is the regression these guard against. Locally the reader URL falls back
-    # to the writer, so the routed kwarg is the only observable difference.
+    # The two read modes route to opposite endpoints on purpose: classify is a census whose
+    # minutes-long scan must stay off the primary, verify is the gate and must not answer
+    # from a stale replica. Collapsing them onto one endpoint is the regression these guard
+    # against. Locally the reader URL falls back to the writer, so the routed kwarg is the
+    # only observable difference.
     @pytest.mark.parametrize(
         "mode,kwargs,expected_writer",
         [
             ("classify", {}, False),
-            ("verify", {}, False),
             ("classify", {"writer": True}, True),
+            ("verify", {}, True),
+            ("verify", {"reader": True}, False),
             ("repair", {"apply": True}, True),
+            ("delete-unreferenced", {"apply": True}, True),
         ],
     )
-    def test_read_modes_use_the_reader_unless_writer_is_forced(
+    def test_each_mode_routes_to_the_endpoint_its_job_requires(
         self, persons_conn, tmp_path, monkeypatch, mode, kwargs, expected_writer
     ):
         requested = []
@@ -912,6 +916,20 @@ class TestPersonsDedupConnectionRouting:
 
         assert requested == [expected_writer]
 
-    def test_writer_flag_is_rejected_for_write_modes(self, persons_conn, tmp_path):
-        with pytest.raises(CommandError, match="always uses the writer"):
-            _run("repair", tmp_path, writer=True)
+    @pytest.mark.parametrize(
+        "mode,kwargs,message",
+        [
+            ("repair", {"writer": True}, "already uses the writer"),
+            ("verify", {"writer": True}, "already uses the writer"),
+            ("classify", {"reader": True}, "only verify reads the primary by default"),
+            ("repair", {"reader": True}, "only verify reads the primary by default"),
+        ],
+    )
+    def test_a_flag_that_would_do_nothing_is_rejected_rather_than_ignored(
+        self, persons_conn, tmp_path, mode, kwargs, message
+    ):
+        # Accepting --writer on verify silently would let an operator believe they forced
+        # the primary on a mode where the flag does nothing -- the same false confidence
+        # as reading a stale replica and not knowing it.
+        with pytest.raises(CommandError, match=message):
+            _run(mode, tmp_path, **kwargs)

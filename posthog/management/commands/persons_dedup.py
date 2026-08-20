@@ -591,7 +591,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--writer",
             action="store_true",
-            help="read from the primary instead of the reader replica (classify/verify only)",
+            help="classify: read from the primary instead of the reader replica",
+        )
+        parser.add_argument(
+            "--reader",
+            action="store_true",
+            help="verify: read from the reader replica instead of the primary (accepts a stale answer)",
         )
         parser.add_argument("--batch-size", type=int, default=500)
         parser.add_argument("--outdir", default="persons_dedup_backups")
@@ -641,8 +646,11 @@ class Command(BaseCommand):
         if mode in ("classify", "verify") and apply_changes:
             raise CommandError(f"--apply is meaningless for --mode {mode}")
 
-        if mode not in ("classify", "verify") and options["writer"]:
-            raise CommandError(f"--writer is meaningless for --mode {mode}; it always uses the writer")
+        if mode != "classify" and options["writer"]:
+            raise CommandError(f"--writer is meaningless for --mode {mode}; it already uses the writer")
+
+        if mode != "verify" and options["reader"]:
+            raise CommandError(f"--reader is meaningless for --mode {mode}; only verify reads the primary by default")
 
         # LIMIT 0 stages nothing and the loop exits reporting success, which reads as
         # "nothing to do" on a team that still has duplicates. A negative value reaches
@@ -650,12 +658,28 @@ class Command(BaseCommand):
         if options["batch_size"] < 1:
             raise CommandError("--batch-size must be at least 1")
 
-        # classify and verify are pure reads whose scans can run for minutes on large
-        # teams, so they default to the reader replica to keep that load off the
-        # primary. Replica staleness is bounded to replay lag (logged below) and is not
-        # load-bearing: a duplicate minted after the read escapes a primary read too,
-        # and the unique index build is the authoritative duplicate check either way.
-        use_writer = mode not in ("classify", "verify") or options["writer"]
+        # The two read modes want opposite endpoints, because they answer different questions.
+        #
+        # classify is a census over the whole duplicate population: per-member subqueries
+        # across four tables, minutes of scan on the large teams. It goes to the replica --
+        # not only for the CPU, but because a multi-minute read on the primary holds a
+        # snapshot open and delays vacuum on posthog_person, which is the hottest table in
+        # ingestion. A stale census costs nothing: it plans work, it does not gate it.
+        #
+        # verify is the gate. Its exit code decides whether a team is finished, and it runs
+        # seconds after a repair, which is exactly when a replica is furthest behind. The
+        # original design read the replica and logged the lag so an operator could tell a
+        # stale answer from a real one -- but production is Aurora, which does not implement
+        # pg_last_xact_replay_timestamp(), so that number does not exist there. Gating a
+        # destructive rollout on unquantifiable staleness is not a trade worth making, and
+        # verify is cheap on the primary anyway: it starts from the uuids having count(*) > 1,
+        # which is near zero once the repair it is checking has succeeded.
+        if mode == "classify":
+            use_writer = options["writer"]
+        elif mode == "verify":
+            use_writer = not options["reader"]
+        else:
+            use_writer = True
         self._assert_explicit_target(use_writer)
 
         with persons_db_connection(writer=use_writer, autocommit=True) as conn:
@@ -670,9 +694,9 @@ class Command(BaseCommand):
                 )
 
             if mode in ("classify", "verify"):
-                # A verify run seconds after a repair can see the pre-repair state on a
-                # lagging replica; surfacing the lag lets the operator tell a stale read
-                # from a real failure (or rerun with --writer).
+                # Say when the answer came from a replica, so a census that disagrees with
+                # a later verify is explainable. Where the platform reports lag this also
+                # bounds the staleness; on Aurora it does not, hence None.
                 if not use_writer and _scalar(conn, "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END"):
                     logger.info(
                         "persons_dedup.reading_from_replica",
