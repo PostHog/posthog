@@ -6327,6 +6327,16 @@ export namespace Schemas {
       uuid: string;
     }
 
+    export type ErrorTrackingQueryIssueSeverity = typeof ErrorTrackingQueryIssueSeverity[keyof typeof ErrorTrackingQueryIssueSeverity];
+
+
+    export const ErrorTrackingQueryIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export type ErrorTrackingIssueStatus = typeof ErrorTrackingIssueStatus[keyof typeof ErrorTrackingIssueStatus];
 
 
@@ -6352,6 +6362,7 @@ export namespace Schemas {
       last_seen: string;
       library?: string | null;
       name?: string | null;
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       source?: string | null;
       status: ErrorTrackingIssueStatus;
     }
@@ -6402,6 +6413,7 @@ export namespace Schemas {
       name?: string | null;
       odds_ratio: number;
       population: Population;
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       status: ErrorTrackingIssueStatus;
     }
 
@@ -7673,6 +7685,7 @@ export namespace Schemas {
       issue_description?: string | null;
       issue_id: string;
       issue_name?: string | null;
+      issue_severity?: ErrorTrackingQueryIssueSeverity | null;
       issue_status: string;
       /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
       version: number;
@@ -30327,6 +30340,22 @@ export namespace Schemas {
       cohort: ErrorTrackingIssueCohortRead | null;
     }
 
+    /**
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical
+     */
+    export type ErrorTrackingIssueSeverityRuleEnum = typeof ErrorTrackingIssueSeverityRuleEnum[keyof typeof ErrorTrackingIssueSeverityRuleEnum];
+
+
+    export const ErrorTrackingIssueSeverityRuleEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export interface ErrorTrackingIssueSplitFingerprint {
       /** Fingerprint to split into a new issue. */
       fingerprint: string;
@@ -30673,6 +30702,72 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+    }
+
+    /**
+     * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+     * @nullable
+     */
+    export type ErrorTrackingSeverityRuleDisabledData = {
+      message?: string;
+      issue?: { [key: string]: unknown };
+      properties?: { [key: string]: unknown };
+    } | null;
+
+    export interface ErrorTrackingSeverityRule {
+      /** Unique identifier of the severity rule. */
+      readonly id: string;
+      /** Property-group filters evaluated against the event that creates an issue. */
+      filters: PropertyGroupFilterValue;
+      /** Severity assigned to a newly created issue when this rule is the first match.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Evaluation priority. Lower values run first, and the first matching rule wins. */
+      order_key: number;
+      /**
+         * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+         * @nullable
+         */
+      disabled_data: ErrorTrackingSeverityRuleDisabledData;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingSeverityRuleCreateRequest {
+      /** Property-group filters evaluated against the event that creates an issue. */
+      filters: PropertyGroupFilterValue;
+      /** Severity assigned when this rule is the first match.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Evaluation priority. Lower values run first. Defaults to 0. */
+      order_key?: number;
+    }
+
+    export interface ErrorTrackingSeverityRuleListResponse {
+      /** Severity rules in ascending evaluation order. */
+      results: ErrorTrackingSeverityRule[];
+    }
+
+    export interface ErrorTrackingSeverityRuleUpdateRequest {
+      /** Replacement property-group filters. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /** Replacement severity. Omit to preserve the existing severity.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity?: ErrorTrackingIssueSeverityRuleEnum;
     }
 
     export interface ErrorTrackingSignalExtra {
@@ -37616,6 +37711,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly requested_on: string | null;
+      /** Uploaded image IDs attached to this evidence item, in display order. */
+      readonly image_ids: readonly string[];
       /**
          * ID of the user who added the evidence.
          * @nullable
@@ -37756,6 +37853,8 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /** Uploaded image IDs from this project to attach in display order. */
+      image_ids?: string[];
     }
 
     export interface FeatureRequestAddAccount {
@@ -37806,6 +37905,8 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /** Uploaded image IDs from this project to attach in display order. */
+      image_ids?: string[];
       /**
          * Request version loaded by the editor. Stale versions return 409 Conflict.
          * @minimum 1
@@ -37845,6 +37946,8 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /** Uploaded image IDs from this project to attach in display order. */
+      image_ids?: string[];
       /**
          * Request version loaded by the editor. Stale versions return 409 Conflict.
          * @minimum 1
@@ -37896,6 +37999,7 @@ export namespace Schemas {
       source_url: string;
       /** @nullable */
       requested_on: string | null;
+      image_ids?: string[];
     } | null;
 
     /**
@@ -37920,6 +38024,7 @@ export namespace Schemas {
       source_url: string;
       /** @nullable */
       requested_on: string | null;
+      image_ids?: string[];
     } | null;
 
     export interface FeatureRequestHistoryChange {
@@ -40507,6 +40612,9 @@ export namespace Schemas {
      * * `non_failure_status_codes` - non_failure_status_codes
      * * `customer_analytics_account_properties` - customer_analytics_account_properties
      * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
+     * * `task_model` - task_model
+     * * `task_repository` - task_repository
+     * * `task_mcp_installations` - task_mcp_installations
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -40529,6 +40637,9 @@ export namespace Schemas {
       NonFailureStatusCodes: 'non_failure_status_codes',
       CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
       CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
+      TaskModel: 'task_model',
+      TaskRepository: 'task_repository',
+      TaskMcpInstallations: 'task_mcp_installations',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -49361,6 +49472,44 @@ export namespace Schemas {
       redirect_url: string;
     }
 
+    /**
+     * * `insight` - insight
+     * * `hogql` - hogql
+     * * `dashboard` - dashboard
+     * * `error` - error
+     * * `replay` - replay
+     * * `flag` - flag
+     * * `experiment` - experiment
+     * * `survey` - survey
+     * * `ticket` - ticket
+     * * `trace` - trace
+     * * `eval` - eval
+     * * `event` - event
+     * * `cohort` - cohort
+     * * `action` - action
+     * * `person` - person
+     */
+    export type ObjectKindEnum = typeof ObjectKindEnum[keyof typeof ObjectKindEnum];
+
+
+    export const ObjectKindEnum = {
+      Insight: 'insight',
+      Hogql: 'hogql',
+      Dashboard: 'dashboard',
+      Error: 'error',
+      Replay: 'replay',
+      Flag: 'flag',
+      Experiment: 'experiment',
+      Survey: 'survey',
+      Ticket: 'ticket',
+      Trace: 'trace',
+      Eval: 'eval',
+      Event: 'event',
+      Cohort: 'cohort',
+      Action: 'action',
+      Person: 'person',
+    } as const;
+
     export interface ObjectMediaPreview {
       readonly id: string;
       readonly created_at: string;
@@ -54647,7 +54796,7 @@ export namespace Schemas {
       Ultracode: 'ultracode',
     } as const;
 
-    export interface TaskRunArtifactMetadata {
+    export interface TaskRunSkillBundleMetadata {
       /**
          * Name of the local skill included in a skill_bundle artifact.
          * @maxLength 255
@@ -54677,6 +54826,59 @@ export namespace Schemas {
     }
 
     /**
+     * * `posthog_object` - posthog_object
+     */
+    export type ReferenceTypeEnum = typeof ReferenceTypeEnum[keyof typeof ReferenceTypeEnum];
+
+
+    export const ReferenceTypeEnum = {
+      PosthogObject: 'posthog_object',
+    } as const;
+
+    export interface TaskRunPostHogReferenceMetadata {
+      /** Reference metadata type. posthog_object identifies a live PostHog object.
+       *
+       * * `posthog_object` - posthog_object */
+      reference_type: ReferenceTypeEnum;
+      /** PostHog object kind used to resolve the reference.
+       *
+       * * `insight` - insight
+       * * `hogql` - hogql
+       * * `dashboard` - dashboard
+       * * `error` - error
+       * * `replay` - replay
+       * * `flag` - flag
+       * * `experiment` - experiment
+       * * `survey` - survey
+       * * `ticket` - ticket
+       * * `trace` - trace
+       * * `eval` - eval
+       * * `event` - event
+       * * `cohort` - cohort
+       * * `action` - action
+       * * `person` - person */
+      object_kind: ObjectKindEnum;
+      /**
+         * Exact PostHog object identifier, flag key, event name, or SQL query.
+         * @maxLength 16384
+         */
+      object_id: string;
+      /**
+         * Completed assistant message identifiers that referenced the object.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      source_message_ids: string[];
+      /**
+         * Number of distinct completed assistant messages that referenced the object.
+         * @minimum 1
+         */
+      occurrence_count: number;
+    }
+
+    export type TaskRunArtifactMetadata = TaskRunSkillBundleMetadata | TaskRunPostHogReferenceMetadata;
+
+    /**
      * * `agent` - agent
      * * `user` - user
      */
@@ -54701,11 +54903,11 @@ export namespace Schemas {
       size?: number;
       /** Optional MIME type */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      /** Structured metadata for a skill bundle or a PostHog object reference. */
       metadata?: TaskRunArtifactMetadata;
-      /** S3 object key for the artifact */
-      storage_path: string;
-      /** Timestamp when the artifact was uploaded */
+      /** S3 object key for file artifacts. Reference artifacts do not have one. */
+      storage_path?: string;
+      /** Timestamp when the artifact was uploaded or registered */
       uploaded_at: string;
       /** Whether the artifact version was uploaded by the task agent or an interactive user.
        *
@@ -58327,6 +58529,28 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+    }
+
+    /**
+     * Mapping from severity rule UUID to its new evaluation order.
+     */
+    export type PatchedErrorTrackingSeverityRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingSeverityRuleReorderRequest {
+      /** Mapping from severity rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingSeverityRuleReorderRequestOrders;
+    }
+
+    export interface PatchedErrorTrackingSeverityRuleUpdateRequest {
+      /** Replacement property-group filters. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /** Replacement severity. Omit to preserve the existing severity.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity?: ErrorTrackingIssueSeverityRuleEnum;
     }
 
     export interface PatchedErrorTrackingSpikeDetectionConfig {
@@ -79524,8 +79748,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskRunArtifactPrepareUpload {
@@ -79561,8 +79785,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskRunArtifactPrepareUploadResponse {
@@ -79578,8 +79802,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
       /** S3 object key reserved for the artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */
@@ -79637,8 +79861,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskRunArtifactsDismissRequest {
@@ -80275,6 +80499,55 @@ export namespace Schemas {
       peers: TaskRunPeer[];
     }
 
+    export interface TaskRunPostHogReference {
+      /**
+         * Fallback display name for the referenced object.
+         * @maxLength 255
+         */
+      name: string;
+      /** PostHog object kind used to resolve the reference.
+       *
+       * * `insight` - insight
+       * * `hogql` - hogql
+       * * `dashboard` - dashboard
+       * * `error` - error
+       * * `replay` - replay
+       * * `flag` - flag
+       * * `experiment` - experiment
+       * * `survey` - survey
+       * * `ticket` - ticket
+       * * `trace` - trace
+       * * `eval` - eval
+       * * `event` - event
+       * * `cohort` - cohort
+       * * `action` - action
+       * * `person` - person */
+      object_kind: ObjectKindEnum;
+      /**
+         * Exact PostHog object identifier, flag key, event name, or SQL query.
+         * @maxLength 16384
+         */
+      object_id: string;
+      /**
+         * Stable identifier of the completed assistant message containing the reference.
+         * @maxLength 255
+         */
+      source_message_id: string;
+    }
+
+    export interface TaskRunPostHogReferencesRequest {
+      /**
+         * PostHog object references extracted from one completed assistant message.
+         * @maxItems 50
+         */
+      references: TaskRunPostHogReference[];
+    }
+
+    export interface TaskRunPostHogReferencesResponse {
+      /** Updated list of artifacts on the run. */
+      artifacts: TaskRunArtifactResponse[];
+    }
+
     export interface TaskRunRelayMessageRequest {
       /**
          * Joined message body. Used when text_parts is absent.
@@ -80416,8 +80689,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUpload {
@@ -80453,8 +80726,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUploadResponse {
@@ -80470,8 +80743,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
       /** S3 object key reserved for the staged artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */

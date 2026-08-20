@@ -457,6 +457,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "non_failure_status_codes",
             "customer_analytics_account_properties",
             "customer_analytics_account_relationships",
+            "task_model",
+            "task_repository",
+            "task_mcp_installations",
         ]
     )
     key = serializers.CharField()
@@ -547,6 +550,30 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration_multi":
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
+        elif item_type == "task_repository":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
+        elif item_type == "task_model":
+            # A non-empty value means a model was chosen (an empty value returned above as "use the
+            # default model"), so it must name a usable model. Otherwise the run-time consumer drops
+            # the setting and the task silently falls back to the default, which this guard exists to
+            # prevent for programmatically authored workflows.
+            model = value.get("model") if isinstance(value, dict) else None
+            reasoning_effort = value.get("reasoning_effort") if isinstance(value, dict) else None
+            if (
+                not isinstance(value, dict)
+                or not isinstance(model, str)
+                or not model
+                or (reasoning_effort is not None and not isinstance(reasoning_effort, str))
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "input": "Value must be an object with a non-empty 'model' string and an optional 'reasoning_effort' string."
+                    }
+                )
+        elif item_type == "task_mcp_installations":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of MCP connector IDs."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
@@ -714,6 +741,11 @@ class InputsSerializer(serializers.DictField):
                         # webhook auth in production - fail so the caller re-enters the value.
                         errors[key] = "No value is saved for this secret input. Enter the value again."
                         continue
+
+            if value == {} and schema.get("required") and schema.get("default") is not None:
+                # The destination editor pre-fills defaults from the template schema, but callers that
+                # build inputs by hand cannot, so a required input with a default would reject them.
+                value = {"value": schema["default"]}
 
             self.context["schema"] = schema
 

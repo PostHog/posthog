@@ -13,6 +13,7 @@ import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import {
   type CreateResourceCommentRequest,
   type PostHogAPIClient,
+  type PostHogObjectReferenceInput,
   type ResourceComment,
   SESSION_LOGS_MAX_PAGE_SIZE,
   type TaskRunSessionLogsResult,
@@ -62,6 +63,7 @@ import {
 } from "@posthog/shared/domain-types";
 import type { CommentTarget } from "../comments/anchors";
 import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
+import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
@@ -1674,7 +1676,27 @@ function readSteering(result: unknown): string | undefined {
   return (result as { steering?: string } | undefined)?.steering;
 }
 
-function classifyTurnEventKind(
+// Live streaming emits agent_message_chunk; SessionLogWriter coalesces a chunk
+// run into a single agent_message, so hydration and cloud replay read the same
+// text back as that final. Both forms carry { type: "text", text }, so both
+// must count toward a turn's agent text (see agentMessageUpdateKind).
+export function readTurnAgentText(msg: AcpMessage["message"]): string {
+  if (!("method" in msg) || msg.method !== "session/update") return "";
+  const update = (msg as { params?: { update?: Record<string, unknown> } })
+    .params?.update;
+  if (
+    update?.sessionUpdate !== "agent_message_chunk" &&
+    update?.sessionUpdate !== "agent_message"
+  ) {
+    return "";
+  }
+  const content = update.content as
+    | { type?: string; text?: string }
+    | undefined;
+  return content?.type === "text" ? (content.text ?? "") : "";
+}
+
+export function classifyTurnEventKind(
   msg: AcpMessage["message"],
 ): "text" | "output" | "other" {
   if (!("method" in msg) || msg.method !== "session/update") return "other";
@@ -1682,7 +1704,10 @@ function classifyTurnEventKind(
     .params?.update;
   if (!update) return "other";
   const sessionUpdate = update.sessionUpdate;
-  if (sessionUpdate === "agent_message_chunk") {
+  if (
+    sessionUpdate === "agent_message_chunk" ||
+    sessionUpdate === "agent_message"
+  ) {
     const content = update.content as { type?: string } | undefined;
     return content?.type === "text" ? "text" : "output";
   }
@@ -1771,9 +1796,23 @@ export class SessionService {
   private respondedCloudPermissionRequestIds = new Set<string>();
   private liveTurnContent = new Map<
     string,
-    { startedAtTs: number; agentTextChunks: number; agentOutputEvents: number }
+    {
+      startedAtTs: number;
+      agentTextChunks: number;
+      agentOutputEvents: number;
+      agentText: string;
+    }
   >();
   private pendingPermissionHydratedRuns = new Set<string>();
+  /** References whose registration failed, kept for retry keyed by task run. */
+  private pendingReferenceRegistrations = new Map<
+    string,
+    {
+      taskId: string;
+      references: Map<string, PostHogObjectReferenceInput>;
+      inflight: Promise<void> | null;
+    }
+  >();
   /** In-flight hydrations keyed by `${taskRunId}:${hydrationMode}` */
   private cloudHydrationPromises = new Map<
     string,
@@ -2370,6 +2409,10 @@ export class SessionService {
     this.d.store.removeSession(taskRunId);
     this.cloudRunIdleTracker.delete(taskRunId);
     this.cloudLogGapReconciler.forgetDeficiency(taskRunId);
+    // The run is gone, so nothing is left to retry against. Any references
+    // still pending here are dead weight; drop them so a removed run cannot
+    // leave its failed registrations resident.
+    this.pendingReferenceRegistrations.delete(taskRunId);
     if (session) {
       this.localRepoPaths.delete(session.taskId);
       this.localRecoveryAttempts.delete(session.taskId);
@@ -3154,6 +3197,7 @@ export class SessionService {
       this.sessionEventFlushHandle = null;
     }
     this.pendingSessionEvents.clear();
+    this.pendingReferenceRegistrations.clear();
     this.hostEndedResubscribes.clear();
     this.lastSessionEventAt.clear();
     this.sessionEventStats.clear();
@@ -3226,6 +3270,92 @@ export class SessionService {
     } else {
       this.d.log.info("Turn completed", payload);
     }
+
+    if (!session?.taskId || !tally.agentText) return;
+    const references = extractPostHogObjectReferences(tally.agentText);
+    if (references.length === 0) return;
+    const sourceMessageId = `turn-${tally.startedAtTs}`;
+    const inputs: PostHogObjectReferenceInput[] = references.map(
+      (reference) => ({
+        name: reference.label,
+        object_kind: reference.kind,
+        object_id: reference.id,
+        source_message_id: sourceMessageId,
+      }),
+    );
+    this.registerPostHogReferences(session.taskId, taskRunId, inputs);
+  }
+
+  // References enter the pending map before the attempt and leave it only on
+  // a confirmed registration, so an offline endpoint, a transient network
+  // error, or auth that is not ready yet loses nothing: the next turn on the
+  // run and the next hydration both retry whatever is still pending.
+  private registerPostHogReferences(
+    taskId: string,
+    taskRunId: string,
+    references: PostHogObjectReferenceInput[],
+  ): void {
+    const pending = this.pendingReferenceRegistrations.get(taskRunId) ?? {
+      taskId,
+      references: new Map<string, PostHogObjectReferenceInput>(),
+      inflight: null,
+    };
+    for (const reference of references) {
+      pending.references.set(
+        `${reference.object_kind}\0${reference.object_id}\0${reference.source_message_id}`,
+        reference,
+      );
+    }
+    this.pendingReferenceRegistrations.set(taskRunId, pending);
+    this.flushPendingReferenceRegistrations(taskRunId);
+  }
+
+  private flushPendingReferenceRegistrations(taskRunId: string): void {
+    const pending = this.pendingReferenceRegistrations.get(taskRunId);
+    if (!pending || pending.inflight || pending.references.size === 0) return;
+    const batch = new Map(pending.references);
+    pending.inflight = (async () => {
+      let registered = false;
+      try {
+        const authStatus = await this.getAuthCredentialsStatus();
+        if (authStatus.kind !== "ready") return;
+        const artifacts =
+          await authStatus.auth.client.registerTaskRunPostHogReferences(
+            pending.taskId,
+            taskRunId,
+            [...batch.values()],
+          );
+        registered = true;
+        const current = this.pendingReferenceRegistrations.get(taskRunId);
+        if (current) {
+          for (const key of batch.keys()) current.references.delete(key);
+          if (current.references.size === 0 && !current.inflight) {
+            this.pendingReferenceRegistrations.delete(taskRunId);
+          }
+        }
+        this.d.store.updateSession(taskRunId, { cloudArtifacts: artifacts });
+      } catch (error) {
+        this.d.log.warn("Failed to register PostHog object references", {
+          taskId: pending.taskId,
+          taskRunId,
+          error: String(error),
+        });
+      } finally {
+        const current = this.pendingReferenceRegistrations.get(taskRunId);
+        if (current) {
+          current.inflight = null;
+          if (current.references.size === 0) {
+            this.pendingReferenceRegistrations.delete(taskRunId);
+          } else if (registered) {
+            this.flushPendingReferenceRegistrations(taskRunId);
+          }
+        }
+      }
+    })();
+  }
+
+  private retryPendingReferenceRegistrations(taskRunId: string): void {
+    this.flushPendingReferenceRegistrations(taskRunId);
   }
 
   private updatePromptStateFromEvents(
@@ -3241,13 +3371,13 @@ export class SessionService {
       if (this.isSteerMessage(msg)) {
         continue;
       }
-      const turnTally = isLive
-        ? this.liveTurnContent.get(taskRunId)
-        : undefined;
+      const turnTally = this.liveTurnContent.get(taskRunId);
       if (turnTally) {
         const kind = classifyTurnEventKind(msg);
-        if (kind === "text") turnTally.agentTextChunks += 1;
-        else if (kind === "output") turnTally.agentOutputEvents += 1;
+        if (kind === "text") {
+          turnTally.agentTextChunks += 1;
+          turnTally.agentText += readTurnAgentText(msg);
+        } else if (kind === "output") turnTally.agentOutputEvents += 1;
       }
       if (isJsonRpcRequest(msg) && msg.method === "session/prompt") {
         this.d.store.updateSession(taskRunId, {
@@ -3256,13 +3386,12 @@ export class SessionService {
           pausedDurationMs: 0,
           currentPromptId: msg.id,
         });
-        if (isLive) {
-          this.liveTurnContent.set(taskRunId, {
-            startedAtTs: acpMsg.ts,
-            agentTextChunks: 0,
-            agentOutputEvents: 0,
-          });
-        }
+        this.liveTurnContent.set(taskRunId, {
+          startedAtTs: acpMsg.ts,
+          agentTextChunks: 0,
+          agentOutputEvents: 0,
+          agentText: "",
+        });
         const promptSession = this.d.store.getSessions()[taskRunId];
         if (promptSession?.isCloud) {
           this.cloudRunIdleTracker.markBusy(promptSession);
@@ -3302,9 +3431,7 @@ export class SessionService {
           promptStartedAt: null,
           currentPromptId: null,
         });
-        if (isLive) {
-          this.finalizeTurnContent(taskRunId, "stop_reason", acpMsg.ts);
-        }
+        this.finalizeTurnContent(taskRunId, "stop_reason", acpMsg.ts);
       }
       if (isTurnCompleteEvent(acpMsg)) {
         // Local sessions use the JSON-RPC response as the canonical turn-done
@@ -3340,8 +3467,8 @@ export class SessionService {
               );
             }
             this.d.taskViewedApi.markActivity(session.taskId);
-            this.finalizeTurnContent(taskRunId, "turn_complete", acpMsg.ts);
           }
+          this.finalizeTurnContent(taskRunId, "turn_complete", acpMsg.ts);
         }
       }
       // Lifecycle handshake from the agent — flip status to "connected"
@@ -7153,6 +7280,7 @@ export class SessionService {
         session.processedLineCount > 0 &&
         !isResumeRun;
     if (alreadyApplied) {
+      this.retryPendingReferenceRegistrations(taskRunId);
       this.surfacePersistedPendingPermissions(taskRunId, rawEntries);
       this.pendingPermissionHydratedRuns.add(taskRunId);
       return {
@@ -7188,6 +7316,7 @@ export class SessionService {
     // baseline already contains an in-flight session/prompt — the live delta
     // path otherwise sees delta <= 0 and never re-evaluates the tail.
     this.updatePromptStateFromEvents(taskRunId, events);
+    this.retryPendingReferenceRegistrations(taskRunId);
     if (isTerminalRun) {
       this.clearTerminalCloudPromptState(taskRunId);
     }
