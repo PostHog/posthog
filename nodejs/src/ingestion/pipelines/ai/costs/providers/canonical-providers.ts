@@ -1,9 +1,8 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-19 10:06:27 UTC
+// Generated at: 2026-08-19 20:04:04 UTC
 
 export type CanonicalProvider =
     | 'default'
-    | 'ai21-fp8'
     | 'aion-labs'
     | 'akashml-bf16'
     | 'akashml-fp8'
@@ -89,7 +88,6 @@ export type CanonicalProvider =
     | 'groq'
     | 'inception'
     | 'inceptron-fp4'
-    | 'inceptron-fp8'
     | 'inceptron-int4'
     | 'io-net-fp16'
     | 'io-net-fp8'
@@ -124,6 +122,7 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita'
     | 'novita-bf16'
+    | 'novita-fast'
     | 'novita-fp16'
     | 'novita-fp4'
     | 'novita-fp8'
