@@ -18,9 +18,8 @@ routes (they deploy the same code).
 from __future__ import annotations
 
 import json
-import math
 import hashlib
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -30,14 +29,9 @@ from django.http import HttpRequest, HttpResponse
 import requests
 import structlog
 
-if TYPE_CHECKING:
-    from rest_framework.request import Request
-    from rest_framework.views import APIView
-
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
-from posthog.rate_limit import IPThrottle
 from posthog.utils import get_instance_region
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
@@ -259,40 +253,13 @@ _STRATEGY_CHECKS = {
 }
 
 
-class RegionProxyThrottle(IPThrottle):
-    """Per-IP cap on forwarding a request to the other region.
-
-    The proxy decides to forward inside ``dispatch``, before DRF has
-    authenticated or throttled anything, so this is the only limit an
-    unauthenticated caller meets on that path. Without it, each request with a
-    mismatched region or an unknown token becomes an outbound cross-region call
-    that holds a worker until the other region answers.
-    """
-
-    scope = "stripe_provisioning_region_proxy"
-    rate = "300/minute"
-
-    def allow_http_request(self, request: HttpRequest) -> bool:
-        """Count a request from the proxy's ``dispatch``, where DRF's ``Request``
-        doesn't exist yet. The key comes from the IP alone, so the plain Django
-        request carries everything this throttle reads."""
-        try:
-            return self.allow_request(cast("Request", request), cast("APIView", None))
-        except Exception:
-            # Fail open, matching StripeBucketThrottle and DRF's global
-            # throttles: an unreachable Redis must not take the namespace down.
-            # What gets forwarded still meets the other region's own limits.
-            logger.warning("stripe_provisioning.proxy.throttle_unavailable")
-            return True
-
-
 class RegionProxyMixin:
     """Forward the request to the other region when its resources live there.
 
     Set ``region_proxy_strategy`` on the view. Runs before authentication (a
     bearer that only exists in the other region must proxy, not 401 locally),
-    so the forward carries its own per-IP cap (:class:`RegionProxyThrottle`).
-    On proxy failure, ``body_region`` returns a flat ``proxy_failed`` 502 (the
+    so DRF's throttles never see a forwarded request. The endpoint's own budget
+    applies at the region that handles it. On proxy failure, ``body_region`` returns a flat ``proxy_failed`` 502 (the
     request can't be served locally at all); the lookup strategies fall through
     to local handling, which produces the appropriate auth error.
     """
@@ -329,29 +296,6 @@ class RegionProxyMixin:
                 "to_domain": target,
                 "endpoint": request.path,
             }
-            # Checked only when the request would actually forward, so local
-            # handling never spends the caller's cross-region budget.
-            throttle = RegionProxyThrottle()
-            if not throttle.allow_http_request(request):
-                logger.warning("stripe_provisioning.proxy.rate_limited", **proxy_props)
-                capture_region_proxy_event("proxy_rate_limited", **proxy_props)
-                response = HttpResponse(
-                    json.dumps(
-                        {
-                            "error": {
-                                "code": "rate_limited",
-                                "message": "Too many cross-region requests. Try again later.",
-                            }
-                        },
-                        separators=_JSON_SEPARATORS,
-                    ),
-                    status=429,
-                    content_type="application/json",
-                )
-                wait = throttle.wait()
-                if wait:
-                    response["Retry-After"] = str(max(1, math.ceil(wait)))
-                return response
             logger.info(
                 "stripe_provisioning.proxy.routing",
                 strategy=strategy,

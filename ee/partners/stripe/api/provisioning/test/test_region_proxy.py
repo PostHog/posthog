@@ -7,7 +7,6 @@ from django.utils import timezone
 
 from django_redis.exceptions import ConnectionInterrupted
 
-from ee.partners.stripe.api.provisioning.region_proxy import RegionProxyThrottle
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 
@@ -118,31 +117,6 @@ class TestRegionProxy(StripeProvisioningTestBase):
         assert res.status_code == 502
         assert res.json() == {"error": {"code": "proxy_failed", "message": "Failed to route to correct region"}}
 
-    def test_forwarding_survives_an_unreachable_throttle_backend(self):
-        # The cap runs pre-authentication, outside DRF's exception handling, so a
-        # Redis outage used to surface as a 500 in the wrong shape. Forwarding
-        # instead leaves the request to the limits the other region enforces.
-        body = {
-            "id": "acctreq_cache_down",
-            "email": "cache-down@example.com",
-            "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
-            "configuration": {"region": "EU"},
-            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_test"}},
-        }
-
-        with (
-            patch("ee.partners.stripe.api.provisioning.region_proxy.get_instance_region", return_value="US"),
-            patch.object(RegionProxyThrottle, "cache", _unreachable_cache()),
-            patch(
-                "ee.partners.stripe.api.provisioning.region_proxy.requests.request",
-                return_value=_fake_upstream({"type": "oauth", "oauth": {"code": "eu_code"}}),
-            ) as proxied,
-        ):
-            res = self._post_signed(f"{BASE_PATH}/provisioning/account_requests", data=body)
-
-        assert res.status_code == 200
-        proxied.assert_called_once()
-
     def test_unreachable_cache_routes_an_auth_code_it_cannot_look_up(self):
         # The code lives only in the local cache, so an outage here can't rule it
         # out and a local exchange would need that same cache anyway.
@@ -179,34 +153,3 @@ class TestRegionProxy(StripeProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["status"] == "complete"
         proxied.assert_not_called()
-
-
-class TestRegionProxyThrottle(StripeProvisioningTestBase):
-    def test_forwarding_is_capped_per_ip(self):
-        # Over-budget requests must be refused before the outbound call: the
-        # proxy runs pre-authentication, so this cap is the only limit an
-        # unauthenticated caller meets on the cross-region path.
-        body = {
-            "id": "acctreq_throttled",
-            "email": "throttled@example.com",
-            "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
-            "configuration": {"region": "EU"},
-            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_test"}},
-        }
-
-        with (
-            patch("ee.partners.stripe.api.provisioning.region_proxy.get_instance_region", return_value="US"),
-            patch.object(RegionProxyThrottle, "rate", "1/minute"),
-            patch(
-                "ee.partners.stripe.api.provisioning.region_proxy.requests.request",
-                return_value=_fake_upstream({"type": "oauth", "oauth": {"code": "eu_code"}}),
-            ) as proxied,
-        ):
-            first = self._post_signed(f"{BASE_PATH}/provisioning/account_requests", data=body)
-            second = self._post_signed(f"{BASE_PATH}/provisioning/account_requests", data=body)
-
-        assert first.status_code == 200
-        assert second.status_code == 429
-        assert second.json()["error"]["code"] == "rate_limited"
-        assert second["Retry-After"]
-        assert proxied.call_count == 1, "over-budget requests must not reach the other region"
