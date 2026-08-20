@@ -249,7 +249,7 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                     {subjectType && <LemonTag type={subjectType.type}>{subjectType.label}</LemonTag>}
                     <span className="text-secondary text-sm">
                         {group.checksFailing > 0
-                            ? `${group.checksFailing} of ${group.checks.length} failing`
+                            ? `${group.checksFailing} of ${group.checksTotal} failing`
                             : `${group.checks.length} ${group.checks.length === 1 ? 'check' : 'checks'}`}
                     </span>
                 </div>

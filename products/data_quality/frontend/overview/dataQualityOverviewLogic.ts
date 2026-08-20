@@ -57,6 +57,9 @@ export interface SubjectGroup {
     checks: DataQualityOverviewCheckApi[]
     health: string
     checksFailing: number
+    // Denominator of the failing ratio. From the subject's rollup, not checks.length, since a filter
+    // shows only a subset of the subject's checks and would otherwise read as "2 of 1 failing".
+    checksTotal: number
 }
 
 // Worst first: someone opening this is looking for what is broken, not for an alphabet.
@@ -539,6 +542,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                         checks: [],
                         health: healthBySubjectKey[subjectKey]?.health ?? 'unknown',
                         checksFailing: healthBySubjectKey[subjectKey]?.checks_failing ?? 0,
+                        checksTotal: healthBySubjectKey[subjectKey]?.checks_total ?? 0,
                     }
                     group.checks.push(check)
                     groups.set(subjectKey, group)

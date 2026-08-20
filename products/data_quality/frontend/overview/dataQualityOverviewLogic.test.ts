@@ -187,6 +187,34 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.filteredChecks.map((check) => check.id)).toEqual(expectedIds)
     })
 
+    it('draws the failing ratio from the rollup, not the filtered rows, so it cannot invert', async () => {
+        // Filtering to never-run checks leaves fewer rows than the subject has failing, so a
+        // denominator taken from the filtered rows would print an impossible "2 of 1 failing".
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
+            results: [
+                buildCheck('check-1', 'orders', 'failed'),
+                buildCheck('check-2', 'orders', 'failed'),
+                buildCheck('check-3', 'orders', null),
+            ],
+        })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([
+            {
+                subject_type: 'view',
+                subject_uuid: 'uuid-orders',
+                health: 'failing',
+                checks_total: 3,
+                checks_failing: 2,
+            },
+        ])
+        await mountLogic()
+        logic.actions.setFilters({ status: 'never_run' })
+
+        const [group] = logic.values.subjectGroups
+        expect(group.checks).toHaveLength(1)
+        expect(group.checksFailing).toEqual(2)
+        expect(group.checksTotal).toEqual(3)
+    })
+
     it('keeps subjects the user opened through filtering and refreshing', async () => {
         await mountLogic()
         logic.actions.toggleSubjectExpanded('view:uuid-customers')
