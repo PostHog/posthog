@@ -916,7 +916,7 @@ CREATE TABLE posthog.sharded_billing_usage_records (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp) ORDER BY (team_id, producer_id, record_id, version) PARTITION BY toYYYYMM(event_timestamp);
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp) ORDER BY (team_id, producer_id, record_id, version) PARTITION BY toYYYYMM(event_timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_distinct_id_usage (
   team_id Int64,
   distinct_id String,

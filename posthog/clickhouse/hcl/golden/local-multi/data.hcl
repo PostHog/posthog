@@ -4983,6 +4983,9 @@ database "posthog" {
   table "sharded_billing_usage_records" {
     order_by     = ["team_id", "producer_id", "record_id", "version"]
     partition_by = "toYYYYMM(event_timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
     column "schema_version" {
       type = "UInt8"
     }
