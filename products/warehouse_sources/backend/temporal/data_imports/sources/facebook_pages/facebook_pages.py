@@ -2,7 +2,6 @@ import re
 import hmac
 import json
 import hashlib
-import dataclasses
 from collections.abc import Iterator, Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -14,6 +13,7 @@ from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     FacebookPagesIntegration,
@@ -147,7 +147,7 @@ def appsecret_proof(access_token: str) -> str | None:
     return hmac.new(secret.encode("utf-8"), access_token.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-@dataclasses.dataclass
+@frozen
 class FacebookPagesResumeConfig:
     # Edges: the `paging.cursors.after` cursor and the `since` filter pinned at sync start.
     after: str | None = None
