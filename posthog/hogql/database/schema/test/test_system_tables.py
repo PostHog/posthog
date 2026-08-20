@@ -84,6 +84,7 @@ if TYPE_CHECKING:
         ErrorTrackingIssueAssignment,
         ErrorTrackingIssueFingerprintV2,
         ErrorTrackingRelease,
+        ErrorTrackingSeverityRule,
         ErrorTrackingSuppressionRule,
         ErrorTrackingSymbolSet,
     )
@@ -107,6 +108,7 @@ else:
     ErrorTrackingBypassRule = apps.get_model("error_tracking", "ErrorTrackingBypassRule")
     ErrorTrackingSuppressionRule = apps.get_model("error_tracking", "ErrorTrackingSuppressionRule")
     ErrorTrackingRelease = apps.get_model("error_tracking", "ErrorTrackingRelease")
+    ErrorTrackingSeverityRule = apps.get_model("error_tracking", "ErrorTrackingSeverityRule")
 
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
@@ -485,6 +487,12 @@ def _create_error_tracking_assignment_rule(team: Team, label: str):
 def _create_error_tracking_bypass_rule(team: Team, label: str):
     return ErrorTrackingBypassRule.objects.create(
         team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
+    )
+
+
+def _create_error_tracking_severity_rule(team: Team, label: str):
+    return ErrorTrackingSeverityRule.objects.unscoped().create(
+        team=team, filters={"type": "AND", "values": []}, bytecode=[], severity="high", order_key=0
     )
 
 
@@ -896,6 +904,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("source_sync_jobs", _create_source_sync_job),
     ("error_tracking_issues", _create_error_tracking_issue),
     ("error_tracking_releases", _create_error_tracking_release),
+    ("error_tracking_severity_rules", _create_error_tracking_severity_rule),
     ("error_tracking_symbol_sets", _create_error_tracking_symbol_set),
     ("error_tracking_suppression_rules", _create_error_tracking_suppression_rule),
     ("evaluation_directories", _create_evaluation_directory),
