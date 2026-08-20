@@ -204,7 +204,6 @@ class _CDPRowSink:
         try:
             await self._producer.clear()
         except Exception as e:
-            capture_exception(e)
             await self._logger.awarning(f"Failed to clear staged CDP rows: {e}")
 
 

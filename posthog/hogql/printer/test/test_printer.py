@@ -1842,6 +1842,15 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
 
+    def test_parse_datetime_best_effort_or_null_alias(self) -> None:
+        # parseDateTimeBestEffortOrNull is an accepted ClickHouse-name alias of parseDateTimeBestEffort;
+        # an unregistered spelling raises a QueryError and fails materialization. Both route through
+        # parseDateTime64BestEffortOrNull, so the printed SQL of the two spellings must match.
+        self.assertEqual(
+            self._expr("parseDateTimeBestEffortOrNull(properties.foo)"),
+            self._expr("parseDateTimeBestEffort(properties.foo)"),
+        )
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
