@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconTrending } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -32,15 +32,8 @@ const STATUS_TAG_TYPE: Record<ReportStatus | FocusActedStatus, LemonTagType> = {
     Resolved: 'success',
     Disputed: 'warning',
     Dismissed: 'muted',
-    Acknowledged: 'success',
+    Archived: 'muted',
     'In progress': 'highlight',
-}
-
-/** Dot color for a report already acted on, so the progress row reads as an outcome trail. */
-const ACTED_DOT_CLASS: Record<FocusActedStatus, string> = {
-    Acknowledged: 'bg-success',
-    'In progress': 'bg-accent',
-    Dismissed: 'bg-border-secondary',
 }
 
 const TREND_CLASS: Record<ReportTrend, string> = {
@@ -48,44 +41,6 @@ const TREND_CLASS: Record<ReportTrend, string> = {
     down: 'text-success',
     flat: 'text-tertiary',
 }
-
-const SHORTCUT_HELP: { id: string; keys: JSX.Element; description: string }[] = [
-    {
-        id: 'next',
-        keys: (
-            <>
-                <KeyboardShortcut j />
-                <KeyboardShortcut arrowdown />
-            </>
-        ),
-        description: 'Next report',
-    },
-    {
-        id: 'previous',
-        keys: (
-            <>
-                <KeyboardShortcut k />
-                <KeyboardShortcut arrowup />
-            </>
-        ),
-        description: 'Previous report',
-    },
-    {
-        id: 'expand',
-        keys: (
-            <>
-                <KeyboardShortcut enter />
-                <KeyboardShortcut e />
-            </>
-        ),
-        description: 'Show the full report',
-    },
-    { id: 'collapse', keys: <KeyboardShortcut escape />, description: 'Collapse the report, or leave focus mode' },
-    { id: 'acknowledge', keys: <KeyboardShortcut a />, description: 'Acknowledge and advance' },
-    { id: 'primary-action', keys: <KeyboardShortcut i />, description: 'Run the primary action' },
-    { id: 'dismiss', keys: <KeyboardShortcut d />, description: 'Dismiss and advance' },
-    { id: 'send-to-agent', keys: <KeyboardShortcut s />, description: 'Send to agent' },
-]
 
 function TrendAnnotation({ trend, label }: { trend: ReportTrend; label: string }): JSX.Element {
     const Icon = trend === 'up' ? IconTrending : trend === 'down' ? IconTrendingDown : IconTrendingFlat
@@ -131,33 +86,22 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
 }
 
 export function V2FocusScene(): JSX.Element {
-    const {
-        reports,
-        currentIndex,
-        currentReport,
-        counter,
-        expanded,
-        actedStatuses,
-        agentMenuOpen,
-        helpOpen,
-        prModalOpen,
-    } = useValues(v2FocusLogic)
+    const { reports, currentIndex, currentReport, expanded, actedStatuses, agentMenuOpen, prModalOpen } =
+        useValues(v2FocusLogic)
     const {
         navigate,
-        jumpTo,
         toggleExpanded,
         setExpanded,
-        acknowledge,
+        archive,
         dismiss,
         runPrimaryAction,
         confirmPr,
         sendToAgent,
         setAgentMenuOpen,
-        setHelpOpen,
         setPrModalOpen,
     } = useActions(v2FocusLogic)
 
-    const modalOpen = prModalOpen || helpOpen
+    const modalOpen = prModalOpen
     // While the agent menu is open it owns the keyboard, so only escape stays live.
     const triageDisabled = modalOpen || agentMenuOpen
 
@@ -174,13 +118,19 @@ export function V2FocusScene(): JSX.Element {
                         return
                     }
                     event.preventDefault()
+                    if (event.metaKey || event.ctrlKey) {
+                        if (currentReport) {
+                            router.actions.push(urls.v2Report(currentReport.id))
+                        }
+                        return
+                    }
                     toggleExpanded()
                 },
                 disabled: triageDisabled,
                 willHandleEvent: true,
             },
             e: { action: () => toggleExpanded(), disabled: triageDisabled },
-            a: { action: () => acknowledge(), disabled: triageDisabled },
+            a: { action: () => archive(), disabled: triageDisabled },
             i: { action: () => runPrimaryAction(), disabled: triageDisabled },
             d: { action: () => dismiss(), disabled: triageDisabled },
             s: { action: () => setAgentMenuOpen(true), disabled: triageDisabled },
@@ -198,7 +148,7 @@ export function V2FocusScene(): JSX.Element {
                 disabled: modalOpen,
             },
         },
-        [triageDisabled, modalOpen, agentMenuOpen, expanded]
+        [triageDisabled, modalOpen, agentMenuOpen, expanded, currentReport]
     )
 
     const report = currentReport
@@ -208,44 +158,7 @@ export function V2FocusScene(): JSX.Element {
 
     return (
         <div className="flex h-full flex-col overflow-hidden">
-            <header className="flex flex-none items-center gap-3 border-b border-primary px-4 py-2">
-                <InboxBackButton />
-                <span className="font-mono text-xxs tracking-widest text-tertiary uppercase">Focus</span>
-                <div className="flex-1" />
-                <div className="flex items-center gap-1.5">
-                    {reports.map((report, index) => {
-                        const acted = actedStatuses[report.id]
-                        const isCurrent = index === currentIndex
-                        return (
-                            <button
-                                key={report.id}
-                                type="button"
-                                onClick={() => jumpTo(index)}
-                                aria-label={`Go to report ${index + 1}, ${report.headline}`}
-                                aria-current={isCurrent ? 'true' : undefined}
-                                data-attr="v2-focus-progress-dot"
-                                className={cn(
-                                    'rounded-full',
-                                    isCurrent
-                                        ? 'size-2.5 bg-accent'
-                                        : cn('size-2', acted ? ACTED_DOT_CLASS[acted] : 'bg-border-primary')
-                                )}
-                            />
-                        )
-                    })}
-                </div>
-                <span className="font-mono text-xs text-secondary">{counter}</span>
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    onClick={() => setHelpOpen(true)}
-                    aria-label="Keyboard shortcuts"
-                    data-attr="v2-focus-help"
-                >
-                    ?
-                </LemonButton>
-            </header>
-
+            <InboxBackButton className="self-start -ml-[var(--button-padding-x-base)]" />
             <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-4">
                 {previousReport ? (
                     <PeekStrip
@@ -324,11 +237,11 @@ export function V2FocusScene(): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={acknowledge}
+                                onClick={archive}
                                 sideIcon={<KeyboardShortcut a />}
-                                data-attr="v2-focus-acknowledge"
+                                data-attr="v2-focus-archive"
                             >
-                                Acknowledge
+                                Archive
                             </LemonButton>
                             <LemonButton
                                 type="primary"
@@ -393,8 +306,9 @@ export function V2FocusScene(): JSX.Element {
             <footer className="flex flex-none flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-primary px-4 py-1.5 text-xxs text-tertiary">
                 <HintBarItem shortcut={<KeyboardShortcut arrowdown />} label="next" />
                 <HintBarItem shortcut={<KeyboardShortcut arrowup />} label="previous" />
-                <HintBarItem shortcut={<KeyboardShortcut enter />} label="show report" />
-                <HintBarItem shortcut={<KeyboardShortcut a />} label="acknowledge" />
+                <HintBarItem shortcut={<KeyboardShortcut enter />} label="expand" />
+                <HintBarItem shortcut={<KeyboardShortcut command enter />} label="open report" />
+                <HintBarItem shortcut={<KeyboardShortcut a />} label="archive" />
                 <HintBarItem shortcut={<KeyboardShortcut i />} label="fix & monitor" />
                 <HintBarItem shortcut={<KeyboardShortcut d />} label="dismiss" />
                 <HintBarItem shortcut={<KeyboardShortcut s />} label="send to agent" />
@@ -407,23 +321,6 @@ export function V2FocusScene(): JSX.Element {
                 onClose={() => setPrModalOpen(false)}
                 onConfirm={confirmPr}
             />
-
-            <LemonModal
-                isOpen={helpOpen}
-                onClose={() => setHelpOpen(false)}
-                title="Keyboard shortcuts"
-                width={360}
-                data-attr="v2-focus-shortcuts"
-            >
-                <div className="flex flex-col gap-2">
-                    {SHORTCUT_HELP.map((shortcut) => (
-                        <div key={shortcut.id} className="flex items-center gap-3">
-                            <span className="flex w-20 flex-none items-center gap-1">{shortcut.keys}</span>
-                            <span className="text-sm">{shortcut.description}</span>
-                        </div>
-                    ))}
-                </div>
-            </LemonModal>
         </div>
     )
 }

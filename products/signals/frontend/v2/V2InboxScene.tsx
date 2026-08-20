@@ -11,6 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CreatePrModal } from './components/CreatePrModal'
+import { InboxGroupedReportsTab } from './components/InboxGroupedReportsTab'
 import { InboxReportsTab } from './components/InboxReportsTab'
 import { InboxScoutsTab } from './components/InboxScoutsTab'
 import { InboxSettingsTab } from './components/InboxSettingsTab'
@@ -22,7 +23,7 @@ export const scene: SceneExport = {
 }
 
 export function V2InboxScene(): JSX.Element {
-    const { activeTab, prModalTarget } = useValues(v2InboxLogic)
+    const { activeTab, layout, prModalTarget } = useValues(v2InboxLogic)
     const { setTab, closePrModal, confirmPrModal } = useActions(v2InboxLogic)
 
     useKeyboardHotkeys(
@@ -48,6 +49,7 @@ export function V2InboxScene(): JSX.Element {
             <LemonTabs
                 activeKey={activeTab}
                 onChange={setTab}
+                sceneInset
                 data-attr="v2-inbox-tabs"
                 tabs={[
                     {
@@ -55,7 +57,7 @@ export function V2InboxScene(): JSX.Element {
                         label: 'Reports',
                         content: (
                             <div className="mx-auto w-full max-w-4xl">
-                                <InboxReportsTab />
+                                {layout === 'grouped' ? <InboxGroupedReportsTab /> : <InboxReportsTab />}
                             </div>
                         ),
                     },

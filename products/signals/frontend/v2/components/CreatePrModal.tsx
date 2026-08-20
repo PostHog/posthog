@@ -4,6 +4,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+
 import { createPrModalLogic } from './createPrModalLogic'
 
 export interface CreatePrModalProps {
@@ -38,7 +41,36 @@ export function CreatePrModal({
     onConfirm,
 }: CreatePrModalProps): JSX.Element {
     const { model, effort, rolloutStart, haltThreshold, monitoringDays } = useValues(createPrModalLogic)
-    const { setModel, setEffort, setRolloutStart, setHaltThreshold, setMonitoringDays } = useActions(createPrModalLogic)
+    const { confirm, setModel, setEffort, setRolloutStart, setHaltThreshold, setMonitoringDays } =
+        useActions(createPrModalLogic)
+
+    // Both confirm paths run through here so the toast fires once, from the button and from Enter alike
+    const handleConfirm = (): void => {
+        confirm()
+        onConfirm()
+    }
+
+    useKeyboardHotkeys(
+        {
+            enter: {
+                // Enter confirms from the modal at large, but a focused button or menu item keeps its own Enter,
+                // so tabbing to Cancel still cancels and a select's options still pick
+                action: (event) => {
+                    if (event.metaKey || event.ctrlKey || event.altKey) {
+                        return
+                    }
+                    if ((event.target as HTMLElement | null)?.closest('a, button')) {
+                        return
+                    }
+                    event.preventDefault()
+                    handleConfirm()
+                },
+                disabled: !isOpen,
+                willHandleEvent: true,
+            },
+        },
+        [isOpen, onConfirm, confirm]
+    )
 
     return (
         <LemonModal
@@ -53,7 +85,12 @@ export function CreatePrModal({
                     <LemonButton type="secondary" onClick={onClose} data-attr="v2-create-pr-cancel">
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={onConfirm} data-attr="v2-create-pr-confirm">
+                    <LemonButton
+                        type="primary"
+                        onClick={handleConfirm}
+                        sideIcon={<KeyboardShortcut enter />}
+                        data-attr="v2-create-pr-confirm"
+                    >
                         Create PR
                     </LemonButton>
                 </>

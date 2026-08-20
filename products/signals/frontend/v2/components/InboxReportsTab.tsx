@@ -1,12 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { urls } from 'scenes/urls'
-
-import { InboxDemoFilter, InboxDemoSort } from '../types'
-import { v2InboxLogic } from '../v2InboxLogic'
+import { InboxDemoFilter } from '../types'
+import { PRODUCT_OPTIONS, v2InboxLogic } from '../v2InboxLogic'
+import { InboxViewControls } from './InboxViewControls'
 import { ReportRow } from './ReportRow'
 
 const FILTER_OPTIONS: { value: InboxDemoFilter; label: string }[] = [
@@ -16,14 +14,9 @@ const FILTER_OPTIONS: { value: InboxDemoFilter; label: string }[] = [
     { value: 'archived', label: 'Archived' },
 ]
 
-const SORT_OPTIONS: { value: InboxDemoSort; label: string }[] = [
-    { value: 'impact', label: 'Impact' },
-    { value: 'recency', label: 'Recency' },
-]
-
 export function InboxReportsTab(): JSX.Element {
-    const { filter, sort, filteredReports } = useValues(v2InboxLogic)
-    const { setFilter, setSort } = useActions(v2InboxLogic)
+    const { filter, productFilter, filteredReports } = useValues(v2InboxLogic)
+    const { setFilter, setProductFilter } = useActions(v2InboxLogic)
 
     return (
         <div className="flex flex-col gap-4">
@@ -42,32 +35,21 @@ export function InboxReportsTab(): JSX.Element {
                         </LemonButton>
                     ))}
                 </div>
-                <div className="flex-1" />
-                <LemonButton
-                    type="primary"
+                <LemonSelect
                     size="small"
-                    to={urls.v2Focus()}
-                    sideIcon={<KeyboardShortcut f />}
-                    data-attr="v2-focus-mode"
-                >
-                    Focus mode
-                </LemonButton>
-                <span className="text-xs text-tertiary">Sort by</span>
-                <LemonSegmentedButton
-                    size="small"
-                    value={sort}
-                    onChange={setSort}
-                    options={SORT_OPTIONS.map((option) => ({
-                        ...option,
-                        'data-attr': `v2-sort-${option.value}`,
-                    }))}
+                    value={productFilter}
+                    onChange={setProductFilter}
+                    options={PRODUCT_OPTIONS}
+                    data-attr="v2-filter-product"
                 />
+                <div className="flex-1" />
+                <InboxViewControls />
             </div>
 
             <div className="flex flex-col gap-2">
                 {filteredReports.length === 0 ? (
                     <div className="rounded border border-primary bg-surface-primary px-4 py-6 text-center text-sm text-secondary">
-                        No reports match this filter. Pick another filter to see more.
+                        No reports match these filters. Pick another status or product, or switch to Entire project.
                     </div>
                 ) : (
                     filteredReports.map((report) => <ReportRow key={report.id} report={report} />)

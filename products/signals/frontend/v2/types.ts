@@ -3,8 +3,6 @@
  * Everything on these pages is mock data; nothing talks to the backend.
  */
 
-export type ReportState = 'worsening' | 'recovering' | 'holding' | 'measuring' | 'resolved' | 'disputed' | 'dismissed'
-
 export type ReportStatus =
     | 'New'
     | 'Investigating'
@@ -171,14 +169,15 @@ export interface DemoReport {
     /** Headline impact figure, e.g. "1,410 users" or "p75 +1.2s" */
     impact: string
     trend: ReportTrend
-    /** Sort weight for the impact sort, higher = more impact */
+    /** Sort weight, higher = more impact */
     impactWeight: number
-    /** Age in hours for the recency sort */
+    /** Age in hours */
     ageHours: number
+    /** Shown under the "For you" scope: assigned to the viewer or in an area they work on */
+    forYou?: boolean
     /** Display creation time, e.g. "Aug 17, 16:12" */
     created: string
     status: ReportStatus
-    state: ReportState
     unread?: boolean
     /** True while the engine is still investigating (rotating activity phrase + shimmer) */
     live?: boolean
@@ -186,18 +185,25 @@ export interface DemoReport {
     verdict: string
     /** Mono proof line, e.g. "214 session replays · 6 tickets" */
     proof: string
+    /** Seven-point volume trend drawn as mini bars on the grouped inbox row */
+    sparkline: number[]
     /** Signal sources the insight was built from, shown as chips on the row */
     sources: string[]
     focus?: ReportFocusContent
-    /** Full report-page content. Resolved reports render the resolved page instead. */
-    content?: DemoReportContent
+    /** Full report-page content. Required, so every row in the inbox opens a real report. */
+    content: DemoReportContent
 }
 
 /** Fix lifecycle phases on the full report page. */
 export type ReportFixPhase = 'reported' | 'generating' | 'proposed' | 'sent' | 'committed' | 'launched'
 
 export type InboxDemoFilter = 'all' | 'open' | 'monitoring' | 'archived'
-export type InboxDemoSort = 'impact' | 'recency'
+/** Which reports tab layout the inbox renders; switched from the internal section of Settings. */
+export type InboxDemoLayout = 'list' | 'grouped'
+export type InboxDemoSort = 'users' | 'recency'
+/** Sections of the grouped inbox layout, in display order. */
+export type InboxDemoGroup = 'decision' | 'monitoring' | 'resolved'
+export type InboxDemoScope = 'for-you' | 'project'
 export type InboxDemoTab = 'reports' | 'scouts' | 'settings'
 
 /** One scout: a watcher that reads signal sources and opens reports. */
@@ -222,4 +228,4 @@ export interface DemoToggleRow {
 }
 
 /** Status a focus-mode action stamps on a report. */
-export type FocusActedStatus = 'Acknowledged' | 'Dismissed' | 'In progress'
+export type FocusActedStatus = 'Archived' | 'Dismissed' | 'In progress'

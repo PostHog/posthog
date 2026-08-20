@@ -579,6 +579,376 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
         },
     },
 
+    'RPT-1046': {
+        observation: {
+            label: 'People re-picking the date range right after opening a saved insight',
+            unit: 'per hour',
+            chart: {
+                series: [
+                    {
+                        name: 'Range re-picks',
+                        color: 'danger',
+                        points: [
+                            13, 15, 14, 12, 15, 13, 14, 15, 34, 46, 58, 63, 71, 76, 80, 84, 86, 89, 91, 93, 95, 97, 96,
+                            99,
+                        ],
+                    },
+                    {
+                        name: 'Insights opened with the saved range intact',
+                        color: 'muted',
+                        dashed: true,
+                        points: [
+                            62, 64, 61, 63, 60, 62, 63, 61, 44, 33, 26, 21, 18, 15, 13, 12, 11, 10, 9, 9, 8, 8, 7, 7,
+                        ],
+                    },
+                ],
+                pointLabels: HOURLY_24,
+                xLabels: HOURLY_X_LABELS,
+                unit: 'per hour',
+                baselineValue: 14,
+                baselineLabel: 'baseline 14/hr',
+                annotations: [
+                    { index: 8, label: 'deploy 7c19ab4', color: 'danger' },
+                    { index: 19, label: 'detected', color: 'accent', labelAnchor: 'end' },
+                ],
+            },
+            liveRange: [92, 108],
+        },
+        occurrences: {
+            label: 'Range re-picks within 10 seconds of opening a saved insight, hourly',
+            values: [13, 15, 14, 12, 15, 13, 14, 15, 34, 46, 58, 63, 71, 76, 80, 84, 86, 89, 91, 93, 95, 97, 96, 99],
+            alarmFromIndex: 8,
+        },
+        evidence: [
+            {
+                label: 'Product analytics',
+                title: '2,140 range re-picks in 9 hours',
+                detail: 'Almost every one lands within 10 seconds of the insight loading, before the first query returns.',
+                bars: {
+                    values: [13, 15, 14, 12, 15, 34, 46, 58, 63, 71, 76, 80, 84, 89, 91, 95, 97, 99],
+                    alarmFromIndex: 5,
+                },
+            },
+            {
+                label: 'Session replay',
+                title: '38 replays show the same correction',
+                detail: 'Open the insight, glance at the chart, reopen the date picker, pick the same range again, wait through a second load.',
+            },
+            {
+                label: 'Funnel',
+                title: '1 in 5 leave before the second query finishes',
+                detail: 'Insight opened to chart viewed, compared with the trailing 14-day baseline.',
+            },
+            {
+                label: 'Saved insights',
+                title: '1,180 saved insights hold a relative range',
+                detail: 'Every one of them now serializes to absolute dates on save, so every one of them is affected.',
+            },
+            {
+                label: 'Deploy diff',
+                title: '7c19ab4 resolves the range before saving',
+                detail: 'The relative range is turned into absolute dates in the save path instead of at query time.',
+            },
+        ],
+        timeline: [
+            {
+                label: 'Deploy moves range resolution into the save path',
+                time: 'Aug 19 16:10',
+                chip: '7c19ab4',
+                color: 'danger',
+            },
+            { label: 'First re-pick cluster on saved insights', time: 'Aug 19 16:26', chip: '+16 min', color: 'muted' },
+            { label: 'Re-picks pass 5x baseline', time: 'Aug 20 00:00', chip: '5x', color: 'muted' },
+            { label: 'Anomaly detected, case opened', time: 'Aug 20 00:52', chip: 'auto', color: 'muted' },
+            { label: 'Report published', time: 'Aug 20 01:14', chip: '22 min', color: 'success' },
+        ],
+        verdictHeadline: 'Saved insights forget that their date range was relative',
+        problem: [
+            'An insight saved on a relative range such as last 30 days should reopen on the last 30 days from today. Since deploy 7c19ab4 the range is resolved to absolute dates when the insight is saved, so it reopens on the 30 days that ended the day it was saved. The picker still displays the relative label, which is why the chart does not read as stale.',
+            'The cost is a second query on almost every open. People notice the dates are old, pick the range again, and wait through another load. About one in five close the insight before that second query returns, so the number they came for never appears.',
+        ],
+        replayCaption:
+            'One of 38 matching replays: the chart loads, the date picker opens 6 seconds later, and the same range is picked again.',
+        impactTiles: [
+            { value: '932', label: 'people opened a stale insight', note: 'in 9 hours' },
+            { value: '2,140', label: 'range re-picks', note: 'median 1 per open' },
+            { value: '1,180', label: 'saved insights affected', note: 'every relative range' },
+            { value: '19%', label: 'leave before the re-run finishes', note: 'was 4%' },
+        ],
+        howWeKnow: [
+            'The first re-pick cluster lands 16 minutes after deploy 7c19ab4, and every affected session runs code from that deploy.',
+            'The diff resolves the relative range into absolute dates in the save path, so the stored filter no longer carries the relative value.',
+            'Insights saved before the deploy still reopen on the right range, because their stored filter kept the relative value.',
+            'All 38 matching replays show a re-pick within 20 seconds of the insight loading, and 7 of them end without a second chart.',
+        ],
+        causeDiff: {
+            title: 'The change that introduced it, in 7c19ab4',
+            snippet:
+                '   const filters = cleanFilters(values.filters)\n+  filters.date_from = resolveRelativeDate(filters.date_from)\n+  filters.date_to = resolveRelativeDate(filters.date_to)\n   await api.insights.update(insightId, { filters })',
+        },
+        fix: {
+            summary:
+                'Keep the relative range in the saved filter and resolve it when the query runs, so an insight reopens on the range its author picked. Behind a flag so the rollout can halt itself if re-picks do not fall.',
+            flagKey: 'insight-relative-range-persist',
+            branch: 'fix/rpt-1046-relative-date-ranges',
+            prTitle: 'fix(insights): keep relative date ranges relative when saving',
+            generationSteps: [
+                'Reading the insight save path and the 7c19ab4 diff',
+                'Removing date resolution from the save path',
+                'Resolving the range at query time instead',
+                'Running the insights test suite, 214 passing',
+                'Preparing the diff for review',
+            ],
+            agentPrompt:
+                'Fix RPT-1046: saved insights resolve their relative date range to absolute dates on save, so they reopen on stale dates. Keep the relative value in the stored filter, resolve it at query time, and gate the change behind insight-relative-range-persist.',
+            changes: [
+                {
+                    file: 'insightSaveLogic.ts',
+                    snippet:
+                        '   const filters = cleanFilters(values.filters)\n-  filters.date_from = resolveRelativeDate(filters.date_from)\n-  filters.date_to = resolveRelativeDate(filters.date_to)\n   await api.insights.update(insightId, { filters })',
+                },
+                {
+                    file: 'insightQueryLogic.ts',
+                    snippet:
+                        '   const filters = insight.filters\n+  const dateFrom = resolveRelativeDate(filters.date_from)\n+  const dateTo = resolveRelativeDate(filters.date_to)\n   return buildQuery({ ...filters, date_from: dateFrom, date_to: dateTo })',
+                    note: 'The range is resolved for the query and never written back to the saved insight.',
+                },
+            ],
+            monitoringCriteria: 'range re-picks back to baseline, insight abandonment under 5%',
+        },
+    },
+
+    'RPT-1045': {
+        observation: {
+            label: 'Survey completions recorded with no answers in them',
+            unit: 'per hour',
+            chart: {
+                series: [
+                    {
+                        name: 'Empty completions',
+                        color: 'danger',
+                        points: [4, 3, 5, 4, 4, 6, 3, 5, 4, 4, 5, 3, 4, 5, 4, 3, 5, 4, 4, 5, 3, 4, 5, 4],
+                    },
+                    {
+                        name: 'Completions with at least one answer',
+                        color: 'muted',
+                        dashed: true,
+                        points: [
+                            26, 24, 27, 25, 28, 26, 25, 27, 24, 26, 28, 25, 27, 26, 24, 27, 25, 26, 28, 25, 27, 26, 25,
+                            27,
+                        ],
+                    },
+                ],
+                pointLabels: HOURLY_24,
+                xLabels: HOURLY_X_LABELS,
+                unit: 'per hour',
+            },
+            liveRange: [3, 6],
+        },
+        occurrences: {
+            label: 'Empty completions, hourly',
+            values: [4, 3, 5, 4, 4, 6, 3, 5, 4, 4, 5, 3, 4, 5, 4, 3, 5, 4, 4, 5, 3, 4, 5, 4],
+            alarmFromIndex: 0,
+        },
+        evidence: [
+            {
+                label: 'Surveys',
+                title: '1,380 completions with zero answers in 14 days',
+                detail: 'Every one of them closed the popup from the last step instead of submitting it.',
+                bars: {
+                    values: [4, 3, 5, 4, 4, 6, 3, 5, 4, 5, 3, 4, 5, 3, 5, 4, 5, 4],
+                    alarmFromIndex: 0,
+                },
+            },
+            {
+                label: 'Surveys',
+                title: 'The dismissal handler runs the completion path',
+                detail: 'Closing from the last step calls the same code as submitting, so it sends the response and shows the thank-you step.',
+            },
+            {
+                label: 'Product analytics',
+                title: 'Reported response rate reads 12 points high',
+                detail: 'A 41% completion rate against a 29% answered rate over the same 14 days.',
+            },
+            {
+                label: 'Product analytics',
+                title: '4 of 11 live surveys carry the skew',
+                detail: 'The skew grows with question count, because more steps means more chances to close on the last one.',
+            },
+        ],
+        timeline: [
+            { label: 'Multi-step survey popup ships', time: 'Aug 4', chip: 'v3', color: 'muted' },
+            { label: 'First empty completion recorded', time: 'Aug 5 08:12', chip: 'auto', color: 'danger' },
+            { label: 'Empty completions pass 1,000', time: 'Aug 17', chip: '1k', color: 'muted' },
+            { label: 'Anomaly detected, case opened', time: 'Aug 19 03:29', chip: 'auto', color: 'muted' },
+            { label: 'Report published', time: 'Aug 19 03:51', chip: '22 min', color: 'success' },
+        ],
+        verdictHeadline: 'Closing a survey on the last step counts as completing it',
+        problem: [
+            'A multi-question survey popup treats the close icon on the last step as a submit. The dismissal handler falls through into the completion path, so it sends the survey response event, shows the thank-you step, and stores a response with no answers in it.',
+            'Nobody sees this happen. The person dismissing the survey gets a thank-you screen they did not ask for, and the team reading the results gets blank rows that look like a rendering problem next to a completion rate 12 points higher than the answers support.',
+        ],
+        impactTiles: [
+            { value: '1,380', label: 'empty completions stored', note: 'in 14 days' },
+            { value: '510', label: 'people counted as respondents', note: 'answered nothing' },
+            { value: '12 pts', label: 'overstated completion rate', note: '41% against 29%' },
+        ],
+        howWeKnow: [
+            'Every empty response carries the survey response event with an answers payload that has no entries.',
+            'All of them come from the last step of a multi-question survey, and single-question surveys are unaffected.',
+            'Removing the empty responses drops the reported completion rate from 41% to 29% across the same 14 days.',
+            'The skew per survey grows with question count, which matches a failure that needs a last step to reach.',
+        ],
+        causeDiff: {
+            title: 'The dismissal path lost its early return',
+            snippet:
+                '   function onDismiss() {\n       closePopup()\n-      return\n   }\n   sendSurveyResponse(answers)\n   showThankYou()',
+        },
+        fix: {
+            summary:
+                'Separate dismissal from submission, so closing the popup records a dismissal and nothing else. Responses already stored without answers stay in the list, marked as dismissals, and stop counting toward the completion rate.',
+            flagKey: 'survey-dismiss-not-complete',
+            branch: 'fix/rpt-1045-survey-dismissal',
+            prTitle: 'fix(surveys): stop counting a dismissal as a completed response',
+            generationSteps: [
+                'Reading the survey popup step handlers',
+                'Restoring the early return on the dismissal path',
+                'Recording a dismissal event instead',
+                'Excluding answerless responses from the completion rate',
+                'Running the surveys test suite, 64 passing',
+            ],
+            agentPrompt:
+                'Fix RPT-1045: dismissing a multi-question survey from the last step falls through into the completion path, so it sends a survey response with no answers and shows the thank-you step. Record a dismissal instead, exclude answerless responses from the completion rate, and gate the change behind survey-dismiss-not-complete.',
+            changes: [
+                {
+                    file: 'surveyPopupLogic.ts',
+                    snippet:
+                        '   function onDismiss() {\n       closePopup()\n+      sendSurveyDismissed()\n+      return\n   }\n   sendSurveyResponse(answers)\n   showThankYou()',
+                },
+                {
+                    file: 'surveyResultsLogic.ts',
+                    snippet:
+                        '-  const completed = responses.length\n+  const completed = responses.filter((response) => response.answers.length > 0).length',
+                    note: 'Answerless responses stay visible as dismissals instead of inflating the completion rate.',
+                },
+            ],
+            monitoringCriteria: 'empty completions at zero, completion rate within 1 point of the answered rate',
+        },
+    },
+
+    'RPT-1043': {
+        observation: {
+            label: 'Cohort saves that leave a property filter with no value',
+            unit: 'per hour',
+            chart: {
+                series: [
+                    {
+                        name: 'Saves with an empty filter',
+                        color: 'danger',
+                        points: [2, 3, 2, 4, 3, 4, 5, 4, 6, 5, 7, 6, 8, 7, 9, 8, 10, 9, 11, 10, 12, 11, 13, 12],
+                    },
+                ],
+                pointLabels: HOURLY_24,
+                xLabels: HOURLY_X_LABELS,
+                unit: 'per hour',
+                baselineValue: 3,
+                baselineLabel: 'baseline 3/hr',
+                annotations: [{ index: 6, label: 'filter builder rework', color: 'danger' }],
+            },
+            liveRange: [10, 15],
+        },
+        occurrences: {
+            label: 'Cohort saves with an empty property filter, hourly',
+            values: [2, 3, 2, 4, 3, 4, 5, 4, 6, 5, 7, 6, 8, 7, 9, 8, 10, 9, 11, 10, 12, 11, 13, 12],
+            alarmFromIndex: 6,
+        },
+        evidence: [
+            {
+                label: 'Support tickets',
+                title: '19 tickets say a cohort went to zero',
+                detail: 'Each one describes editing a working cohort and finding it empty afterwards. None mentions an error, because there is not one.',
+            },
+            {
+                label: 'Product analytics',
+                title: '146 cohorts hold a condition with no value',
+                detail: 'All of them calculate to 0 people, and 92 of them had a non-zero count before the edit.',
+                bars: {
+                    values: [2, 3, 2, 4, 3, 5, 4, 6, 7, 6, 8, 9, 8, 10, 11, 10, 12, 13],
+                    alarmFromIndex: 5,
+                },
+            },
+            {
+                label: 'Product analytics',
+                title: '61 of the 146 were rebuilt from scratch',
+                detail: 'A new cohort with the same name appears within a day, which is the only workaround available.',
+            },
+            {
+                label: 'Validation',
+                title: 'The value field is optional in the save path',
+                detail: 'The builder checks that a property and an operator are set, and never checks that an operator needing a value has one.',
+            },
+        ],
+        timeline: [
+            { label: 'Property filter builder rework ships', time: 'Aug 15 11:20', chip: '2e70c93', color: 'danger' },
+            { label: 'First cohort saved with an empty filter', time: 'Aug 15 11:40', chip: '+20 min', color: 'muted' },
+            { label: 'Support tickets pass 10', time: 'Aug 17', chip: '10', color: 'muted' },
+            { label: 'Anomaly detected, case opened', time: 'Aug 18 04:08', chip: 'auto', color: 'muted' },
+            { label: 'Report published', time: 'Aug 18 04:30', chip: '22 min', color: 'success' },
+        ],
+        verdictHeadline: 'An empty property filter saves as a condition that matches nobody',
+        problem: [
+            'The cohort filter builder lets a property condition save with an operator that needs a value and no value in it. Validation only checks that a property and an operator are set, so the save succeeds, the condition compiles to a comparison against an empty string, and the cohort matches nobody.',
+            'What the person gets back is a cohort that reads 0 people, with no error, no warning, and no way to tell which condition emptied it. Most assume they broke the cohort and build a new one, which is why 61 of the 146 affected cohorts already have a duplicate.',
+        ],
+        impactTiles: [
+            { value: '146', label: 'cohorts matching nobody', note: 'since Aug 15' },
+            { value: '92', label: 'had people before the edit', note: 'a real regression' },
+            { value: '19', label: 'support tickets', note: 'none got a cause' },
+            { value: '61', label: 'rebuilt from scratch', note: 'the only workaround' },
+        ],
+        howWeKnow: [
+            'Every affected cohort has at least one property condition whose operator needs a value and whose value is empty.',
+            'The first one appears the day the filter builder rework shipped, and none exists before it.',
+            'Re-running the same definition with the empty condition removed returns the person count the cohort had before the edit.',
+            'All 19 tickets attach a cohort of this shape, and none of them reports an error message.',
+        ],
+        causeDiff: {
+            title: 'The rework dropped the value check, in 2e70c93',
+            snippet:
+                '   if (!condition.property || !condition.operator) {\n       return false\n   }\n-  if (operatorNeedsValue(condition.operator) && isEmpty(condition.value)) {\n-      return false\n-  }\n   return true',
+        },
+        fix: {
+            summary:
+                'Block the save when an operator that needs a value does not have one, and name the condition that is blocking it. The 146 cohorts already saved this way get a banner on the cohort page pointing at the condition that emptied them.',
+            flagKey: 'cohort-empty-filter-validation',
+            branch: 'fix/rpt-1043-empty-cohort-filters',
+            prTitle: 'fix(cohorts): block saving a property filter with no value',
+            generationSteps: [
+                'Reading the cohort filter validation and the 2e70c93 diff',
+                'Restoring the value check for operators that need one',
+                'Wiring the failing condition into the save button reason',
+                'Flagging cohorts already saved with an empty condition',
+                'Running the cohort test suite, 118 passing',
+            ],
+            agentPrompt:
+                'Fix RPT-1043: a cohort property condition saves with an operator that needs a value and no value, so the cohort matches nobody and shows 0 people with no error. Restore the value check, name the failing condition on the save button, and gate the change behind cohort-empty-filter-validation.',
+            changes: [
+                {
+                    file: 'cohortFiltersLogic.ts',
+                    snippet:
+                        '   if (!condition.property || !condition.operator) {\n       return false\n   }\n+  if (operatorNeedsValue(condition.operator) && isEmpty(condition.value)) {\n+      return false\n+  }\n   return true',
+                },
+                {
+                    file: 'CohortEdit.tsx',
+                    snippet:
+                        '   <LemonButton\n       type="primary"\n+      disabledReason={firstIncompleteCondition ?? undefined}\n       onClick={saveCohort}\n   >',
+                    note: 'The save button now names the condition that is missing a value instead of saving a cohort that matches nobody.',
+                },
+            ],
+            monitoringCriteria: 'no new cohorts saved with an empty condition, cohort tickets back to baseline',
+        },
+    },
+
     'RPT-1028': {
         observation: {
             label: 'Stackless Firefox errors landing in the catch-all issue',
@@ -663,6 +1033,93 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
                 },
             ],
             monitoringCriteria: 'stackless captures under 5/hr, no regrouping churn on existing issues',
+        },
+    },
+
+    'RPT-1019': {
+        observation: {
+            label: 'Server-side flag calls evaluating the wrong variant',
+            unit: 'per hour',
+            chart: {
+                series: [
+                    {
+                        name: 'Wrong variant evaluations',
+                        color: 'success',
+                        points: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    },
+                    {
+                        name: 'Calls evaluating against the properties the caller sent',
+                        color: 'muted',
+                        dashed: true,
+                        points: [
+                            262, 271, 268, 275, 259, 283, 277, 265, 288, 272, 269, 281, 276, 264, 279, 285, 270, 258,
+                            274, 282, 267, 273, 286, 271,
+                        ],
+                    },
+                ],
+                pointLabels: HOURLY_24,
+                xLabels: HOURLY_X_LABELS,
+                unit: 'per hour',
+            },
+            liveRange: [0, 0],
+        },
+        evidence: [
+            {
+                label: 'Feature flags',
+                title: '0 wrong evaluations in 7 days',
+                detail: 'Down from about 11 an hour before the fix. Every call that sends person properties now evaluates against the properties the caller sent.',
+            },
+            {
+                label: 'Feature flags',
+                title: '1,930 people were served a wrong variant',
+                detail: 'Over the 10 days between the cause shipping on Jul 30 and the fix shipping on Aug 11.',
+            },
+            {
+                label: 'Session replay',
+                title: '24 replays show the wrong experience',
+                detail: 'Paid accounts landing on the free-plan variant of a gated screen, because the plan property was overwritten.',
+            },
+            {
+                label: 'Support tickets',
+                title: 'About one a week still arrives',
+                detail: 'From clients that cached a wrong variant before the fix. Those clear on their own as sessions expire.',
+            },
+        ],
+        timeline: [
+            {
+                label: 'GeoIP enrichment reordered ahead of caller properties',
+                time: 'Jul 30 09:02',
+                chip: 'b2d47e1',
+                color: 'danger',
+            },
+            { label: 'First wrong variant served', time: 'Jul 30 09:11', chip: '+9 min', color: 'muted' },
+            { label: 'Detected, case opened', time: 'Aug 9 06:20', chip: 'auto', color: 'muted' },
+            { label: 'Report published', time: 'Aug 9 06:47', chip: '27 min', color: 'muted' },
+            { label: 'Fix shipped', time: 'Aug 11', chip: 'merged', color: 'success' },
+            { label: 'Verified for 7 days, resolved', time: 'Aug 18', chip: 'auto', color: 'success' },
+        ],
+        verdictHeadline: 'GeoIP enrichment overwrote the person properties the caller sent',
+        problem: [
+            'Flag calls from server SDKs can pass their own person properties with the request. Deploy b2d47e1 moved GeoIP enrichment ahead of those properties, so enrichment overwrote what the caller sent, and any flag targeted on a caller-supplied property matched the wrong rule.',
+            'The fix reorders enrichment so it only fills properties the caller did not send. It shipped on Aug 11 and held for the full 7-day verification window, so this report resolved itself on Aug 18. The closing numbers are in the resolution.',
+        ],
+        replayCaption: 'One of 24 matching replays: a paid account lands on the free-plan variant of a gated screen.',
+        impactTiles: [
+            { value: '1,930', label: 'people served a wrong variant', note: 'over 10 days' },
+            { value: '0', label: 'wrong evaluations now', note: '7 days verified' },
+            { value: '4.1%', label: 'of server SDK calls affected', note: 'now 0%' },
+            { value: '2 days', label: 'from report to fix', note: '10 days from the cause' },
+        ],
+        howWeKnow: [
+            'The first wrong evaluation lands 9 minutes after deploy b2d47e1, and every affected call ran through the reordered enrichment.',
+            'Only calls that sent person properties are affected, and calls that sent none evaluated correctly throughout.',
+            'Re-running the affected calls against the properties the caller sent returns the variant those people should have seen.',
+            'Seven days of flag calls after the fix show every evaluation matching the caller-supplied properties.',
+        ],
+        causeDiff: {
+            title: 'The change that introduced it, in b2d47e1',
+            snippet:
+                '-  const properties = { ...geoipProperties, ...callerProperties }\n+  const properties = { ...callerProperties, ...geoipProperties }',
         },
     },
 

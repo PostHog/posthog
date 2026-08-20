@@ -16,10 +16,11 @@ export const DEMO_REPORTS: DemoReport[] = [
         created: 'Aug 19, 07:42',
         status: 'New',
         unread: true,
-        state: 'worsening',
+        forYou: true,
         verdict:
             'Clicking Create key computes a validation error and throws it away before render. About 340 people a day click the dead button, retry, and leave settings without a key.',
         proof: '182 session replays · 3,912 dead clicks',
+        sparkline: [12, 18, 25, 34, 52, 71, 100],
         sources: ['Autocapture', 'Session replay', 'GitHub'],
         content: REPORT_CONTENT['RPT-1042'],
         focus: {
@@ -60,9 +61,9 @@ export const DEMO_REPORTS: DemoReport[] = [
         created: 'Aug 20, 09:48',
         status: 'Investigating',
         live: true,
-        state: 'measuring',
         verdict: 'Investigation in progress. Completed chapters are readable as they land.',
         proof: 'Watch the storyboard assemble in the live view',
+        sparkline: [20, 22, 20, 24, 60, 58, 62],
         sources: ['Product analytics', 'Session replay'],
         content: REPORT_CONTENT['RPT-1044'],
     },
@@ -75,12 +76,13 @@ export const DEMO_REPORTS: DemoReport[] = [
         impactWeight: 85,
         ageHours: 12,
         created: 'Aug 19, 22:31',
+        forYou: true,
         status: 'New',
         unread: true,
-        state: 'worsening',
         verdict:
             'Failed tiles show a generic message with no error code and no query id, and Try again re-runs a query that cannot succeed. Support cannot trace a single report about it.',
         proof: '1,708 users in one day · 6 tickets',
+        sparkline: [8, 10, 14, 30, 52, 80, 100],
         sources: ['Product analytics', 'Support tickets'],
         content: REPORT_CONTENT['RPT-1031'],
         focus: {
@@ -115,10 +117,11 @@ export const DEMO_REPORTS: DemoReport[] = [
         ageHours: 47,
         created: 'Aug 18, 11:05',
         status: 'Assigned',
-        state: 'worsening',
+        forYou: true,
         verdict:
             'The banner tells people to upgrade or raise the limit, then renders that sentence as plain text. Non-admins get no button anywhere on it. People click the instruction itself, about 63 times a day.',
         proof: '1,900 dead clicks in 30 days · 4 tickets',
+        sparkline: [40, 44, 48, 55, 60, 66, 72],
         sources: ['Autocapture', 'Support tickets'],
         content: REPORT_CONTENT['RPT-1039'],
         focus: {
@@ -153,10 +156,11 @@ export const DEMO_REPORTS: DemoReport[] = [
         ageHours: 67,
         created: 'Aug 17, 15:20',
         status: 'Viewed',
-        state: 'holding',
+        forYou: true,
         verdict:
             'When the insight query behind an AI answer fails, the answer renders a dead-end error card. The query log shows 9 of 10 failures succeeding on a re-run, so people are doing the retry loop by hand.',
         proof: '97 error traces · 41 replays',
+        sparkline: [40, 42, 38, 40, 41, 39, 40],
         sources: ['Error tracking', 'Session replay'],
         content: REPORT_CONTENT['RPT-1037'],
         focus: {
@@ -190,11 +194,12 @@ export const DEMO_REPORTS: DemoReport[] = [
         impactWeight: 40,
         ageHours: 73,
         created: 'Aug 17, 09:12',
+        forYou: true,
         status: 'Viewed',
-        state: 'holding',
         verdict:
             'Workspaces that gate Slack installs behind admin approval bounce the user back with a toast that assumes they clicked cancel. The denial branch captures nothing, so the funnel is blind here.',
         proof: '214 denied callbacks in 60 days',
+        sparkline: [30, 31, 30, 32, 31, 30, 31],
         sources: ['Logs', 'Product analytics'],
         content: REPORT_CONTENT['RPT-1035'],
         focus: {
@@ -220,6 +225,62 @@ export const DEMO_REPORTS: DemoReport[] = [
         },
     },
     {
+        id: 'RPT-1046',
+        headline: 'Saved insights open with the wrong date range after a refresh',
+        area: 'PRODUCT ANALYTICS',
+        impact: '932 users',
+        trend: 'up',
+        impactWeight: 65,
+        ageHours: 9,
+        created: 'Aug 20, 01:14',
+        status: 'New',
+        unread: true,
+        forYou: true,
+        verdict:
+            'Insights saved with a relative date range reload with the absolute dates from the day they were saved. People re-pick the range on almost every open, and 1 in 5 give up before the query finishes.',
+        proof: '2,140 range re-picks · 38 replays',
+        sparkline: [10, 14, 22, 31, 48, 70, 100],
+        sources: ['Product analytics', 'Session replay'],
+        content: REPORT_CONTENT['RPT-1046'],
+    },
+    {
+        id: 'RPT-1045',
+        headline: 'Survey thank-you step shows for people who skipped every question',
+        area: 'SURVEYS',
+        impact: '510 users',
+        trend: 'flat',
+        impactWeight: 35,
+        ageHours: 31,
+        created: 'Aug 19, 03:51',
+        forYou: true,
+        status: 'Viewed',
+        verdict:
+            'Dismissing a multi-question survey from the last step still fires the completion event and the thank-you screen. Response rates read 12 points higher than the answers support.',
+        proof: '1,380 empty completions in 14 days',
+        sparkline: [40, 42, 44, 41, 43, 45, 44],
+        sources: ['Surveys', 'Product analytics'],
+        content: REPORT_CONTENT['RPT-1045'],
+    },
+    {
+        id: 'RPT-1043',
+        headline: 'Cohort edits save silently when a property filter has no value',
+        area: 'COHORTS',
+        impact: '146 users',
+        trend: 'up',
+        impactWeight: 30,
+        ageHours: 54,
+        created: 'Aug 18, 04:30',
+        forYou: true,
+        status: 'New',
+        unread: true,
+        verdict:
+            'An empty property filter passes validation and saves as a condition that matches nobody. The cohort shows 0 people with no explanation, and most people rebuild it from scratch.',
+        proof: '146 affected cohorts · 19 support tickets',
+        sparkline: [5, 8, 12, 15, 21, 28, 36],
+        sources: ['Support tickets', 'Product analytics'],
+        content: REPORT_CONTENT['RPT-1043'],
+    },
+    {
         id: 'RPT-1028',
         headline: 'Stackless Firefox errors were collapsing into one giant issue',
         area: 'ERROR TRACKING',
@@ -229,10 +290,11 @@ export const DEMO_REPORTS: DemoReport[] = [
         ageHours: 122,
         created: 'Aug 15, 08:40',
         status: 'Verifying',
-        state: 'recovering',
+        forYou: true,
         verdict:
             'Captures without a stack all grouped into one untriageable issue. A synthetic-stack fallback shipped 9 hours ago; grouping quality is being watched for 7 days before this resolves.',
         proof: 'stackless captures 4/hr, was ~60/hr',
+        sparkline: [70, 80, 74, 60, 30, 10, 4],
         sources: ['Error tracking'],
         content: REPORT_CONTENT['RPT-1028'],
         focus: {
@@ -266,11 +328,13 @@ export const DEMO_REPORTS: DemoReport[] = [
         ageHours: 270,
         created: 'Aug 9, 06:20',
         status: 'Resolved',
-        state: 'resolved',
+        forYou: true,
         verdict:
             'Server-side flag calls that passed their own person properties could get the wrong variant because GeoIP overwrote them. Fixed: 0 wrong evaluations in 7 days, 1,930 users recovered. An epilogue was appended to the report.',
         proof: 'closing stat verified against flag calls + replays',
+        sparkline: [60, 45, 20, 5, 0, 0, 0],
         sources: ['Feature flags', 'Session replay'],
+        content: REPORT_CONTENT['RPT-1019'],
     },
     {
         id: 'RPT-1023',
@@ -282,10 +346,10 @@ export const DEMO_REPORTS: DemoReport[] = [
         ageHours: 96,
         created: 'Aug 16, 10:12',
         status: 'Disputed',
-        state: 'disputed',
         verdict:
             'Marked disputed by S. Alvarez: the p75 step tracks one enterprise org with an unusually large config payload, not the settings rework. The engine is re-running the analysis with that correction.',
         proof: 'dispute registered · re-analysis queued',
+        sparkline: [20, 20, 20, 80, 20, 20, 22],
         sources: ['Web vitals'],
         content: REPORT_CONTENT['RPT-1023'],
     },
@@ -299,10 +363,10 @@ export const DEMO_REPORTS: DemoReport[] = [
         ageHours: 175,
         created: 'Aug 13, 04:33',
         status: 'Dismissed',
-        state: 'dismissed',
         verdict:
             'Dismissed by M. Chen: the doubled controls are cosmetic, playback is unaffected, and a general fix risks hiding controls recorded sites genuinely use. Kept for audit.',
         proof: 'dismissed with reason · ~7 affected replays/day',
+        sparkline: [50, 50, 52, 48, 50, 51, 50],
         sources: ['Session replay'],
         content: REPORT_CONTENT['RPT-1015'],
     },
@@ -378,6 +442,23 @@ export const DEMO_SCOUTS: DemoScout[] = [
         lastRun: '2d ago',
         openReports: 0,
         enabled: false,
+    },
+]
+
+/** Areas the demo user owns by default; the "For you" scope only shows reports from these. */
+export const DEFAULT_ASSIGNED_PRODUCTS: string[] = Array.from(
+    new Set(DEMO_REPORTS.filter((report) => report.forYou).map((report) => report.area))
+)
+
+/** Areas the GitHub app would attribute to the demo user from recent diffs. */
+export const GITHUB_DETECTED_PRODUCTS: string[] = ['BILLING', 'FEATURE FLAGS', 'SETTINGS · AUTH']
+
+export const FOR_YOU_SETTINGS: DemoToggleRow[] = [
+    {
+        key: 'for-you:github-auto-detect',
+        label: 'Detect products from GitHub',
+        detail: 'Assigns products based on the code you change in pull requests',
+        enabled: true,
     },
 ]
 
@@ -458,7 +539,11 @@ export const USAGE_STATS: { label: string; value: string }[] = [
 /** Initial state for every demo toggle, keyed the way the settings and scouts tabs read them. */
 export const DEFAULT_DEMO_TOGGLES: Record<string, boolean> = Object.fromEntries([
     ...DEMO_SCOUTS.map((scout): [string, boolean] => [`scout:${scout.id}`, scout.enabled]),
-    ...[...SIGNAL_SOURCE_SETTINGS, ...PR_GENERATION_SETTINGS, ...CODE_ACCESS_SETTINGS, ...NOTIFICATION_SETTINGS].map(
-        (row): [string, boolean] => [row.key, row.enabled]
-    ),
+    ...[
+        ...FOR_YOU_SETTINGS,
+        ...SIGNAL_SOURCE_SETTINGS,
+        ...PR_GENERATION_SETTINGS,
+        ...CODE_ACCESS_SETTINGS,
+        ...NOTIFICATION_SETTINGS,
+    ].map((row): [string, boolean] => [row.key, row.enabled]),
 ])

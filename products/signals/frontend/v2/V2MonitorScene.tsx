@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import { AnnotatedLineChart } from './components/AnnotatedLineChart'
 import { InboxBackButton } from './components/InboxBackButton'
-import { ReportStateTag } from './components/ReportStateTag'
 import { getDemoReport } from './mockData'
 import { MONITOR_FLAG_KEY, MonitorComparisonRow, MonitorRolloutStepState, v2MonitorLogic } from './v2MonitorLogic'
 
@@ -91,7 +90,6 @@ export function V2MonitorScene({ id = MONITOR_DEMO_REPORT_ID }: V2MonitorScenePr
                         <span className="font-mono text-[10px] font-semibold tracking-wide uppercase text-tertiary">
                             {area}
                         </span>
-                        <ReportStateTag state={report?.state ?? 'recovering'} live />
                     </div>
                     <div className="flex flex-wrap items-baseline gap-3">
                         <h1 className="m-0 text-xl font-bold">{headline}</h1>

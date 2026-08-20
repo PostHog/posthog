@@ -1,11 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
 
+import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { V2_REPORT_PANEL_OPTION } from '~/layout/navigation-3000/sidepanel/panels/max/SidePanelMax'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 
 import { AnnotatedLineChart } from './components/AnnotatedLineChart'
 import { CreatePrModal } from './components/CreatePrModal'
@@ -14,7 +19,6 @@ import { DemoBarStrip } from './components/DemoBarStrip'
 import { DemoDiffBlock, diffLinesFromSnippet } from './components/DemoDiffBlock'
 import { EvidenceScreenshot } from './components/EvidenceScreenshot'
 import { InboxBackButton } from './components/InboxBackButton'
-import { ReportStateTag } from './components/ReportStateTag'
 import { SendToAgentMenu } from './components/SendToAgentMenu'
 import { DEMO_REPORT_ID } from './mockData'
 import { ReportEvidenceCard, ReportImpactTile, ReportTimelineColor, ReportTimelineEntry } from './types'
@@ -33,6 +37,11 @@ const TIMELINE_CHIP_TEXT: Record<ReportTimelineColor, string> = {
     danger: 'text-danger',
     muted: 'text-secondary',
     success: 'text-success',
+}
+
+/** The side panel defaults to 512px; the demo chat opens at a quarter of the viewport instead, clamped to the panel's compact minimum. */
+function openChatPanelWidth(): number {
+    return Math.max(330, Math.round(window.innerWidth * 0.25))
 }
 
 /** Impact tiles come in twos, threes, and fours, so the column count is picked per report. */
@@ -202,6 +211,10 @@ export function V2ReportScene({ id = DEMO_REPORT_ID }: V2ReportSceneProps = {}):
         v2ReportLogic({ id })
     )
     const { model, effort, rolloutStart, monitoringDays } = useValues(createPrModalLogic)
+    const { sidePanelOpen, selectedTab, selectedTabOptions } = useValues(sidePanelStateLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const chatPanelOption = `${V2_REPORT_PANEL_OPTION}:${id}`
+    const chatOpen = sidePanelOpen && selectedTab === SidePanelTab.Max && selectedTabOptions === chatPanelOption
 
     if (!report || !content) {
         return (
@@ -225,9 +238,43 @@ export function V2ReportScene({ id = DEMO_REPORT_ID }: V2ReportSceneProps = {}):
 
     return (
         <div className="flex flex-col gap-4">
-            <InboxBackButton className="self-start -ml-[var(--button-padding-x-base)]" />
+            <div className="flex items-center justify-between gap-2">
+                <InboxBackButton className="-ml-[var(--button-padding-x-base)]" />
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconSparkles />}
+                    onClick={() => {
+                        if (chatOpen) {
+                            closeSidePanel(SidePanelTab.Max)
+                            return
+                        }
+                        resizerLogic
+                            .findMounted({ logicKey: 'side-panel' })
+                            ?.actions.setDesiredSize(openChatPanelWidth())
+                        openSidePanel(SidePanelTab.Max, chatPanelOption)
+                    }}
+                    active={chatOpen}
+                    data-attr="v2-report-ask-ai"
+                >
+                    Ask PostHog AI
+                </LemonButton>
+            </div>
             <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4">
-                {fix && phase === 'launched' ? (
+                {report.status === 'Resolved' ? (
+                    <LemonBanner
+                        type="success"
+                        action={{
+                            children: 'See the resolution →',
+                            to: urls.v2Resolved(id),
+                            'data-attr': 'v2-report-open-resolved',
+                        }}
+                    >
+                        <span className="text-sm font-normal">
+                            This report resolved itself after the fix held for 7 days.
+                        </span>
+                    </LemonBanner>
+                ) : fix && phase === 'launched' ? (
                     <LemonBanner
                         type="info"
                         action={{
@@ -248,7 +295,6 @@ export function V2ReportScene({ id = DEMO_REPORT_ID }: V2ReportSceneProps = {}):
                             <div className="flex flex-wrap items-baseline gap-2.5">
                                 <span className="font-mono text-2xl font-semibold">{observationValue}</span>
                                 <span className="font-mono text-xs text-secondary">{content.observation.unit}</span>
-                                <ReportStateTag state={report.state} live={report.live} />
                             </div>
                         </div>
 
@@ -299,8 +345,8 @@ export function V2ReportScene({ id = DEMO_REPORT_ID }: V2ReportSceneProps = {}):
                         </div>
                     </aside>
 
-                    <main className="min-w-0 max-w-[760px] flex-1 p-8">
-                        <div className="mb-7 flex flex-wrap items-center gap-2.5 border-b border-primary pb-5">
+                    <main className="min-w-0 flex-1 px-8 py-5">
+                        <div className="mb-4 flex flex-wrap items-center gap-2.5 border-b border-primary pb-3">
                             <span className="text-sm font-semibold">Report summary</span>
                             <span className="font-mono text-[11px] text-secondary">
                                 {report.id} · {report.area}
@@ -492,11 +538,11 @@ export function V2ReportScene({ id = DEMO_REPORT_ID }: V2ReportSceneProps = {}):
                                     </p>
                                     <LemonSkeleton className="h-1 max-w-[420px]" />
                                 </section>
-                            ) : report.state === 'disputed' ? (
+                            ) : report.status === 'Disputed' ? (
                                 <LemonBanner type="warning">
                                     <span className="text-sm font-normal">{report.verdict}</span>
                                 </LemonBanner>
-                            ) : report.state === 'dismissed' ? (
+                            ) : report.status === 'Dismissed' ? (
                                 <section className="flex flex-col gap-2 rounded border border-primary bg-surface-secondary p-4">
                                     <span className="font-mono text-[10px] tracking-wider text-secondary uppercase">
                                         Dismissed

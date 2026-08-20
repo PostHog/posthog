@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { DemoReport } from '../types'
 import { v2InboxLogic } from '../v2InboxLogic'
-import { ReportStateTag } from './ReportStateTag'
+import { SourceTag } from './SourceTag'
 
 /** Reports without their own fix experiment still need a flag key for the demo modal. */
 export function flagKeyFor(report: DemoReport): string {
@@ -17,7 +17,7 @@ export function flagKeyFor(report: DemoReport): string {
 
 /** Resolved reports open the resolved page; everything else opens the full report. */
 export function reportUrlFor(report: DemoReport): string {
-    return report.state === 'resolved' ? urls.v2Resolved(report.id) : urls.v2Report(report.id)
+    return report.status === 'Resolved' ? urls.v2Resolved(report.id) : urls.v2Report(report.id)
 }
 
 export function ReportRow({ report }: { report: DemoReport }): JSX.Element {
@@ -50,21 +50,14 @@ export function ReportRow({ report }: { report: DemoReport }): JSX.Element {
                         {report.headline}
                     </Link>
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-secondary">
-                        <LemonTag size="small" className="font-mono tracking-wide uppercase">
-                            {report.area}
-                        </LemonTag>
+                        <span className="font-mono lowercase">{report.area}</span>
                         {report.sources.map((source) => (
-                            <LemonTag key={source} size="small" type="muted">
-                                {source}
-                            </LemonTag>
+                            <SourceTag key={source} source={source} />
                         ))}
                         <span>created {report.created}</span>
                     </div>
                 </div>
-                <div className="flex flex-none flex-col items-end gap-1">
-                    <span className="font-mono font-semibold">{report.impact}</span>
-                    <ReportStateTag state={report.state} />
-                </div>
+                <span className="flex-none font-mono font-semibold">{report.impact}</span>
                 <LemonButton
                     size="small"
                     icon={<IconChevronDown className={isExpanded ? 'rotate-180' : undefined} />}
@@ -84,7 +77,7 @@ export function ReportRow({ report }: { report: DemoReport }): JSX.Element {
                         <LemonButton type="secondary" size="small" to={reportUrl} data-attr="v2-open-report">
                             Open report
                         </LemonButton>
-                        {report.state === 'recovering' && (
+                        {report.status === 'Verifying' && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -94,7 +87,7 @@ export function ReportRow({ report }: { report: DemoReport }): JSX.Element {
                                 View monitor
                             </LemonButton>
                         )}
-                        {!isClosed && report.state !== 'disputed' && (
+                        {!isClosed && report.status !== 'Disputed' && (
                             <LemonButton
                                 type="primary"
                                 size="small"
