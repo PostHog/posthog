@@ -457,6 +457,9 @@ export interface replayScannerLogicActions {
         tagSuggestions: TagSuggestionApi[]
         payload?: any
     }
+    rebuildExperimentContext: () => {
+        value: true
+    }
     refreshObservations: () => {
         value: true
     }
@@ -715,6 +718,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setExperimentContext: (context: ExperimentScannerContext | null) => ({ context }),
         setExperimentVariant: (variantKey: string | null) => ({ variantKey }),
         detachExperimentContext: true,
+        rebuildExperimentContext: true,
         saveAffectedCohort: (tag?: string) => ({ tag }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         startFromTemplate: (templateKey: string | null) => ({ templateKey }),
@@ -1558,6 +1562,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         if (draft) {
                             actions.setScannerValues(draft.scanner)
                             actions.setScannerDraftSavedAt(draft.savedAt)
+                            // A draft made from an experiment prefill carries targeting the
+                            // loadScannerSuccess above (a bare newScanner) didn't see.
+                            actions.rebuildExperimentContext()
                         }
                     } finally {
                         cache.restoringDraft = false
@@ -1594,28 +1601,31 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
-            loadScannerSuccess: async ({ scanner }) => {
+            loadScannerSuccess: ({ scanner }) => {
                 actions.setScannerValues(scanner)
                 // A `?sort=result` deep-link can't resolve order_by until the scanner type is known — refire now.
                 if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
                     actions.loadObservations()
                     actions.loadObservationStats()
                 }
-                // Rebuild the targeting card from a persisted scanner, so the variant picker and
-                // detach stay usable after save and reload. The API nulls experiment_targeting for
-                // viewers denied the experiment, so this never fetches an experiment the viewer
-                // can't see. Fails soft: without the card the scanner still edits normally.
-                const targetedExperimentId = scanner.experiment_targeting?.experiment_id
-                if (targetedExperimentId && !values.experimentContext) {
-                    try {
-                        const experiment = await api.experiments.get(targetedExperimentId)
-                        actions.setExperimentContext({
-                            experiment,
-                            variantKey: scanner.experiment_targeting?.variant ?? null,
-                        })
-                    } catch {
-                        // The card simply doesn't render; targeting stays intact on the scanner.
-                    }
+                actions.rebuildExperimentContext()
+            },
+
+            // Rebuilds the targeting card from the form's current targeting — a loaded scanner or a
+            // restored draft — so the variant picker and detach stay usable wherever it came from.
+            // The API nulls experiment_targeting for viewers denied the experiment, so this never
+            // fetches an experiment the viewer can't see. Fails soft: without the card the scanner
+            // still edits normally.
+            rebuildExperimentContext: async () => {
+                const targeting = values.scanner?.experiment_targeting
+                if (!targeting?.experiment_id || values.experimentContext) {
+                    return
+                }
+                try {
+                    const experiment = await api.experiments.get(targeting.experiment_id)
+                    actions.setExperimentContext({ experiment, variantKey: targeting.variant ?? null })
+                } catch {
+                    // The card simply doesn't render; targeting stays intact on the scanner.
                 }
             },
 

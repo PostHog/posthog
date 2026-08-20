@@ -526,7 +526,23 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._reject_scanner_type_change(attrs)
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
+        self._drop_redacted_targeting_clear(attrs)
         return attrs
+
+    def _drop_redacted_targeting_clear(self, attrs: dict[str, Any]) -> None:
+        # to_representation redacts experiment_targeting to null for callers denied the experiment,
+        # and the editor form writes the whole object back on save. Without this, any save by such
+        # a caller would carry experiment_targeting=None and silently clear targeting they can't
+        # see. Dropping the key treats it as untouched; a caller who can view the experiment can
+        # still clear it explicitly.
+        if (
+            "experiment_targeting" in attrs
+            and attrs["experiment_targeting"] is None
+            and self.instance is not None
+            and self.instance.experiment_targeting
+            and not self._can_view_targeted_experiment(self.instance.experiment_targeting)
+        ):
+            attrs.pop("experiment_targeting")
 
     def validate_experiment_targeting(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
         # The field already validated the blob's shape; this adds the access check, which needs the
@@ -1912,12 +1928,24 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
                 raise serializers.ValidationError({"scanner_id": "No scanner with this id exists in this project."})
 
+        # A denied experiment must read the same as a nonexistent one, mirroring
+        # validate_experiment_targeting: the query runner's own access check answers with a 403,
+        # which would confirm to a scanner-editor that a hidden experiment id exists.
+        targeting = body.validated_data.get("experiment_targeting")
+        if targeting is not None:
+            team_experiments = Experiment.objects.filter(team=self.team)
+            accessible = (
+                self.user_access_control.filter_queryset_by_access_level(team_experiments)
+                if self.user_access_control
+                else team_experiments
+            )
+            if not accessible.filter(id=targeting["experiment_id"]).exists():
+                raise serializers.ValidationError({"experiment_targeting": "Experiment not found in this project."})
+
         # validate_query already validated this; the empty-dict default needs `kind` to parse.
         query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})
         query_dict.setdefault("kind", "RecordingsQuery")
-        recordings_query = apply_experiment_targeting(
-            RecordingsQuery.model_validate(query_dict), body.validated_data.get("experiment_targeting")
-        )
+        recordings_query = apply_experiment_targeting(RecordingsQuery.model_validate(query_dict), targeting)
 
         estimate = estimate_scanner_session_volume(
             team=self.team,

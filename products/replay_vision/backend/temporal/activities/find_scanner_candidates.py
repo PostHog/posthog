@@ -4,7 +4,10 @@ import datetime as dt
 from django.utils import timezone
 
 from pydantic import ValidationError
-from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.exceptions import (
+    PermissionDenied,
+    ValidationError as DRFValidationError,
+)
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -126,13 +129,13 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     )
     try:
         fetched = candidate_query.run()
-    except DRFValidationError as exc:
-        # The targeted experiment can no longer answer for its exposed population (deleted, back
-        # to draft, group-aggregated, renamed variant). Retries can't fix any of those.
-        raise ApplicationError(
-            f"ReplayScanner {inputs.scanner_id} targets an experiment its exposure filter can't resolve: {exc}",
-            non_retryable=True,
-        ) from exc
+    except (DRFValidationError, PermissionDenied):
+        # The targeted experiment can't answer for its exposed population right now — most often a
+        # draft that hasn't launched yet, but also deleted, group-aggregated, or renamed-variant
+        # experiments. A draft heals itself at launch and none of the rest are the sweep's to
+        # repair, so skip the tick (no watermark advance) instead of failing it on every fire.
+        record_sweep_outcome("experiment_linkage_unresolved")
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
     # A full batch means there may be more past the keyset; the next sweep resumes from the last row.
     # Measured before exclusion, since the keyset walks what was fetched, not what survived.
     saturated = len(fetched) == limit

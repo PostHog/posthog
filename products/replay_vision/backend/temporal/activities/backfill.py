@@ -192,11 +192,12 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     except (PermissionDenied, DRFValidationError) as exc:
         # The exposure filter can't run anymore: the launcher was deleted or lost experiment
         # access, or the experiment can't answer for its exposed population (deleted, back to
-        # draft, renamed variant). No tick will ever succeed, and an active-but-stuck backfill
-        # keeps counting its unspent credits into the spend projection — so end it.
-        ReplayScannerBackfill.objects.filter(pk=backfill.pk, status__in=ACTIVE_BACKFILL_STATUSES).update(
-            status=BackfillStatus.CANCELLED, finished_at=timezone.now()
-        )
+        # draft, renamed variant). Cancelling on a condition that might heal is deliberate: a
+        # stuck backfill silently counts its unspent credits into the spend projection, while a
+        # cancelled one is visible and can be relaunched.
+        ReplayScannerBackfill.objects.for_team(inputs.team_id).filter(
+            pk=backfill.pk, status__in=ACTIVE_BACKFILL_STATUSES
+        ).update(status=BackfillStatus.CANCELLED, finished_at=timezone.now())
         raise ApplicationError(
             f"ReplayScannerBackfill {inputs.backfill_id} cancelled: its exposure filter can't run: {exc}",
             non_retryable=True,

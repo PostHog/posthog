@@ -242,6 +242,53 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.json()["experiment_targeting"], targeting)
 
+    def test_save_by_a_viewer_denied_the_experiment_keeps_the_targeting(self) -> None:
+        # The API redacts experiment_targeting to null for such an editor, and the editor form
+        # writes the whole object back on save. Without the write-side guard, renaming the scanner
+        # would silently clear targeting the caller can't even see.
+        experiment = create_experiment(self.team, "hidden-flag")
+        targeting = {"experiment_id": experiment.id, "variant": "test"}
+        scanner = self._create_scanner(name="targeted", experiment_targeting=targeting)
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"name": "renamed", "experiment_targeting": None},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.experiment_targeting, targeting)
+
+        # The creator, who can view the experiment, can still clear it explicitly.
+        self.client.force_login(self.user)
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/", data={"experiment_targeting": None}, format="json"
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertIsNone(scanner.experiment_targeting)
+
+    def test_estimate_treats_a_denied_experiment_targeting_as_not_found(self) -> None:
+        # The query runner's own access check answers a denied experiment with a 403, which would
+        # confirm the hidden id exists; the endpoint must answer 400 not-found, like the scanner
+        # write path does.
+        experiment = create_experiment(self.team, "hidden-flag")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.post(
+            f"{self.scanners_url}estimate/",
+            data={"experiment_targeting": {"experiment_id": experiment.id}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "experiment_targeting")
+
     def test_experiment_id_filter_returns_no_matches_for_an_inaccessible_experiment(self) -> None:
         # Guards the ?experiment_id= disclosure: a scanner-viewer who can't access the experiment must
         # not confirm a scanner targets it via the filter's match count. Distinct code path from the
