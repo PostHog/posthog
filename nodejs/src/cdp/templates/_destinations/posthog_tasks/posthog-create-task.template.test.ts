@@ -84,6 +84,9 @@ describe('posthog create task template', () => {
         })
 
         const token = (params.headers?.['Authorization'] ?? '').replace('Bearer ', '')
+        // The literal pins the cross-language contract: Django's TASKS_CREATE_JWT_SECRET dev default
+        // (posthog/settings/data_stores.py) must match the nodejs one or local runs 401.
+        // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
         const claims = jwt.verify(token, 'local-dev-tasks-create-jwt', {
             audience: 'posthog:tasks:create',
             algorithms: ['HS256'],

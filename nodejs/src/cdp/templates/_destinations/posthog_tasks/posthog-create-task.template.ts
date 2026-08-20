@@ -113,7 +113,7 @@ return response.body
             secret: false,
             required: false,
             description:
-                'Connectors from the MCP store the agent can use. The task runs with the connections of the person who created the workflow.',
+                'Connectors from the MCP store the agent can use. Team-shared connections and the workflow creator’s own connections are available.',
         },
         {
             key: 'posthog_mcp_scopes',
