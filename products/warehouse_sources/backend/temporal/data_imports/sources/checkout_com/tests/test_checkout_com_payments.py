@@ -533,6 +533,47 @@ class TestInstrumentsFanout:
             "https://api.checkout.com/payments/pay_4",
         ]
 
+    @mock.patch(SESSION_PATCH)
+    def test_payments_without_a_holder_email_do_not_share_a_card_identity(self, mock_make_session):
+        # Two customers can store the same card, so a fingerprint with no holder email
+        # identifies nobody. Sharing one cache entry would silently drop the second
+        # instrument: its payment reuses the first id and never looks up its own.
+        payments = [
+            {
+                "id": "pay_1",
+                "requested_on": "2024-02-29T06:00:00Z",
+                "source": {"type": "card", "fingerprint": "fp_a", "last4": "4242"},
+            },
+            {
+                "id": "pay_2",
+                "requested_on": "2024-02-29T07:00:00Z",
+                "source": {"type": "card", "fingerprint": "fp_a", "last4": "4242"},
+            },
+        ]
+        session = _FakeSession(
+            search_responses=[_search_page(payments)],
+            lookup_responses=[
+                _FakeResponse(json_data={"id": "pay_1", "source": {"id": "src_1", "type": "card"}}),
+                _FakeResponse(json_data={"id": "src_1", "type": "card", "fingerprint": "fp_a", "_links": {}}),
+                _FakeResponse(json_data={"id": "pay_2", "source": {"id": "src_2", "type": "card"}}),
+                _FakeResponse(json_data={"id": "src_2", "type": "card", "fingerprint": "fp_a", "_links": {}}),
+            ],
+        )
+        mock_make_session.side_effect = [session]
+
+        rows = _rows(_source("instruments", start_date="2024-02-28"))
+
+        assert rows == [
+            {"id": "src_1", "type": "card", "fingerprint": "fp_a", "payment_requested_on": "2024-02-29T06:00:00Z"},
+            {"id": "src_2", "type": "card", "fingerprint": "fp_a", "payment_requested_on": "2024-02-29T07:00:00Z"},
+        ]
+        assert [lookup["url"] for lookup in session.lookups] == [
+            "https://api.checkout.com/payments/pay_1",
+            "https://api.checkout.com/instruments/src_1",
+            "https://api.checkout.com/payments/pay_2",
+            "https://api.checkout.com/instruments/src_2",
+        ]
+
     @mock.patch(LOOKUP_BUDGET_PATCH, 1)
     @mock.patch(SESSION_PATCH)
     def test_lookup_budget_stops_between_detail_and_instrument_fetch(self, mock_make_session):

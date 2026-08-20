@@ -155,7 +155,10 @@ class _CardIdentity:
     """One customer's use of one card, the granularity payment-detail lookups dedupe on.
 
     Payments sharing a fingerprint alone can still resolve to different instruments (two
-    customers storing the same card), so the holder's email is part of the key.
+    customers storing the same card), so the holder's email is part of the key. A payment
+    whose customer carries no usable email has no identity at all: keying it on the
+    fingerprint alone would let one customer's instrument stand in for another's, so such
+    payments resolve individually instead of sharing a cache entry.
     """
 
     fingerprint: str
@@ -373,9 +376,10 @@ def _fetch_customer(
 ) -> Optional[dict[str, Any]]:
     """One customer lookup by ``cus_`` id or email; None when no such customer exists.
 
-    Email identifiers are personal data: they are percent-encoded into the request path
-    but never into log lines or raised error messages (both can end up in job logs and
-    ``latest_error``), which show an ``{email}`` placeholder instead.
+    Email identifiers are personal data. This module's own log lines and raised error
+    messages (both can end up in job logs and ``latest_error``) show an ``{email}``
+    placeholder instead. The tracked transport logs the request URL with its path
+    preserved, so the percent-encoded address still reaches job logs from there.
     """
     is_email = "@" in identifier
     url = f"{api_base}/customers/{quote(identifier, safe='')}"
@@ -511,7 +515,9 @@ def _card_identity(payment: dict[str, Any]) -> Optional[_CardIdentity]:
     if not fingerprint:
         return None
     customer = payment.get("customer")
-    email = (_customer_email(customer) or "") if isinstance(customer, dict) else ""
+    email = _customer_email(customer) if isinstance(customer, dict) else None
+    if not email:
+        return None
     return _CardIdentity(fingerprint=fingerprint, customer_email=email.lower())
 
 
