@@ -219,6 +219,26 @@ async def test_clear_tolerates_missing_prefixes():
         await sink.clear()
 
 
+@pytest.mark.asyncio
+async def test_clear_still_sweeps_abandoned_siblings_when_own_prefix_delete_fails():
+    # A permissions error (or any other non-FileNotFoundError) deleting the own prefix must not
+    # skip the sibling-sweep backstop, which is an independent cleanup — otherwise abandoned sibling
+    # prefixes from crashed jobs never get swept on every run where the own-prefix delete fails.
+    sink = _sink()
+    stale_file = f"{sink._get_binding_prefix()}/job-old/chunk_0.parquet"
+    s3_client = _s3_client(
+        find_result={stale_file: {"LastModified": datetime.now(UTC) - ABANDONED_STAGED_PREFIX_TTL - timedelta(days=1)}}
+    )
+    s3_client._rm = AsyncMock(side_effect=[PermissionError("Access Denied"), None])
+
+    with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
+        with pytest.raises(PermissionError):
+            await sink.clear()
+
+    removed = [call.args[0] for call in s3_client._rm.await_args_list]
+    assert [f"s3://{stale_file}"] in removed  # sibling sweep still ran despite the own-prefix failure
+
+
 @parameterized.expand([("schema", schema_binding("schema-1")), ("saved_query", saved_query_binding("view-1"))])
 @pytest.mark.asyncio
 async def test_stages_under_the_binding_it_was_built_for(_name, binding):

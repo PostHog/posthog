@@ -19,9 +19,11 @@ interface SessionFooterProps {
   hasPendingPermission?: boolean;
   pausedDurationMs?: number;
   isCompacting?: boolean;
-  /** A /clear is in flight; its dedicated "Clearing…" row replaces the
-   *  generic generating indicator, same as compaction. */
+  /** A /clear is in flight. */
   isClearing?: boolean;
+  /** A turn the agent started on its own, with no prompt RPC behind it, so
+   *  `isPromptPending` stays false while it generates. */
+  isBackgroundTurnActive?: boolean;
   /** Number of tool calls finished so far; the generating indicator advances
    *  its status word each time this changes. */
   completedToolCallCount?: number;
@@ -41,6 +43,7 @@ export function SessionFooter({
   pausedDurationMs,
   isCompacting = false,
   isClearing = false,
+  isBackgroundTurnActive = false,
   completedToolCallCount,
   lastActivityAt,
 }: SessionFooterProps) {
@@ -52,7 +55,11 @@ export function SessionFooter({
       {task && <DiffStatsChip task={task} />}
     </Flex>
   );
-  if (isPromptPending && !isCompacting && !isClearing) {
+  if (
+    (isPromptPending || isBackgroundTurnActive) &&
+    !isCompacting &&
+    !isClearing
+  ) {
     if (hasPendingPermission) {
       return (
         <Box className="pt-3 pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
@@ -89,7 +96,9 @@ export function SessionFooter({
                 ({queuedCount} queued)
               </Text>
             )}
-            <SlotMachineLever spinning={Boolean(isPromptPending)} />
+            <SlotMachineLever
+              spinning={Boolean(isPromptPending || isBackgroundTurnActive)}
+            />
           </Flex>
           {rightSide}
         </Flex>
