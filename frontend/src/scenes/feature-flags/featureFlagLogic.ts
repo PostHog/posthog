@@ -496,6 +496,9 @@ function showEditConflictToast(errorObject: any, onRefresh: () => void): void {
             label: 'Refresh',
             action: onRefresh,
         },
+        // This toast is the only signal for the failed save, and Refresh discards the user's
+        // unsaved edits. Keep it open until they act rather than letting it auto-close in 6s.
+        autoClose: false,
     })
 }
 

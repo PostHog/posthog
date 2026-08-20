@@ -436,10 +436,12 @@ describe('featureFlagLogic', () => {
                 expect(toastSpy).toHaveBeenCalledTimes(1)
                 const [message, options] = toastSpy.mock.calls[0] as [
                     string,
-                    { button?: { label: string; action: () => void } } | undefined,
+                    { button?: { label: string; action: () => void }; autoClose?: number | false } | undefined,
                 ]
                 expect(message).toContain('Robin Kim')
                 expect(options?.button?.label).toBe('Refresh')
+                // The toast is the only recovery affordance, so it must not auto-close.
+                expect(options?.autoClose).toBe(false)
 
                 await expectLogic(logic, () => {
                     options?.button?.action()
