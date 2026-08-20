@@ -171,6 +171,7 @@ export interface RoleLookupResponseApi {
  * * `google-calendar` - Google Calendar
  * * `google-cloud-service-account` - Google Cloud Service Account
  * * `google-cloud-storage` - Google Cloud Storage
+ * * `google-drive` - Google Drive
  * * `google-pubsub` - Google Pubsub
  * * `google-search-console` - Google Search Console
  * * `google-sheets` - Google Sheets
@@ -222,6 +223,7 @@ export const IntegrationKindEnumApi = {
     GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
+    GoogleDrive: 'google-drive',
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
@@ -491,6 +493,7 @@ export interface IntegrationAccessRequestApi {
      * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-drive` - Google Drive
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
@@ -654,6 +657,7 @@ export type IntegrationsListParams = {
      * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-drive` - Google Drive
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
@@ -716,6 +720,7 @@ export const IntegrationsListKind = {
     GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
+    GoogleDrive: 'google-drive',
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',

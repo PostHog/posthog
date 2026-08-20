@@ -1582,3 +1582,32 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+@override_settings(
+    GOOGLE_DRIVE_APP_CLIENT_ID="google-drive-client-id",
+    GOOGLE_DRIVE_APP_CLIENT_SECRET="google-drive-client-secret",
+)
+class TestGoogleDriveIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("google-drive")
+        assert config.authorize_url == "https://accounts.google.com/o/oauth2/v2/auth"
+        assert config.token_url == "https://oauth2.googleapis.com/token"
+        assert config.client_id == "google-drive-client-id"
+        assert config.client_secret == "google-drive-client-secret"
+        # drives.list rejects the narrower drive.metadata.readonly scope
+        assert config.scope == (
+            "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.email"
+        )
+        # Google only returns a refresh token when the consent screen is forced
+        assert config.additional_authorize_params == {"access_type": "offline", "prompt": "consent"}
+        assert config.id_path == "sub"
+        assert config.name_path == "email"
+
+    @override_settings(GOOGLE_DRIVE_APP_CLIENT_ID="", GOOGLE_DRIVE_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Google Drive app not configured"):
+            OauthIntegration.oauth_config_for_kind("google-drive")
+
+    def test_kind_is_supported_for_oauth(self):
+        assert "google-drive" in OauthIntegration.supported_kinds

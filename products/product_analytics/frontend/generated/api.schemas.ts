@@ -4002,6 +4002,7 @@ export const IntegrationKindApi = {
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
     GoogleCalendar: 'google-calendar',
+    GoogleDrive: 'google-drive',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
