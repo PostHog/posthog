@@ -82,10 +82,11 @@ These are structural limits of today's snapshot data — state them, don't paper
 - **Bots and drafts are present in `pull-requests` output, excluded by convention.** Filter out `author.is_bot`
   (nested under `author`, not a row-level field) and `is_draft` for throughput / merge-time questions; keep them in
   for bot-impact questions.
-- **`pull-requests` returns a capped page.** At most `limit` rows (newest first); `truncated` is `true` when more
-  match, and there is no limit parameter. When `truncated` is `true`, any percentile or count you derive covers
-  only the newest page, not the whole window; say so, scope to one repo (`source_id` / `repo` from
-  `engineering-analytics-sources`), and shrink `date_from` until the real set fits under the cap.
+- **`pull-requests` returns a capped page.** 1000 rows, newest first: a server-side cap the response echoes as
+  `limit` and no parameter can raise. `truncated` is `true` when more match, and any percentile or count you
+  derive then covers only the newest page, not the whole window. Say so, then narrow until the real set fits:
+  `author` filters to one handle, `source_id` / `repo` (from `engineering-analytics-sources`) to one repo, and
+  `date_from` shortens the window.
 
 ## Choosing a tool
 

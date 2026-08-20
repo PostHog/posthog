@@ -160,7 +160,9 @@ Given a run id, the `engineering-analytics-run-failure-logs` MCP tool returns
 every failed job's error region with original line numbers, already thinned.
 One call instead of a jobs listing plus a log download, and it works when the
 job died before any test ran. It is bounded by Logs retention, so fall back to
-`gh` for older runs.
+`gh` for older runs. When you have a PR number rather than a run id,
+`engineering-analytics-ci-failure-logs` returns the same thing across every run
+the PR has pushed, so a failure from an earlier push is still there.
 
 Extract these before classifying:
 
@@ -186,17 +188,6 @@ instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org
 token to the server entry in `.mcp.json`. To dig into one test's flakiness
 history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 `fix-flaky-test` tools.
-
-When the `posthog` MCP server is connected, the engineering analytics tools add
-cross-run warehouse history that `gh` can't give cheaply:
-`engineering-analytics-broken-tests` classifies the last 2 days of CI failures
-(`breaking_master`, `blocking_merge_queue`, `flaky`, `pr_only`, ...), and
-`engineering-analytics-ci-failure-logs` / `engineering-analytics-run-failure-logs`
-return a PR's or run's thinned failure logs without log scraping. For the full
-"who broke master → culprit commit, author, fix" workflow over the
-`engineering_analytics_ci_failures` / `engineering_analytics_ci_job_history`
-warehouse views, follow the product skill
-[products/engineering_analytics/skills/investigating-ci-failures/SKILL.md](../../../products/engineering_analytics/skills/investigating-ci-failures/SKILL.md).
 
 ## Classification
 
