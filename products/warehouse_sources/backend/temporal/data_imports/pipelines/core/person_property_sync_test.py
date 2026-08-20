@@ -192,18 +192,38 @@ class TestReadDeltaBundles:
         with patch("deltalake.DeltaTable") as dt_cls:
             dt_cls.is_deltatable.return_value = True
             dt_cls.return_value = fake_dt
-            accumulated, rows_read = pps._read_delta_bundles("s3://uri", {}, sources)
+            accumulated, rows_read, missing_key_source_ids = pps._read_delta_bundles("s3://uri", {}, sources)
 
         assert rows_read == 3
         assert accumulated["s1"] == {"a": {"plan_tier": "pro"}, "b": {"plan_tier": "team"}}
         assert accumulated["s2"] == {"a": {"tier": "pro"}, "b": {"tier": "team"}}
+        assert missing_key_source_ids == set()
+
+    def test_reports_a_source_whose_key_column_is_missing(self):
+        # The identifier column was dropped/renamed upstream, so this source can match no rows. The
+        # reader flags it so the run records the reason instead of a silent 0-row backfill.
+        rows = [{"distinct_id": "a", "plan": "pro"}]
+        sources = [
+            PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "tier"}),
+            PersonPropertySyncSource("s2", "d2", "account_id", {"plan": "tier"}),  # key column absent
+        ]
+        fake_dt = MagicMock()
+        fake_dt.to_pyarrow_dataset.return_value = self._dataset(rows, ["distinct_id", "plan"])
+        with patch("deltalake.DeltaTable") as dt_cls:
+            dt_cls.is_deltatable.return_value = True
+            dt_cls.return_value = fake_dt
+            accumulated, _rows_read, missing_key_source_ids = pps._read_delta_bundles("s3://uri", {}, sources)
+
+        assert missing_key_source_ids == {"s2"}
+        assert accumulated["s1"] == {"a": {"tier": "pro"}}
+        assert accumulated["s2"] == {}
 
     def test_missing_table_returns_empty(self):
         sources = [PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})]
         with patch("deltalake.DeltaTable") as dt_cls:
             dt_cls.is_deltatable.return_value = False
-            accumulated, rows_read = pps._read_delta_bundles("s3://uri", {}, sources)
-        assert accumulated == {"s1": {}} and rows_read == 0
+            accumulated, rows_read, missing_key_source_ids = pps._read_delta_bundles("s3://uri", {}, sources)
+        assert accumulated == {"s1": {}} and rows_read == 0 and missing_key_source_ids == set()
 
 
 class TestBackfillOrchestration:
@@ -227,7 +247,7 @@ class TestBackfillOrchestration:
             patch(f"{_MODULE}._get_schema", return_value=schema),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}.delta_storage_options", return_value={}),
-            patch(f"{_MODULE}._read_delta_bundles", return_value=(accumulated, 5)) as read_delta,
+            patch(f"{_MODULE}._read_delta_bundles", return_value=(accumulated, 5, set())) as read_delta,
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a"}),
             patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
@@ -276,7 +296,7 @@ class TestBackfillOrchestration:
                 "products.data_modeling.backend.facade.api.get_materialized_table_uri",
                 return_value="s3://bucket/team_1_model_abc/modeling/enriched_users",
             ) as model_uri,
-            patch(f"{_MODULE}._read_delta_bundles", return_value=({"s1": {}}, 0)) as read_delta,
+            patch(f"{_MODULE}._read_delta_bundles", return_value=({"s1": {}}, 0, set())) as read_delta,
         ):
             team_cls.objects.get.return_value = team
             await pps.run_person_property_backfill(team_id=1, binding=_VIEW, trigger="manual")
@@ -428,6 +448,56 @@ class TestGroupTarget:
         stamp.assert_not_called()
         write_snapshot.assert_not_awaited()
         assert result.produced == 0
+        # The rows matched groups, so a clean "completed" run would read as "Synced". The source must
+        # instead carry the reason it wrote nothing.
+        assert result.per_source[0].error is not None
+
+    @pytest.mark.asyncio
+    async def test_group_source_without_a_type_index_records_the_reason(self):
+        # A group source with no group type can never produce a valid $groupidentify. It must record
+        # the reason rather than look idle.
+        source = PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group")
+        team = MagicMock(api_token="tok", uuid="team-uuid")
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=[{"group_key": "acme", "plan": "pro"}])),
+            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = team
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+
+        produce.assert_not_called()
+        assert result.per_source[0].error is not None
+
+
+class TestRecordCompletedRuns:
+    """A per-source error marks that source's run failed, so the UI shows the reason instead of
+    'Synced'. Sources without an error in the same run still record as completed."""
+
+    @pytest.mark.asyncio
+    async def test_error_source_records_failed_and_clean_source_records_completed(self):
+        result = pps.SyncResult(
+            per_source=[
+                pps.PerSourceResult(source_id="s1", produced=3),
+                pps.PerSourceResult(source_id="s2", existing=58, error="Group type 0 was not found"),
+            ]
+        )
+        with patch(f"{_MODULE}.record_person_property_sync_run") as record:
+            await pps.record_completed_runs(
+                team_id=1,
+                binding=_SCHEMA,
+                job_id="job-1",
+                trigger="scheduled",
+                started_at="s",
+                finished_at="f",
+                result=result,
+            )
+
+        by_source = {call.args[0].source_id: call.args[0] for call in record.call_args_list}
+        assert by_source["s1"].status == "completed" and by_source["s1"].error is None
+        assert by_source["s2"].status == "failed" and by_source["s2"].error == "Group type 0 was not found"
 
 
 class TestExistenceLookupChunking:

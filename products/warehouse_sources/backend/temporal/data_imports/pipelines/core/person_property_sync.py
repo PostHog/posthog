@@ -84,7 +84,11 @@ _EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
 
 @dataclasses.dataclass
 class PerSourceResult:
-    """One source's funnel counts within a run, so the recorder can persist a run row per source."""
+    """One source's funnel counts within a run, so the recorder can persist a run row per source.
+
+    ``error`` is set when the source could not write for a diagnosable reason (a misconfiguration the
+    funnel counts alone can't tell apart from an idle run). The recorder marks such a source's run
+    failed instead of completed, so the UI shows the reason rather than "Synced"."""
 
     source_id: str
     rows_read: int = 0
@@ -92,6 +96,7 @@ class PerSourceResult:
     existing: int = 0
     produced: int = 0
     skipped_missing_person: int = 0
+    error: str | None = None
 
 
 @dataclasses.dataclass
@@ -455,6 +460,13 @@ async def _process_source_bundles(
     Shared by the incremental sync and the backfill — they differ only in how ``bundles`` are sourced
     (staged rows vs a full Delta read)."""
     ps = PerSourceResult(source_id=str(source.source_id), rows_read=rows_read)
+    if source.target == _GROUP_TARGET and source.group_type_index is None:
+        # A group source with no group type can never build a valid $groupidentify. Without this the
+        # run would look idle (produced 0) and read as "Synced" rather than a misconfiguration.
+        ps.error = (
+            "This source has no group type set, so no group properties can be written. Set a group type for the source."
+        )
+        return ps
     prior = await _read_snapshot_hashes(team_id, binding, str(source.source_id))
     changed, new_hashes = select_changed(bundles, prior)
     ps.changed = len(changed)
@@ -485,13 +497,19 @@ async def _process_source_bundles(
         )
         if group_type_name is None:
             # Without the group-type name the consumer can't build a valid $groupidentify and would
-            # DLQ every message — skip the source instead of producing intents doomed to fail.
+            # DLQ every message — skip the source instead of producing intents doomed to fail. The
+            # rows matched groups (existing > 0), so a clean "completed" run would read as "Synced";
+            # record the reason instead.
             logger.warning(
                 "person-property sync: group type not found, skipping source",
                 team_id=team_id,
                 **_log_fields(binding),
                 source_id=str(source.source_id),
                 group_type_index=source.group_type_index,
+            )
+            ps.error = (
+                f"Group type {source.group_type_index} was not found, so no group properties were "
+                "written. Check that the group type still exists."
             )
             return ps
     produced = await asyncio.to_thread(
@@ -588,10 +606,11 @@ BACKFILL_RUN_TOKEN = "backfill"
 
 def _read_delta_bundles(
     uri: str, storage_options: dict[str, str], sources: list[PersonPropertySyncSource]
-) -> tuple[dict[str, dict[str, dict]], int]:
+) -> tuple[dict[str, dict[str, dict]], int, set[str]]:
     """Stream the table's Delta files from S3 and accumulate {source_id: {distinct_id: bundle}}
     (last-write-wins per distinct_id). Streams batches — never materializes the whole table — so peak
-    memory tracks distinct persons, not row count. Returns (accumulated, rows_read)."""
+    memory tracks distinct persons, not row count. Returns (accumulated, rows_read, source ids whose
+    key column is missing from the table)."""
     import deltalake  # noqa: PLC0415 — keeps the heavy delta-rs/pandas stack off the import path
 
     accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
@@ -600,7 +619,7 @@ def _read_delta_bundles(
         # as an empty read rather than erroring, but log it since a persistent empty backfill is a
         # likely "why didn't anything happen" answer.
         logger.warning("person-property backfill: no Delta table at URI, reading 0 rows", uri=uri)
-        return accumulated, 0
+        return accumulated, 0, set()
 
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
     available = set(dataset.schema.names)
@@ -611,10 +630,12 @@ def _read_delta_bundles(
     project = sorted(wanted & available)
 
     # A source whose key column itself is missing produces zero bundles for the whole table, which is
-    # otherwise indistinguishable from a genuinely idle backfill. Log it so a misconfigured mapping
-    # (table dropped/renamed the identifier column) is diagnosable rather than silent.
+    # otherwise indistinguishable from a genuinely idle backfill. Return it so the run is recorded as
+    # failed with a reason (table dropped/renamed the identifier column) rather than silent.
+    missing_key_source_ids: set[str] = set()
     for source in sources:
         if source.key_column not in available:
+            missing_key_source_ids.add(str(source.source_id))
             logger.warning(
                 "person-property backfill: source key column missing from table, will produce nothing",
                 uri=uri,
@@ -630,7 +651,7 @@ def _read_delta_bundles(
             bucket = accumulated[str(source.source_id)]
             for distinct_id, bundle in build_bundles(rows, source.key_column, source.column_property_map or {}):
                 bucket[distinct_id] = bundle
-    return accumulated, rows_read
+    return accumulated, rows_read, missing_key_source_ids
 
 
 def _schema_delta_uri(team_id: int, schema_id: str) -> str | None:
@@ -686,7 +707,9 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    accumulated, rows_read = await asyncio.to_thread(_read_delta_bundles, uri, delta_storage_options(), sources)
+    accumulated, rows_read, missing_key_source_ids = await asyncio.to_thread(
+        _read_delta_bundles, uri, delta_storage_options(), sources
+    )
     result.sources = len(sources)
     result.rows_read = rows_read
     logger.info(
@@ -710,6 +733,11 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
             rows_read=rows_read,
             run_token=BACKFILL_RUN_TOKEN,
         )
+        if str(source.source_id) in missing_key_source_ids:
+            ps.error = (
+                f'The table no longer has the key column "{source.key_column}", so no rows could be '
+                "matched. Update the source's key column."
+            )
         _accumulate(result, ps)
 
     return result
@@ -794,9 +822,13 @@ async def record_completed_runs(
     finished_at: str,
     result: SyncResult,
 ) -> None:
-    """Persist one completed run row per source. Never raises — the recorder swallows its own errors,
-    and we still guard here so run bookkeeping can't fail the sync/backfill that produced it (which
-    would otherwise trigger a wasteful Temporal retry of an already-successful, produced run)."""
+    """Persist one run row per source. Never raises — the recorder swallows its own errors, and we
+    still guard here so run bookkeeping can't fail the sync/backfill that produced it (which would
+    otherwise trigger a wasteful Temporal retry of an already-successful, produced run).
+
+    A source that could not write for a diagnosable reason carries ``ps.error``; its run is recorded
+    as failed with that reason, so the UI shows the reason instead of "Synced". The other sources in
+    the same run still record as completed."""
     try:
         for ps in result.per_source:
             await database_sync_to_async(_record, thread_sensitive=False)(
@@ -804,11 +836,11 @@ async def record_completed_runs(
                 binding=binding,
                 job_id=job_id,
                 trigger=trigger,
-                status="completed",
+                status="failed" if ps.error else "completed",
                 started_at=started_at,
                 finished_at=finished_at,
                 ps=ps,
-                error=None,
+                error=ps.error,
             )
     except Exception as e:
         logger.exception(
