@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonInputSelect, LemonTextArea, Link, lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonInputSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import { GitHubRepositoryPicker, GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
@@ -23,18 +22,17 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingExternalReference, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationKind, IntegrationType } from '~/types'
 
-import { errorTrackingExternalReferencesSearchIssuesRetrieve } from '../generated/api'
 import {
     ErrorTrackingExternalIssueResultApi,
     ErrorTrackingExternalIssueResultApiExternalContext,
 } from '../generated/api.schemas'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { externalIssueSearchLogic } from './externalIssueSearchLogic'
 
 const ERROR_TRACKING_INTEGRATIONS = ['linear', 'github', 'gitlab', 'jira'] as const satisfies readonly IntegrationKind[]
 
@@ -402,9 +400,12 @@ function linkExistingIssueForm(integration: ErrorTrackingIntegration, onSubmit: 
 
 // Searchable picker of existing provider issues. Designed to sit inside a LemonField, so it takes the
 // field's value/onChange and emits the selected issue's external_context (the payload the backend stores).
+// Searchable picker of existing provider issues. Search state lives in externalIssueSearchLogic;
+// this component only bridges the LemonField value/onChange to the selected issue's external_context.
 function ExistingIssueSelect({
     integrationId,
     kind,
+    value,
     onChange,
 }: {
     integrationId: number
@@ -413,76 +414,16 @@ function ExistingIssueSelect({
     onChange?: (value: ErrorTrackingExternalIssueResultApiExternalContext | null) => void
 }): JSX.Element {
     const requiresRepository = kind === 'github'
-    const [repository, setRepository] = useState<string>('')
-    const [results, setResults] = useState<ErrorTrackingExternalIssueResultApi[]>([])
-    const [loading, setLoading] = useState<boolean>(false)
-    const [selectedKey, setSelectedKey] = useState<string | null>(null)
-    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    // Guards against out-of-order responses: a slow search (or one for a previously selected
-    // repository) must not overwrite the results of the latest one.
-    const searchSeqRef = useRef(0)
-
-    const runSearch = (query: string): void => {
-        if (requiresRepository && !repository) {
-            return
-        }
-        if (debounceRef.current) {
-            clearTimeout(debounceRef.current)
-        }
-        // Allocate the sequence token now, not when the timeout fires, so a repository
-        // change or a cleared input reliably invalidates pending searches.
-        const seq = ++searchSeqRef.current
-        // The search endpoint rejects blank queries, and LemonInputSelect emits an empty
-        // input on blur/selection - keep whatever results are already shown.
-        if (!query.trim()) {
-            setLoading(false)
-            return
-        }
-        // Typing a new query invalidates the current pick - submitting while results refresh
-        // must not link the previously selected issue (references cannot be deleted).
-        if (selectedKey !== null) {
-            setSelectedKey(null)
-            onChange?.(null)
-        }
-        debounceRef.current = setTimeout(() => {
-            setLoading(true)
-            errorTrackingExternalReferencesSearchIssuesRetrieve(String(teamLogic.values.currentTeamId), {
-                integration_id: integrationId,
-                search: query,
-                repository: requiresRepository ? repository : undefined,
-            })
-                .then(({ issues }) => {
-                    if (seq === searchSeqRef.current) {
-                        setResults(issues)
-                    }
-                })
-                .catch(() => {
-                    if (seq === searchSeqRef.current) {
-                        setResults([])
-                        lemonToast.error("Couldn't search issues. Try again.")
-                    }
-                })
-                .finally(() => {
-                    if (seq === searchSeqRef.current) {
-                        setLoading(false)
-                    }
-                })
-        }, 300)
-    }
-
-    useEffect(() => {
-        return () => {
-            if (debounceRef.current) {
-                clearTimeout(debounceRef.current)
-            }
-        }
-    }, [])
+    const logic = externalIssueSearchLogic({ integrationId, requiresRepository })
+    const { repository, results, resultsLoading } = useValues(logic)
+    const { setRepository, searchIssues } = useActions(logic)
 
     const optionKey = (result: ErrorTrackingExternalIssueResultApi): string => result.url || `${result.id}`
     const options = results.map((result) => ({
         key: optionKey(result),
         label: result.title,
     }))
+    const selectedResult = value ? results.find((result) => result.external_context === value) : undefined
 
     return (
         <div className="flex flex-col gap-y-2">
@@ -490,16 +431,8 @@ function ExistingIssueSelect({
                 <GitHubRepositoryPicker
                     integrationId={integrationId}
                     value={repository}
-                    onChange={(value) => {
-                        // Invalidate any pending or in-flight search for the old repository.
-                        if (debounceRef.current) {
-                            clearTimeout(debounceRef.current)
-                        }
-                        searchSeqRef.current++
-                        setRepository(value ?? '')
-                        setResults([])
-                        setSelectedKey(null)
-                        setLoading(false)
+                    onChange={(newRepository) => {
+                        setRepository(newRepository ?? '')
                         onChange?.(null)
                     }}
                 />
@@ -511,16 +444,22 @@ function ExistingIssueSelect({
                     requiresRepository && !repository ? 'Select a repository first...' : 'Search for an issue...'
                 }
                 disabled={requiresRepository && !repository}
-                loading={loading}
+                loading={resultsLoading}
                 // Results are already filtered by the provider; the client-side fuzzy filter
                 // would hide valid matches whose titles don't contain the raw query text.
                 disableFiltering
                 options={options}
-                value={selectedKey ? [selectedKey] : []}
-                onInputChange={runSearch}
-                onChange={(value) => {
-                    const key = value[0] ?? null
-                    setSelectedKey(key)
+                value={selectedResult ? [optionKey(selectedResult)] : []}
+                onInputChange={(query) => {
+                    searchIssues(query)
+                    // Typing a new query invalidates the current pick - submitting while results
+                    // refresh must not link the previously selected issue.
+                    if (query.trim() && value) {
+                        onChange?.(null)
+                    }
+                }}
+                onChange={(selection) => {
+                    const key = selection[0] ?? null
                     const selected = results.find((result) => optionKey(result) === key)
                     onChange?.(selected ? selected.external_context : null)
                 }}
