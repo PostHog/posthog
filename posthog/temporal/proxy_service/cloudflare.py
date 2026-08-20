@@ -143,10 +143,10 @@ def describe_blocked_hostname_status(status: CustomHostnameStatus, domain: str) 
             "mid-migration. Contact support to restore it."
         )
     return (
-        f"`{domain}` is blocked from activating on the proxy. The usual cause is a hold on the "
-        "domain's Cloudflare zone that also covers subdomains. If there is a hold, release it on "
-        'the zone\'s overview page, or turn off "Also prevent subdomains", then run diagnostics '
-        "again. If there is no hold, or the domain is not on Cloudflare, contact support."
+        f"`{domain}` is blocked from activating on the proxy. This usually means its Cloudflare "
+        "zone has a hold that also covers subdomains. Release the hold on the zone's overview page "
+        'in Cloudflare, or turn off "Also prevent subdomains", then run diagnostics again. '
+        "If the domain is not on Cloudflare, contact support."
     )
 
 
@@ -155,8 +155,7 @@ def describe_cross_user_banned(domain: str) -> str:
     return (
         f"`{domain}` is not authorized to serve traffic through the proxy (error 1014). "
         "If the domain is on Cloudflare, check its zone for a hold that also covers subdomains "
-        "and release it, then run diagnostics again. If there is no hold, or the domain is not "
-        "on Cloudflare, contact support."
+        "and release it, then run diagnostics again. Otherwise contact support."
     )
 
 
