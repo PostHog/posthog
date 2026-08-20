@@ -1,6 +1,7 @@
 import re
 import typing
 import datetime as dt
+import itertools
 import collections.abc
 from types import SimpleNamespace
 
@@ -39,7 +40,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
     GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS,
-    GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN,
     GoogleAdsColumn,
     GoogleAdsSearchService,
     GoogleAdsTable,
@@ -1427,6 +1427,7 @@ class TestGoogleAdsQueryConstruction:
         *,
         api_version: str = "v23",
         window_rows: dict[str, int] | None = None,
+        earliest_date: str | None = None,
         **source_kwargs,
     ):
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
@@ -1449,10 +1450,20 @@ class TestGoogleAdsQueryConstruction:
 
         assert table.alias is not None
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+
+        def fake_probe(_service, request):
+            queries.append(request["query"])
+            if earliest_date is None:
+                return iter([])
+            row = mock.Mock()
+            row.segments.date = earliest_date
+            return iter([row])
+
         with (
             mock.patch(f"{self._MODULE}.get_schemas", return_value={table.alias: table}),
             mock.patch(f"{self._MODULE}.google_ads_client"),
             mock.patch(f"{self._MODULE}._search_as_arrow_tables", side_effect=fake_search),
+            mock.patch(f"{self._MODULE}._search_with_transient_retry", side_effect=fake_probe),
         ):
             response = google_ads_source(
                 config,
@@ -1485,28 +1496,139 @@ class TestGoogleAdsQueryConstruction:
         assert all("2100-01-01" not in q for q in queries)
         assert response.sort_mode == "asc"
 
-    def test_first_sync_drains_in_windows_from_a_bounded_backfill_start(self):
-        # A first sync has no cursor. Running it as the open-ended `1970 .. 2100` scan meant one run
-        # had to extract the whole account history before anything landed durably; it never
-        # finished, so the cursor never advanced and the next run repeated the same scan — report
-        # tables that had never synced could never start. It must window like any other run,
-        # beginning a bounded backfill behind today.
+    def test_lookback_overlap_cannot_consume_a_whole_run(self):
+        # Spending the whole budget on lookback overlap leaves the cursor unmoved, so the next run
+        # repeats it and a schema behind by more than its lookback never advances.
+        clock = itertools.count()
+
+        with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+            # A budget of zero: the overlap alone would end the run before any new ground.
+            with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 0):
+                _response, queries = self._run_source(
+                    self._stats_table(),
+                    should_use_incremental_field=True,
+                    # A 2026-05-04 cursor, already shifted back 30 days by the caller.
+                    db_incremental_field_last_value=dt.date(2026, 4, 4),
+                    db_incremental_field_last_value_before_lookback=dt.date(2026, 5, 4),
+                    incremental_field="segments.date",
+                    incremental_field_type=IncrementalFieldType.Date,
+                    window_rows=dict.fromkeys(
+                        (
+                            # Overlap the lookback re-reads.
+                            "2026-04-04",
+                            "2026-04-11",
+                            "2026-04-18",
+                            "2026-04-25",
+                            # New ground past the cursor.
+                            "2026-05-02",
+                            "2026-05-09",
+                        ),
+                        5,
+                    ),
+                )
+
+        assert queries[0].startswith(
+            "SELECT campaign.id,segments.date FROM campaign_stats WHERE segments.date >= '2026-04-04'"
+        )
+        # The first window starting strictly past the cursor, so its rows are all new ground.
+        assert "segments.date >= '2026-05-09'" in queries[-1]
+
+    def test_a_straddling_window_of_only_overlap_rows_cannot_stop_the_drain(self):
+        # The same stall via a straddling window: it can hold only rows at or before the cursor, so
+        # arming on `window_end` rather than `start` stops the run with the cursor unmoved.
+        cursor = dt.date(2026, 1, 1)
+        w = GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS
+        # The pre-lookback cursor is 2026-01-31, straddled by the window starting 2026-01-29.
+        overlap_and_straddle = {(cursor + dt.timedelta(days=w * i)).isoformat(): 1 for i in range(5)}
+        data_past_gap = cursor + dt.timedelta(days=w * 22)  # 2026-06-04, after a run of empty windows
+        # One second per loop check against a two-second budget: it is spent long before the walk
+        # reaches the data, so only refusing to arm on the straddle keeps the run going.
+        clock = itertools.count()
+
+        with freeze_time("2026-12-31"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+            with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 2):
+                _response, queries = self._run_source(
+                    self._stats_table(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=cursor,
+                    db_incremental_field_last_value_before_lookback=dt.date(2026, 1, 31),
+                    incremental_field="segments.date",
+                    incremental_field_type=IncrementalFieldType.Date,
+                    window_rows={**overlap_and_straddle, data_past_gap.isoformat(): 1},
+                )
+
+        assert any(f"segments.date >= '{data_past_gap.isoformat()}'" in q for q in queries)
+
+    @pytest.mark.parametrize(
+        "history_start,expected_start",
+        [
+            # A run with no cursor reads the recorded range, first sync or re-import alike.
+            ("2020-02-08", "2020-02-08"),
+            ("2025-03-01", "2025-03-01"),
+        ],
+    )
+    def test_drain_starts_at_the_schema_history_start(self, history_start, expected_start: str) -> None:
         with freeze_time("2026-07-17"):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=None,
+                history_start=history_start,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert f"WHERE segments.date >= '{expected_start}'" in queries[0]
+        assert all("LIMIT 1" not in q for q in queries), "a recorded range needs no request to locate it"
+        # Windowed, not the open-ended `.. 2100` scan a first sync used to run.
+        assert all("2100-01-01" not in q for q in queries)
+
+    @pytest.mark.parametrize("earliest_date,expected_start", [("2020-02-08", "2020-02-08"), (None, "2026-07-17")])
+    def test_no_recorded_range_asks_the_account_where_its_rows_begin(
+        self, earliest_date: str | None, expected_start: str
+    ) -> None:
+        # A schema that predates the recorded range reads unbounded: one request locates the start,
+        # and an account holding nothing has no range to walk.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                history_start=None,
+                earliest_date=earliest_date,
                 incremental_field="segments.date",
                 incremental_field_type=IncrementalFieldType.Date,
             )
 
         assert queries[0] == (
-            "SELECT campaign.id,segments.date FROM campaign_stats "
-            "WHERE segments.date >= '2024-07-17' AND segments.date < '2024-07-24' "
-            "ORDER BY segments.date ASC"
+            "SELECT segments.date FROM campaign_stats "
+            "WHERE segments.date >= '1970-01-01' AND segments.date < '2026-07-18' "
+            "ORDER BY segments.date ASC LIMIT 1"
         )
-        assert all("2100-01-01" not in q for q in queries)
-        assert all("1970-01-01" not in q for q in queries)
+        assert f"WHERE segments.date >= '{expected_start}'" in queries[1]
+
+    def test_the_probe_repeats_the_resource_filter(self):
+        # Five report resources append `metrics.impressions > 0`. Without it the probe reports a
+        # start earlier than the first row the drain will import, and that start gets recorded.
+        table = self._stats_table()
+        table.extra_where = "metrics.impressions > 0"
+
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                table,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                history_start=None,
+                earliest_date="2020-02-08",
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert queries[0] == (
+            "SELECT segments.date FROM campaign_stats "
+            "WHERE segments.date >= '1970-01-01' AND segments.date < '2026-07-18' "
+            "AND metrics.impressions > 0 ORDER BY segments.date ASC LIMIT 1"
+        )
 
     def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
         # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from
@@ -1524,27 +1646,31 @@ class TestGoogleAdsQueryConstruction:
             "ORDER BY segments.date ASC"
         ]
 
-    def test_run_stops_after_max_data_windows(self):
-        # Every window has data; the run must stop after GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
-        # non-empty windows so a single run stays short enough to complete and durably advance the
-        # cursor, instead of re-extracting the whole backlog and dying to a heartbeat timeout.
+    # Parametrized so the count tracks the budget. A single case landing on five windows is the
+    # same number the deleted `MAX_DATA_WINDOWS_PER_RUN = 5` produced, so it could not tell the two
+    # rules apart.
+    @pytest.mark.parametrize("budget,expected_windows", [(4, 5), (9, 10), (19, 20)])
+    def test_a_run_takes_as_many_windows_as_the_budget_buys(self, budget: int, expected_windows: int) -> None:
         cursor = dt.date(2026, 1, 1)
         window_rows = {
-            (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1
-            for i in range(GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN + 3)
+            (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(40)
         }
+        # One second of drain per loop check. The first window starts at the cursor, so its rows are
+        # not guaranteed past it and it does not arm the budget; the budget buys the rest.
+        clock = itertools.count()
 
-        with freeze_time("2026-07-17"):
-            _response, queries = self._run_source(
-                self._stats_table(),
-                window_rows=window_rows,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=cursor,
-                incremental_field="segments.date",
-                incremental_field_type=IncrementalFieldType.Date,
-            )
+        with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+            with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", budget):
+                _response, queries = self._run_source(
+                    self._stats_table(),
+                    window_rows=window_rows,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=cursor,
+                    incremental_field="segments.date",
+                    incremental_field_type=IncrementalFieldType.Date,
+                )
 
-        assert len(queries) == GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
+        assert len(queries) == expected_windows
         assert "WHERE segments.date >= '2026-01-01' AND segments.date < '2026-01-08'" in queries[0]
 
     def test_empty_windows_are_crossed_within_one_run(self):

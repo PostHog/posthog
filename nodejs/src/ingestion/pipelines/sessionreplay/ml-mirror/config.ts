@@ -85,7 +85,7 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
     /** A URL older than this is dropped, so a lane with a backlog sheds work rather than fetching stale work. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: number
-    /** Capacity of the per-pod seen-ref cache that sits in front of the Redis ledger. */
+    /** Capacity of the per-pod seen-ref cache that sits in front of the shared crawl history. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: number
     /**
      * TTL on each crawl history entry, so it is both the recrawl interval and the ledger's Redis
@@ -100,6 +100,12 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS: number
     /** Bounds one round trip to the crawl history, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: number
+    /** An empty table name keeps the Redis crawl-history backend active. */
+    AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
+    /** Bounds one DynamoDB request so an unavailable store cannot hold the poll loop. */
+    AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: number
+    /** TTL on each DynamoDB crawl-history entry, which sets the recrawl interval. */
+    AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: number
 
     /**
      * What one registrable domain receives from one pod.
@@ -253,6 +259,9 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: 500_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS: 7 * 24 * 60 * 60,
         SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: 5_000,
+        AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
+        AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
+        AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: 1,
         SESSION_RECORDING_ML_IMAGE_FETCH_BURST: 5,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: 6,
