@@ -1888,6 +1888,23 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert risk is not None
         self.assertEqual([c.id for c in risk.cohorts], [cohort.pk])
 
+    def test_dynamic_cohort_in_team_test_account_filters_reported_when_criteria_omits_flag(self):
+        # The exposure query filters test accounts by default when the saved criteria omits
+        # filterTestAccounts (the model default is {}), so the team-filter scan must run there too.
+        cohort = Cohort.objects.create(team=self.team, name="Internal users", is_static=False)
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]
+        self.team.save()
+        self.experiment.exposure_criteria = {}
+        self.experiment.save()
+
+        runner = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._exposure_query_for(self.experiment, self.experiment.exposure_criteria)
+        )
+        risk = runner._evaluate_dynamic_cohort_risk()
+
+        assert risk is not None
+        self.assertEqual([c.id for c in risk.cohorts], [cohort.pk])
+
     def test_team_test_account_filters_ignored_when_filtering_is_off(self):
         cohort = Cohort.objects.create(team=self.team, name="Internal users", is_static=False)
         self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]

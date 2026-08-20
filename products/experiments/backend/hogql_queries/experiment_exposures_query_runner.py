@@ -308,7 +308,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Test-account filters are team-level, not part of the criteria, but the exposure query
         # ANDs them in when filterTestAccounts is on (see build_test_accounts_filter) — and a
         # cohort is an allowed filter there. A dynamic cohort in that list carries the same gap.
-        if criteria and criteria.get("filterTestAccounts") and self.team.test_account_filters:
+        # Resolve the flag the way the query does rather than reading the raw key: the query
+        # treats it as on unless the saved criteria explicitly turns it off, so a keyless criteria
+        # (the model default is {}) still filters test accounts and must still be scanned.
+        exposure_params = get_exposure_config_params_for_builder(criteria, self.team, self.experiment.start_date)
+        if exposure_params.filter_test_accounts and self.team.test_account_filters:
             cohort_ids |= _collect_cohort_ids(self.team.test_account_filters)
         if not cohort_ids:
             return None
