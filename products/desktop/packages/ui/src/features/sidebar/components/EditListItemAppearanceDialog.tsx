@@ -18,12 +18,13 @@ import {
 } from "@posthog/shared/analytics-events";
 import { TaskStatusDot } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import { ListItemMetadata } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import {
-  formatListItemMetadata,
   LIST_ITEM_METADATA_FIELDS,
   type ListItemMetadataField,
   moveListItemMetadataField,
+  taskMetadataSegments,
 } from "@posthog/ui/features/sidebar/listItemAppearance";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { track } from "@posthog/ui/shell/analytics";
@@ -31,13 +32,27 @@ import { useEffect, useRef, useState } from "react";
 import { SortableListItemMetadataField } from "./SortableListItemMetadataField";
 
 interface PreviewTask
-  extends Pick<TaskData, "repository" | "branchName" | "linkedBranch"> {
+  extends Pick<
+    TaskData,
+    "repository" | "branchName" | "linkedBranch" | "lastActivityAt"
+  > {
   id: string;
   title: string;
   creatorName: string;
 }
 
-const PREVIEW_TASKS: PreviewTask[] = [
+/** Ages that read as a list someone is actually working in. */
+const PREVIEW_AGES_MS = [2 * 3_600_000, 3 * 86_400_000, 3 * 7 * 86_400_000];
+
+/** The preview rows, dated against now rather than against module load. */
+function datedPreview(): PreviewTask[] {
+  return PREVIEW_TASKS.map((task, index) => ({
+    ...task,
+    lastActivityAt: Date.now() - PREVIEW_AGES_MS[index],
+  }));
+}
+
+const PREVIEW_TASKS: Omit<PreviewTask, "lastActivityAt">[] = [
   {
     id: "preview-review",
     title: "Address feedback on session list",
@@ -96,6 +111,9 @@ export function EditListItemAppearanceDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  // Dated when the dialog opens, so the preview's ages are the ages the list
+  // is showing rather than whenever this module loaded.
+  const [previewTasks, setPreviewTasks] = useState<PreviewTask[]>(datedPreview);
   const storedFields = useSidebarStore((state) => state.listItemMetadataFields);
   const setStoredFields = useSidebarStore(
     (state) => state.setListItemMetadataFields,
@@ -110,6 +128,7 @@ export function EditListItemAppearanceDialog({
 
   useEffect(() => {
     if (!open) return;
+    setPreviewTasks(datedPreview());
     setFieldOrder(orderedFieldList(storedFields));
     setSelectedFields(new Set(storedFields));
     lastMove.current = null;
@@ -181,7 +200,7 @@ export function EditListItemAppearanceDialog({
                 carry the list's real colours to be worth looking at. Nothing
                 inside answers a pointer instead. */}
             <div className="pointer-events-none rounded-(--radius-3) border border-border bg-(--gray-2) p-2">
-              {PREVIEW_TASKS.map((task) => (
+              {previewTasks.map((task) => (
                 <SidebarItem
                   key={task.id}
                   depth={0}
@@ -189,11 +208,15 @@ export function EditListItemAppearanceDialog({
                   // list, so the preview reads as the list it stands for.
                   icon={<TaskStatusDot dot={taskDot({})} />}
                   label={task.title}
-                  subtitle={formatListItemMetadata(
-                    task,
-                    task.creatorName,
-                    visibleFields,
-                  )}
+                  subtitle={
+                    <ListItemMetadata
+                      segments={taskMetadataSegments(
+                        task,
+                        task.creatorName,
+                        visibleFields,
+                      )}
+                    />
+                  }
                   tabIndex={-1}
                 />
               ))}

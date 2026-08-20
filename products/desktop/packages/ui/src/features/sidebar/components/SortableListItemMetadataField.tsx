@@ -1,5 +1,6 @@
 import { useSortable } from "@dnd-kit/react/sortable";
 import {
+  Clock,
   DotsSixVertical,
   GitBranch,
   GitFork,
@@ -19,6 +20,7 @@ const FIELD_ICONS: Record<
   repository: GitFork,
   branch: GitBranch,
   creator: User,
+  activity: Clock,
 };
 
 export function SortableListItemMetadataField({

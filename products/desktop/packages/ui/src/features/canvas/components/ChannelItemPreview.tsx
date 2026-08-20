@@ -15,17 +15,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { formatRelativeTimeShort } from "@posthog/shared";
+import { formatAbsoluteDateTime, formatRelativeAge } from "@posthog/shared";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
   TaskRowMenuList,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
-import {
-  type ChannelItemFacts,
-  channelItemFacts,
-} from "@posthog/ui/features/canvas/hooks/useChannelItemFacts";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useLatestTurnMessage } from "@posthog/ui/features/canvas/hooks/useLatestTurnMessage";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
@@ -42,12 +38,6 @@ import { CopyButton } from "@posthog/ui/primitives/CopyButton";
 import { FactLabel, FactList } from "@posthog/ui/primitives/FactList";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { type ReactNode, useEffect } from "react";
-
-/** The list's own age, said as a sentence rather than a stamp. */
-function relativeUpdated(ts: number): string {
-  const short = formatRelativeTimeShort(ts);
-  return short === "now" ? "just now" : `${short} ago`;
-}
 
 /** Matches the rows' own tooltip delay, so the card doesn't feel slower. */
 const TOOLTIP_DELAY_MS = 200;
@@ -198,36 +188,38 @@ function BranchLine({ branch }: { branch: string }) {
  * column rather than scattered between a badge row and a sentence.
  */
 function ItemFacts({
-  updated,
-  facts,
+  item,
   source,
   status,
 }: {
-  updated: string;
-  facts: ChannelItemFacts;
+  item: ChannelItemModel;
   /** The origin badge, relabeled: the row's column already says "Source". */
   source: TaskBadge | undefined;
   /** The PR's state, which is what a reader means by a session's status here. */
   status: TaskBadge | undefined;
 }) {
+  const repository = item.repository?.label;
   return (
     <FactList>
-      {facts.repository && (
+      {repository && (
         <>
           <FactLabel>Repo</FactLabel>
-          <span className="truncate" title={facts.repository}>
-            {facts.repository}
+          <span className="truncate" title={repository}>
+            {repository}
           </span>
         </>
       )}
-      {facts.branch && (
+      {item.branch && (
         <>
           <FactLabel>Branch</FactLabel>
-          <BranchLine branch={facts.branch} />
+          <BranchLine branch={item.branch} />
         </>
       )}
       <FactLabel>Updated</FactLabel>
-      <span>{updated}</span>
+      {/* The exact moment behind the phrase, the same way a row carries it. */}
+      <span title={formatAbsoluteDateTime(item.ts)}>
+        {formatRelativeAge(item.ts)}
+      </span>
       {source && (
         <>
           <FactLabel>Source</FactLabel>
@@ -331,7 +323,6 @@ export function ChannelItemPreview({
   // and the card is the surface that should be able to say "merged".
   const status = useChannelTaskStatus(item);
   const message = useLatestTurnMessage(item.task);
-  const facts = channelItemFacts(item);
   const dot = status ? taskDot(status) : null;
   const badges = status ? taskBadges(status) : [];
   // The origin moves up into the facts, where a labeled column already says
@@ -364,12 +355,7 @@ export function ChannelItemPreview({
               Where the work sits, always: the list's appearance settings trade
               a row's height for this, and the card has the room. */}
           <div className="pl-6">
-            <ItemFacts
-              updated={relativeUpdated(item.ts)}
-              facts={facts}
-              source={source}
-              status={pullRequest}
-            />
+            <ItemFacts item={item} source={source} status={pullRequest} />
           </div>
         </ItemContent>
         {/* Who made it rides on the identity row rather than taking a row of

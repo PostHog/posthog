@@ -131,7 +131,7 @@ export function SidebarItem({
           ) : null}
         </span>
         {subtitle ? (
-          <span className="truncate text-[11px] text-gray-10 group-data-active:text-gray-11">
+          <span className="truncate text-muted-foreground/70 text-xxs group-data-active:text-muted-foreground">
             {subtitle}
           </span>
         ) : null}

@@ -18,9 +18,10 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { DragBatchLabel } from "@posthog/ui/features/sidebar/components/DragBatchLabel";
 import { DraggableFolder } from "@posthog/ui/features/sidebar/components/DraggableFolder";
 import { GroupWorktreesSection } from "@posthog/ui/features/sidebar/components/GroupWorktreesSection";
+import { ListItemMetadata } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
 import { SidebarSection } from "@posthog/ui/features/sidebar/components/SidebarSection";
 import { TaskRow } from "@posthog/ui/features/sidebar/components/TaskRow";
-import { formatListItemMetadata } from "@posthog/ui/features/sidebar/listItemAppearance";
+import { taskMetadataSegments } from "@posthog/ui/features/sidebar/listItemAppearance";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import {
   dragSiblingCandidates,
@@ -222,11 +223,15 @@ export function TaskListView({
           onDragStart={(event) => pinDrag.onItemDragStart(task, event)}
           onDragEnd={pinDrag.onItemDragEnd}
           timestamp={task[timestampKey]}
-          subtitle={formatListItemMetadata(
-            task,
-            creatorNameByTaskId.get(task.id),
-            listItemMetadataFields,
-          )}
+          subtitle={
+            <ListItemMetadata
+              segments={taskMetadataSegments(
+                task,
+                creatorNameByTaskId.get(task.id),
+                listItemMetadataFields,
+              )}
+            />
+          }
           depth={depth}
         />
       </motion.div>
@@ -489,11 +494,15 @@ export function TaskListView({
                   onEditSubmit={() => undefined}
                   onEditCancel={() => undefined}
                   timestamp={dragState.items[0][timestampKey]}
-                  subtitle={formatListItemMetadata(
-                    dragState.items[0],
-                    creatorNameByTaskId.get(dragState.items[0].id),
-                    listItemMetadataFields,
-                  )}
+                  subtitle={
+                    <ListItemMetadata
+                      segments={taskMetadataSegments(
+                        dragState.items[0],
+                        creatorNameByTaskId.get(dragState.items[0].id),
+                        listItemMetadataFields,
+                      )}
+                    />
+                  }
                   withPrStatus={false}
                 />
               )}

@@ -1,13 +1,16 @@
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { describe, expect, it } from "vitest";
 import {
-  formatListItemMetadata,
   type ListItemMetadataField,
   moveListItemMetadataField,
   sanitizeListItemMetadataFields,
+  taskMetadataSegments,
 } from "./listItemAppearance";
 
-const task: Pick<TaskData, "repository" | "branchName" | "linkedBranch"> = {
+const task: Pick<
+  TaskData,
+  "repository" | "branchName" | "linkedBranch" | "lastActivityAt"
+> = {
   repository: {
     fullPath: "posthog/code",
     name: "code",
@@ -15,6 +18,7 @@ const task: Pick<TaskData, "repository" | "branchName" | "linkedBranch"> = {
   },
   branchName: "current-branch",
   linkedBranch: "linked-branch",
+  lastActivityAt: 0,
 };
 
 describe("list item appearance", () => {
@@ -23,28 +27,28 @@ describe("list item appearance", () => {
     taskValue: typeof task;
     creatorName: string | undefined;
     fields: ListItemMetadataField[];
-    expected: string | undefined;
+    expected: string[];
   }>([
     {
       label: "selected metadata in its configured order",
       taskValue: task,
       creatorName: "Ada Lovelace",
       fields: ["branch", "repository", "creator"],
-      expected: "linked-branch · posthog/code · Ada Lovelace",
+      expected: ["linked-branch", "posthog/code", "Ada Lovelace"],
     },
     {
       label: "no second row when selected metadata is unavailable",
       taskValue: task,
       creatorName: undefined,
       fields: ["creator"],
-      expected: undefined,
+      expected: [],
     },
     {
       label: "current branch when no linked branch exists",
       taskValue: { ...task, linkedBranch: null },
       creatorName: undefined,
       fields: ["branch"],
-      expected: "current-branch",
+      expected: ["current-branch"],
     },
     {
       label: "local repository name without its absolute path",
@@ -54,12 +58,34 @@ describe("list item appearance", () => {
       },
       creatorName: undefined,
       fields: ["repository"],
-      expected: "code",
+      expected: ["code"],
     },
   ])("formats $label", ({ taskValue, creatorName, fields, expected }) => {
-    expect(formatListItemMetadata(taskValue, creatorName, fields)).toBe(
-      expected,
+    expect(
+      taskMetadataSegments(taskValue, creatorName, fields).map((s) => s.text),
+    ).toEqual(expected);
+  });
+
+  // The short phrase is what a row has room for; the moment behind it is what
+  // a reader needs when "3w ago" is not enough, and only the segment can carry
+  // it to the tooltip.
+  it("says how long ago the session moved, with the moment behind it", () => {
+    const [segment] = taskMetadataSegments(
+      { ...task, lastActivityAt: Date.now() - 2 * 3_600_000 },
+      undefined,
+      ["activity"],
     );
+
+    expect(segment.text).toBe("2h ago");
+    expect(segment.title).toBeTruthy();
+  });
+
+  it("drops the activity field for a session that never moved", () => {
+    expect(
+      taskMetadataSegments({ ...task, lastActivityAt: 0 }, undefined, [
+        "activity",
+      ]),
+    ).toEqual([]);
   });
 
   it("sanitizes persisted fields to known unique values", () => {

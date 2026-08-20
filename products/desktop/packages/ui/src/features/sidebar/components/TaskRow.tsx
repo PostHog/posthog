@@ -20,7 +20,7 @@ interface TaskRowProps {
   onDragStart?: (event: React.DragEvent) => void;
   onDragEnd?: (event: React.DragEvent) => void;
   timestamp: number;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   depth?: number;
   /**
    * Whether to resolve the PR's state — a query per row into the host, where it

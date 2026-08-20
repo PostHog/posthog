@@ -1,7 +1,10 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import {
-  formatListItemMetadataValues,
+  activityValue,
   type ListItemMetadataField,
+  type ListItemMetadataSegment,
+  type ListItemMetadataValue,
+  listItemMetadataSegments,
 } from "@posthog/ui/features/sidebar/listItemAppearance";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 
@@ -11,13 +14,16 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
  * resolution is how a row and its section header end up disagreeing about which
  * repository a session belongs to.
  */
-export type ChannelItemFacts = Partial<Record<ListItemMetadataField, string>>;
+export type ChannelItemFacts = Partial<
+  Record<ListItemMetadataField, ListItemMetadataValue>
+>;
 
 export function channelItemFacts(item: ChannelItemModel): ChannelItemFacts {
   return {
     repository: item.repository?.label,
     branch: item.branch ?? undefined,
     creator: item.authorName ?? undefined,
+    activity: activityValue(item.ts),
   };
 }
 
@@ -27,8 +33,8 @@ export function channelItemFacts(item: ChannelItemModel): ChannelItemFacts {
  */
 export function useChannelItemMetadata(
   item: ChannelItemModel,
-): string | undefined {
+): ListItemMetadataSegment[] {
   const fields = useSidebarStore((state) => state.listItemMetadataFields);
-  if (fields.length === 0) return undefined;
-  return formatListItemMetadataValues(channelItemFacts(item), fields);
+  if (fields.length === 0) return [];
+  return listItemMetadataSegments(channelItemFacts(item), fields);
 }

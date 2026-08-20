@@ -313,7 +313,7 @@ export interface TaskListGroupingChangedProperties {
 }
 
 export interface TaskListAppearanceChangedProperties {
-  secondary_fields: ("repository" | "branch" | "creator")[];
+  secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
   secondary_field_count: number;
   /** Which list it was changed from. The setting applies to both. */
   surface: "sidebar" | "space";
