@@ -1540,6 +1540,35 @@ mod tests {
         }
     }
 
+    /// A key-group carrying `value_bytes` of payload per message, so the byte
+    /// cap has something to weigh. Keep routing keys the same length across a
+    /// case: they contribute to the size estimate too.
+    fn sized_group(routing_key: &str, events: usize, value_bytes: usize) -> MessageGroup {
+        MessageGroup {
+            routing_key: routing_key.to_string(),
+            messages: (0..events)
+                .map(|_| SerializedKafkaMessage {
+                    value: Some("x".repeat(value_bytes)),
+                    ..make_msg("t", routing_key)
+                })
+                .collect(),
+        }
+    }
+
+    /// What the byte cap weighs a group as — the transport's own estimate, so a
+    /// case can state its cap in whole groups.
+    fn group_bytes(group: &MessageGroup) -> usize {
+        group.messages.iter().map(approx_message_size).sum()
+    }
+
+    fn sub_batch_sizes(assignments: WorkerAssignments) -> Vec<usize> {
+        assignments
+            .into_sub_batches()
+            .iter()
+            .map(|sub_batch| sub_batch.messages.len())
+            .collect()
+    }
+
     /// Event count of each sub-batch produced by adding `group_events` worth of
     /// key-groups to one worker.
     fn packed_sizes(group_events: &[usize], chunking: ChunkConfig) -> Vec<usize> {
@@ -1547,11 +1576,7 @@ mod tests {
         for (i, events) in group_events.iter().enumerate() {
             assignments.add_group(wid(0), group(&format!("k{i}"), *events));
         }
-        assignments
-            .into_sub_batches()
-            .iter()
-            .map(|sub_batch| sub_batch.messages.len())
-            .collect()
+        sub_batch_sizes(assignments)
     }
 
     fn chunked_dispatcher(workers: usize, max_events: usize) -> Dispatcher {
@@ -1624,6 +1649,57 @@ mod tests {
 
             assert_eq!(sizes, case.expected_sub_batches, "{}", case.name);
         }
+    }
+
+    #[test]
+    fn test_byte_cap_closes_a_chunk_the_event_cap_would_not() {
+        // An event cap of 100 can never split six events, so every split here
+        // is the byte cap's. Three messages fit in a chunk and the groups hold
+        // two, so a second group always overshoots rather than filling exactly
+        // — the case that separates the cap from a post-hoc "is it full" check.
+        let one_message = group_bytes(&sized_group("k0", 1, 4096));
+        let chunking = ChunkConfig::new(100, 3 * one_message);
+
+        let mut assignments = WorkerAssignments::new(chunking);
+        for i in 0..3 {
+            assignments.add_group(wid(0), sized_group(&format!("k{i}"), 2, 4096));
+        }
+
+        assert_eq!(sub_batch_sizes(assignments), vec![2, 2, 2]);
+    }
+
+    #[test]
+    fn test_a_group_over_the_byte_cap_stays_whole() {
+        // A key-group is never split, so the byte cap yields to it and the
+        // transport's serial split handles the over-sized request.
+        let heavy = sized_group("k0", 4, 4096);
+        let chunking = ChunkConfig::new(100, group_bytes(&heavy) / 2);
+
+        let mut assignments = WorkerAssignments::new(chunking);
+        assignments.add_group(wid(0), sized_group("k0", 4, 4096));
+        assignments.add_group(wid(0), sized_group("k1", 1, 0));
+
+        assert_eq!(sub_batch_sizes(assignments), vec![4, 1]);
+    }
+
+    #[test]
+    fn test_sub_batches_come_out_in_add_group_order() {
+        // Chunks leave in the order they were packed. Sends are concurrent, so
+        // nothing downstream can restore an order lost here.
+        let mut assignments = WorkerAssignments::new(ChunkConfig::new(2, 0));
+        for i in 0..6 {
+            assignments.add_group(wid(i % 2), group(&format!("k{i}"), 2));
+        }
+
+        let order: Vec<(WorkerId, String)> = assignments
+            .into_sub_batches()
+            .iter()
+            .map(|sub_batch| (sub_batch.worker.clone(), sub_batch.routing_keys[0].clone()))
+            .collect();
+
+        let expected: Vec<(WorkerId, String)> =
+            (0..6).map(|i| (wid(i % 2), format!("k{i}"))).collect();
+        assert_eq!(order, expected);
     }
 
     #[test]
@@ -1789,6 +1865,67 @@ mod tests {
 
         assert_eq!(dispatcher.total_in_flight(), 0);
         assert_eq!(dispatcher.pin_count(), 0);
+    }
+
+    #[test]
+    fn test_flushing_a_deferred_backlog_chunks_it_too() {
+        // A stash drained onto one survivor is the largest share a worker ever
+        // receives, so the flush path has to honor the caps the assign path does.
+        let registry = healthy_registry(2);
+        let mut dispatcher = Dispatcher::new(Arc::clone(&registry));
+        dispatcher.set_chunking(ChunkConfig::new(2, 0));
+
+        let specs: Vec<(String, String)> = (0..12)
+            .map(|i| ("t".to_string(), format!("u{i}")))
+            .collect();
+        let specs: Vec<(&str, &str)> = specs
+            .iter()
+            .map(|(t, d)| (t.as_str(), d.as_str()))
+            .collect();
+        let first = dispatcher.assign("batch-1", make_msgs(&specs));
+
+        // Defer everything pinned to worker 0 by draining it, then let batch-1
+        // resolve so the drain completes and worker 1 is the only target left.
+        let doomed = wid(0);
+        let stranded: Vec<(&str, &str)> = first
+            .iter()
+            .filter(|sub_batch| sub_batch.worker == doomed)
+            .flat_map(keys_in)
+            .map(|key| key.trim_start_matches("t:").to_string())
+            .map(|distinct_id| specs.iter().find(|(_, d)| *d == distinct_id).copied())
+            .map(|spec| spec.expect("every stranded key came from specs"))
+            .collect();
+        assert!(
+            stranded.len() > 2,
+            "need more than one chunk's worth stranded"
+        );
+        registry.start_draining(&doomed);
+        assert!(dispatcher
+            .assign("batch-2", make_msgs(&stranded))
+            .is_empty());
+        for sub_batch in &first {
+            dispatcher.on_sub_batch_resolved(
+                &sub_batch.worker,
+                sub_batch.messages.len(),
+                &sub_batch.routing_keys,
+                false,
+                false,
+            );
+        }
+
+        let flushed = dispatcher.flush_deferred("batch-2");
+
+        assert_eq!(
+            flushed.len(),
+            stranded.len().div_ceil(2),
+            "the flushed backlog must be chunked, not sent as one request"
+        );
+        assert!(flushed.iter().all(|b| b.messages.len() <= 2));
+        assert!(flushed.iter().all(|b| b.worker == wid(1)));
+        assert_eq!(
+            flushed.iter().map(|b| b.messages.len()).sum::<usize>(),
+            stranded.len()
+        );
     }
 
     // ---- basic assignment ----
