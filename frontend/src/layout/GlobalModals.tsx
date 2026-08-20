@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
+import { MaybeBuyHedgehogCoffeeModal } from 'lib/components/BuyHedgehogCoffee/BuyHedgehogCoffee'
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
@@ -86,6 +87,7 @@ export function GlobalModals(): JSX.Element {
             {superpowersEnabled && <SuperpowersModal />}
             <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
             <MaybeWelcomeDialog />
+            <MaybeBuyHedgehogCoffeeModal />
             <ComposeTicketModal />
         </>
     )

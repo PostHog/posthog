@@ -132,6 +132,14 @@ snapshots:
         hash: v1.k794b7964.ef934195d496d0c4e7735690ef4a61707943504f417388fed41739776e23c9be.cJNua2OX40QT_jJP_gmnHsh_HU7W9FWyQr5F4PScTjk
     components-bulkupdatetagsbutton--replace-mode--light:
         hash: v1.k794b7964.049a5c3e535fe4407b74eefdcb54fd445bc805a1ce184a374a10d48d619363a6._GmRNKpvgknNL2cOUGUMzXkh_u5a6qe-jscOFsAA4HM
+    components-buy-hedgehog-coffee-modal--coffee--dark:
+        hash: v1.k794b7964.e984090bfdc758acbdd5e37dd001327b91106573b8721f60ae410a1e32b6b36e.E_-JQwPIBZPzGkR7be6ZarCpr0jixgU2Styq-68z-GE
+    components-buy-hedgehog-coffee-modal--coffee--light:
+        hash: v1.k794b7964.7818e30242fd18214487e534501d6bac8e9760f7847ebe07e990b8ce78004e25.03qIh8ne56L3_KXVQ6-K9H-TUYYaqUd0d-7s7hfutXk
+    components-buy-hedgehog-coffee-modal--money--dark:
+        hash: v1.k794b7964.1c5ea63bcf9d2b3753cd144b8ce102e06adc6733ece4ce3be6e524b774a67f04.ny6oLPIHr5QJdxzpt-TRwWrkoO85xbfq7qjqQKmnKOY
+    components-buy-hedgehog-coffee-modal--money--light:
+        hash: v1.k794b7964.e01d363e4f7b1816fbd170d3a945e468ddaa5b43c6eb3a5642d1152a436698fa.sa5h76jrHdTkrETF-6-R-0QVIJUZVdDFm63GMYjVTFo
     components-cards-button-tile-card--template--dark:
         hash: v1.k794b7964.e319229c46eb99bfc96474267da771f0e5cd68dbcd3f22b673cad29299e7b7c1.cXTNKkhjePnQSochAtS2mVIydyQgrN3DUeMyiePg0_o
     components-cards-button-tile-card--template--light:
@@ -8197,9 +8205,9 @@ snapshots:
     scenes-other-onboarding-legacy--authorized-domains--light:
         hash: v1.k794b7964.d9142bc3060b026a57093900dd891f9dfe3907db6788498b3a156c52e6aa939c.9klMXxpMhoA-iwEmWANTJqhGVTJJWc6LgtzzDVhZkdA
     scenes-other-onboarding-legacy--billing-plans--dark:
-        hash: v1.k794b7964.ecb999b376bb32db76ebcf8a6d09c07cff017170ffa72a10c8305eeb77676295.6td9xv_2kfFEnxGxinIh0TXYO-iHLnbx-lcbVyZ5eWs
+        hash: v1.k794b7964.d4043cd9eec7b8a8444bda78ae762eaf7249f63a3a7cfa9cb809f6a0a362c8ea.tUoafP7yE1XKoo6sEFY3v2lu4u0J-og3E1FBR6rutyw
     scenes-other-onboarding-legacy--billing-plans--light:
-        hash: v1.k794b7964.ebdc63ab5d8e9d5e0a6a3e21b8664ef5336084fda360a8d2fef62973c84173c5.E6FYslMDKelO8fhQsUEAEBl7dzXUi_Qn2U-HH8-3PCw
+        hash: v1.k794b7964.3c214d66fb341c568c7e80189bac7551021ac49d94ca90a95851d40354e639aa.a1juVii91xuI0--UHijsU9ESPmSurjgLeCMkRbFCrfw
     scenes-other-onboarding-legacy--invite-teammates--dark:
         hash: v1.k794b7964.46aeb5a0de7744d5989b9b982fe960000e8dbe856fbc62cbb8e4a389390cbe09.VSx95NpfU3z0i0ebKUjujQw0W56sxZgC1c-K2Gh6dmo
     scenes-other-onboarding-legacy--invite-teammates--light:

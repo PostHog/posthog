@@ -461,6 +461,7 @@ class TestBillingAPI(APILicensedTest):
             },
             "usage_summary": create_usage_summary(),
             "free_trial_until": None,
+            "is_under_free_allowance": False,
         }
 
     @patch("ee.api.billing.requests.get")
@@ -588,6 +589,7 @@ class TestBillingAPI(APILicensedTest):
             "discount_amount_usd": None,
             "deactivated": False,
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
+            "is_under_free_allowance": True,
         }
 
     @patch("ee.api.billing.requests.get")
