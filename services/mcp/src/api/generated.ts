@@ -16495,6 +16495,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `personal` - Personal
+     * * `general` - General
+     */
+    export type SystemRoleEnum = typeof SystemRoleEnum[keyof typeof SystemRoleEnum];
+
+
+    export const SystemRoleEnum = {
+      Personal: 'personal',
+      General: 'general',
+    } as const;
+
+    /**
      * Response shape for a task channel, read from a frozen ``ChannelDTO``.
      */
     export interface ChannelDTO {
@@ -16507,6 +16519,11 @@ export namespace Schemas {
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
       starred?: boolean;
+      /** Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.
+       *
+       * * `personal` - Personal
+       * * `general` - General */
+      readonly system_role: SystemRoleEnum | null;
     }
 
     export interface ChannelDeleteConflict {
@@ -17793,6 +17810,20 @@ export namespace Schemas {
       content_type?: string;
     }
 
+    /**
+     * One declared variable of a templated skill — the schema a client renders a form from.
+     */
+    export interface CommunitySkillTemplateVariable {
+      /** Variable identifier, substituted for `{{ name }}` in the skill body. */
+      name: string;
+      /** Human-readable question shown when collecting a value for this variable. */
+      prompt: string;
+      /** Whether a value must be supplied at install time (otherwise it falls back to the default). */
+      is_required: boolean;
+      /** Value used when none is supplied. Empty when the variable has no default. */
+      default: string;
+    }
+
     export interface CommunitySkill {
       readonly id: string;
       /** Stable identifier matching the skill's directory in the community-skills repo. */
@@ -17825,6 +17856,8 @@ export namespace Schemas {
       readonly github_url: string;
       /** Bundled files manifest — path and content_type only. File contents are copied in on install. */
       readonly files: readonly CommunitySkillFileManifest[];
+      /** Declared template variables, parsed from metadata. Non-empty marks this skill as a template: collect a value for each and pass them as `variables` when installing. */
+      readonly template_variables: readonly CommunitySkillTemplateVariable[];
       /** Number of times this skill has been installed into a team. */
       readonly install_count: number;
       /** Total number of upvotes this skill has received. */
@@ -17840,12 +17873,19 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills.
+     */
+    export type CommunitySkillInstallVariables = {[key: string]: string};
+
     export interface CommunitySkillInstall {
       /**
          * Name for the installed skill in your team. Defaults to the community skill's slug.
          * @maxLength 64
          */
       new_name?: string;
+      /** Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills. */
+      variables?: CommunitySkillInstallVariables;
     }
 
     /**
@@ -17884,6 +17924,8 @@ export namespace Schemas {
       readonly author_handle: string;
       /** Link to the skill's source directory on GitHub. */
       readonly github_url: string;
+      /** Declared template variables, parsed from metadata. Non-empty marks this skill as a template: collect a value for each and pass them as `variables` when installing. */
+      readonly template_variables: readonly CommunitySkillTemplateVariable[];
       /** Number of times this skill has been installed into a team. */
       readonly install_count: number;
       /** Total number of upvotes this skill has received. */
@@ -23120,6 +23162,7 @@ export namespace Schemas {
      * * `Profound` - Profound
      * * `Airwallex` - Airwallex
      * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24428,6 +24471,7 @@ export namespace Schemas {
       Profound: 'Profound',
       Airwallex: 'Airwallex',
       Polymarket: 'Polymarket',
+      Kalshi: 'Kalshi',
     } as const;
 
     /**
@@ -25749,7 +25793,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27765,7 +27810,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -35606,7 +35652,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -36948,7 +36995,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -37546,6 +37594,62 @@ export namespace Schemas {
       readonly name: string;
     }
 
+    export interface FeatureRequestEvidence {
+      /** Stable evidence ID. */
+      readonly id: string;
+      /** Internal summary of this account's request evidence. */
+      readonly summary: string;
+      /** Customer quote kept with this evidence item. */
+      readonly customer_quote: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      readonly evidence_source: string;
+      /** HTTP or HTTPS link to the source, or an empty string. */
+      readonly source_url: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      readonly requested_on: string | null;
+      /**
+         * ID of the user who added the evidence.
+         * @nullable
+         */
+      readonly created_by: number | null;
+      /**
+         * ID of the last user to update the evidence.
+         * @nullable
+         */
+      readonly updated_by: number | null;
+      /** When the evidence was added. */
+      readonly created_at: string;
+      /** When the evidence was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface FeatureRequestAccountLink {
+      /** Stable link ID between the request and account. */
+      readonly id: string;
+      /** Affected Customer Analytics account. */
+      readonly account: FeatureRequestAccount;
+      /** Evidence recorded for this account and request. List responses omit these items. */
+      readonly evidence: readonly FeatureRequestEvidence[];
+      /**
+         * Total evidence items recorded for this account and request.
+         * @minimum 0
+         */
+      readonly evidence_count: number;
+      /** When the account was first linked. */
+      readonly created_at: string;
+      /**
+         * When the account link was last changed.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
     export interface FeatureRequestProductArea {
       /** Stable product area ID. */
       readonly id: string;
@@ -37605,8 +37709,12 @@ export namespace Schemas {
          * @minimum 1
          */
       readonly version: number;
-      /** Affected account in the first release. */
+      /** Whether the caller can update this request and all its active account links. */
+      readonly can_update: boolean;
+      /** First visible account retained for client compatibility. Use account_links for the complete list. */
       readonly account: FeatureRequestAccount;
+      /** Active account links visible to the caller, with account-specific evidence. */
+      readonly account_links: readonly FeatureRequestAccountLink[];
       /** Product areas affected by this request. */
       readonly product_areas: readonly FeatureRequestProductArea[];
       /**
@@ -37625,6 +37733,40 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface FeatureRequestEvidencePayload {
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+    }
+
+    export interface FeatureRequestAddAccount {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Accessible account to link to this feature request. */
+      account_id: string;
+      /** Optional first evidence item to create for the account in the same change. */
+      evidence?: FeatureRequestEvidencePayload | null;
+    }
+
     export interface FeatureRequestCreate {
       /**
          * Required customer-facing request title.
@@ -37641,10 +37783,80 @@ export namespace Schemas {
       idempotency_key: string;
     }
 
+    export interface FeatureRequestEvidenceCreate {
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Active account link that owns this evidence. */
+      account_link_id: string;
+    }
+
+    export interface FeatureRequestEvidenceDelete {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Evidence item to delete. */
+      evidence_id: string;
+    }
+
+    export interface FeatureRequestEvidenceUpdate {
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Evidence item to replace. */
+      evidence_id: string;
+    }
+
     /**
      * * `status` - Status
      * * `priority` - Priority
      * * `account` - Account
+     * * `accounts` - Accounts
+     * * `evidence` - Evidence
      * * `product_areas` - Product areas
      */
     export type FieldEnum = typeof FieldEnum[keyof typeof FieldEnum];
@@ -37654,6 +37866,8 @@ export namespace Schemas {
       Status: 'status',
       Priority: 'priority',
       Account: 'account',
+      Accounts: 'accounts',
+      Evidence: 'evidence',
       ProductAreas: 'product_areas',
     } as const;
 
@@ -37667,7 +37881,19 @@ export namespace Schemas {
     } | {
       id: string;
       name: string;
-    }[] | null;
+    }[] | {
+      id: string;
+      account: {
+      id: string;
+      name: string;
+    };
+      summary: string;
+      customer_quote: string;
+      source: string;
+      source_url: string;
+      /** @nullable */
+      requested_on: string | null;
+    } | null;
 
     /**
      * Value after the update, including relation snapshots.
@@ -37679,7 +37905,19 @@ export namespace Schemas {
     } | {
       id: string;
       name: string;
-    }[] | null;
+    }[] | {
+      id: string;
+      account: {
+      id: string;
+      name: string;
+    };
+      summary: string;
+      customer_quote: string;
+      source: string;
+      source_url: string;
+      /** @nullable */
+      requested_on: string | null;
+    } | null;
 
     export interface FeatureRequestHistoryChange {
       /** Request field represented by this change.
@@ -37687,6 +37925,8 @@ export namespace Schemas {
        * * `status` - Status
        * * `priority` - Priority
        * * `account` - Account
+       * * `accounts` - Accounts
+       * * `evidence` - Evidence
        * * `product_areas` - Product areas */
       readonly field: FieldEnum;
       /** Value before the update, including relation snapshots. */
@@ -37770,8 +38010,10 @@ export namespace Schemas {
       title?: string;
       /** Updated optional customer-facing request description in Markdown. */
       description?: string;
-      /** Updated affected Customer Analytics account ID. */
+      /** Deprecated single affected account ID. Use account_ids. */
       account_id?: string;
+      /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+      account_ids?: string[];
       /** One or more product area IDs. Existing inactive areas can remain linked. */
       product_area_ids?: string[];
       /** Updated customer-facing lifecycle status.
@@ -58854,8 +59096,10 @@ export namespace Schemas {
       title?: string;
       /** Updated optional customer-facing request description in Markdown. */
       description?: string;
-      /** Updated affected Customer Analytics account ID. */
+      /** Deprecated single affected account ID. Use account_ids. */
       account_id?: string;
+      /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+      account_ids?: string[];
       /** One or more product area IDs. Existing inactive areas can remain linked. */
       product_area_ids?: string[];
       /** Updated customer-facing lifecycle status.
@@ -66518,6 +66762,18 @@ export namespace Schemas {
     }
 
     /**
+     * The requester's default channels, plus whether this call is what created them.
+     */
+    export interface ProvisionedChannels {
+      /** The full channel list after provisioning, same shape as the list endpoint. */
+      channels: ChannelDTO[];
+      /** Whether this call created the requester's personal #me channel. */
+      personal_created: boolean;
+      /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
+      general_created: boolean;
+    }
+
+    /**
      * * `waiting` - Waiting
      * * `issuing` - Issuing
      * * `valid` - Valid
@@ -72734,7 +72990,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_changed_at: string | null;
-      /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
+      /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
       readonly auto_pause_exempt: boolean;
       /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
       tags?: string[];
@@ -74701,7 +74957,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -76051,7 +76308,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -77391,7 +77649,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -84886,6 +85145,7 @@ export namespace Schemas {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -84982,6 +85242,7 @@ export namespace Schemas {
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
+      SignalTeamConfig: 'SignalTeamConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
@@ -85064,6 +85325,7 @@ export namespace Schemas {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -85148,6 +85410,7 @@ export namespace Schemas {
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
+      SignalTeamConfig: 'SignalTeamConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
