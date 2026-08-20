@@ -143,8 +143,7 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
-from products.alerts.backend.facade.api import serialize_insight_alerts
-from products.alerts.backend.facade.models import AlertConfiguration
+from products.alerts.backend.facade.api import delete_insight_alerts, insight_alerts_prefetch, serialize_insight_alerts
 from products.cohorts.backend.facade.models import Cohort
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
@@ -1897,15 +1896,7 @@ class InsightViewSet(
                     "dashboard_tiles",
                     queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
                 ),
-                Prefetch(
-                    "alertconfiguration_set",
-                    # AlertSerializer emits threshold and subscribed_users per alert; without these,
-                    # every alert in the list costs two extra queries
-                    queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
-                        "subscribed_users"
-                    ),
-                    to_attr="_prefetched_alerts",
-                ),
+                insight_alerts_prefetch(to_attr="_prefetched_alerts"),
             )
 
         # Add access level filtering for list actions if not sharing access token
@@ -2669,11 +2660,9 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=True, last_modified_at=now(), last_modified_by=current_user)
-                # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts. Alerts are
-                # deleted one at a time (not a queryset .delete()) so ModelActivityMixin.delete logs each removal.
+                # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts.
                 DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
-                for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
-                    alert.delete()
+                delete_insight_alerts(insight_ids)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:

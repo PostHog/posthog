@@ -5,6 +5,7 @@ from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
 import structlog
@@ -68,6 +69,35 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     # ids to ids and returns no row data.
     # nosemgrep: idor-lookup-without-team
     return set(AlertConfiguration.objects.filter(insight_id__in=insight_ids).values_list("insight_id", flat=True))
+
+
+def insight_alerts_prefetch(to_attr: str) -> Prefetch:
+    """A ``Prefetch`` loading an insight's alerts in the shape ``serialize_insight_alerts`` needs.
+
+    Callers add it to their insight queryset and read the alerts back off ``to_attr``. The
+    select_related/prefetch_related shape belongs here because it follows AlertSerializer:
+    that serializer emits threshold and subscribed_users per alert, so without them every
+    alert in the response costs two extra queries.
+    """
+    # Sets no team filter of its own: the prefetch is scoped by the insight queryset it is
+    # attached to, and an alert always belongs to its insight's team.
+    # nosemgrep: idor-lookup-without-team
+    queryset = AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related("subscribed_users")
+    return Prefetch("alertconfiguration_set", queryset=queryset, to_attr=to_attr)
+
+
+def delete_insight_alerts(insight_ids: Collection[int]) -> None:
+    """Delete the alerts pointing at the given insights.
+
+    Call this inside the transaction that deletes or hides the insights themselves, so an
+    insight can never come back without its alerts. Rows go one at a time rather than through a
+    queryset delete, because a queryset delete never calls ``AlertConfiguration.delete()``, and
+    ModelActivityMixin hangs its per-row activity logging off that override.
+    """
+    # Caller-supplied ids that are already team-scoped by the caller's own query.
+    # nosemgrep: idor-lookup-without-team
+    for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
+        alert.delete()
 
 
 def serialize_insight_alerts(alerts: Collection[AlertConfiguration], context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -181,7 +211,9 @@ __all__ = [
     "SlackSnoozeOutcome",
     "build_alert_destination_config",
     "create_alert_destination_hog_functions",
+    "delete_insight_alerts",
     "get_alert_team_id",
+    "insight_alerts_prefetch",
     "insight_ids_with_alerts",
     "serialize_insight_alerts",
     "snooze_alert_from_slack",

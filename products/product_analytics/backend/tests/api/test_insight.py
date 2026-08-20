@@ -55,7 +55,7 @@ from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
-from products.alerts.backend.facade.models import AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.facade.models import Cohort
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.facade.models import Dashboard, DashboardTile, Text
