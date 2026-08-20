@@ -132,6 +132,7 @@ from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
+    is_expected_user_query_error,
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
@@ -2201,8 +2202,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # deliberately not captured — they're returned to the user as 4xx. Note this
                         # gate is the SLO outcome, not a strict platform-vs-user split:
                         # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
-                        # those are user-input limits — see _classify_error_for_slo.
-                        capture_exception(exc)
+                        # those are user-input limits — see _classify_error_for_slo. Skip those user
+                        # limits here: the user fixes them by narrowing the query, so they are not
+                        # defects and must not reach error tracking.
+                        if not is_expected_user_query_error(exc):
+                            capture_exception(exc)
                     if self._query_failure_caching_enabled:
                         # Transient error classes classify to None and are never recorded.
                         failure_kind = classify_failure(exc, self.team.pk)

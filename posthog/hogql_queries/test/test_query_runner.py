@@ -778,6 +778,15 @@ class TestQueryRunner(BaseTest):
                 "error",
                 True,
             ),
+            (
+                # A per-query timeout is the user's to fix by narrowing the query. It stays a FAILURE
+                # for the SLO (perf errors dominate that category), but must not reach error tracking.
+                "user_query_timeout",
+                ClickHouseQueryTimeOut,
+                SloOutcome.FAILURE,
+                "query_performance_error",
+                False,
+            ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )

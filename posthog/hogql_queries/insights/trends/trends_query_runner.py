@@ -319,7 +319,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     limit_context=self.limit_context,
                 )
 
-                query = query_builder.build_query()
+                query = query_builder.build_breakdown_values_query()
                 breakdown = query_builder.breakdown
 
                 results = execute_hogql_query(

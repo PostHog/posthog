@@ -72,6 +72,51 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return self._outer_select_query(inner_query=inner_query)
 
+    def build_breakdown_values_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Return only the breakdown values the chart shows, ranked and capped at the breakdown
+        limit. The actors-modal dropdown needs the values, not the per-day totals, so this ranks
+        breakdowns like the chart does but skips the date-array transposition of build_query."""
+        events_query = self._base_events_query()
+        inner_query = self._inner_select_query(inner_query=events_query)
+
+        breakdown_limit = self._get_breakdown_limit() + 1
+
+        rank_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    breakdown_value as breakdown_value,
+                    sum(count) as total,
+                    row_number() OVER (ORDER BY sum(count) DESC, breakdown_value ASC) as row_number
+                FROM {inner_query}
+                GROUP BY breakdown_value
+                """,
+                placeholders={"inner_query": inner_query},
+            ),
+        )
+
+        return parse_select(
+            """
+            SELECT {breakdown_select}
+            FROM {rank_query}
+            WHERE {breakdown_filter}
+            GROUP BY breakdown_value
+            ORDER BY
+                {breakdown_order_by},
+                sum(total) DESC,
+                breakdown_value ASC
+            LIMIT {breakdown_limit}
+            """,
+            placeholders={
+                "breakdown_select": self._breakdown_outer_query_select(self.breakdown, breakdown_limit=breakdown_limit),
+                "rank_query": rank_query,
+                "breakdown_filter": self._breakdown_outer_query_filter(self.breakdown),
+                "breakdown_order_by": self._breakdown_query_order_by(self.breakdown),
+                "breakdown_limit": ast.Constant(value=breakdown_limit),
+            },
+        )
+
     def _total_value_by_breakdown_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         rank_query = cast(
             ast.SelectQuery,

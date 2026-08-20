@@ -28,6 +28,34 @@ FAILURE_KIND_EXCEPTIONS: dict[FailureKind, type[APIException]] = {
 }
 
 
+# User-caused query failures: the query is too big, too slow, or scans too much. Both the fresh
+# classes raised when a query hits ClickHouse and the classes build_failure_exception replays from
+# cache. The user fixes these by narrowing the query, so they are not defects.
+_USER_QUERY_ERROR_CLASSES: tuple[type[Exception], ...] = (
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseBytesLimitExceeded,
+    CHQueryErrorTooManyBytes,
+)
+
+# The Temporal interceptor sees these wrapped as an ApplicationError whose `type` is the original
+# class name, so it matches by name rather than isinstance.
+USER_QUERY_ERROR_TYPE_NAMES: frozenset[str] = frozenset(cls.__name__ for cls in _USER_QUERY_ERROR_CLASSES)
+
+
+def is_expected_user_query_error(error: Exception) -> bool:
+    """True for user-caused query failures and for any failure the breaker replayed from cache.
+    Capture sites skip error tracking for these — they are the user's to fix, not defects."""
+    if getattr(error, "served_from_query_failure_cache", False):
+        return True
+    if isinstance(error, ClickHouseQueryMemoryLimitExceeded) and not error.is_per_query_limit:
+        # Cluster or user-wide memory pressure is transient infra, not the user's query.
+        return False
+    return isinstance(error, _USER_QUERY_ERROR_CLASSES)
+
+
 def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optional[FailureKind]:
     """Return the failure kind for errors that will repeat on retry, None for everything else."""
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
