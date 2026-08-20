@@ -25,6 +25,7 @@ from posthog.exceptions_capture import capture_exception
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    BinaryColumnReporter,
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
@@ -922,6 +923,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 )
 
         def get_rows() -> Iterator[Any]:
+            binary_reporter = BinaryColumnReporter(logger)
             with self.connect(config) as streaming_connection:
                 with streaming_connection.cursor() as cursor:
                     query, args = _build_query(
@@ -949,7 +951,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                         if not rows:
                             break
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                        yield table_from_iterator(
+                            (dict(zip(column_names, row)) for row in rows),
+                            arrow_schema,
+                            primary_keys=primary_keys,
+                            binary_reporter=binary_reporter,
+                        )
 
         return SourceResponse(
             name=location.response_name,
