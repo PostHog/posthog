@@ -299,7 +299,7 @@ export function buildInboxViewedProperties(
       actionabilityCounts.requires_human_input,
     actionability_not_actionable_count: actionabilityCounts.not_actionable,
     actionability_unknown_count: actionabilityCounts.unknown,
-    pulls_count: tabCounts.pulls,
-    reports_count: tabCounts.reports,
+    pulls_tab_count: tabCounts.pulls,
+    reports_tab_count: tabCounts.reports,
   };
 }

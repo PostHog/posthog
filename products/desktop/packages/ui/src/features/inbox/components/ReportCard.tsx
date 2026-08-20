@@ -7,6 +7,7 @@ import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import {
   deriveHeadline,
   displayConventionalCommitTitle,
+  isStatusRedundantWithActionability,
   parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
 import { Button } from "@posthog/quill";
@@ -187,9 +188,10 @@ export function ReportCardView(props: ReportCardViewProps) {
               </>
             ) : (
               <>
-                {(!isReady || !report.actionability) && (
-                  <SignalReportStatusBadge status={report.status} />
-                )}
+                {!isStatusRedundantWithActionability(
+                  report.status,
+                  report.actionability,
+                ) && <SignalReportStatusBadge status={report.status} />}
                 {report.actionability && (
                   <SignalReportActionabilityBadge
                     actionability={report.actionability}

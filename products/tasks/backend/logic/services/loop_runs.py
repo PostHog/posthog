@@ -783,18 +783,13 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     task_run = task.create_run(mode="background", extra_state=extra_state)
 
-    team_id = loop.team_id
-    user_id = loop.created_by_id
-    task_id = str(task.id)
-    run_id = str(task_run.id)
-
     transaction.on_commit(
         lambda: _seed_skill_bundles_and_dispatch(
             task_run=task_run,
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            run_id=run_id,
+            team_id=loop.team_id,
+            user_id=loop.created_by_id,
+            task_id=str(task.id),
+            run_id=str(task_run.id),
             create_pr=create_pr,
             posthog_mcp_scopes=posthog_mcp_scopes,
         )

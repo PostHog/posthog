@@ -168,6 +168,19 @@ const eventsInFlight = new Gauge({
     help: 'Number of events in accepted batches currently being processed by the ingestion API',
 })
 
+// The integral of `eventsInFlight` over time, accumulated one batch at a time:
+// a batch holding N events for T seconds contributes N*T. Because
+// integral(in_flight dt) equals sum(events * time in flight), rate() over this
+// counter is the exact time-weighted mean events in flight for the interval,
+// where the gauge above only reports whatever instant the scrape happened to
+// land on. In-flight turns over on a sub-second timescale and scrapes are tens
+// of seconds apart, so the gauge is far too noisy to autoscale on directly.
+// Same relationship as container_cpu_usage_seconds_total and CPU utilization.
+const eventSecondsInFlight = new Counter({
+    name: 'ingestion_api_event_seconds_in_flight_total',
+    help: 'Cumulative event-seconds spent in flight; rate() gives mean events in flight',
+})
+
 /**
  * Ingestion API server that exposes the ingestion pipeline as an HTTP endpoint.
  *
@@ -269,6 +282,7 @@ export class IngestionApiServer implements NodeServer {
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
             personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
+            personCreateClaimTeamAllowlist: this.config.PERSON_CREATE_CLAIM_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(
             personhogClient,
@@ -527,10 +541,10 @@ export class IngestionApiServer implements NodeServer {
 
         const startTime = Date.now()
 
-        // Event count of this batch once accepted, or null while it is not.
-        // Holding the count (rather than a bool) makes the `finally` decrement
-        // exactly what was incremented, even if `messages` is out of scope.
-        let inFlight: number | null = null
+        // Event count and acceptance time of this batch once accepted, or null
+        // while it is not. Holding both (rather than a bool) makes the `finally`
+        // credit exactly what was counted, even if `messages` is out of scope.
+        let inFlight: { events: number; acceptedAt: number } | null = null
 
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
@@ -575,7 +589,7 @@ export class IngestionApiServer implements NodeServer {
             // slot until processing completes below.
             batchesInFlight.inc()
             eventsInFlight.inc(messages.length)
-            inFlight = messages.length
+            inFlight = { events: messages.length, acceptedAt: Date.now() }
 
             // The pipeline handles its own side effects (scheduling them on
             // the promise scheduler), so draining results is all that's left
@@ -615,7 +629,8 @@ export class IngestionApiServer implements NodeServer {
         } finally {
             if (inFlight !== null) {
                 batchesInFlight.dec()
-                eventsInFlight.dec(inFlight)
+                eventsInFlight.dec(inFlight.events)
+                eventSecondsInFlight.inc((inFlight.events * (Date.now() - inFlight.acceptedAt)) / 1000)
             }
         }
     }

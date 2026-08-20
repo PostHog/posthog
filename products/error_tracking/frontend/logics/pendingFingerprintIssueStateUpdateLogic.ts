@@ -3,11 +3,7 @@ import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } fro
 import api from 'lib/api'
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 
-import {
-    ErrorTrackingIssue,
-    ErrorTrackingPendingFingerprintIssueStateUpdate,
-    ErrorTrackingRelationalIssue,
-} from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingPendingFingerprintIssueStateUpdate } from '~/queries/schema/schema-general'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { issuesDataNodeLogic } from './issuesDataNodeLogic'
@@ -151,16 +147,14 @@ export const pendingFingerprintIssueStateUpdateLogic = kea<pendingFingerprintIss
 ])
 
 function findCurrentIssueState(id: string): CurrentIssueState | null {
-    const detail = errorTrackingIssueSceneLogic.findMounted({ id })?.values.issue as
-        | ErrorTrackingRelationalIssue
-        | null
-        | undefined
+    const detail = errorTrackingIssueSceneLogic.findMounted({ id })?.values.issue
     if (detail && detail.id === id) {
         return {
             id: detail.id,
             name: detail.name ?? null,
             description: detail.description ?? null,
             status: detail.status,
+            severity: detail.severity ?? null,
             assignee: detail.assignee ?? null,
             first_seen: detail.first_seen,
         }
@@ -174,6 +168,7 @@ function findCurrentIssueState(id: string): CurrentIssueState | null {
             name: listIssue.name ?? null,
             description: listIssue.description ?? null,
             status: listIssue.status,
+            severity: listIssue.severity ?? null,
             assignee: listIssue.assignee ?? null,
             first_seen: listIssue.first_seen,
         }
