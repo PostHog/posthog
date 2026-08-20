@@ -274,9 +274,7 @@ def list_active_alert_destinations(
 class AlertDestinationGroup:
     hog_function_ids: tuple[str, ...]
     data: AlertDestinationData
-    # True only when every HogFunction in the group is enabled. One disabled row means the
-    # destination stops receiving that event kind, so the group is no longer fully active.
-    enabled: bool
+    fully_enabled: bool
 
 
 def _destination_type_for_template(template_id: str | None) -> DestinationType | None:
@@ -330,7 +328,7 @@ def list_alert_destination_groups(
         AlertDestinationGroup(
             hog_function_ids=tuple(sorted(hog_function_ids)),
             data=data_by_key[key],
-            enabled=enabled_by_key[key],
+            fully_enabled=enabled_by_key[key],
         )
         for key, hog_function_ids in ids_by_key.items()
     ]

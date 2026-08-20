@@ -1039,7 +1039,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             allowed_destination_types=LOGS_DESTINATION_TYPES,
         )
         destinations = [
-            {"hog_function_ids": list(group.hog_function_ids), "enabled": group.enabled, **group.data}
+            {"hog_function_ids": list(group.hog_function_ids), "enabled": group.fully_enabled, **group.data}
             for group in groups
         ]
 
