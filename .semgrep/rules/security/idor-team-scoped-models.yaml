@@ -182,6 +182,7 @@ rules:
                               |FeatureFlag
                               |FeatureRequest
                               |FeatureRequestAccountLink
+                              |FeatureRequestEvidence
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
@@ -553,6 +554,7 @@ rules:
                         |FeatureFlag
                         |FeatureRequest
                         |FeatureRequestAccountLink
+                        |FeatureRequestEvidence
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
