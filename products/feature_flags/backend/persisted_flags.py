@@ -20,18 +20,19 @@ def is_unconditionally_fully_rolled_out(flag: FlagDefinition) -> bool:
     if filters.get("aggregation_group_type_index") is not None:
         return False
 
-    groups = filters.get("groups") or []
-    if len(groups) != 1:
-        return False
+    # Release-condition groups are OR-ed: a single blanket group (no properties,
+    # 100%-or-unset rollout, no variant override) means everyone matches, regardless
+    # of the other, more targeted groups alongside it.
+    for group in filters.get("groups") or []:
+        if group.get("properties"):
+            continue
+        if group.get("variant"):
+            continue
+        rollout_percentage = group.get("rollout_percentage")
+        if rollout_percentage is None or rollout_percentage == 100:
+            return True
 
-    group = groups[0]
-    if group.get("properties"):
-        return False
-    if group.get("variant"):
-        return False
-
-    rollout_percentage = group.get("rollout_percentage")
-    return rollout_percentage is None or rollout_percentage == 100
+    return False
 
 
 def get_dynamic_persisted_feature_flags(
