@@ -155,6 +155,7 @@ function UrlTriggerOptions(): JSX.Element | null {
             addUrl={addUrlTrigger}
             validationWarning={urlTriggerInputValidationWarning}
             title="Enable recordings when URL matches"
+            titleBadge={<Since web={{ version: '1.171.0' }} />}
             description="Adding a URL trigger means recording will only be started when the user visits a page that matches the URL."
             checkUrl={checkUrlTrigger}
             checkUrlResults={checkUrlTriggerResults}
@@ -197,8 +198,8 @@ function UrlBlocklistOptions(): JSX.Element | null {
             formKey="proposedUrlBlocklist"
             addUrl={addUrlBlocklist}
             validationWarning={urlBlocklistInputValidationWarning}
-            title="Pause recordings when the user visits a page that matches the URL"
-            description="Used to pause recordings for part of a user journey"
+            title="URL blocklist"
+            description="Pause recordings while the user is on a page that matches the URL."
             checkUrl={checkUrlBlocklist}
             checkUrlResults={checkUrlBlocklistResults}
             setCheckUrl={setCheckUrlBlocklist}

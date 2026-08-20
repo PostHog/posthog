@@ -23,9 +23,12 @@ const RECORDING_STATUS_EXPLANATIONS: Record<string, string> = {
     active: 'The SDK is recording and producing snapshots.',
     buffering:
         'The SDK initialized but is waiting (for a trigger, duration, or remote config) before producing snapshots.',
-    disabled: 'Recording is turned off — either in project settings or via SDK config at runtime.',
-    sampled: 'This session was included by the configured replay sample rate — recording started.',
+    disabled: 'Recording is turned off, either in project settings or in the SDK config at runtime.',
+    sampled: 'This session was included by the configured replay sample rate, so recording started.',
     paused: 'Recording is temporarily paused for this session.',
+    lazy_loading: 'The SDK is still loading the recorder script before it can produce snapshots.',
+    pending_config: 'The SDK is waiting for recording settings from PostHog before it can start.',
+    rrweb_error: 'The recorder hit an error and could not produce snapshots.',
 }
 
 const START_REASON_EXPLANATIONS: Record<string, string> = {
