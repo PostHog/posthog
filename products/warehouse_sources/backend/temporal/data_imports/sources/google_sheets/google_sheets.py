@@ -356,7 +356,16 @@ def google_sheets_source(
 
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
-    headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
+    try:
+        headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
+    except gspread.exceptions.APIError as e:
+        # Same deterministic 400 handled in `get_schema_incremental_fields` above (e.g. empty
+        # sheets, or sheets resized to have no columns) — treat it as a worksheet with no header
+        # row rather than failing the sync.
+        if e.code == 400 and "Unable to parse range" in str(e):
+            headers = []
+        else:
+            raise
     if len(headers) > 0:
         _assert_unique_normalized_column_names(headers[0])
     primary_keys = None
