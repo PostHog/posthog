@@ -831,7 +831,11 @@ def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
     """Personal AI override sub-card. Always editable by the user themselves."""
 
     has_override = bool(user_row and user_row.runtime_adapter and user_row.model)
-    summary = _row_summary(user_row) if has_override else "_No personal override — inheriting the project default._"
+    summary = (
+        _row_summary(user_row)
+        if has_override
+        else "_No personal override. Inheriting your PostHog task agent default._"
+    )
 
     actions: list[dict] = [
         {
