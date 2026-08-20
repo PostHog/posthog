@@ -133,6 +133,19 @@ describe("CommandMenu feed queries", () => {
     ).toBeTruthy();
   });
 
+  it("shows a selected command in the recent section", async () => {
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <CommandMenu open onOpenChange={() => {}} />
+      </Theme>,
+    );
+
+    await user.click(await screen.findByText("Toggle left sidebar"));
+
+    expect(await screen.findByText("Recent")).toBeTruthy();
+  });
+
   it("labels incomplete task search results", async () => {
     taskResultsComplete = false;
     const user = userEvent.setup();

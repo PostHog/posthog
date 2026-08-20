@@ -3,16 +3,14 @@ from datetime import timedelta
 from typing import Optional
 
 from django.conf import settings
-from django.core.cache import BaseCache, caches
 from django.db import DatabaseError
 
 import structlog
-from django_redis import get_redis_connection
 from prometheus_client import Counter, Histogram
 from redis import Redis, RedisCluster
 
 from posthog.cache_utils import cache_for
-from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
+from posthog.query_cache import storage
 
 logger = structlog.get_logger(__name__)
 
@@ -96,6 +94,19 @@ redis.call('EXPIRE', total_key, tracking_ttl)
 return redis.call('GET', total_key)
 """
 
+# Lua script for the pointer swap: replace the entry only while it still holds the exact bytes
+# the caller wrote, so a swap that lost a race to a newer write skips instead of clobbering it.
+# Compares the full expected value rather than a redis.sha1hex digest because fakeredis's Lua
+# runtime, which the tests run on, does not implement sha1hex.
+REPLACE_IF_UNCHANGED_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+if current ~= ARGV[1] then
+    return 0
+end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+return 1
+"""
+
 # Lua script for atomic and idempotent tracking removal
 # Only decrements if key exists in hash, preventing double-decrement races
 REMOVE_TRACKING_SCRIPT = """
@@ -145,13 +156,11 @@ class TeamCacheSizeTracker:
     def __init__(
         self,
         team_id: int,
-        cache_backend: BaseCache | None = None,
         redis_client: Redis | RedisCluster | None = None,
     ):
         self.team_id = team_id
-        self._cache = cache_backend if cache_backend is not None else caches[QUERY_CACHE_ALIAS]
         self.redis_client: Redis | RedisCluster = (
-            redis_client if redis_client is not None else get_redis_connection(QUERY_CACHE_ALIAS)
+            redis_client if redis_client is not None else storage.query_cache_raw_client()
         )
         self.entries_key = f"posthog:cache_sizes:{{{team_id}}}"
         self.sizes_key = f"posthog:cache_entry_sizes:{{{team_id}}}"
@@ -159,9 +168,10 @@ class TeamCacheSizeTracker:
 
         # redis-py's stubs omit register_script on RedisCluster; the runtime supports it.
         self._track_write_script = self.redis_client.register_script(TRACK_CACHE_WRITE_SCRIPT)  # type: ignore[union-attr]
+        self._replace_if_unchanged_script = self.redis_client.register_script(REPLACE_IF_UNCHANGED_SCRIPT)  # type: ignore[union-attr]
         self._remove_tracking_script = self.redis_client.register_script(REMOVE_TRACKING_SCRIPT)  # type: ignore[union-attr]
 
-    def set(self, cache_key: str, data: bytes, data_size: int, ttl: int) -> list[str]:
+    def set(self, cache_key: str, data: bytes, ttl: int) -> list[str]:
         """
         Set cache data with size limit enforcement.
         Returns list of evicted keys.
@@ -170,6 +180,7 @@ class TeamCacheSizeTracker:
         temporarily exceed the limit. This is acceptable because the next write will
         trigger eviction and bring the size back under limit.
         """
+        data_size = len(data)
         limit = get_team_cache_limit(self.team_id)
         evicted: list[str] = []
         size_before = self.get_total_size()
@@ -180,7 +191,7 @@ class TeamCacheSizeTracker:
         if size_before + data_size > limit:
             evicted = self.evict_until_under_limit(limit, data_size)
 
-        self._cache.set(cache_key, data, ttl)
+        self.redis_client.set(storage.entry_redis_key(cache_key), data, ex=ttl)
         self.track_cache_write(cache_key, data_size)
 
         total_size = self.get_total_size()
@@ -200,6 +211,22 @@ class TeamCacheSizeTracker:
         )
 
         return evicted
+
+    def replace_value(self, cache_key: str, data: bytes, ttl: int, *, expected: bytes) -> bool:
+        """Swap an entry's stored bytes for `data` only while it still holds `expected`,
+        updating size accounting on success; returns whether the swap landed. Skips set()'s
+        limit check and logging: for the pointer swap, where the new value only ever shrinks
+        usage, and a store that landed mid-upload must not be replaced by an older upload's
+        pointer. Also runs on upload worker threads, so it must stay free of Django ORM calls.
+        """
+        swapped = self._replace_if_unchanged_script(
+            keys=[storage.entry_redis_key(cache_key)],
+            args=[expected, data, ttl],
+        )
+        if not swapped:
+            return False
+        self.track_cache_write(cache_key, len(data))
+        return True
 
     def track_cache_write(self, cache_key: str, size_bytes: int) -> None:
         """Track a cache write with its size. Atomic via Lua script."""
@@ -231,13 +258,13 @@ class TeamCacheSizeTracker:
                 cache_key = cache_key.decode()
 
             # Check if key still exists in cache (lazy cleanup for TTL-expired keys)
-            if cache_key not in self._cache:
+            if not self.redis_client.exists(storage.entry_redis_key(cache_key)):
                 # Already expired via TTL, just clean up tracking
                 removed_size = self._remove_tracking(cache_key)
                 current_size -= removed_size
                 continue
 
-            self._cache.delete(cache_key)
+            self.redis_client.delete(storage.entry_redis_key(cache_key))
             removed_size = self._remove_tracking(cache_key)
 
             current_size -= removed_size
