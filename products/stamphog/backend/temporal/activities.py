@@ -236,6 +236,13 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     # familiarity section from the reviewer prompt; the review itself proceeds normally.
     is_inbox_review = bool((run.output or {}).get("inbox_review"))
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
+    # The engine cannot resolve which of the owning teams the author belongs to. The sandbox holds
+    # no token, and the engine learns the owning teams only after it reads the checkout's ownership
+    # sources. One bulk lookup here gives the engine every team that the author belongs to, and the
+    # engine intersects that list with the teams that own the changed paths. Inbox reviews skip this
+    # lookup for the same reason that they skip author_pr_numbers: the author is the App machine
+    # user, so its team membership says nothing about who wrote the diff.
+    author_team_slugs = client.get_user_team_slugs(repo.split("/")[0], author) if author and not is_inbox_review else []
 
     policy_files: dict[str, str] = {}
     for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
@@ -254,6 +261,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "pr_reactions": client.get_pr_reactions(repo, pull_request.pr_number),
         "policy_files": policy_files,
         "author_pr_numbers": author_pr_numbers,
+        "author_team_slugs": author_team_slugs,
     }
     run.save(update_fields=["output", "updated_at"])
 
@@ -400,6 +408,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     pr_reactions = output.get("pr_reactions", [])
     policy_files = output.get("policy_files", {})
     author_pr_numbers = output.get("author_pr_numbers", [])
+    author_team_slugs = output.get("author_team_slugs", [])
 
     # The trusted source for each policy file is the repo's default branch layered over the
     # server-shipped defaults (see _effective_policy_files): policy.yml is a section overlay, the
@@ -440,6 +449,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         check_runs=check_runs,
         pr_reactions=pr_reactions,
         author_pr_numbers=author_pr_numbers,
+        author_team_slugs=author_team_slugs,
         base_sha=base_sha,
         head_sha=run.head_sha,
         repo=repo,

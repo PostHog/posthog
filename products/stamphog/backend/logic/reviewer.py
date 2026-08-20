@@ -104,6 +104,7 @@ def build_reviewer_invocation(
     check_runs: list[dict],
     pr_reactions: list[dict],
     author_pr_numbers: list[int],
+    author_team_slugs: list[str],
     base_sha: str,
     head_sha: str,
     repo: str,
@@ -121,6 +122,9 @@ def build_reviewer_invocation(
     ``author_pr_numbers`` are the author's merged-PR numbers the server fetched
     (the engine needs them for the git-blame familiarity signal, which it
     otherwise gets from a `gh` call it can't make in the sandbox).
+    ``author_team_slugs`` are every GitHub team the author belongs to, which the
+    engine intersects with the teams owning the changed paths to tell the reviewer
+    whether the author owns the code (another `gh` call the sandbox can't make).
     ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
     to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
     never sets it, and only a run stamped with inbox provenance turns it on.
@@ -137,6 +141,7 @@ def build_reviewer_invocation(
         "check_runs": check_runs,
         "pr_reactions": pr_reactions,
         "author_pr_numbers": list(author_pr_numbers),
+        "author_team_slugs": list(author_team_slugs),
         "self_driving_review": self_driving_review,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]
