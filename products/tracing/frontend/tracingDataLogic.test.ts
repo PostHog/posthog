@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
@@ -298,6 +298,26 @@ describe('tracingDataLogic', () => {
             expect(toastSpy).not.toHaveBeenCalled()
             toastSpy.mockRestore()
             countSpy.mockRestore()
+        })
+
+        it.each([
+            { name: 'a 500', error: new ApiError('boom', 500, undefined, { detail: 'A server error occurred.' }) },
+            { name: 'a network error', error: new NetworkError('network') },
+        ])('re-throws $name so it reaches failure reporting, without filter advice', async ({ error }) => {
+            silenceKeaLoadersErrors()
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+            const countSpy = jest.spyOn(api.tracing, 'count').mockRejectedValue(error)
+            logic = mountWithSpans([])
+            // The loader must reject on a genuine fault, so the global loaders handler still captures it;
+            // only the expected pre-flight 400 is swallowed and shown inline.
+            await expectLogic(logic, async () => {
+                await logic.asyncActions.fetchMatchingCounts().catch(() => {})
+            }).toDispatchActions(['fetchMatchingCountsFailure'])
+            expect(logic.values.matchingCountsError).toBeNull()
+            expect(logic.values.matchingCountsAbortController).toBeNull()
+            toastSpy.mockRestore()
+            countSpy.mockRestore()
+            resumeKeaLoadersErrors()
         })
 
         it('clears the count error once a later fetch starts', async () => {

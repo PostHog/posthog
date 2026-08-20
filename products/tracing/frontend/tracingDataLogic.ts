@@ -1209,15 +1209,20 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         if (isUserInitiatedError(error)) {
                             throw error
                         }
+                        actions.setMatchingCountsAbortController(null)
                         // The count is a bounded pre-flight that returns an actionable 400 when it would
                         // scan too much data. Show that message where the count sits instead of a toast
-                        // plus a captured exception, and clear this request's own controller.
-                        actions.setMatchingCountsAbortController(null)
-                        actions.setMatchingCountsError(
-                            (error instanceof ApiError && error.detail) ||
-                                'The matching count could not be loaded. Add a filter or pick a shorter date range, then retry.'
-                        )
-                        return values.matchingCounts
+                        // plus a captured exception. Any other failure — a 500, a timeout, a network
+                        // error — is a genuine fault, so re-throw it to reach the normal failure reporting
+                        // rather than mislabel it as a filter problem.
+                        if (error instanceof ApiError && error.status === 400) {
+                            actions.setMatchingCountsError(
+                                error.detail ||
+                                    'The matching count could not be loaded. Add a filter or pick a shorter date range, then retry.'
+                            )
+                            return values.matchingCounts
+                        }
+                        throw error
                     }
                 },
             },
