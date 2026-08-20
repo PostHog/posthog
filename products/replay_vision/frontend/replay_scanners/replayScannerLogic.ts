@@ -114,6 +114,10 @@ export const OBSERVATIONS_PAGE_SIZE = 50
 // Past this many rows the clipboard is the wrong tool.
 const COPY_ALL_OBSERVATIONS_LIMIT = 500
 
+// Stable id for the AI goal-draft error toast. The draft request can resolve after the user leaves
+// the wizard, so a stable id lets us dismiss a stale toast when the editor unmounts.
+const GOAL_DRAFT_ERROR_TOAST_ID = 'replay-vision-goal-draft-error'
+
 function currentTemplateKey(): string | null {
     const value = router.values.searchParams.template
     return typeof value === 'string' ? value : null
@@ -1679,7 +1683,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             draftScannerFromGoalFailure: ({ errorObject }) => {
-                lemonToast.error(`Couldn't draft a scanner${errorObject?.detail ? `: ${errorObject.detail}` : ''}`)
+                lemonToast.error(`Couldn't draft a scanner${errorObject?.detail ? `: ${errorObject.detail}` : ''}`, {
+                    toastId: GOAL_DRAFT_ERROR_TOAST_ID,
+                })
             },
 
             // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
@@ -2116,6 +2122,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 
     beforeUnmount(({ values, props, cache }) => {
+        // The AI draft toast is tied to the wizard, so it must not linger on the next page.
+        lemonToast.dismiss(GOAL_DRAFT_ERROR_TOAST_ID)
         if (props.id === 'new' && cache.draftTouched && values.scannerDraftSavedAt !== null) {
             lemonToast.info('Draft saved', {
                 button: {

@@ -204,6 +204,22 @@ describe('replayScannerLogic', () => {
             expect(router.values.location.pathname).toEqual(pathBefore)
         })
 
+        it('dismisses the draft error toast when the wizard unmounts, so it cannot follow the user', async () => {
+            draftSpy.mockReturnValue([503, { detail: 'model down' }])
+            const errorSpy = jest.spyOn(lemonToast, 'error')
+            const dismissSpy = jest.spyOn(lemonToast, 'dismiss')
+
+            await expectLogic(logic, () => logic.actions.draftScannerFromGoal('find rage clicks'))
+                .toDispatchActions(['draftScannerFromGoalFailure'])
+                .toFinishAllListeners()
+
+            const toastId = errorSpy.mock.calls.at(-1)?.[1]?.toastId
+            expect(toastId).toBeTruthy()
+
+            logic.unmount()
+            expect(dismissSpy).toHaveBeenCalledWith(toastId)
+        })
+
         // The in-player analysis nudge hands the goal to the wizard via a one-shot sessionStorage
         // hand-off that authorizes the auto-start; the free text never travels in the URL.
         it('consumes the nudge hand-off: prefills the box and starts the draft with the goal never in the URL', async () => {

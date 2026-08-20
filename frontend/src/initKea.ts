@@ -54,6 +54,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
     'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
+    'draftScannerFromGoal', // replayScannerLogic toasts the AI draft failure itself
 ]
 
 /*
