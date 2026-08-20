@@ -2309,6 +2309,74 @@ def update_feature_request(
     )
 
 
+def add_feature_request_account(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.AddFeatureRequestAccountInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.add_feature_request_account(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def create_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.CreateFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.create_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def update_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.UpdateFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.update_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def delete_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.DeleteFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.delete_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
 def set_feature_request_archived(
     *,
     team_id: int,
