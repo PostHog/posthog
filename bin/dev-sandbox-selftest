@@ -181,6 +181,16 @@ check_write_blocked() {
     $SANDBOX "echo x > '$1'" >/dev/null 2>&1
     report_write_blocked $? "$2" || rm -f "$1"
 }
+# For files that really exist and must not be damaged by the probe: opens for
+# append and writes nothing, so Seatbelt still has to decide on write access while
+# a missing deny cannot corrupt the file.
+check_write_blocked_existing() {
+    if $SANDBOX ": >> '$1'" >/dev/null 2>&1; then
+        die "writable, should be blocked: $2"
+    else
+        pass "write blocked: $2"
+    fi
+}
 check_write_blocked "bin/.dev_sandbox_selftest_probe" "repo bin/"
 mkdir -p .git/hooks 2>/dev/null || true
 check_write_blocked ".git/hooks/.dev_sandbox_selftest_probe" ".git/hooks"
@@ -397,6 +407,307 @@ if [[ -f "$marker" ]]; then
 else
     pass "shebang ignores a PATH-planted bash"
 fi
+
+# 16. Every git config file git reads is allowed. Git exits 128 on a config file it
+#     cannot stat, so each case runs git INSIDE the sandbox against a synthetic $HOME
+#     holding one of the config layouts developers actually have. The synthetic homes
+#     keep the developer's real config out of it, and are canonicalized because
+#     Seatbelt matches physical paths (/var -> /private/var), and an uncanonicalized
+#     $HOME would leave the profile's own deny matching nothing, which makes every
+#     check below meaningless.
+if ! command -v git >/dev/null 2>&1; then
+    echo "  --   git absent, skipping git-config checks"
+elif ! $SANDBOX 'git --version >/dev/null' 2>/dev/null; then
+    # A git binary under $HOME is dropped from the sandboxed PATH on purpose (check 13),
+    # so these cases have nothing to run. The collector itself still works: it runs
+    # before the sandbox starts and uses the unsanitized PATH.
+    echo "  --   git not runnable inside the sandbox, skipping git-config checks"
+else
+    gitcfg_root="$(cd "$(mktemp -d)" && pwd -P)"
+    # Own TMPDIR: each synthetic $HOME renders its own profile, and those must stay
+    # out of the private TMPDIR check 12 exported, whose single profile is the one
+    # checks 12 and 13 glob for.
+    mkdir -p "$gitcfg_root/tmp"
+    gitcfg_case() {
+        local name="$1" home="$2" dir="${3:-$repo}" out
+        out="$(cd "$dir" && HOME="$home" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" 'git config --list >/dev/null && echo GITCFG_OK' 2>&1)"
+        if [[ "$out" == *GITCFG_OK* ]]; then
+            pass "git config readable in sandbox: $name"
+        else
+            die "git config unreadable in sandbox: $name (${out:-no output})"
+        fi
+    }
+
+    # A regular config file whose include target holds no config keys. Git stats an
+    # include target before parsing it, so a comment-only file has to be allowed even
+    # though it is the origin of no value and `git config --list` never names it.
+    # The plain file also guards the wrapper's own exit status: a config path that is
+    # already canonical must not leave a failing test as the last command of the
+    # collector, which `set -e` turns into a silent exit before anything runs.
+    h="$gitcfg_root/plain"
+    mkdir -p "$h"
+    printf '[include]\n\tpath = %s/none.cfg\n' "$h" >"$h/.gitconfig"
+    printf '# holds no config keys\n' >"$h/none.cfg"
+    gitcfg_case "include target with no keys" "$h"
+
+    # The two shapes a dotfile manager produces: the config file is itself a link, or
+    # a regular file sits under a linked directory. Seatbelt denies the physical read
+    # in both unless the canonical path is allowed too.
+    h="$gitcfg_root/linkfile"
+    mkdir -p "$h/dotfiles"
+    printf '[user]\n\tname = selftest\n' >"$h/dotfiles/gitconfig"
+    ln -s "$h/dotfiles/gitconfig" "$h/.gitconfig"
+    gitcfg_case "symlinked config file" "$h"
+
+    h="$gitcfg_root/linkdir"
+    mkdir -p "$h/dotfiles/git"
+    printf '[user]\n\tname = selftest\n' >"$h/dotfiles/git/config"
+    ln -s "$h/dotfiles" "$h/.config"
+    gitcfg_case "config behind a symlinked directory" "$h"
+
+    # An includeIf condition can contain spaces, which puts a space inside the config
+    # key rather than only between key and value. Collecting the declared path has to
+    # survive that, or the target goes unallowed and a fragment of the condition is
+    # allowed in its place. Runs from inside the matching repo so the condition fires.
+    h="$gitcfg_root/spacey"
+    mkdir -p "$h"
+    spacey_repo="$gitcfg_root/spacey repo" # outside the synthetic $HOME, which is unreadable
+    git init -q "$spacey_repo"
+    printf '[includeIf "gitdir:%s/"]\n\tpath = ~/spacey.cfg\n' "$spacey_repo" >"$h/.gitconfig"
+    printf '# holds no config keys\n' >"$h/spacey.cfg"
+    gitcfg_case "includeIf condition containing a space" "$h" "$spacey_repo"
+
+    # 17. Repo-local git config must not be able to choose what the profile allows,
+    #     even indirectly. A dependency can write inside the repo (cargo does, to
+    #     .git/config, when it updates a git dependency), so a repo-local file
+    #     reached FROM the global scope (via an [include] in it, the way a dotfile
+    #     manager would set one up) must not have ITS OWN [include] trusted either —
+    #     otherwise a dependency-rewritten include pointing at a credential file
+    #     would have the next launch emit a read-allow for it, and that allow beats
+    #     the base profile's deny (last match wins). The planted file has to be
+    #     reached from the *global* scope: sitting only in the repo's own local
+    #     config isn't equivalent, since --global never reads that.
+    h="$gitcfg_root/hostile"
+    mkdir -p "$h"
+    hostile_repo="$gitcfg_root/hostile-repo"
+    mkdir -p "$hostile_repo/bin"
+    git init -q "$hostile_repo"
+    cp "$repo/bin/dev-sandbox" "$hostile_repo/bin/dev-sandbox"
+    cp "$repo/bin/dev-sandbox.sb" "$hostile_repo/bin/dev-sandbox.sb"
+    printf '[leak]\n\tmarker = GITCFG_LEAK_MARKER\n' >"$h/secret.cfg"
+    printf '[include]\n\tpath = %s/secret.cfg\n' "$h" >"$hostile_repo/.git/fragment"
+    printf '[include]\n\tpath = %s/.git/fragment\n' "$hostile_repo" >"$h/.gitconfig"
+    # Without this the check passes for the wrong reason whenever the setup breaks,
+    # since a setup that never plants the include also never leaks the marker.
+    planted="$(cd "$hostile_repo" && HOME="$h" git config --global --includes --get leak.marker 2>/dev/null)"
+    if [[ "$planted" != GITCFG_LEAK_MARKER ]]; then
+        die "check 17 setup is broken: the planted [include] chain is not in effect"
+    fi
+    leaked="$(cd "$hostile_repo" && HOME="$h" TMPDIR="$gitcfg_root/tmp" ./bin/dev-sandbox "cat '$h/secret.cfg'" 2>&1)"
+    if [[ "$leaked" == *GITCFG_LEAK_MARKER* ]]; then
+        die "repo-local [include] exposed a \$HOME file via the global scope (sandbox escape)"
+    else
+        pass "repo-local [include] reached from global scope cannot expose a \$HOME file"
+    fi
+
+    #     The repo test is a string prefix match on the path git reports, and git
+    #     reports the logical path it was handed. So the same escape must stay closed
+    #     when the chain reaches the repo indirectly. Two shapes: a $HOME symlink
+    #     pointing into the repo, and a `..` component walking into it.
+    #     Each case plants the same payload, then differs only in how ~/.gitconfig
+    #     reaches the repo-side file. The copied wrapper makes $ind_repo its own
+    #     PROJECT, which is what the repo test keys on.
+    gitcfg_indirect_setup() {
+        ind_home="$gitcfg_root/indirect-$1"
+        ind_repo="$gitcfg_root/indirect-repo-$1"
+        mkdir -p "$ind_home" "$ind_repo/bin"
+        git init -q "$ind_repo"
+        cp "$repo/bin/dev-sandbox" "$ind_repo/bin/dev-sandbox"
+        cp "$repo/bin/dev-sandbox.sb" "$ind_repo/bin/dev-sandbox.sb"
+        chmod +x "$ind_repo/bin/dev-sandbox"
+        printf '[leak]\n\tmarker = GITCFG_LEAK_MARKER\n' >"$ind_home/secret.cfg"
+        printf '[include]\n\tpath = %s/secret.cfg\n' "$ind_home" >"$ind_repo/repo-side.cfg"
+    }
+    gitcfg_indirect_assert() {
+        local name="$1" out
+        # Guard against a setup that silently stopped reaching the payload, which
+        # would make the leak check pass for the wrong reason.
+        if [[ "$(cd "$ind_repo" && HOME="$ind_home" git config --global --includes --get leak.marker 2>/dev/null)" != GITCFG_LEAK_MARKER ]]; then
+            die "indirect-case setup is broken ($name): the chain does not reach the payload"
+            return
+        fi
+        out="$(cd "$ind_repo" && HOME="$ind_home" TMPDIR="$gitcfg_root/tmp" ./bin/dev-sandbox "cat '$ind_home/secret.cfg'" 2>&1)"
+        if [[ "$out" == *GITCFG_LEAK_MARKER* ]]; then
+            die "repo config reached via $name exposed a \$HOME file (sandbox escape)"
+        else
+            pass "repo config reached via $name cannot expose a \$HOME file"
+        fi
+    }
+    gitcfg_indirect_setup sym
+    ln -s "$ind_repo/repo-side.cfg" "$ind_home/link.cfg"
+    printf '[include]\n\tpath = %s/link.cfg\n' "$ind_home" >"$ind_home/.gitconfig"
+    gitcfg_indirect_assert "a \$HOME symlink"
+
+    # The .. has to start somewhere the repo test does not already match. Walking up
+    # out of $HOME into the sibling repo does that; a path spelled from $ind_repo
+    # would still begin with the project prefix and be caught without resolving.
+    gitcfg_indirect_setup dotdot
+    printf '[include]\n\tpath = %s/../%s/repo-side.cfg\n' "$ind_home" "${ind_repo##*/}" >"$ind_home/.gitconfig"
+    gitcfg_indirect_assert "a .. component"
+
+    #     A config fragment OUTSIDE $HOME is writable inside the sandbox by default,
+    #     so it is a chooser of paths just like a repo-local one. It must be
+    #     write-denied, or a dependency rewrites it to name a credential file and the
+    #     next launch read-allows whatever it named.
+    h="$gitcfg_root/outside"
+    mkdir -p "$h"
+    frag_dir="$gitcfg_root/frag" # outside the synthetic $HOME on purpose
+    mkdir -p "$frag_dir"
+    printf '[leak]\n\tmarker = GITCFG_LEAK_MARKER\n' >"$h/secret.cfg"
+    printf '[include]\n\tpath = %s/secret.cfg\n' "$h" >"$frag_dir/aliases.cfg"
+    printf '[include]\n\tpath = %s/aliases.cfg\n' "$frag_dir" >"$h/.gitconfig"
+    # $h is the synthetic HOME for this case, so "outside $HOME" means outside $h —
+    # which $frag_dir is by construction. Assert it, so the case cannot quietly
+    # become a no-op if the layout above ever changes.
+    if [[ "$frag_dir" == "$h"/* ]]; then
+        die "check setup is broken: the fragment is inside the synthetic \$HOME"
+    else
+        leaked="$(HOME="$h" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" "cat '$h/secret.cfg'" 2>&1)"
+        if [[ "$leaked" == *GITCFG_LEAK_MARKER* ]]; then
+            die "fragment outside \$HOME exposed a \$HOME file (sandbox escape)"
+        else
+            pass "fragment outside \$HOME cannot expose a \$HOME file"
+        fi
+        if HOME="$h" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" "echo x >> '$frag_dir/aliases.cfg'" >/dev/null 2>&1; then
+            die "config fragment outside \$HOME is writable (can be rewritten into a chooser)"
+        else
+            pass "write blocked: config fragment outside \$HOME"
+        fi
+    fi
+    rm -rf "$gitcfg_root"
+fi
+
+# 18. Nothing the wrapper runs before the sandbox starts may be resolved through the
+#     inherited $PATH. That phase has the developer's full privileges, and $PATH
+#     keeps the repo's node_modules/.bin (check 13 preserves repo bins on purpose),
+#     which sandboxed dependency code can write. So a binary planted there by a
+#     PREVIOUS sandboxed run would execute unsandboxed as the developer. Plant a
+#     fake for every command the pre-sandbox path uses and confirm none of them run.
+fake_bin_dir="$(mktemp -d)"
+fake_bin_marker="$fake_bin_dir/ran"
+for _c in git id sed mktemp cat mv rm touch cut uname dirname shasum readlink; do
+    # Resolve the real binary now, while PATH is still clean — /usr/bin for most,
+    # /bin for cat/mv/rm on macOS.
+    _real="$(command -v "$_c" 2>/dev/null)"
+    [[ -x "$_real" ]] || continue
+    # Fakes must stay functional: several of these run before the checks that would
+    # catch the hijack, so a fake that merely exits would break the wrapper and let
+    # the test pass for the wrong reason. Record the hijack, then exec the real one.
+    cat >"$fake_bin_dir/$_c" <<SCRIPT
+#!/bin/bash
+echo "$_c" >>"$fake_bin_marker"
+exec "$_real" "\$@"
+SCRIPT
+    chmod +x "$fake_bin_dir/$_c"
+done
+PATH="$fake_bin_dir:$PATH" $SANDBOX 'true' >/dev/null 2>&1
+if [[ -f "$fake_bin_marker" ]]; then
+    die "pre-sandbox phase ran \$PATH-resolved $(sort -u "$fake_bin_marker" | tr '\n' ' ')(planted binaries executed)"
+else
+    pass "pre-sandbox phase resolves no command through the inherited \$PATH"
+fi
+rm -rf "$fake_bin_dir"
+
+# 19. The repo's own .git/config is read-only inside the sandbox. It reaches the
+#     same escape as .git/hooks (check 11) by another route: core.hooksPath moves
+#     the hook directory elsewhere, and core.fsmonitor is a command git runs on
+#     ordinary read commands — both execute in the developer's terminal, outside
+#     Seatbelt. --git-common-dir resolves to the main repo's .git in a worktree,
+#     which is the file git actually reads there.
+gitcommon="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [[ -n "$gitcommon" ]]; then
+    [[ "$gitcommon" != /* ]] && gitcommon="$repo/$gitcommon"
+    gitcommon="$(cd "$gitcommon" 2>/dev/null && pwd -P || true)"
+fi
+if [[ -n "$gitcommon" && -f "$gitcommon/config" ]]; then
+    check_write_blocked_existing "$gitcommon/config" "repo .git/config (core.hooksPath / core.fsmonitor escape)"
+else
+    echo "  --   repo .git/config not found, skipping"
+fi
+#     config.worktree is the same escape for a repo with extensions.worktreeConfig
+#     set, and a worktree's gitdir lives under the MAIN repo, outside PROJECT.
+gitprivate="$(git rev-parse --git-dir 2>/dev/null || true)"
+if [[ -n "$gitprivate" ]]; then
+    [[ "$gitprivate" != /* ]] && gitprivate="$repo/$gitprivate"
+    gitprivate="$(cd "$gitprivate" 2>/dev/null && pwd -P || true)"
+fi
+if [[ -n "$gitprivate" ]]; then
+    # Pick the probe by whether the file is real: the create-and-clean variant
+    # would truncate then delete an existing one.
+    if [[ -f "$gitprivate/config.worktree" ]]; then
+        check_write_blocked_existing "$gitprivate/config.worktree" "per-worktree config.worktree"
+    else
+        check_write_blocked "$gitprivate/config.worktree" "per-worktree config.worktree"
+    fi
+fi
+#     The .git node itself. In a worktree it is a file holding `gitdir: <path>`, so
+#     rewriting it repoints git at an attacker-controlled directory that brings its
+#     own config — the same escape, one level further out. Build a throwaway
+#     worktree rather than probing this checkout's own .git: appending to a
+#     directory fails on its own, so on a plain clone that probe would report
+#     "blocked" without the sandbox having anything to do with it.
+wt_root="$(cd "$(mktemp -d)" && pwd -P)"
+if git init -q "$wt_root/origin" 2>/dev/null &&
+    git -C "$wt_root/origin" -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false \
+        commit -q --allow-empty -m init 2>/dev/null &&
+    git -C "$wt_root/origin" worktree add -q "$wt_root/wt" 2>/dev/null &&
+    [[ -f "$wt_root/wt/.git" ]]; then
+    mkdir -p "$wt_root/wt/bin"
+    cp "$repo/bin/dev-sandbox" "$wt_root/wt/bin/dev-sandbox"
+    cp "$repo/bin/dev-sandbox.sb" "$wt_root/wt/bin/dev-sandbox.sb"
+    chmod +x "$wt_root/wt/bin/dev-sandbox"
+    mkdir -p "$wt_root/tmp"
+    if (cd "$wt_root/wt" && TMPDIR="$wt_root/tmp" ./bin/dev-sandbox ": >> .git") >/dev/null 2>&1; then
+        die "worktree .git redirect file is writable (gitdir redirect escape)"
+    else
+        pass "write blocked: worktree .git redirect file"
+    fi
+else
+    echo "  --   could not build a throwaway worktree, skipping .git redirect check"
+fi
+git -C "$wt_root/origin" worktree prune 2>/dev/null || true
+rm -rf "$wt_root"
+
+# 20. A relocated global config is write-denied even while it does not exist.
+#     Otherwise a dependency creates the file git will read on the next launch,
+#     names an [include] of its own in it, and that launch emits a read-allow for
+#     whatever it named. The probe path sits in TMPDIR, outside $HOME, where the
+#     profile permits writes by default — so this only passes on the new deny.
+reloc_dir="$(cd "$(mktemp -d)" && pwd -P)"
+reloc_cfg="$reloc_dir/relocated-gitconfig" # deliberately never created
+if GIT_CONFIG_GLOBAL="$reloc_cfg" $SANDBOX "echo '[user]' > '$reloc_cfg'" >/dev/null 2>&1; then
+    die "absent relocated global config is creatable (next launch would trust it)"
+else
+    pass "absent relocated global config write blocked"
+fi
+#     Seatbelt matches physical paths, so denying only the logical one leaves the
+#     target writable behind a symlinked ancestor. readlink -f cannot resolve an
+#     absent leaf on macOS, which is exactly this case, so the deny canonicalizes
+#     the directory instead — assert against the physical path.
+mkdir -p "$reloc_dir/real"
+ln -s "$reloc_dir/real" "$reloc_dir/link"
+if GIT_CONFIG_GLOBAL="$reloc_dir/link/gitconfig" $SANDBOX "echo '[user]' > '$reloc_dir/real/gitconfig'" >/dev/null 2>&1; then
+    die "relocated global config creatable at its physical path (symlinked ancestor)"
+else
+    pass "relocated global config write blocked at its physical path"
+fi
+#     git accepts a relative GIT_CONFIG_GLOBAL, which an absolute-only guard skips.
+if (cd "$reloc_dir" && GIT_CONFIG_GLOBAL=relcfg "$repo/bin/dev-sandbox" "echo '[user]' > '$reloc_dir/relcfg'") >/dev/null 2>&1; then
+    die "relative relocated global config is creatable"
+else
+    pass "relative relocated global config write blocked"
+fi
+rm -rf "$reloc_dir"
 
 echo
 if [[ $fail -eq 0 ]]; then

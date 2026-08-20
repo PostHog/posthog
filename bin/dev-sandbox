@@ -26,10 +26,10 @@ set -euo pipefail
 # privileges. The inherited $PATH is not trustworthy at that point: it keeps the
 # repo's own node_modules/.bin (see the PATH sanitizing near the end, which
 # deliberately preserves repo bins for the child), and sandboxed dependency code
-# can write there. A bare `sed`/`mktemp` would then resolve to a binary a previous
-# sandboxed run planted, and run unsandboxed as the developer. So pin PATH to the
-# system directories for this script's own use and hand the inherited one to the
-# child, which is the only consumer that needs it.
+# can write there. A bare `git`/`sed`/`mktemp` would then resolve to a binary a
+# previous sandboxed run planted, and run unsandboxed as the developer. So pin
+# PATH to the system directories for this script's own use and hand the inherited
+# one to the child, which is the only consumer that needs it.
 inherited_path="$PATH"
 PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
@@ -82,17 +82,287 @@ unrenderable_path() { # $1 = path
     return 1
 }
 
-# The base profile allows the git config files by literal path, but Seatbelt
-# matches physical paths — when one is a symlink (dotfile managers), the read of
-# its target is still denied and cargo/libgit2 fails hard ("failed to stat
-# ~/.gitconfig"). Resolve symlinked configs here and allow (read) + deny (write,
-# hooksPath/credential-helper escape) their targets in the rendered profile.
+# The base profile allows three git config files by literal path, but git reads
+# whatever an [include]/[includeIf] chain points at, and Seatbelt matches physical
+# paths so a symlinked config's target is denied too (dotfile managers). Either gap
+# makes libgit2 fail hard ("could not stat ..."), which takes down any cargo build with
+# a git dependency, and with it whichever service's prestart runs that build.
+#
+# So ask git which files it actually reads instead of guessing names, and allow
+# (read) + deny (write, hooksPath/credential-helper escape) each one plus its
+# canonical path. Paths outside $HOME are readable already, so only $HOME ones
+# matter here. Falls back to the three well-known names when git is unavailable.
+# A config path containing a tab or newline is skipped: the render below rejects
+# quotes and backslashes for the same reason, and neither survives an SBPL literal.
+#
+# Only the global scope is read. A config file's contents decide which paths the
+# profile allows, so any config file sandboxed code can write is a way out: a
+# dependency that appends `[include] path = ~/.aws/credentials` to the repo's
+# .git/config would have the next launch emit a read-allow for that file, and the
+# allow wins because SBPL is last-match-wins and this render appends after the base
+# profile's denies. The repo stays broadly writable inside the sandbox (build
+# output, caches), so a config file under it must not be trusted to name paths —
+# not even indirectly, by including a file that then points somewhere else. Global config
+# cannot be turned into such a chooser in the default layout: the base profile
+# write-denies ~/.gitconfig, ~/.gitconfig.local and ~/.config/git, and the render
+# write-denies every file found below, which extends that protection across the
+# include chain. So the moment discovery reaches a file under the repo — as a key's
+# origin, an include's resolved target, or an include directive's own declaring
+# file — the whole run is treated as tainted: every dynamically discovered path is
+# discarded and discovery falls back to the fixed, safe file list below, the same
+# as when git itself is unavailable. Paths are canonicalized before that test, since
+# git reports the logical path it was handed and a symlink or `..` would otherwise
+# carry a repo file past a plain prefix match.
+#
+# The repo is not the only writable place a chain can reach: the profile permits
+# writes outside $HOME too, so a fragment in /tmp is just as much a chooser and
+# taints the run the same way. Such a file also gets a write-deny, which outlives
+# the taint so it cannot be rewritten later, but a deny alone would still honor
+# whatever it says right now. The same deny covers a global config relocated by
+# GIT_CONFIG_GLOBAL or XDG_CONFIG_HOME even before that file exists.
+#
+# Tainting costs availability: a developer whose chain genuinely reaches outside
+# $HOME falls back to the three default names, so git inside the sandbox can fail
+# on a config it reads fine outside. That is the same trade the repo case already
+# makes, and it fails closed and loudly rather than quietly widening what the
+# sandbox may read.
+#
+# One limit is deliberate. An [includeIf] whose condition does not match is reported
+# by git as a declared path but never parsed, so include directives *inside* it stay
+# invisible and only that one file is allowed. Should the condition later match, git
+# would read a nested target the profile does not list and fail closed on it. Walking
+# those chains means parsing arbitrary config files here, in the part of this script
+# that decides what the sandbox may read, which is a poor trade against a fail-closed
+# reliability edge that a service restart re-resolves anyway.
 gitcfg_targets=()
-for _cfg in "$HOME/.gitconfig" "$HOME/.gitconfig.local" "$HOME/.config/git/config"; do
-    [[ -L "$_cfg" ]] || continue
-    _resolved="$(/usr/bin/readlink -f "$_cfg" 2>/dev/null || true)"
-    [[ -n "$_resolved" && "$_resolved" != "$_cfg" ]] && gitcfg_targets+=("$_resolved")
+gitcfg_dirs=()
+gitcfg_wdeny=()
+_push_gitcfg() {
+    local _t
+    for _t in ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}; do
+        if [[ "$_t" == "$1" ]]; then return 0; fi
+    done
+    gitcfg_targets+=("$1")
+}
+_push_gitcfg_dir() {
+    local _t
+    for _t in ${gitcfg_dirs[@]+"${gitcfg_dirs[@]}"}; do
+        if [[ "$_t" == "$1" ]]; then return 0; fi
+    done
+    gitcfg_dirs+=("$1")
+}
+_push_gitcfg_wdeny_raw() {
+    local _t
+    [[ -n "$1" && "$1" == /* ]] || return 0
+    [[ "$1" == *$'\t'* || "$1" == *$'\n'* ]] && return 0
+    for _t in ${gitcfg_wdeny[@]+"${gitcfg_wdeny[@]}"}; do
+        if [[ "$_t" == "$1" ]]; then return 0; fi
+    done
+    gitcfg_wdeny+=("$1")
+    return 0 # never end on a test under `set -e`
+}
+# Deny both the logical path and its physical one. Seatbelt matches physical paths,
+# so a literal alone leaves the target writable through a symlinked ancestor — and
+# readlink -f still resolves that ancestor when the leaf does not exist yet, which
+# is exactly the case these denies exist to cover.
+_push_gitcfg_wdeny() {
+    local _p="$1" _c _dir
+    [[ -n "$_p" ]] || return 0
+    [[ "$_p" != /* ]] && _p="$PWD/$_p" # git takes a relative GIT_CONFIG_GLOBAL too
+    _push_gitcfg_wdeny_raw "$_p"
+    _c="$(/usr/bin/readlink -f "$_p" 2>/dev/null || true)"
+    if [[ -z "$_c" ]]; then
+        # macOS readlink -f fails outright when the leaf does not exist, which is
+        # the whole point of these denies. Canonicalize the directory instead and
+        # re-attach the name, so a symlinked ancestor still resolves.
+        _dir="$(cd "${_p%/*}" 2>/dev/null && pwd -P || true)"
+        [[ -n "$_dir" ]] && _c="$_dir/${_p##*/}"
+    fi
+    [[ -n "$_c" && "$_c" != "$_p" ]] && _push_gitcfg_wdeny_raw "$_c"
+    return 0
+}
+_add_gitcfg() {
+    local _p="$1" _resolved _dir
+    [[ -n "$_p" ]] || return 0
+    [[ "$_p" == *$'\t'* || "$_p" == *$'\n'* ]] && return 0
+    # Canonicalize before the repo test, not after. That test is a string prefix
+    # match, so a symlink or a `..` component walks straight past it — and git
+    # reports the logical path it was given, never the resolved one, so the logical
+    # form is what discovery sees.
+    _resolved="$(/usr/bin/readlink -f "$_p" 2>/dev/null || true)"
+    # A config inside the repo is already readable via the PROJECT/MAINREPO subpath
+    # allow, and the repo stays broadly writable inside the sandbox, so such a file
+    # is one sandboxed code can rewrite. Flag the whole run as tainted (checked once
+    # discovery finishes, below) rather than merely omitting this one entry: a
+    # rewritten include here could otherwise redirect discovery to an arbitrary
+    # $HOME file. Either form reaching the repo taints it.
+    case "$_p" in "$project"/* | "$mainrepo"/*) _gitcfg_untrusted=1; return 0 ;; esac
+    case "$_resolved" in "$project"/* | "$mainrepo"/*) _gitcfg_untrusted=1; return 0 ;; esac
+    # Outside $HOME the profile permits writes, so a fragment in /tmp or /opt is a
+    # file sandboxed code can rewrite into a chooser of paths, exactly like a
+    # repo-local one — and its current contents are already whatever the last run
+    # left there. So taint, same as the repo case. The write-deny goes on regardless
+    # (it survives the taint reset) so the file cannot be rewritten from here on; it
+    # is not enough on its own, which is why it does not replace the taint.
+    if [[ "$_p" != "$HOME"/* ]]; then
+        _push_gitcfg_wdeny "$_p"
+        [[ -n "$_resolved" && "$_resolved" != "$_p" ]] && _push_gitcfg_wdeny "$_resolved"
+        _gitcfg_untrusted=1
+        return 0
+    fi
+    _push_gitcfg "$_p"
+    # Resolution stops at a symlinked ancestor directory (~/.config -> ~/.dotfiles):
+    # the kernel reads that link node itself, and the literal allow for the file
+    # behind it does not cover that read. Grant metadata on each directory between
+    # $HOME and the config, which is all resolution needs and exposes no directory's
+    # contents, the same trade the ~/.local grant in the base profile makes. A
+    # canonical path has no symlinked component, so only this logical path needs it.
+    _dir="${_p%/*}"
+    while [[ "$_dir" == "$HOME"/* ]]; do
+        _push_gitcfg_dir "$_dir"
+        _dir="${_dir%/*}"
+    done
+    # Seatbelt matches physical paths, so also allow the config's canonical path
+    # (resolved above). The symlink git followed can be the config file itself or any
+    # ancestor directory (~/.config -> ~/.dotfiles/config leaves the file regular),
+    # which is why readlink -f canonicalizes the whole path rather than testing only
+    # the leaf with -L. A canonical path that landed in the repo already returned
+    # above, so what reaches here is outside it.
+    if [[ -n "$_resolved" && "$_resolved" != "$_p" ]]; then
+        _push_gitcfg "$_resolved"
+    fi
+    return 0 # never end on a test: `set -e` kills the wrapper when a called function returns non-zero
+}
+# Resolve an include.path value the way git does: ~/ against $HOME, anything
+# relative against the directory of the file that declared it. ~user/ resolves
+# against $HOME too, but only when user is whoever is running this script — that is
+# the only ~user/ shape that can ever land under $HOME, since _add_gitcfg rejects
+# anything else. A %(prefix) value is left alone, since the origin pass below
+# already covers a target like that once it holds a key.
+_gitcfg_include_path() {
+    local _origin="$1" _value="$2" _user
+    # shellcheck disable=SC2088 # the leading tilde is data read out of a config file, not a path this shell should expand
+    case "$_value" in
+        "~/"*) printf '%s/%s' "$HOME" "${_value#\~/}" ;;
+        "~"*/*)
+            _user="${_value#\~}"
+            _user="${_user%%/*}"
+            [[ -n "$_gitcfg_user" && "$_user" == "$_gitcfg_user" ]] && printf '%s/%s' "$HOME" "${_value#"~$_user/"}"
+            ;;
+        "~"* | "%("*) ;;
+        /*) printf '%s' "$_value" ;;
+        *) printf '%s/%s' "${_origin%/*}" "$_value" ;;
+    esac
+}
+_gitcfg_listed=0
+_gitcfg_untrusted=0
+_gitcfg_user="$(/usr/bin/id -un 2>/dev/null || true)"
+# Absolute paths rather than bare names. The pinned PATH above already prevents a
+# planted binary from being resolved here, but these two invocations are the ones
+# that read attacker-influenced data (config file contents), so they spell out the
+# system binary the same way /usr/bin/readlink and /usr/bin/shasum already do in
+# this file. /usr/bin/git is the Xcode CLT git on the macOS this script is gated to.
+_git_bin="/usr/bin/git"
+if [[ -x "$_git_bin" ]]; then
+    # -z is what makes the tab and newline rules above enforceable: it separates
+    # records with NUL and the key from its value with a newline, so neither can be
+    # confused with a character inside a path. The tab-delimited form truncates a path
+    # at its first tab and allows the truncated result instead of skipping it, and an
+    # includeIf condition may itself contain spaces ([includeIf "gitdir:~/my work/"]),
+    # which puts a space inside the key and defeats splitting on the first one.
+    #
+    # --includes defaults to off once a scope is named, so pass it explicitly or git
+    # reports ~/.gitconfig alone and the chain this block exists for goes unseen.
+    while IFS= read -r -d '' _origin && IFS= read -r -d '' _key; do
+        case "$_origin" in
+            file:*)
+                _gitcfg_listed=1
+                _add_gitcfg "${_origin#file:}"
+                ;;
+        esac
+    done < <("$_git_bin" config --global --includes --list --show-origin --name-only -z 2>/dev/null)
+    # An include target holding no config keys is the origin of no value, so the pass
+    # above never sees it, yet git stats it and dies ("unable to access") when the
+    # sandbox denies it. Collect the declared paths too. That also covers a target
+    # whose includeIf condition does not match where the service happens to start
+    # (conditions are evaluated against the launch directory even in the global scope,
+    # so the origin pass alone makes the allowed set depend on cwd), and it write-denies
+    # a target while it is still empty, which is exactly when it would otherwise be
+    # writable and able to name paths of its own.
+    while IFS= read -r -d '' _origin && IFS= read -r -d '' _keyval; do
+        case "$_origin" in file:*) ;; *) continue ;; esac
+        case "$_keyval" in *$'\n'*) ;; *) continue ;; esac
+        # The declaring file matters here, not just the target it names: a
+        # repo-local file can rewrite its own [include] to point anywhere under
+        # $HOME, and that target need not itself be under the repo for
+        # _add_gitcfg's own project/mainrepo check (above) to catch it. Canonicalize
+        # for the same reason _add_gitcfg does — git reports the logical path, so a
+        # symlink or `..` would otherwise slip a repo file past this prefix test.
+        _origin_path="${_origin#file:}"
+        _origin_real="$(/usr/bin/readlink -f "$_origin_path" 2>/dev/null || true)"
+        case "$_origin_path" in
+            "$project"/* | "$mainrepo"/*)
+                _gitcfg_untrusted=1
+                continue
+                ;;
+        esac
+        case "$_origin_real" in
+            "$project"/* | "$mainrepo"/*)
+                _gitcfg_untrusted=1
+                continue
+                ;;
+        esac
+        _add_gitcfg "$(_gitcfg_include_path "$_origin_path" "${_keyval#*$'\n'}")"
+    done < <("$_git_bin" config --global --includes --show-origin -z --get-regexp '^include(if\..*)?\.path$' 2>/dev/null)
+fi
+# Discovery can only report a relocated global config (GIT_CONFIG_GLOBAL, or
+# $XDG_CONFIG_HOME/git/config) once the file exists. Until then nothing write-denies
+# it, so sandboxed code can create one naming paths of its own and the next launch
+# reads it as trusted global config. Write-deny the effective path whether or not it
+# exists yet.
+if [[ -n "${GIT_CONFIG_GLOBAL:-}" ]]; then
+    _gitcfg_relocated="$GIT_CONFIG_GLOBAL"
+elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+    _gitcfg_relocated="$XDG_CONFIG_HOME/git/config"
+else
+    _gitcfg_relocated=""
+fi
+# A worktree's gitdir sits under the MAIN repo's .git/worktrees/, so the profile's
+# PROJECT-relative denies miss it while git reads its config just the same — and
+# config.worktree there is live whenever extensions.worktreeConfig is set. Deny both.
+if [[ -n "${gitdir:-}" ]]; then
+    _gitcfg_relocated_dir="$(cd "$gitdir" 2>/dev/null && pwd -P || true)"
+    if [[ -n "$_gitcfg_relocated_dir" ]]; then
+        _push_gitcfg_wdeny "$_gitcfg_relocated_dir/config"
+        _push_gitcfg_wdeny "$_gitcfg_relocated_dir/config.worktree"
+    fi
+fi
+# The profile's PROJECT/MAINREPO .git/config denies are logical literals, so a
+# checkout whose .git is a symlink leaves the physical file writable. Push both
+# repo roots' config pair through the canonicalizing deny above to cover that.
+for _r in "$project" "$mainrepo"; do
+    [[ -d "$_r/.git" ]] || continue
+    _push_gitcfg_wdeny "$_r/.git/config"
+    _push_gitcfg_wdeny "$_r/.git/config.worktree"
 done
+_push_gitcfg_wdeny "$_gitcfg_relocated"
+
+if [[ "$_gitcfg_untrusted" -eq 1 ]]; then
+    # Discovery touched a file sandboxed dependency code can write, so nothing it
+    # named can be trusted — the dynamic set above may already include a target
+    # that file chose. Discard the read-allows and fall back to the fixed, safe list
+    # below rather than salvaging whichever entries were not chosen by it.
+    # gitcfg_wdeny survives: a write-deny only ever removes access, so keeping the
+    # ones already found is strictly safer than dropping them.
+    gitcfg_targets=()
+    gitcfg_dirs=()
+    _gitcfg_listed=0
+fi
+if [[ "$_gitcfg_listed" -eq 0 ]]; then
+    for _cfg in "$HOME/.gitconfig" "$HOME/.gitconfig.local" "$HOME/.config/git/config"; do
+        _add_gitcfg "$_cfg"
+    done
+fi
 
 # The profile write-denies the repo's own git config by PROJECT/MAINREPO literal,
 # which reaches neither a worktree's real gitdir (it lives under the MAIN repo, at
@@ -105,7 +375,6 @@ done
 # then reads that directory's config AND hooks/, so rewriting it reaches the escape
 # the .git/hooks denies close off. It is not worktree-only: git honors a commondir
 # in any git dir, including a plain clone's.
-gitcfg_wdeny=()
 for _gd in "$mainrepo/.git" ${gitdir:+"$gitdir"}; do
     [[ -d "$_gd" ]] || continue
     _raw="$_gd"
@@ -120,7 +389,7 @@ for _gd in "$mainrepo/.git" ${gitdir:+"$gitdir"}; do
     gitcfg_wdeny+=("$_gd/config" "$_gd/config.worktree" "$_gd/commondir")
 done
 
-cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"} "--" ${gitcfg_wdeny[@]+"${gitcfg_wdeny[@]}"} | /usr/bin/shasum -a256 | cut -c1-16)"
+cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"} "--" ${gitcfg_dirs[@]+"${gitcfg_dirs[@]}"} "--" ${gitcfg_wdeny[@]+"${gitcfg_wdeny[@]}"} | /usr/bin/shasum -a256 | cut -c1-16)"
 rendered="$tmpdir/posthog-dev-sandbox-$cache_key.sb"
 stamp="$rendered.ok" # touched once the rendered profile passes the init preflight
 
@@ -154,7 +423,7 @@ render_profile() {
     # These paths carry the read-allows the stack needs, so unlike a single git-dir
     # deny they cannot be dropped individually — fail the render and run without a
     # sandbox, loudly, rather than emit a profile missing part of what it grants.
-    for _a in "${ancestors[@]}" "$rendered" "$stamp" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}; do
+    for _a in "${ancestors[@]}" "$rendered" "$stamp" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"} ${gitcfg_dirs[@]+"${gitcfg_dirs[@]}"} ${gitcfg_wdeny[@]+"${gitcfg_wdeny[@]}"}; do
         if unrenderable_path "$_a"; then
             echo "⚠️  dev sandbox: path is unrenderable, running WITHOUT sandbox: $_a" >&2
             return 1
@@ -164,12 +433,21 @@ render_profile() {
     if {
         cat "$base_profile"
         emit_rule 'allow file-read*' "${ancestors[@]}"
-        # Physical targets of symlinked git configs (resolved above): readable like
-        # the configs themselves, write-denied for the same hooksPath escape reason.
+        # Every git config file under $HOME that git reads, plus each one's canonical
+        # path (collected above): readable like the three the base profile lists, and
+        # write-denied both for the hooksPath escape and to keep the include chain from
+        # being rewritten into one that names a path of its own.
         emit_rule 'allow file-read*' ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}
         emit_rule 'deny file-write*' ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}
-        # Physical git-dir config paths (collected above), which the profile's
-        # PROJECT/MAINREPO literals miss for a worktree or a symlinked .git.
+        # Metadata on every directory between $HOME and a config file, which is all
+        # symlink resolution needs and exposes no directory's contents.
+        emit_rule 'allow file-read-metadata' ${gitcfg_dirs[@]+"${gitcfg_dirs[@]}"}
+        # Physical git-dir config paths, which the profile's PROJECT/MAINREPO literals
+        # miss for a worktree or a symlinked .git, and a relocated global config,
+        # write-denied even while it does not exist so sandboxed code cannot create the
+        # file the next launch would trust. No read-allow: under $HOME the discovery
+        # above adds one once the file exists, and outside $HOME reads are permitted
+        # anyway.
         emit_rule 'deny file-write*' ${gitcfg_wdeny[@]+"${gitcfg_wdeny[@]}"}
         # Deny the SSH agent socket (path varies per agent: Secretive, 1Password,
         # launchd, gpg). Canonicalize its dir — Seatbelt matches the kernel's
