@@ -67,7 +67,9 @@
 #   waits on a superset (objectstorage, Temporal) with an explicit 900s timeout
 # - Path-filter persons-SQL folded into migrations. check-migrations.if also gates
 #   on openapi_types so an OpenAPI-only PR still runs the folded check
-# - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped
+# - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped;
+#   canonical's per-schema-leg patch scoping (legacy legs exclude *.new_events_schema.ambr,
+#   events_json legs ship only those) is therefore depot-exempt too
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
