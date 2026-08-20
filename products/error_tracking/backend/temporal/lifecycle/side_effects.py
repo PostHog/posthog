@@ -68,6 +68,27 @@ class IssueLifecycleWorkflowInputs(Protocol):
     def assignee(self) -> str | None: ...
 
 
+def _send_issue_lifecycle_internal_event(
+    inputs: IssueLifecycleWorkflowInputs, event: str, properties: dict[str, object]
+) -> None:
+    result = produce_internal_event(
+        inputs.team_id,
+        InternalEventEvent(
+            event=event,
+            distinct_id=inputs.issue_id,
+            properties=properties,
+            uuid=inputs.notification_id,
+        ),
+    )
+    flush_internal_events_producer(KAFKA_DELIVERY_TIMEOUT_SECONDS)
+    result.get(timeout=0)
+
+
+def _is_message_too_large(error: KafkaException) -> bool:
+    kafka_error = error.args[0] if error.args else None
+    return isinstance(kafka_error, KafkaError) and kafka_error.name() == "MSG_SIZE_TOO_LARGE"
+
+
 def produce_issue_lifecycle_internal_event(
     inputs: IssueLifecycleWorkflowInputs,
     *,
@@ -117,28 +138,14 @@ def produce_issue_lifecycle_internal_event(
     if extra_properties is not None:
         properties.update(extra_properties)
 
-    def produce(properties_to_send: dict[str, object]) -> None:
-        result = produce_internal_event(
-            inputs.team_id,
-            InternalEventEvent(
-                event=event,
-                distinct_id=inputs.issue_id,
-                properties=properties_to_send,
-                uuid=inputs.notification_id,
-            ),
-        )
-        flush_internal_events_producer(KAFKA_DELIVERY_TIMEOUT_SECONDS)
-        result.get(timeout=0)
-
     try:
-        produce(properties)
+        _send_issue_lifecycle_internal_event(inputs, event, properties)
     except KafkaException as error:
-        kafka_error = error.args[0] if error.args else None
-        if not isinstance(kafka_error, KafkaError) or kafka_error.name() != "MSG_SIZE_TOO_LARGE":
+        if not _is_message_too_large(error):
             raise
         properties.pop("exception_props", None)
         properties["message_was_too_large"] = True
-        produce(properties)
+        _send_issue_lifecycle_internal_event(inputs, event, properties)
 
 
 async def emit_issue_lifecycle_signal(
