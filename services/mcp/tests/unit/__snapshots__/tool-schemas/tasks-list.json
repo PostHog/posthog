@@ -28,6 +28,11 @@
             "description": "Filter by creator user ID",
             "type": "number"
         },
+        "exclude_origin_product": {
+            "description": "Exclude tasks with this origin product from the results",
+            "minLength": 1,
+            "type": "string"
+        },
         "internal": {
             "description": "Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.\n\n* `true` - true\n* `false` - false\n* `all` - all",
             "enum": ["true", "false", "all"],
