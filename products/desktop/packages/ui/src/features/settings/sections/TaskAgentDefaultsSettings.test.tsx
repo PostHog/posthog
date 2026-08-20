@@ -1,7 +1,7 @@
 import { Theme } from "@radix-ui/themes";
 import { configure, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Menu open/close and submenu reveals ride animations that starve under
 // parallel suite load; the default 1s async timeout flakes.
@@ -108,6 +108,12 @@ async function openSub(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
 }
 
 describe("TaskAgentDefaultsSettings", () => {
+  beforeEach(() => {
+    saveMock.mockClear();
+    previewState.setConfigOption.mockClear();
+    previewState.lastAdapter = null;
+  });
+
   // Switching harness used to save {adapter, null, null}, which wiped a stored
   // personal default and flipped the derived harness straight back — a dead
   // control. The switch must persist nothing until a model pick completes the
@@ -147,6 +153,39 @@ describe("TaskAgentDefaultsSettings", () => {
       runtime_adapter: "codex",
       model: "gpt-5.6-terra",
       reasoning_effort: null,
+    });
+  });
+
+  // Mid-switch the stored triple still names the previous harness's model. A
+  // reasoning-only pick must pair the effort with the new harness's own seated
+  // model, or it saves a preference (Codex adapter + Claude model) no surface
+  // can apply.
+  it("pairs a reasoning-only pick with the new harness's model after a switch", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    const trigger = screen.getByRole("button", {
+      name: /Model and reasoning/,
+    });
+
+    await user.click(trigger);
+    await openSub(user, /^Harness/);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Codex" }));
+    expect(previewState.lastAdapter).toBe("codex");
+
+    await openSub(user, /^Reasoning/);
+    const level = await screen.findByRole("menuitemradio", { name: "Max" });
+    fireEvent.click(level);
+
+    expect(saveMock).toHaveBeenCalledTimes(1);
+    expect(saveMock).toHaveBeenCalledWith({
+      runtime_adapter: "codex",
+      model: "gpt-5.6-sol",
+      reasoning_effort: "max",
     });
   });
 });

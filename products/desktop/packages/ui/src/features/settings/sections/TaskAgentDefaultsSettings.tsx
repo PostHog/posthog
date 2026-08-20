@@ -108,8 +108,12 @@ function MyDefaultPicker({
 
   const handleEffortChange = (effort: string) => {
     if (thoughtOption) setConfigOption(thoughtOption.id, effort);
-    // An effort alone is not a preference: it needs the model it was judged against.
-    const model = shown.model;
+    // An effort alone is not a preference: it needs the model it was judged
+    // against. Read that from the harness's seated option, not the stored
+    // triple — mid-switch shown.model still names the previous harness's model,
+    // and pairing it with the new adapter saves a preference no surface applies.
+    const model =
+      modelOption?.type === "select" ? modelOption.currentValue : undefined;
     if (!model) return;
     onSave({
       runtime_adapter: adapter,
