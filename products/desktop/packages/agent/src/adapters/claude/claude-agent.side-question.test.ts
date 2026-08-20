@@ -69,6 +69,9 @@ function installFakeSession(
       mcpServers: {
         posthog: { type: "http", url: "https://example" },
       },
+      settingSources: ["user", "project", "local"],
+      plugins: [{ type: "local", path: "./repo-plugin" }],
+      agents: { reviewer: { description: "d", prompt: "p" } },
       abortController,
       hooks,
     },
@@ -140,6 +143,14 @@ describe("ClaudeAcpAgent.extMethod side_question", () => {
     expect(options.mcpServers).toEqual({});
     expect(options.sessionId).toBeUndefined();
     expect(options.hooks).toBeUndefined();
+
+    // Nothing the repo controls runs for a side question: no filesystem
+    // settings (and so no hooks they declare), no plugins, no agents, and no
+    // MCP servers merged back in from `.mcp.json` or agent frontmatter.
+    expect(options.settingSources).toEqual([]);
+    expect(options.plugins).toEqual([]);
+    expect(options.agents).toEqual({});
+    expect(options.strictMcpConfig).toBe(true);
     // Fresh controller: aborting the one-shot must not poison the session.
     expect(options.abortController).not.toBe(abortController);
 

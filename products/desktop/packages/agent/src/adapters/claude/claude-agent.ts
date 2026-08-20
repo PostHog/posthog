@@ -2016,6 +2016,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         // Never reuse in-process MCP instances ("Already connected to a
         // transport"); the fork has no tools, so it needs no servers.
         mcpServers: {},
+        // `mcpServers: {}` alone only drops the servers passed in code — the
+        // CLI would still merge `.mcp.json`, user settings, and plugin/agent
+        // frontmatter servers back in.
+        strictMcpConfig: true,
+        // A side question is an isolated read of the transcript, so nothing
+        // the repo can write should get to run for it. `settingSources: []`
+        // keeps `.claude/settings*.json` (and the hooks they declare) off the
+        // fork, and plugins and agents ship their own hooks and skills.
+        settingSources: [],
+        plugins: [],
+        agents: {},
         abortController,
         // `rest.model` is the creation-time value; the user may have
         // switched models since, so answer on the live session model.
