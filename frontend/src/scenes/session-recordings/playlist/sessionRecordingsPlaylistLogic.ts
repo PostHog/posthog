@@ -162,9 +162,6 @@ export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | Eve
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
-// Cap the retained results so the merge, sort, and memory cost stay bounded as the user paginates.
-// The list is virtualized, so a lower cap is not needed to keep the DOM small.
-export const MAX_RETAINED_RECORDINGS = 1000
 
 export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     type: PropertyFilterType.Recording,
@@ -1168,20 +1165,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                     })
 
-                    const sorted = sortRecordings(
+                    return sortRecordings(
                         mergedResults,
                         sessionRecordingsResponse.order,
                         sessionRecordingsResponse.order_direction
                     )
-
-                    // Drop the newest surplus once past the cap so the window follows the user down the
-                    // list. Only trim under cursor pagination: the offset fallback derives its offset from
-                    // the retained length, so trimming there would refetch the same window forever.
-                    if (sorted.length > MAX_RETAINED_RECORDINGS && sessionRecordingsResponse.next_cursor) {
-                        return sorted.slice(sorted.length - MAX_RETAINED_RECORDINGS)
-                    }
-
-                    return sorted
                 },
 
                 setSelectedRecordingId: (state, { id }) =>
