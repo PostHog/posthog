@@ -67,6 +67,46 @@ export const humanizeWorkflowTestError = (error: string, workflow: HogFlow, test
         : 'A step uses a template that is no longer available. Replace or remove the step, then test again.'
 }
 
+const collectErrorStrings = (value: unknown): string[] => {
+    if (typeof value === 'string') {
+        return value ? [value] : []
+    }
+    if (Array.isArray(value)) {
+        return value.flatMap(collectErrorStrings)
+    }
+    if (value && typeof value === 'object') {
+        return Object.values(value).flatMap(collectErrorStrings)
+    }
+    return []
+}
+
+// The invocations endpoint reports failures in shapes the shared ApiError parser can't flatten onto
+// `error.message`: the CDP executor wraps its message in an array ({ message: [text] }) and DRF
+// serializer validation returns a raw { field: [message] } object. Both leave `error.message` as the
+// generic "Non-OK response" debug string, so pull the real text out of the response body here.
+export const extractTestErrorDetail = (error: any): string | null => {
+    // A flat DRF `detail` (raised exceptions, rendered by exceptions-hog) is already the clean message.
+    if (typeof error?.detail === 'string' && error.detail) {
+        return error.detail
+    }
+    const data = error?.data
+    if (data && typeof data === 'object') {
+        const message = collectErrorStrings(data.message).join(', ')
+        if (message) {
+            return message
+        }
+        // serializer.errors carries no `message` key, so flatten its field messages instead.
+        const fieldErrors = collectErrorStrings(data).join(', ')
+        if (fieldErrors) {
+            return fieldErrors
+        }
+    }
+    // No structured server message. A transport error (offline, a bare Error) still has a meaningful
+    // message; an HTTP error whose body we couldn't parse only carries the generic debug string, so
+    // drop it and let the caller show a clean fallback rather than leaking the debug string.
+    return data == null && typeof error?.message === 'string' ? error.message : null
+}
+
 export const createExampleEvent = (
     teamId?: number,
     workflowName?: string | null,
@@ -1061,9 +1101,11 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     return values.testInvocation
                 } catch (error: any) {
                     console.error('Workflow test error:', error)
-                    const detail = error?.detail || error?.message
+                    const detail = extractTestErrorDetail(error)
+                    const humanized =
+                        detail && humanizeWorkflowTestError(detail, values.workflow, values.selectedNodeId)
                     lemonToast.error(
-                        detail ? `Couldn't test workflow: ${detail}` : "Couldn't test workflow. Try again."
+                        humanized ? `Couldn't test workflow: ${humanized}` : "Couldn't test workflow. Try again."
                     )
                     posthog.captureException(error, { scope: 'hogFlowEditorTestLogic.submitTestInvocation' })
                     throw error

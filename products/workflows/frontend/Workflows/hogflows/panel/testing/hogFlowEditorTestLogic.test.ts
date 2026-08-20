@@ -11,6 +11,7 @@ import { AvailableFeature, GroupType, GroupTypeIndex, OrganizationType } from '~
 import type { HogFlow } from '../../types'
 import {
     createGlobalsFromResponse,
+    extractTestErrorDetail,
     groupSelectColumns,
     hogFlowEditorTestLogic,
     humanizeWorkflowTestError,
@@ -183,6 +184,41 @@ describe('hogFlowEditorTestLogic', () => {
             )
             expect(message).toContain('Second email')
             expect(message).not.toContain('First email')
+        })
+    })
+
+    describe('extractTestErrorDetail', () => {
+        it('flattens an array message from the CDP executor', () => {
+            // The executor catch-all returns { error: [msg] }, which the backend copies into `message`.
+            expect(extractTestErrorDetail({ data: { status: 'error', message: ['Boom happened'] } })).toBe(
+                'Boom happened'
+            )
+        })
+
+        it('reads a string message', () => {
+            expect(extractTestErrorDetail({ data: { status: 'error', message: 'Team not found' } })).toBe(
+                'Team not found'
+            )
+        })
+
+        it('flattens raw DRF serializer field errors', () => {
+            expect(extractTestErrorDetail({ data: { configuration: { actions: ['Invalid action config'] } } })).toBe(
+                'Invalid action config'
+            )
+        })
+
+        it('prefers a flat detail over the response body', () => {
+            expect(
+                extractTestErrorDetail({ detail: 'Pass either use_draft or a configuration', data: { message: ['x'] } })
+            ).toBe('Pass either use_draft or a configuration')
+        })
+
+        it('keeps a transport error message when there is no response body', () => {
+            expect(extractTestErrorDetail({ message: 'Network request failed' })).toBe('Network request failed')
+        })
+
+        it('drops the generic debug string when the body carries no real message', () => {
+            expect(extractTestErrorDetail({ message: 'Non-OK response [POST ...] (status 400)', data: {} })).toBeNull()
         })
     })
 
