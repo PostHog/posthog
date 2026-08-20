@@ -152,8 +152,6 @@ OLD_ALLOW_PATH_PATTERNS = [
 ]
 OLD_MAX_LINES = 800
 OLD_MAX_FILES = 30
-OLD_DISMISS_TEST_RE = "(?:^|/)(?:__tests__|tests?|fixtures)/|(?:^|/)test_[^/]+\\.py$|_test\\.(py|go)$|\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$|(?:^|/)conftest\\.py$"
-OLD_DISMISS_GENERATED_RE = "(?:^|/)generated/.*\\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|^services/mcp/src/api/generated\\.ts$|\\.gen\\.(ts|tsx|js|jsx)$|\\.generated\\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/"
 
 # ── 1. Equality snapshot: loaded policy matches pre-extraction literals ──
 
@@ -163,13 +161,11 @@ def test_deny_defs_equal_pre_extraction_excluding_stamphog_policy() -> None:
     assert live == OLD_DENY_PATTERN_DEFS
 
 
-def test_allow_size_and_dismiss_equal_pre_extraction() -> None:
+def test_allow_and_size_equal_pre_extraction() -> None:
     assert set(gates.ALLOW_ONLY_EXTENSIONS) == OLD_ALLOW_ONLY_EXTENSIONS
     assert list(gates.ALLOW_PATH_PATTERNS) == OLD_ALLOW_PATH_PATTERNS
     assert gates.MAX_LINES == OLD_MAX_LINES
     assert gates.MAX_FILES == OLD_MAX_FILES
-    assert gates._DISMISS_TIME_TEST_RE.pattern == OLD_DISMISS_TEST_RE
-    assert gates._DISMISS_TIME_GENERATED_RE.pattern == OLD_DISMISS_GENERATED_RE
 
 
 @pytest.mark.parametrize(
@@ -483,7 +479,13 @@ def test_resolve_invalid_child_rides_parent_grant(fake_repo: Path) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    [".stamphog/policy.yml", "some/AGENT_APPROVALS.md", "tools/pr-approval-agent/review_pr.py"],
+    [
+        ".stamphog/policy.yml",
+        "some/AGENT_APPROVALS.md",
+        "products/stamphog/packages/pr-approval-agent/review_pr.py",
+        # A vendored copy keeps the engine under tools/, and the same deny must still cover it.
+        "tools/pr-approval-agent/review_pr.py",
+    ],
 )
 def test_policy_file_only_pr_is_t2_never(path: str) -> None:
     deny = gates.detect_deny_categories([path])
@@ -513,18 +515,7 @@ def test_reviewer_system_composes_guidance_and_scaffold() -> None:
     assert "Verdicts:" in reviewer._REVIEWER_SCAFFOLD_TAIL
 
 
-# ── 6. Stamphog policy files are not trivial at dismiss time ──
-
-
-@pytest.mark.parametrize(
-    "path",
-    ["products/visual_review/AGENT_APPROVALS.md", ".stamphog/policy.yml", "tools/pr-approval-agent/gates.py"],
-)
-def test_policy_paths_not_trivial_at_dismiss_time(path: str) -> None:
-    assert gates.is_trivial_at_dismiss_time(path) is False
-
-
-# ── 7. Folder prose is sanitized and capped ──
+# ── 6. Folder prose is sanitized and capped ──
 
 
 def test_folder_prose_stripped_of_control_chars() -> None:

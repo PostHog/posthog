@@ -254,7 +254,7 @@ def test_guidance_appends_steering_under_marked_section(tmp_path: Path, monkeypa
 
 
 def test_guidance_unchanged_without_steering(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # No steering.md must mean a byte-identical prompt — the Action's existing repos see no change.
+    # No steering.md must mean a byte-identical prompt, so existing repos see no change.
     _fake_stamphog_dir(tmp_path, monkeypatch, "norms prose\n")
     assert _load_review_guidance() == "norms prose\n"
 

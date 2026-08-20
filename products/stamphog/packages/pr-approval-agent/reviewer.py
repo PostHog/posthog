@@ -10,7 +10,9 @@ import json
 import shutil
 import asyncio
 import textwrap
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
@@ -290,7 +292,7 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
 REVIEWER_SYSTEM = _load_review_guidance() + _REVIEWER_SCAFFOLD_TAIL
 
 
-def _apply_gateway_route(gateway: tuple[str, str] | None, attribution: dict[str, object]):
+def _apply_gateway_route(gateway: tuple[str, str] | None, attribution: dict[str, object]) -> Callable[..., Any] | None:
     """Apply the gateway env and return the plain SDK ``query`` when configured, else None."""
     if gateway is None:
         return None
@@ -302,7 +304,7 @@ def _apply_gateway_route(gateway: tuple[str, str] | None, attribution: dict[str,
 class Reviewer:
     """LLM reviewer using Agent SDK."""
 
-    def __init__(self, repo_root: Path, *, explore_root: Path | None = None, verbose: bool = False):
+    def __init__(self, repo_root: Path, *, explore_root: Path | None = None, verbose: bool = False) -> None:
         self.repo_root = repo_root
         # Where the agent's Read/Grep/Glob look. For stacked PRs this is a
         # worktree at the PR head so imports from not-yet-merged parent PRs
@@ -381,10 +383,10 @@ class Reviewer:
             extra_args={"no-session-persistence": None},
         )
 
-        # Shared by both routes; the full set is always on the separate
-        # stamphog_review_completed event. Extras first so the base props win:
-        # the hosted server stamps runtime/team context via STAMPHOG_EXTRA_PROPERTIES,
-        # absent in the Action.
+        # Shared by both routes. The full set is always on the separate
+        # stamphog_review_completed event. Extras first, so the base props win.
+        # The hosted server stamps runtime and team context through
+        # STAMPHOG_EXTRA_PROPERTIES, and a local run sets no such variable.
         attribution = {
             **analytics_extra_properties(),
             "stamphog_pr_number": pr.number,
