@@ -1012,6 +1012,12 @@ class TestFacadeReadsAndMappers(TestCase):
             ),
             [first],
         )
+        # Callers outside Desktop file tasks through here, so an unstamped system space
+        # would escape from this path.
+        self.assertEqual(
+            Channel.objects.unscoped().get(id=first).system_role,
+            Channel.SystemRole.PERSONAL,
+        )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_wizard_cloud_run_seeds_pending_user_message(self, _mock_workflow):
