@@ -6,7 +6,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.errors import InternalCHQueryError
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseConnectionError,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.temporal.ingestion_acceptance_test.client import CapturedEvent, Person, PostHogClient
 from posthog.temporal.ingestion_acceptance_test.config import Config
 
@@ -241,6 +246,9 @@ class TestPollUntilFoundRetries:
             pytest.param(ClickHouseAtCapacity(), id="TOO_MANY_SIMULTANEOUS_QUERIES"),
             pytest.param(ClickHouseQueryTimeOut(), id="TIMEOUT_EXCEEDED"),
             pytest.param(ClickHouseQueryMemoryLimitExceeded(), id="MEMORY_LIMIT_EXCEEDED"),
+            # A mid-query socket drop wraps to ClickHouseConnectionError before the poll sees it,
+            # so it must retry rather than abort and post a false failure.
+            pytest.param(ClickHouseConnectionError(), id="CONNECTION_DROPPED"),
         ],
     )
     @patch("posthog.temporal.ingestion_acceptance_test.client.sync_execute")
