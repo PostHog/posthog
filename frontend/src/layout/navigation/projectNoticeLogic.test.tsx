@@ -268,18 +268,92 @@ describe('projectNoticeLogic', () => {
             restriction: RestrictionType.DROP_EVENT_FROM_INGESTION,
             expectedType: 'warning',
             expectsDocsLink: false,
+            dismissKey: 'event_ingestion_restriction.drop',
         },
         {
             label: 'only person processing is skipped',
             restriction: RestrictionType.SKIP_PERSON_PROCESSING,
             expectedType: 'info',
             expectsDocsLink: true,
+            dismissKey: 'event_ingestion_restriction.skip',
         },
-    ])('event ingestion restriction banner copy: $label', ({ restriction, expectedType, expectsDocsLink }) => {
+    ])(
+        'event ingestion restriction banner copy: $label',
+        ({ restriction, expectedType, expectsDocsLink, dismissKey }) => {
+            let getItemSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                // A project that has ingested events, so the "no events yet" notice never wins the priority chain.
+                window.POSTHOG_APP_CONTEXT = {
+                    current_team: { id: MOCK_TEAM_ID, ingested_event: true },
+                    current_project: { id: MOCK_TEAM_ID },
+                } as unknown as AppContext
+                useMocks({
+                    get: {
+                        '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                        '/api/environments/:team_id/event_ingestion_restrictions/': [
+                            200,
+                            [{ restriction_type: restriction, distinct_ids: null }],
+                        ],
+                    },
+                })
+                initKeaTests()
+                // Dismiss the lower-priority notice that would otherwise sit ahead of the restriction one.
+                getItemSpy = jest
+                    .spyOn(Storage.prototype, 'getItem')
+                    .mockImplementation((key: string) =>
+                        key === 'project-notice-dismissed.invite_teammates' ? 'true' : null
+                    )
+            })
+
+            afterEach(() => {
+                getItemSpy.mockRestore()
+            })
+
+            it('splits copy by restriction type and stays dismissible', async () => {
+                const logic = projectNoticeLogic()
+                logic.mount()
+
+                await expectLogic(eventIngestionRestrictionLogic).toDispatchActions([
+                    'loadEventIngestionRestrictionsSuccess',
+                ])
+
+                expect(logic.values.projectNoticeVariant).toEqual('event_ingestion_restriction')
+                expect(logic.values.projectNotice?.type).toEqual(expectedType)
+                expect(logic.values.projectNotice?.onClose).not.toBeUndefined()
+                expect(logic.values.projectNotice?.action).toEqual(expectsDocsLink ? expect.anything() : undefined)
+
+                logic.unmount()
+            })
+
+            it('does not reshow the notice after its dismissal was persisted', async () => {
+                // Simulate a reload after the banner was closed: the variant selector must read the
+                // stored key back, otherwise the notice returns once the per-session guard resets.
+                getItemSpy.mockImplementation((key: string) =>
+                    key === 'project-notice-dismissed.invite_teammates' ||
+                    key === `project-notice-dismissed.${dismissKey}`
+                        ? 'true'
+                        : null
+                )
+
+                const logic = projectNoticeLogic()
+                logic.mount()
+
+                await expectLogic(eventIngestionRestrictionLogic).toDispatchActions([
+                    'loadEventIngestionRestrictionsSuccess',
+                ])
+
+                expect(logic.values.projectNoticeVariant).not.toEqual('event_ingestion_restriction')
+
+                logic.unmount()
+            })
+        }
+    )
+
+    describe('event ingestion restriction dismissal keys are per type', () => {
         let getItemSpy: jest.SpyInstance
 
         beforeEach(() => {
-            // A project that has ingested events, so the "no events yet" notice never wins the priority chain.
             window.POSTHOG_APP_CONTEXT = {
                 current_team: { id: MOCK_TEAM_ID, ingested_event: true },
                 current_project: { id: MOCK_TEAM_ID },
@@ -289,16 +363,19 @@ describe('projectNoticeLogic', () => {
                     '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
                     '/api/environments/:team_id/event_ingestion_restrictions/': [
                         200,
-                        [{ restriction_type: restriction, distinct_ids: null }],
+                        [{ restriction_type: RestrictionType.DROP_EVENT_FROM_INGESTION, distinct_ids: null }],
                     ],
                 },
             })
             initKeaTests()
-            // Dismiss the lower-priority notice that would otherwise sit ahead of the restriction one.
+            // Only the benign skip-person-processing notice was dismissed previously.
             getItemSpy = jest
                 .spyOn(Storage.prototype, 'getItem')
                 .mockImplementation((key: string) =>
-                    key === 'project-notice-dismissed.invite_teammates' ? 'true' : null
+                    key === 'project-notice-dismissed.invite_teammates' ||
+                    key === 'project-notice-dismissed.event_ingestion_restriction.skip'
+                        ? 'true'
+                        : null
                 )
         })
 
@@ -306,7 +383,7 @@ describe('projectNoticeLogic', () => {
             getItemSpy.mockRestore()
         })
 
-        it('splits copy by restriction type and stays dismissible', async () => {
+        it('keeps showing the drop-event warning when only the skip notice was dismissed', async () => {
             const logic = projectNoticeLogic()
             logic.mount()
 
@@ -315,9 +392,7 @@ describe('projectNoticeLogic', () => {
             ])
 
             expect(logic.values.projectNoticeVariant).toEqual('event_ingestion_restriction')
-            expect(logic.values.projectNotice?.type).toEqual(expectedType)
-            expect(logic.values.projectNotice?.onClose).not.toBeUndefined()
-            expect(logic.values.projectNotice?.action).toEqual(expectsDocsLink ? expect.anything() : undefined)
+            expect(logic.values.projectNotice?.type).toEqual('warning')
 
             logic.unmount()
         })

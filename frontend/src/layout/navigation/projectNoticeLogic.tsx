@@ -116,6 +116,12 @@ function storeNoticeDismissal(key: string): void {
     }
 }
 
+// Drop and skip restrictions share the one banner variant but must dismiss independently, so that
+// hiding the benign skip-person-processing notice never also suppresses a later drop-event warning.
+function eventIngestionRestrictionDismissKey(hasDropEventRestriction: boolean): string {
+    return hasDropEventRestriction ? 'event_ingestion_restriction.drop' : 'event_ingestion_restriction.skip'
+}
+
 /**
  * Whether the missing-reverse-proxy notice could be eligible to show (and its data should be fetched).
  * Limited to the first 7 days of each month so the nudge stays noticeable without causing fatigue.
@@ -229,6 +235,7 @@ export interface projectNoticeLogicMeta {
             memberCount: number,
             internetConnectionIssue: boolean,
             hasProjectNoticeRestriction: boolean,
+            hasDropEventRestriction: boolean,
             proxyRecords: ProxyRecord[] | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             currentLocation: {
@@ -247,7 +254,8 @@ export interface projectNoticeLogicMeta {
         ) => ProjectNoticeVariant | null
         projectNoticeDismissKey: (
             projectNoticeVariant: ProjectNoticeVariant | null,
-            effectiveBillingAlert: BillingAlertConfig | null
+            effectiveBillingAlert: BillingAlertConfig | null,
+            hasDropEventRestriction: boolean
         ) => string | null
         projectNotice: (
             projectNoticeVariant: ProjectNoticeVariant | null,
@@ -359,6 +367,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 s.memberCount,
                 apiStatusLogic.selectors.internetConnectionIssue,
                 eventIngestionRestrictionLogic.selectors.hasProjectNoticeRestriction,
+                eventIngestionRestrictionLogic.selectors.hasDropEventRestriction,
                 s.proxyRecords,
                 s.effectiveBillingAlert,
                 router.selectors.currentLocation,
@@ -378,6 +387,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 memberCount: number,
                 internetConnectionIssue: boolean,
                 hasEventIngestionRestriction: boolean,
+                hasDropEventRestriction: boolean,
                 proxyRecords: ProxyRecord[] | null,
                 effectiveBillingAlert: BillingAlertConfig | null,
                 currentLocation: {
@@ -434,7 +444,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
                 ) {
                     return 'real_project_with_no_events'
-                } else if (hasEventIngestionRestriction) {
+                } else if (
+                    hasEventIngestionRestriction &&
+                    !isNoticeDismissed(eventIngestionRestrictionDismissKey(hasDropEventRestriction))
+                ) {
                     return 'event_ingestion_restriction'
                 } else if (
                     // Only show the reverse proxy nudge on Cloud (or dev) — self-hosted users
@@ -457,18 +470,27 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             },
         ],
         projectNoticeDismissKey: [
-            (s) => [s.projectNoticeVariant, s.effectiveBillingAlert],
-            (variant: ProjectNoticeVariant | null, effectiveBillingAlert: BillingAlertConfig | null): string | null => {
+            (s) => [
+                s.projectNoticeVariant,
+                s.effectiveBillingAlert,
+                eventIngestionRestrictionLogic.selectors.hasDropEventRestriction,
+            ],
+            (
+                variant: ProjectNoticeVariant | null,
+                effectiveBillingAlert: BillingAlertConfig | null,
+                hasDropEventRestriction: boolean
+            ): string | null => {
                 switch (variant) {
                     case 'billing_alert':
                         return effectiveBillingAlert?.dismissKey
                             ? `billing_alert.${effectiveBillingAlert.dismissKey}`
                             : null
+                    case 'event_ingestion_restriction':
+                        return eventIngestionRestrictionDismissKey(hasDropEventRestriction)
                     case 'real_project_with_no_events':
                     case 'missing_reverse_proxy':
                     case 'invite_teammates':
                     case 'provisioned_welcome':
-                    case 'event_ingestion_restriction':
                         return variant
                     default:
                         return null
