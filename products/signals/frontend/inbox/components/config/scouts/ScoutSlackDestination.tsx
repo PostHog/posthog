@@ -50,12 +50,15 @@ export function ScoutSlackDestination({
     }
 
     const setThreadReports = (threadReports: boolean): void => {
-        if (!destination?.channel || !selectedIntegration) {
+        // Toggle threading only against the stored destination's own workspace. Writing a fallback
+        // integration id next to the stored channel would pair the channel with a different
+        // workspace and break delivery, so require the configured integration to resolve here.
+        if (!configuredIntegration || !destination?.channel) {
             return
         }
         onChange({
             slack: {
-                integration_id: selectedIntegration.id,
+                integration_id: configuredIntegration.id,
                 channel: destination.channel,
                 thread_reports: threadReports,
             },
@@ -123,7 +126,7 @@ export function ScoutSlackDestination({
                             : 'Pick a channel to turn notifications on. PostHog must be in the channel. Invite it with '}
                         <code>/invite @PostHog</code>.
                     </span>
-                    {hasChannel ? (
+                    {configuredIntegration && hasChannel ? (
                         <LemonSwitch
                             size="small"
                             checked={destination?.thread_reports ?? false}
