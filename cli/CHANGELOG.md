@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.13.2 — 2026-08-20
+
+### Patch changes
+
+- [029c984bdef](https://github.com/PostHog/posthog/commit/029c984bdefc2a09acb7975e29de052fcf0144d7) Retry symbol set uploads through the standard S3 endpoint when the transfer-acceleration endpoint is unreachable, so uploads complete on networks that block the accelerate domain. A 5 second connect timeout on uploads makes unreachable endpoints fail fast. — Thanks @ablaszkiewicz!
+
 ## 0.13.1 — 2026-08-20
 
 ### Patch changes
