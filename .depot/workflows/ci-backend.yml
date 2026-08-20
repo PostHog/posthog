@@ -653,6 +653,10 @@ jobs:
             full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
+            # Per-segment selected seconds — build_django_matrix sizes narrowed shards from these.
+            core_seconds: ${{ steps.classify.outputs.core_seconds }}
+            poe_seconds: ${{ steps.classify.outputs.poe_seconds }}
+            temporal_seconds: ${{ steps.classify.outputs.temporal_seconds }}
             run_legacy: ${{ steps.fallback.outputs.run_legacy }}
             run_legacy_reason: ${{ steps.fallback.outputs.run_legacy_reason }}
             turbo_result: ${{ steps.fallback.outputs.turbo_result }}
@@ -710,6 +714,30 @@ jobs:
               with:
                   version: '0.11.28'
 
+            - name: Download the run's sharding plan snapshot
+              # build_django_matrix divides the selector's per-segment seconds by
+              # turbo-discover's per-shard budget, so both sides must read the same
+              # .test_durations. Without this the selector reads the committed file, whose
+              # total can differ from the cached one by more than a factor of two, and the
+              # narrowed shard counts would move with that gap instead of with the selection.
+              # Best-effort: on a miss the selector keeps the committed file.
+              id: pinned-plan
+              continue-on-error: true
+              if: steps.fallback.outputs.skip == 'false'
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: test-durations-plan
+                  path: /tmp/test-durations-plan
+
+            - name: Apply the pinned sharding plan
+              if: steps.fallback.outputs.skip == 'false' && steps.pinned-plan.outcome == 'success'
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  if [ -f /tmp/test-durations-plan/.test_durations ]; then
+                      cp /tmp/test-durations-plan/.test_durations .test_durations
+                  fi
+
             - name: Run shadow selector
               id: select
               # continue-on-error so a selector or git fetch failure doesn't fail this
@@ -749,12 +777,17 @@ jobs:
                   # strips the capture job that consumes these, per the header).
                   emit_metrics() {
                       local changed="" selected="" reasons="" selected_seconds="" skipped_seconds=""
+                      local core_seconds="" poe_seconds="" temporal_seconds=""
                       if [[ -s /tmp/selection.json ]]; then
                           changed=$(jq -r '.changed_file_count // empty' /tmp/selection.json)
                           selected=$(jq -r '.combined.count // empty' /tmp/selection.json)
                           reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
                           selected_seconds=$(jq -r '.durations.selected_seconds // empty' /tmp/selection.json)
                           skipped_seconds=$(jq -r '.durations.skipped_seconds // empty' /tmp/selection.json)
+                          # Per-segment seconds size the narrowed matrix; see build_django_matrix.
+                          core_seconds=$(jq -r '.durations.selected_seconds_by_segment.core // empty' /tmp/selection.json)
+                          poe_seconds=$(jq -r '.durations.selected_seconds_by_segment.poe // empty' /tmp/selection.json)
+                          temporal_seconds=$(jq -r '.durations.selected_seconds_by_segment.temporal // empty' /tmp/selection.json)
                       fi
                       {
                           echo "narrowed=$1"
@@ -764,6 +797,9 @@ jobs:
                           echo "full_run_reasons_count=$reasons"
                           echo "selected_test_seconds=$selected_seconds"
                           echo "skipped_test_seconds=$skipped_seconds"
+                          echo "core_seconds=$core_seconds"
+                          echo "poe_seconds=$poe_seconds"
+                          echo "temporal_seconds=$temporal_seconds"
                       } >> "$GITHUB_OUTPUT"
                   }
 
@@ -1463,6 +1499,9 @@ jobs:
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   COMPAT_FILES: ${{ needs.select-tests.outputs.compat_files }}
+                  CORE_SECONDS: ${{ needs.select-tests.outputs.core_seconds }}
+                  POE_SECONDS: ${{ needs.select-tests.outputs.poe_seconds }}
+                  TEMPORAL_SECONDS: ${{ needs.select-tests.outputs.temporal_seconds }}
                   # A trunk-merge/** PR opens as a draft but is the merge gate, and
                   # select-tests deliberately does not run for it. Reporting it as a
                   # draft here would turn that empty MODE into "skip" and build an
@@ -1493,10 +1532,37 @@ jobs:
                       exit 0
                   fi
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: collapse to one shard per active segment and skip
-                      # segments with no selected files.
+                      # Selected mode: run only the segments that have selected files, and
+                      # shard each one to the same per-shard work budget the full matrix
+                      # targets. A narrow selection stays at 1 shard; a wide one gets several,
+                      # instead of every selected test landing in a single job that then
+                      # overruns the job timeout.
+                      #
+                      # seconds_per_shard comes from turbo-discover, so the target wall clock,
+                      # the per-segment overhead and the safety factor stay defined in one
+                      # place. Missing data (turbo-discover failed, selector wrote no seconds)
+                      # keeps the previous single shard, which is the safe direction.
+                      selected_shards() {
+                          local seconds=$1 segment=$2 budget cap shards_json
+                          shards_json="${DJANGO_SHARDS_JSON:-}"
+                          [[ -z "$shards_json" ]] && shards_json='{}'
+                          budget=$(jq -r --arg s "$segment" '.[$s].seconds_per_shard // empty' <<< "$shards_json")
+                          cap=$(jq -r --arg s "$segment" '.[$s].shards // empty' <<< "$shards_json")
+                          if [[ -z "$seconds" || -z "$budget" || -z "$cap" ]]; then
+                              echo 1
+                              return
+                          fi
+                          # Never more shards than the full run of the same segment — a narrowed
+                          # run is a subset of it.
+                          jq -rn --argjson s "$seconds" --argjson b "$budget" --argjson c "$cap" '
+                            if $b <= 0 then 1
+                            else (($s / $b) | ceil) as $n
+                              | if $n < 1 then 1 elif $n > $c then $c else $n end
+                            end'
+                      }
+
                       core_count=0
-                      [[ -n "$CORE_FILES" ]] && core_count=1
+                      [[ -n "$CORE_FILES" ]] && core_count=$(selected_shards "$CORE_SECONDS" Core)
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1504,9 +1570,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -1517,14 +1583,14 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
                       poe_count=0
-                      [[ "$RUN_POE" == "true" ]] && poe_count=1
+                      [[ "$RUN_POE" == "true" ]] && poe_count=$(selected_shards "$POE_SECONDS" CorePOE)
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1532,9 +1598,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-poe-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-poe-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -1545,14 +1611,14 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-poe-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-poe-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
                       temporal_count=0
-                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=1
+                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=$(selected_shards "$TEMPORAL_SECONDS" Temporal)
                       temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
                         [range(1; $n + 1) | {
                           segment: "Temporal",
@@ -1560,9 +1626,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "temporal-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("temporal-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -1573,9 +1639,9 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "temporal-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("temporal-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -2077,7 +2143,8 @@ jobs:
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
-                      # No --splits/--group (no sharding), and no --reruns anywhere, mirroring
+                      # Sharded only when build_django_matrix sized the segment above one
+                      # shard, and no --reruns anywhere, mirroring
                       # canonical: retries mask the raw flake signal Trunk needs (the shadow
                       # strips the quarantine gate itself).
                       if [[ "${{ matrix.compat }}" == "true" ]]; then
@@ -2087,8 +2154,18 @@ jobs:
                       else
                           targets="$CORE_FILES"
                       fi
+                      # A selection wide enough to need more than one shard is split like a
+                      # full run. Item granularity on purpose: the target list is already
+                      # narrow, so pre-import file skipping saves nothing, and the per-segment
+                      # plan file describes a different run-set than the selected subset.
+                      SELECTED_SPLIT=()
+                      if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
+                          SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                      fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
+                          "${SELECTED_SPLIT[@]}" \
                           -r fEsxX \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
@@ -2185,10 +2262,20 @@ jobs:
                   # two timeout tests fail downstream (hogql_table never reached). Canonical GHA still runs them.
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: no sharding, no --reruns — see the core selected branch;
+                      # Selected mode: no --reruns — see the core selected branch;
                       # the full run also skips --reruns, mirroring canonical.
+                      # A selection wide enough to need more than one shard is split like a
+                      # full run. Item granularity on purpose: the target list is already
+                      # narrow, so pre-import file skipping saves nothing, and the per-segment
+                      # plan file describes a different run-set than the selected subset.
+                      SELECTED_SPLIT=()
+                      if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
+                          SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                      fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
+                          "${SELECTED_SPLIT[@]}" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
