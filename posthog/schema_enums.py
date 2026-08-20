@@ -2964,6 +2964,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_TRACK = "customerio-track"
     APNS = "apns"
     POSTGRESQL = "postgresql"
+    QUICKBOOKS = "quickbooks"
     AWS_S3 = "aws-s3"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"

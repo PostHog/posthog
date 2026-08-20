@@ -154,6 +154,7 @@ class Integration(models.Model):
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
         POSTHOG = "posthog"
+        QUICKBOOKS = "quickbooks"
         REDDIT_ADS = "reddit-ads"
         RESEND = "resend"
         S3_COMPATIBLE = "s3-compatible"

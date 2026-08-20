@@ -5525,6 +5525,7 @@ export const INTEGRATION_KINDS = [
     'customerio-track',
     'apns',
     'postgresql',
+    'quickbooks',
     'aws-s3',
     's3-compatible',
     'snowflake',
