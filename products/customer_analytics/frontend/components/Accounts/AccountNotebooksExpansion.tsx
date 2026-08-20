@@ -37,7 +37,12 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
+import { AccountEmailThreadsExpansion } from './AccountEmailThreadsExpansion'
+import { accountEmailThreadsLogic } from './accountEmailThreadsLogic'
+import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
 import { accountLinksLogic } from './accountLinksLogic'
+import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
+import { accountMeetingsLogic } from './accountMeetingsLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { accountOpportunitiesLogic } from './accountOpportunitiesLogic'
@@ -178,6 +183,8 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountOpportunitiesLogic({ accountId }))
     useMountedLogic(accountSummariesLogic({ accountId }))
     useMountedLogic(accountSupportTicketsLogic({ accountId }))
+    useMountedLogic(accountEmailThreadsLogic({ accountId }))
+    useMountedLogic(accountMeetingsLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
@@ -317,6 +324,11 @@ export function AccountNotebooksExpansion({
                                 label: 'Relationships',
                                 content: <AccountRelationshipsExpansion accountId={accountId} />,
                             },
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS] && {
+                                key: 'feature_requests' as const,
+                                label: 'Feature requests',
+                                content: <AccountFeatureRequestsExpansion accountId={accountId} />,
+                            },
                             {
                                 key: 'usage',
                                 label: 'Usage',
@@ -354,7 +366,17 @@ export function AccountNotebooksExpansion({
                                 label: 'Support tickets',
                                 content: <AccountSupportTicketsExpansion accountId={accountId} />,
                             },
+                            {
+                                key: 'email_threads',
+                                label: 'Email threads',
+                                content: <AccountEmailThreadsExpansion accountId={accountId} />,
+                            },
                             // Flag-gated here (not just inside the component) so the tab label hides too.
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
+                                key: 'meetings' as const,
+                                label: 'Meetings',
+                                content: <AccountMeetingsExpansion accountId={accountId} />,
+                            },
                             !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
                                 key: 'event_stream' as const,
                                 label: 'Event stream',

@@ -7,6 +7,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError
+from django.test import override_settings
+from django.utils import timezone
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -14,6 +16,8 @@ import structlog
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
+
+from posthog.models.team import Team
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -36,6 +40,13 @@ logger = structlog.get_logger(__name__)
 # transaction=True: the detection path and the (thread-pool) sync activity write to the DB from worker
 # threads with their own connections, which can't see an atomic TestCase's uncommitted rows.
 pytestmark = pytest.mark.django_db(transaction=True)
+
+
+_NOMINATION = {"requested_at": "2026-08-03T00:00:00+00:00", "requested_by": "danielc"}
+
+
+def _days_ago_iso(days: float) -> str:
+    return (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=days)).isoformat()
 
 
 def _write_partitioned_delta(path: str, buckets: list[str]) -> deltalake.DeltaTable:
@@ -95,6 +106,30 @@ class TestRepartitionDetection:
         assert pending["partition_count"] > 2
         assert pending["trigger_reason"] == "proactive_threshold"
         assert capture.call_args.args[0] == "warehouse_repartition_flagged"
+
+    def test_transient_db_error_during_measurement_save_is_not_captured(self, team):
+        # A pgbouncer pooler drop (or its server_login_retry cooldown outliving the single retry in
+        # retry_on_db_connection_drop) must not mint an error-tracking issue for a condition nobody
+        # can act on — only a genuine detection bug should reach capture_exception.
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
+        )
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "0", "1", "1"])
+            with (
+                patch.object(
+                    ExternalDataSchema,
+                    "record_partition_measurement",
+                    side_effect=OperationalError(
+                        "server login has been failing, cached error: server conn crashed? (server_login_retry)"
+                    ),
+                ),
+                patch.object(ctrl, "capture_exception") as mock_capture_exception,
+            ):
+                self._detect(team, schema, delta)
+
+        mock_capture_exception.assert_not_called()
 
     def test_unpartitioned_table_flags_auto_target_scheme(self, team):
         # An unpartitioned table's target legitimately has mode None (auto-detect at rewrite time),
@@ -248,6 +283,23 @@ class TestIsAutoRepartitionEnabled:
 
         assert mock_queryset.get.call_count == 2
 
+    def test_returns_false_when_db_connection_stays_down(self, team):
+        # If the connection is still down on the retry, is_auto_repartition_enabled must not raise —
+        # repartition_table.py calls it with no enclosing try/except, so an uncaught OperationalError
+        # here crashes the whole activity instead of just leaving the flag resolved as disabled.
+        schema = _make_schema(team, {})
+        mock_queryset = MagicMock()
+        mock_queryset.get.side_effect = OperationalError("server closed the connection unexpectedly")
+
+        with (
+            patch("posthog.models.Team.objects.only", return_value=mock_queryset),
+            patch.object(ctrl, "capture_exception") as mock_capture_exception,
+        ):
+            assert ctrl.is_auto_repartition_enabled(schema) is False
+
+        assert mock_queryset.get.call_count == 2
+        mock_capture_exception.assert_called_once()
+
 
 class TestRepartitionOOMHistoryTrigger:
     def _detect(self, team, schema: ExternalDataSchema, delta: deltalake.DeltaTable) -> None:
@@ -362,27 +414,48 @@ class TestCoarsenTrigger:
                 "partition_mode": "md5",
                 "partition_count": 16,
                 "partitioning_keys": ["id"],
-                "last_repartition_at": (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=30)).isoformat(),
+                "last_repartition_at": _days_ago_iso(30),
                 **overrides,
             },
         )
+
+    def _detect_over_fragmented(
+        self, team, schema: ExternalDataSchema, *, coarsen_enabled: bool = True, buckets: list[str] | None = None
+    ) -> MagicMock:
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", buckets or [str(bucket) for bucket in range(16)])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=coarsen_enabled),
+                patch.object(ctrl, "capture_repartition_event") as capture,
+            ):
+                self._detect(team, schema, delta)
+        schema.refresh_from_db()
+        return capture
+
+    def _record_oom(self, schema: ExternalDataSchema, *, days_ago: float = 0, **evidence) -> None:
+        event = ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
+            team_id=schema.team_id, schema=schema, run_id="run-1", **evidence
+        )
+        if days_ago:
+            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).filter(pk=event.pk).update(
+                created_at=timezone.now() - datetime.timedelta(days=days_ago)
+            )
+
+    def _record_fleet_wide_burst(self, team) -> None:
+        for _ in range(3):
+            other_team = Team.objects.create(organization=team.organization)
+            self._record_oom(_make_schema(other_team, {}))
 
     def test_flags_an_over_fragmented_table_for_coarsening(self, team):
         # The reverse direction: a table split far below what memory safety needs pays for every one of
         # those pieces on each merge. Most tables in this state were put there by the finer path
         # reacting to failures that were never about size, and nothing else brings them back.
         schema = self._fragmented_schema(team)
-        with tempfile.TemporaryDirectory() as d:
-            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(16)])
-            with (
-                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
-                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
-                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=True),
-                patch.object(ctrl, "capture_repartition_event") as capture,
-            ):
-                self._detect(team, schema, delta)
 
-        schema.refresh_from_db()
+        capture = self._detect_over_fragmented(team, schema)
+
         pending = schema.repartition_pending
         assert pending is not None
         assert pending["trigger_reason"] == "coarsening"
@@ -393,7 +466,7 @@ class TestCoarsenTrigger:
     @pytest.mark.parametrize(
         "case",
         [
-            # Any memory-attributed OOM means bigger partitions are the wrong direction for this table.
+            # The cheap short-circuit on the split trigger's own count, ahead of the 14-day gate.
             "recent_oom",
             # A layout that was just rewritten hasn't had a chance to prove itself; undoing it within
             # the day is how the two directions would start handing the table back and forth.
@@ -403,52 +476,98 @@ class TestCoarsenTrigger:
         ],
     )
     def test_does_not_coarsen_when_a_guard_applies(self, team, case):
-        overrides = (
-            {"last_repartition_at": datetime.datetime.now(datetime.UTC).isoformat()} if case == "fresh_layout" else {}
+        schema = self._fragmented_schema(
+            team, **({"last_repartition_at": _days_ago_iso(0)} if case == "fresh_layout" else {})
         )
-        schema = self._fragmented_schema(team, **overrides)
         if case == "recent_oom":
-            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
-                team_id=schema.team_id, schema=schema, run_id="run-1"
-            )
+            self._record_oom(schema)
 
-        with tempfile.TemporaryDirectory() as d:
-            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(16)])
-            with (
-                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
-                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
-                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=case != "flag_disabled"),
-                patch.object(ctrl, "capture_repartition_event"),
-            ):
-                self._detect(team, schema, delta)
+        self._detect_over_fragmented(team, schema, coarsen_enabled=case != "flag_disabled")
 
-        schema.refresh_from_db()
         assert schema.repartition_pending is None
+
+    @override_settings(DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS=3, DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS=3)
+    def test_a_death_the_rules_blame_on_infrastructure_does_not_block_coarsening(self, team):
+        # A nightly restart takes out hundreds of unrelated schemas at once, which says nothing about
+        # any one table's merge memory. Blocking on it froze the whole over-split backlog.
+        schema = self._fragmented_schema(team)
+        self._record_oom(schema, self_phase="merge", self_report_age_at_death_seconds=1.0, self_peak_buffer_bytes=1024)
+        self._record_fleet_wide_burst(team)
+
+        self._detect_over_fragmented(team, schema)
+
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["trigger_reason"] == "coarsening"
+
+    def test_an_oom_that_predates_the_last_rewrite_still_blocks_coarsening(self, team):
+        # `recent_count` floors its window at `last_repartition_at`, which would hide this death.
+        # Coarsening undoes that rewrite, so the OOM that justified it is the evidence that matters.
+        schema = self._fragmented_schema(team, last_repartition_at=_days_ago_iso(8))
+        self._record_oom(schema, days_ago=10)
+
+        self._detect_over_fragmented(team, schema)
+
+        assert schema.repartition_pending is None
+
+    @override_settings(DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS=3, DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS=3)
+    @pytest.mark.parametrize(
+        "phase,days_ago,blocks",
+        [
+            # A burst window is where a self-inflicted merge death hides, so the backstop looks past
+            # the infrastructure verdict at the peak the merge itself reported.
+            ("merge", 0, True),
+            # Scoped to merges: an extract holding 200 MB says nothing about the merge working set.
+            ("extract", 0, False),
+            # Scoped to the window too, or one big merge death would freeze the layout forever.
+            ("merge", 20, False),
+        ],
+    )
+    def test_the_backstop_blocks_only_big_recent_merge_deaths(self, team, phase, days_ago, blocks):
+        schema = self._fragmented_schema(team)
+        self._record_oom(
+            schema,
+            days_ago=days_ago,
+            self_phase=phase,
+            self_report_age_at_death_seconds=1.0,
+            self_peak_buffer_bytes=200 * 1024 * 1024,
+        )
+        self._record_fleet_wide_burst(team)
+
+        self._detect_over_fragmented(team, schema)
+
+        assert (schema.repartition_pending is None) is blocks
+
+    @pytest.mark.parametrize(
+        "case,expected_reason",
+        [
+            ("unexplained_oom", "oom_within_free_window"),
+            ("fresh_layout", "layout_too_young"),
+            ("flag_disabled", "flag_disabled"),
+        ],
+    )
+    def test_declining_to_coarsen_records_which_gate_stopped_it(self, team, case, expected_reason):
+        schema = self._fragmented_schema(
+            team, **({"last_repartition_at": _days_ago_iso(0)} if case == "fresh_layout" else {})
+        )
+        if case == "unexplained_oom":
+            # Past the split trigger's 7-day window, so its cheap short-circuit passes and the 14-day
+            # coarsening gate is what stops it. Only a death in that gap reaches the longer window.
+            self._record_oom(schema, days_ago=10)
+
+        with patch.object(ctrl, "DELTA_COARSEN_DECLINE_TOTAL") as decline_metric:
+            self._detect_over_fragmented(team, schema, coarsen_enabled=case != "flag_disabled")
+
+        assert decline_metric.labels.call_args.kwargs == {"reason": expected_reason}
 
     def test_operator_nomination_overrides_the_policy_gates(self, team):
         # The backlog of already-over-split tables is blocked by the OOM-free gate, because the signal
         # that over-split them keeps firing. A nomination is how an operator gets past that, so it has
         # to work with OOM history present, the flag off, and a layout younger than the age gate.
-        schema = self._fragmented_schema(
-            team,
-            last_repartition_at=datetime.datetime.now(datetime.UTC).isoformat(),
-            coarsen_requested={"requested_at": "2026-08-03T00:00:00+00:00", "requested_by": "danielc"},
-        )
-        ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
-            team_id=schema.team_id, schema=schema, run_id="run-1"
-        )
+        schema = self._fragmented_schema(team, last_repartition_at=_days_ago_iso(0), coarsen_requested=_NOMINATION)
+        self._record_oom(schema)
 
-        with tempfile.TemporaryDirectory() as d:
-            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(16)])
-            with (
-                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
-                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
-                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=False),
-                patch.object(ctrl, "capture_repartition_event"),
-            ):
-                self._detect(team, schema, delta)
+        self._detect_over_fragmented(team, schema, coarsen_enabled=False)
 
-        schema.refresh_from_db()
         pending = schema.repartition_pending
         assert pending is not None
         assert pending["trigger_reason"] == "coarsening_requested"
@@ -459,23 +578,11 @@ class TestCoarsenTrigger:
         # The clear and the pending write are separate commits. If the marker were consumed first, a
         # crash or DB failure between the two would silently drop the operator's nomination with
         # nothing left to restore it, so the marker must still be there after a failed staging.
-        schema = self._fragmented_schema(
-            team,
-            coarsen_requested={"requested_at": "2026-08-03T00:00:00+00:00", "requested_by": "danielc"},
-        )
+        schema = self._fragmented_schema(team, coarsen_requested=_NOMINATION)
 
-        with tempfile.TemporaryDirectory() as d:
-            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(16)])
-            with (
-                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
-                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
-                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=False),
-                patch.object(ctrl, "capture_repartition_event"),
-                patch.object(ExternalDataSchema, "set_repartition_pending", side_effect=RuntimeError("pooler dropped")),
-            ):
-                self._detect(team, schema, delta)
+        with patch.object(ExternalDataSchema, "set_repartition_pending", side_effect=RuntimeError("pooler dropped")):
+            self._detect_over_fragmented(team, schema, coarsen_enabled=False)
 
-        schema.refresh_from_db()
         assert schema.repartition_pending is None
         assert schema.coarsen_requested is not None, "a failed staging must not consume the nomination"
 
@@ -488,21 +595,12 @@ class TestCoarsenTrigger:
             partition_mode="datetime",
             partition_format="hour",
             partitioning_keys=["created_at"],
-            coarsen_requested={"requested_at": "2026-08-03T00:00:00+00:00", "requested_by": "danielc"},
+            coarsen_requested=_NOMINATION,
         )
+        buckets = [f"2024-01-01T{hour:02d}" for hour in range(15)] + ["1970-01"]
 
-        with tempfile.TemporaryDirectory() as d:
-            buckets = [f"2024-01-01T{hour:02d}" for hour in range(15)] + ["1970-01"]
-            delta = _write_partitioned_delta(f"{d}/t", buckets)
-            with (
-                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
-                patch.object(ctrl, "is_auto_repartition_enabled", return_value=False),
-                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=False),
-                patch.object(ctrl, "capture_repartition_event"),
-            ):
-                self._detect(team, schema, delta)
+        self._detect_over_fragmented(team, schema, coarsen_enabled=False, buckets=buckets)
 
-        schema.refresh_from_db()
         assert schema.repartition_pending is None
         assert schema.coarsen_requested is None
 

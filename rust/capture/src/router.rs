@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use axum::extract::DefaultBodyLimit;
 use axum::http::Method;
+use axum::Extension;
 use axum::{
     routing::{get, post},
     Router,
@@ -14,7 +15,6 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::ai_s3::BlobStorage;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
@@ -27,14 +27,26 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
-use crate::config::{AiRouting, CaptureMode};
+use crate::config::CaptureMode;
 use crate::metrics_middleware::track_metrics;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use metrics_exporter_prometheus::PrometheusHandle;
 
-const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
-pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
-const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB, up from the default 2MB used for normal event payloads
+/// Wire-body ceiling for every v0 analytics route. One handler serves `/e`,
+/// `/batch`, `/capture`, `/track` and `/engage`, and a batch is accepted on any
+/// of them, so the cap is a property of the pipeline rather than of the path.
+pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB
+
+const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB
+
+/// A route group's wire-body ceiling, carried as a request extension.
+///
+/// `DefaultBodyLimit` only inserts an extension that `Bytes`-style extractors
+/// read. Handlers that stream take `Body`, which never reads it, so they would
+/// otherwise fall back to the much larger decompressed budget. Both layers are
+/// applied from the same constant so one number governs the route either way.
+#[derive(Debug, Clone, Copy)]
+pub struct WireBodyLimit(pub usize);
 
 #[derive(Clone)]
 pub struct State {
@@ -54,7 +66,6 @@ pub struct State {
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
-    pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -91,14 +102,6 @@ pub struct State {
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
-    /// Routing policy for diverting `$ai_*` events to the dedicated AI topic
-    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`), derived from `CAPTURE_ANALYTICS_AI_EVENTS_MODE` and
-    /// `CAPTURE_ANALYTICS_AI_EVENTS_ALLOWLIST_TOKENS`. `Primary` keeps everything on the
-    /// analytics main topic; the other modes divert per batch token, in both
-    /// the v0 pipeline (via `DataType::AiEvents`, mapped to the topic in the
-    /// kafka sink) and the v1 pipeline (via `Destination::AiEvents`, mapped
-    /// via the `topic_ai` injected into each sink config at setup).
-    pub ai_routing: AiRouting,
     /// Whether the AI overflow valve is armed (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
     /// set). Gates overflow stamping for the AI lane in both pipelines: when
     /// false, AI events never overflow (pre-overflow behavior).
@@ -173,7 +176,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
-    ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
@@ -184,7 +186,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
-    ai_routing: AiRouting,
     ai_events_overflow_enabled: bool,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
@@ -204,7 +205,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
-        ai_blob_storage,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
         capture_v1_max_compressed_body_bytes,
@@ -215,7 +215,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
-        ai_routing,
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
         capture_mode,
@@ -242,7 +241,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(test_endpoint::test_black_hole)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
 
     let batch_router = Router::new()
         .route(
@@ -271,7 +271,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
 
     let event_router = Router::new()
         .route(
@@ -334,7 +335,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
 
     let status_router = Router::new()
         .route("/", get(index))
@@ -366,7 +368,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::recording)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
+        .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(RECORDING_BODY_SIZE)));
 
     // AI endpoint body limit is 110% of max sum of parts to account for multipart overhead
     let ai_body_limit = (state.ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;

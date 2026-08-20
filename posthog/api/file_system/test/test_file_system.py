@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -16,7 +17,14 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.file_system.deletion import undo_delete
-from posthog.api.file_system.file_system import DELETE_PREVIEW_ENTRY_LIMIT
+from posthog.api.file_system.file_system import (
+    DELETE_PREVIEW_ENTRY_LIMIT,
+    MAX_META_BYTES,
+    MAX_PATH_LENGTH,
+    MAX_PATH_SEGMENTS,
+    FileSystemSerializer,
+    UndoDeleteItemSerializer,
+)
 from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
@@ -30,7 +38,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 from ee.models.rbac.access_control import AccessControl
@@ -2357,3 +2365,80 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             "ref": str(feature.id),
             "path": fs_entry.path,
         }
+
+
+class TestFileSystemSerializerInputValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("meta_null", {"path": "a", "type": "doc", "meta": None}, "meta"),
+            ("meta_list", {"path": "a", "type": "doc", "meta": [1, 2, 3]}, "meta"),
+            ("meta_number", {"path": "a", "type": "doc", "meta": 5}, "meta"),
+            ("meta_string", {"path": "a", "type": "doc", "meta": "nope"}, "meta"),
+            ("meta_too_large", {"path": "a", "type": "doc", "meta": {"k": "x" * (MAX_META_BYTES + 1)}}, "meta"),
+            ("path_too_long", {"path": "x" * (MAX_PATH_LENGTH + 1), "type": "doc"}, "path"),
+            ("path_too_many_segments", {"path": "/".join(["s"] * (MAX_PATH_SEGMENTS + 1)), "type": "doc"}, "path"),
+        ]
+    )
+    def test_rejects_out_of_bounds_input(self, _name: str, payload: dict[str, Any], field: str) -> None:
+        serializer = FileSystemSerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("meta_dict", {"path": "a/b", "type": "doc", "meta": {"created_by": 1}}),
+            ("meta_absent", {"path": "a/b", "type": "doc"}),
+            ("meta_empty", {"path": "a/b", "type": "doc", "meta": {}}),
+            ("path_at_segment_limit", {"path": "/".join(["s"] * MAX_PATH_SEGMENTS), "type": "doc"}),
+        ]
+    )
+    def test_accepts_in_bounds_input(self, _name: str, payload: dict[str, Any]) -> None:
+        serializer = FileSystemSerializer(data=payload)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+
+class TestFileSystemInputValidationAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.url = f"/api/projects/{self.team.id}/file_system/"
+
+    def test_create_with_too_many_path_segments_is_rejected_and_writes_nothing(self):
+        response = self.client.post(self.url, {"path": "/".join(["s"] * (MAX_PATH_SEGMENTS + 1)), "type": "doc"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(FileSystem.objects.filter(team=self.team).count(), 0)
+
+    @parameterized.expand(["move", "link"])
+    def test_action_with_too_many_path_segments_is_rejected_and_writes_nothing(self, action_name: str):
+        item_id = self.client.post(self.url, {"path": "Start", "type": "doc"}).json()["id"]
+
+        response = self.client.post(
+            f"{self.url}{item_id}/{action_name}/",
+            {"new_path": "/".join(["s"] * (MAX_PATH_SEGMENTS + 1))},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(FileSystem.objects.filter(team=self.team).count(), 1)
+
+    @parameterized.expand([("too_many_segments", "s/" * (MAX_PATH_SEGMENTS + 1)), ("too_long", "x" * 4001)])
+    def test_undo_delete_rejects_an_unbounded_restore_path(self, _name: str, path: str):
+        # undo_delete re-creates parent folders through the same per-segment loop as create/move,
+        # so its restore path needs the same bound. Asserted on the serializer rather than the
+        # endpoint because an unresolvable ref would 400 on its own and mask the bound.
+        serializer = UndoDeleteItemSerializer(data={"type": "doc", "ref": "1", "path": path})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("path", serializer.errors)
+
+    @parameterized.expand([("null", None), ("list", ["poison"]), ("string", "poison")])
+    def test_list_survives_a_row_with_non_object_meta(self, _name: str, meta: Any):
+        FileSystem.objects.create(team=self.team, path="!", type="doc", created_by=self.user, meta=meta)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["path"] for row in response.json()["results"]], ["!"])

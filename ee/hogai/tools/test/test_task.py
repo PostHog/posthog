@@ -2,7 +2,6 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
-from parameterized import parameterized
 
 from posthog.schema import (
     AgentMode,
@@ -103,13 +102,7 @@ class TestTaskTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("Final response", result_text)
         self.assertIsNone(artifact)
 
-    @parameterized.expand(
-        [
-            ("transient_artifact", ArtifactSource.ARTIFACT),
-            ("saved_insight", ArtifactSource.INSIGHT),
-        ]
-    )
-    async def test_arun_impl_handles_artifact_messages(self, _name, source):
+    async def test_arun_impl_handles_artifact_messages(self):
         tool = self._create_tool()
 
         from posthog.schema import AssistantTrendsQuery
@@ -117,7 +110,7 @@ class TestTaskTool(ClickhouseTestMixin, NonAtomicBaseTest):
         artifact_message = ArtifactMessage(
             id="artifact_1",
             artifact_id="short_id_123",
-            source=source,
+            source=ArtifactSource.ARTIFACT,
             content=VisualizationArtifactContent(
                 query=AssistantTrendsQuery(series=[]),
                 name="Test",
@@ -144,17 +137,11 @@ class TestTaskTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("Done", result_text)
         self.assertIsNone(artifact)
+        self.assertIn("Artifact ID: short_id_123", result_text)
         self.assertIn("Test", result_text)
-        if source == ArtifactSource.INSIGHT:
-            self.assertIn("Insight ID: short_id_123", result_text)
-            self.assertIn(f"Insight URL: /project/{self.team.id}/insights/short_id_123", result_text)
-            self.assertNotIn("Visualization ID:", result_text)
-            self.assertNotIn("transient", result_text)
-        else:
-            self.assertIn("Visualization ID: short_id_123", result_text)
-            self.assertIn("transient", result_text)
-            self.assertNotIn("Insight ID:", result_text)
-            self.assertNotIn("Insight URL:", result_text)
+        # Labelled as an insight, this handoff had the parent compose `/insights/short_id_123`, which 404s
+        self.assertNotIn("Insight ID:", result_text)
+        self.assertIn("404", result_text)
 
     async def test_arun_impl_dispatches_tool_call_updates(self):
         tool = self._create_tool()

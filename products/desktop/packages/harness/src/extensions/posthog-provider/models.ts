@@ -1,6 +1,7 @@
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { CloudRegion } from "@posthog/shared";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { getLlmGatewayUrl } from "./gateway";
 
 export const DEFAULT_MODEL = "claude-opus-4-8";
@@ -50,9 +51,8 @@ function detectFamily(model: GatewayModel): ModelFamily {
 
 /**
  * The gateway URL a model of the given pi `api` should be routed through for
- * a given region. `openai-responses` models are served off the gateway's
- * `/v1` surface; every other API this provider uses is served off the
- * product root.
+ * a given region. OpenAI-compatible models are served off the gateway's `/v1`
+ * surface; Anthropic Messages is served off the product root.
  */
 export function gatewayBaseUrlForApi(
   api: string,
@@ -60,7 +60,7 @@ export function gatewayBaseUrlForApi(
   baseUrl = getLlmGatewayUrl(region),
 ): string {
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
-  if (api !== "openai-responses" || normalizedBaseUrl.endsWith("/v1")) {
+  if (!api.startsWith("openai-") || normalizedBaseUrl.endsWith("/v1")) {
     return normalizedBaseUrl;
   }
 
@@ -102,7 +102,8 @@ function toModelConfig(
     return {
       id: model.id,
       name,
-      api: "anthropic-messages",
+      api: "openai-completions",
+      baseUrl: gatewayBaseUrlForApi("openai-completions", region),
       reasoning: false,
       input,
       cost: ZERO_COST,
@@ -231,10 +232,17 @@ export function fallbackModelConfigs(
 export async function fetchPosthogGatewayModels(
   baseUrl: string,
   apiKey?: string,
+  projectId?: number,
 ): Promise<GatewayModel[]> {
   try {
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/models`, {
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+      headers:
+        apiKey || projectId
+          ? {
+              ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+              ...buildPosthogProjectHeaderRecord(projectId),
+            }
+          : undefined,
       signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -266,6 +274,7 @@ export async function resolveModelConfigs(
   region: CloudRegion,
   baseUrl?: string,
   apiKey?: string,
+  projectId?: number,
 ): Promise<ProviderModelConfig[]> {
   if (process.env.PI_OFFLINE || process.env.HARNESS_STATIC_MODELS) {
     return fallbackModelConfigs(region);
@@ -274,6 +283,7 @@ export async function resolveModelConfigs(
   const models = await fetchPosthogGatewayModels(
     baseUrl ?? getLlmGatewayUrl(region),
     apiKey,
+    projectId,
   );
   return resolveModelConfigsFromGatewayModels(models, region);
 }

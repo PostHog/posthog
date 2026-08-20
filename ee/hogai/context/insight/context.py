@@ -1,3 +1,4 @@
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
@@ -5,7 +6,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -24,9 +25,8 @@ class InsightContext:
     Accepts insight data directly and provides methods to format schema or execute and format results.
     Supports optional dashboard filter/variable overrides before execution.
 
-    A visualization is either a saved insight (pass `insight_short_id`, which yields a linkable URL) or a
-    transient in-conversation artifact (pass `artifact_id`, which is rendered as explicitly not linkable).
-    Never pass an artifact ID as `insight_short_id`, because the URL it builds resolves to nothing.
+    `insight_id` is only the identifier shown to the model; `insight_short_id` is the one that resolves to a
+    URL, so an ephemeral artifact passes the former and leaves the latter unset.
     """
 
     def __init__(
@@ -37,20 +37,22 @@ class InsightContext:
         user: User,
         name: str | None = None,
         description: str | None = None,
-        artifact_id: str | None = None,
+        insight_id: str | None = None,
         insight_model_id: int | None = None,
         insight_short_id: str | None = None,
         # Optional dashboard filter handling
         dashboard_filters: dict | None = None,
         filters_override: dict | None = None,
         variables_override: dict | None = None,
+        event_source: EventSource = EventSource.POSTHOG_AI,
     ):
         self.team = team
         self.user = user
+        self.event_source = event_source
         self.query = query
         self.name = name
         self.description = description
-        self.artifact_id = artifact_id
+        self.insight_id = insight_id
         self.insight_model_id = insight_model_id
         self.insight_short_id = insight_short_id
         self.dashboard_filters = dashboard_filters
@@ -61,7 +63,7 @@ class InsightContext:
     def insight_url(self) -> str | None:
         """Generate insight URL from insight_short_id if available."""
         if self.insight_short_id:
-            return build_insight_url(self.team, self.insight_short_id)
+            return build_insight_url(self.insight_short_id)
         return None
 
     @classmethod
@@ -97,6 +99,7 @@ class InsightContext:
                 truncate_results=truncate_results,
                 user=self.user,
                 include_prompt_framing=include_prompt_framing,
+                event_source=self.event_source,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"
@@ -108,8 +111,7 @@ class InsightContext:
         return format_prompt_string(
             prompt_template,
             insight_name=self.name or "Insight",
-            insight_short_id=self.insight_short_id,
-            artifact_id=self.artifact_id,
+            insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
             results=results,
@@ -123,8 +125,7 @@ class InsightContext:
         return format_prompt_string(
             prompt_template,
             insight_name=self.name,
-            insight_short_id=self.insight_short_id,
-            artifact_id=self.artifact_id,
+            insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
             insight_url=self.insight_url,

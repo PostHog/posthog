@@ -137,16 +137,6 @@ jobs:
             release-tag: ${{ steps.release-metadata.outputs.release-tag }}
             release-commit: ${{ steps.commit-release.outputs.commit-hash }}
         steps:
-            - name: Notify Slack - Approved
-              if: needs.notify-approval-needed.outputs.slack_ts != ''
-              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
-              with:
-                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: 'Release approved. Preparing posthog-cli version bump.'
-                  emoji_reaction: 'white_check_mark'
-
             - name: Get GitHub App token
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -165,7 +155,30 @@ jobs:
             - name: Update to latest master before preparing release
               run: git pull --ff-only origin master
 
+            - name: Check for remaining changesets
+              id: recheck-changesets
+              run: |
+                  changeset_count=$(find cli/.sampo/changesets -name '*.md' 2>/dev/null | wc -l)
+                  if [ "$changeset_count" -gt 0 ]; then
+                      echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+                      echo "Found $changeset_count CLI changeset(s), continuing release preparation"
+                  else
+                      echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+                      echo "No CLI changesets remain; skipping release preparation"
+                  fi
+
+            - name: Notify Slack - Approved
+              if: steps.recheck-changesets.outputs.has-changesets == 'true' && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Release approved. Preparing posthog-cli version bump.'
+                  emoji_reaction: 'white_check_mark'
+
             - name: Install Rust
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
@@ -173,17 +186,19 @@ jobs:
 
             - name: Cache Sampo CLI
               id: cache-sampo
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
               uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
               with:
                   path: ~/.cargo/bin/sampo
                   key: sampo-${{ runner.os }}-${{ runner.arch }}-${{ env.SAMPO_VERSION }}
 
             - name: Install Sampo CLI
-              if: steps.cache-sampo.outputs.cache-hit != 'true'
+              if: steps.recheck-changesets.outputs.has-changesets == 'true' && steps.cache-sampo.outputs.cache-hit != 'true'
               run: cargo install sampo --version "$SAMPO_VERSION" --locked
 
             - name: Prepare release with Sampo
               id: prepare-release
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
               working-directory: cli
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -200,6 +215,7 @@ jobs:
                   echo "Prepared posthog-cli v$new_version"
 
             - name: Check release tag
+              if: steps.prepare-release.outputs.new-version != ''
               env:
                   NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
               run: |
@@ -211,6 +227,7 @@ jobs:
 
             - name: Check release changes
               id: check-changes
+              if: steps.prepare-release.outputs.new-version != ''
               run: |
                   changed_files=$(git diff --name-only)
                   if [ -z "$changed_files" ]; then
@@ -233,6 +250,7 @@ jobs:
                   echo "committed=true" >> "$GITHUB_OUTPUT"
 
             - name: Ensure master did not advance during release prep
+              if: steps.check-changes.outputs.committed == 'true'
               run: |
                   git fetch origin master
                   if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
@@ -317,6 +335,7 @@ jobs:
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
                   curl --proto '=https' --tlsv1.2 -LsSf \
+                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -363,11 +382,11 @@ jobs:
     # Build and packages all the platform-specific things
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
-        # Let the initial task tell us to not run (currently very blunt)
+        # Let the initial task tell us to not run (very blunt)
         needs:
             - release
             - plan-release
-        if: ${{ fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix.include != null }}
+        if: ${{ needs.plan-release.result == 'success' && fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix.include != null }}
         strategy:
             fail-fast: false
             # Target platforms/runners are computed by dist in create-release.
@@ -407,6 +426,7 @@ jobs:
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
                   curl --proto '=https' --tlsv1.2 -LsSf \
+                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -546,6 +566,8 @@ jobs:
                   dist build ${{ needs.plan-release.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
                   echo "dist ran successfully"
 
+                  node .github/scripts/patch-cli-npm-installer.mjs target/distrib dist-manifest.json
+
                   # Parse out what we just built and upload it to scratch storage
                   echo "paths<<EOF" >> "$GITHUB_OUTPUT"
                   jq --raw-output ".upload_files[]" dist-manifest.json >> "$GITHUB_OUTPUT"
@@ -677,7 +699,7 @@ jobs:
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             PLAN: ${{ needs.plan-release.outputs.val }}
-        if: ${{ !fromJson(needs.plan-release.outputs.val).announcement_is_prerelease || fromJson(needs.plan-release.outputs.val).publish_prereleases }}
+        if: ${{ needs.plan-release.result == 'success' && (!fromJson(needs.plan-release.outputs.val).announcement_is_prerelease || fromJson(needs.plan-release.outputs.val).publish_prereleases) }}
         permissions:
             id-token: write
         steps:

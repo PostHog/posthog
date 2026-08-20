@@ -14,7 +14,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 
 
 def _signature(payload: bytes, secret: str) -> str:
@@ -95,13 +95,13 @@ class TestGitHubInstallationReferenceHelpers(TestCase):
     def test_uninstall_app_installation_false_when_not_configured(self):
         self.assertFalse(GitHubIntegration.uninstall_app_installation("12345"))
 
-    @patch("posthog.models.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.models.integration.github.GitHubIntegration.uninstall_app_installation")
     def test_uninstall_if_last_reference_skips_when_references_remain(self, mock_uninstall):
         self._team_integration()
         self.assertFalse(GitHubIntegration.uninstall_if_last_reference("12345"))
         mock_uninstall.assert_not_called()
 
-    @patch("posthog.models.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.models.integration.github.GitHubIntegration.uninstall_app_installation")
     def test_uninstall_if_last_reference_uninstalls_when_none_remain(self, mock_uninstall):
         mock_uninstall.return_value = True
         self.assertTrue(GitHubIntegration.uninstall_if_last_reference("12345"))
@@ -179,6 +179,60 @@ class TestGitHubInstallationWebhook(TestCase):
         response = self._post({"action": "deleted"})
 
         self.assertEqual(response.status_code, 200)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    def test_created_approves_the_requesters_pending_request_by_github_user_id(self, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        other_user = User.objects.create(email="other-requester@example.com", distinct_id="other-requester-1")
+        # Stale login on the row: a GitHub login can be renamed while the request waits, so
+        # approval has to follow the immutable user id.
+        matching = GitHubInstallRequest.objects.create(
+            user=self.user,
+            github_user_id=4242,
+            github_login="octocat",
+            status=GitHubInstallRequest.Status.PENDING,
+        )
+        someone_else = GitHubInstallRequest.objects.create(
+            user=other_user,
+            github_user_id=9999,
+            github_login="someone-else",
+            status=GitHubInstallRequest.Status.PENDING,
+        )
+
+        response = self._post(
+            {
+                "action": "created",
+                "installation": {"id": 55555},
+                "requester": {"id": 4242, "login": "octocat-renamed"},
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        matching.refresh_from_db()
+        self.assertEqual(matching.status, GitHubInstallRequest.Status.APPROVED)
+        self.assertEqual(matching.installation_id, "55555")
+        self.assertIsNotNone(matching.resolved_at)
+
+        someone_else.refresh_from_db()
+        self.assertEqual(someone_else.status, GitHubInstallRequest.Status.PENDING)
+        self.assertIsNone(someone_else.installation_id)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    def test_created_without_a_requester_is_a_noop(self, mock_get_secret):
+        # An owner installing for themselves sends no requester, and must not sweep up pending rows.
+        mock_get_secret.return_value = self.webhook_secret
+        pending = GitHubInstallRequest.objects.create(
+            user=self.user,
+            github_user_id=4242,
+            github_login="octocat",
+            status=GitHubInstallRequest.Status.PENDING,
+        )
+
+        response = self._post({"action": "created", "installation": {"id": 55555}})
+
+        self.assertEqual(response.status_code, 200)
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, GitHubInstallRequest.Status.PENDING)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_invalid_signature_returns_403_and_keeps_rows(self, mock_get_secret):

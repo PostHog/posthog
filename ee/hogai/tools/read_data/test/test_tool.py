@@ -37,7 +37,7 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -1572,7 +1572,6 @@ class TestReadDataTool(BaseTest):
         mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         mock_content = VisualizationArtifactContent(name="Allowed Insight", query=mock_query)
         mock_insight = MagicMock(spec=Insight)
-        mock_insight.short_id = "allowed123"
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_visualization = AsyncMock(

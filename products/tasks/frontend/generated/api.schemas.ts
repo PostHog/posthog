@@ -47,6 +47,29 @@ export interface TaskRunErrorResponseApi {
     is_pro?: boolean
 }
 
+export interface ComputeRateCardApi {
+    /** Stable identifier for this rate card. */
+    version: string
+    /** Time when this rate card became effective. */
+    effective_at: string
+    /**
+     * Time when this rate card stopped applying, or null while it remains current.
+     * @nullable
+     */
+    expires_at: string | null
+    /** USD charged per CPU core-second as an exact decimal string. */
+    cpu_core_second_usd: string
+    /** USD charged per GiB-second of memory as an exact decimal string. */
+    memory_gib_second_usd: string
+}
+
+export interface SandboxComputePricingApi {
+    /** Currently effective sandbox compute rate card, or null before pricing is published. */
+    current: ComputeRateCardApi | null
+    /** Expired sandbox compute rate cards, newest first. */
+    history: ComputeRateCardApi[]
+}
+
 export interface LoopRepositoryEntryDTOApi {
     github_integration_id: number
     full_name: string
@@ -368,7 +391,7 @@ export interface LoopTriggerWriteApi {
     type: LoopTriggerTypeEnumApi
     /** Whether this trigger is active. Disabling pauses only this trigger. */
     enabled?: boolean
-    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
+    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{"path": "requested_team.slug", "equals": "team-security"}]` to run only when that team is asked to review. All filters must match. API triggers take no config. */
     config?: unknown
 }
 
@@ -850,6 +873,7 @@ export interface SandboxEnvironmentWriteApi {
     network_access_level?: NetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
+     * @maxItems 100
      * @items.maxLength 255
      */
     allowed_domains?: string[]
@@ -888,6 +912,7 @@ export interface PatchedSandboxEnvironmentWriteApi {
     network_access_level?: NetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
+     * @maxItems 100
      * @items.maxLength 255
      */
     allowed_domains?: string[]
@@ -913,6 +938,8 @@ export interface PatchedSandboxEnvironmentWriteApi {
  * * `awaiting_input` - awaiting_input
  * * `completed` - completed
  * * `mention` - mention
+ * * `thread_reply` - thread_reply
+ * * `owned_item_comment` - owned_item_comment
  * * `message` - message
  * * `created` - created
  */
@@ -922,8 +949,19 @@ export const ActivityKindEnumApi = {
     AwaitingInput: 'awaiting_input',
     Completed: 'completed',
     Mention: 'mention',
+    ThreadReply: 'thread_reply',
+    OwnedItemComment: 'owned_item_comment',
     Message: 'message',
     Created: 'created',
+} as const
+
+/**
+ * * `desktop_canvas` - desktop_canvas
+ */
+export type TargetScopeEnumApi = (typeof TargetScopeEnumApi)[keyof typeof TargetScopeEnumApi]
+
+export const TargetScopeEnumApi = {
+    DesktopCanvas: 'desktop_canvas',
 } as const
 
 /**
@@ -938,20 +976,37 @@ export interface TaskActivityDTOApi {
     /** @nullable */
     channel_name: string | null
     activity_at: string
-    /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+    /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a comment-thread reply (thread_reply), a comment on their item (owned_item_comment), a task-thread reply (message), or their creating the task (created).
      *
      * * `awaiting_input` - awaiting_input
      * * `completed` - completed
      * * `mention` - mention
+     * * `thread_reply` - thread_reply
+     * * `owned_item_comment` - owned_item_comment
      * * `message` - message
      * * `created` - created */
     activity_kind: ActivityKindEnumApi
-    /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+    /** Content of the thread message or resource comment tied to the latest activity. */
     snippet: string
     /** Author of the thread message tied to the latest activity, when one applies. */
     latest_author?: TaskUserBasicInfoApi | null
     /** @nullable */
     latest_message_id?: string | null
+    /** @nullable */
+    latest_comment_id?: string | null
+    /** @nullable */
+    latest_comment_scope?: string | null
+    /** @nullable */
+    latest_comment_item_id?: string | null
+    /** The non-task surface this activity opens, when the task backs another shared artifact.
+     *
+     * * `desktop_canvas` - desktop_canvas */
+    target_scope?: TargetScopeEnumApi | null
+    /**
+     * Identifier of the activity target. Present together with target_scope.
+     * @nullable
+     */
+    target_id?: string | null
     /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
     is_unread: boolean
 }
@@ -979,6 +1034,11 @@ export interface TaskActivityPageDTOApi {
 export interface TaskActivityReadMarkerApi {
     /** Task whose displayed activity should be marked read. */
     task_id: string
+    /**
+     * Comment activity row to mark read. Omit for collapsed task activity.
+     * @nullable
+     */
+    activity_id?: string | null
     /** Mark activity at or before this timestamp read without clearing newer activity. */
     seen_before: string
 }
@@ -999,126 +1059,6 @@ export interface TaskActivityMarkReadResponseApi {
     marked_read: number
     /** The requester's remaining unread total after the update. */
     unread_count: number
-}
-
-/**
- * Detail/create/update/run response for a task automation.
- */
-export interface TaskAutomationDTOApi {
-    id: string
-    name: string
-    prompt: string
-    /** @nullable */
-    repository: string | null
-    /** @nullable */
-    github_integration: number | null
-    cron_expression: string
-    timezone: string
-    /** @nullable */
-    template_id: string | null
-    enabled: boolean
-    /** @nullable */
-    last_run_at: string | null
-    /** @nullable */
-    last_run_status: string | null
-    last_task_id: string
-    /** @nullable */
-    last_task_run_id: string | null
-    /** @nullable */
-    last_error: string | null
-    created_at: string
-    updated_at: string
-}
-
-export interface PaginatedTaskAutomationDTOListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskAutomationDTOApi[]
-}
-
-/**
- * Request body for creating or updating a task automation.
- */
-export interface TaskAutomationWriteApi {
-    /**
-     * Display name (stored as the backing task's title).
-     * @maxLength 255
-     */
-    name: string
-    /** The automation prompt (stored as the backing task's description). */
-    prompt: string
-    /**
-     * Target repository in the format organization/repository.
-     * @maxLength 255
-     */
-    repository: string
-    /**
-     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-     * @nullable
-     */
-    github_integration?: number | null
-    /**
-     * Standard 5-field cron expression (minute hour day month weekday).
-     * @maxLength 100
-     */
-    cron_expression: string
-    /**
-     * IANA timezone the schedule runs in.
-     * @maxLength 128
-     */
-    timezone?: string
-    /**
-     * Optional template identifier this automation was created from.
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    /** Whether the schedule is active; paused when false. */
-    enabled?: boolean
-}
-
-/**
- * Request body for creating or updating a task automation.
- */
-export interface PatchedTaskAutomationWriteApi {
-    /**
-     * Display name (stored as the backing task's title).
-     * @maxLength 255
-     */
-    name?: string
-    /** The automation prompt (stored as the backing task's description). */
-    prompt?: string
-    /**
-     * Target repository in the format organization/repository.
-     * @maxLength 255
-     */
-    repository?: string
-    /**
-     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-     * @nullable
-     */
-    github_integration?: number | null
-    /**
-     * Standard 5-field cron expression (minute hour day month weekday).
-     * @maxLength 100
-     */
-    cron_expression?: string
-    /**
-     * IANA timezone the schedule runs in.
-     * @maxLength 128
-     */
-    timezone?: string
-    /**
-     * Optional template identifier this automation was created from.
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    /** Whether the schedule is active; paused when false. */
-    enabled?: boolean
 }
 
 /**
@@ -1154,6 +1094,8 @@ export interface ChannelWriteApi {
      * @maxLength 128
      */
     name: string
+    /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
+    star?: boolean
 }
 
 export type ChannelFeedMessageDTOApiPayload = { [key: string]: unknown }
@@ -1224,6 +1166,11 @@ export interface PatchedChannelUpdateApi {
      * @items.maxLength 255
      */
     repositories?: string[]
+}
+
+export interface ChannelDeleteConflictApi {
+    /** Why the space cannot be deleted. */
+    detail: string
 }
 
 /**
@@ -1398,6 +1345,17 @@ export interface TaskRunArtifactMetadataApi {
     schema_version: number
 }
 
+/**
+ * * `agent` - agent
+ * * `user` - user
+ */
+export type UploadedByEnumApi = (typeof UploadedByEnumApi)[keyof typeof UploadedByEnumApi]
+
+export const UploadedByEnumApi = {
+    Agent: 'agent',
+    User: 'user',
+} as const
+
 export interface TaskRunArtifactResponseApi {
     /** Stable identifier for the artifact within this run */
     id?: string
@@ -1417,7 +1375,16 @@ export interface TaskRunArtifactResponseApi {
     storage_path: string
     /** Timestamp when the artifact was uploaded */
     uploaded_at: string
-    /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+    /** Whether the artifact version was uploaded by the task agent or an interactive user.
+     *
+     * * `agent` - agent
+     * * `user` - user */
+    uploaded_by?: UploadedByEnumApi
+    /** User id for an interactive user upload. Absent for agent uploads and legacy entries. */
+    uploaded_by_user_id?: number
+    /** Timestamp when a user dismissed the artifact. Absent while the artifact is shown. */
+    dismissed_at?: string
+    /** Stable download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file; it redirects to a fresh presigned URL on each request and is not persisted on the manifest. */
     url?: string
 }
 
@@ -1491,6 +1458,13 @@ export interface TaskRunDetailDTOApi {
     completed_at?: string | null
 }
 
+export interface SlackThreadReferenceDTOApi {
+    url: string
+    channel: string
+    /** @nullable */
+    created_at?: string | null
+}
+
 /**
  * @nullable
  */
@@ -1516,7 +1490,7 @@ export interface TaskDetailDTOApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    readonly runtime: RuntimeEnumApi
+    runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
     repositories: string[]
@@ -1538,11 +1512,14 @@ export interface TaskDetailDTOApi {
     created_at?: string | null
     /** @nullable */
     updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
     created_by?: TaskUserBasicInfoApi | null
     /** @nullable */
     ci_prompt: string | null
     /** @nullable */
     channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
 }
 
 export interface PaginatedTaskDetailDTOListApi {
@@ -1559,7 +1536,6 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
- * * `automation` - Automation
  * * `slack` - Slack
  * * `support_queue` - Support Queue
  * * `session_summaries` - Session Summaries
@@ -1573,6 +1549,8 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `image_builder` - Image Builder
  * * `loop` - Loop
  * * `mcp_analytics` - MCP Analytics
+ * * `signals_chat` - Signals Chat
+ * * `workflow` - Workflow
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -1581,7 +1559,6 @@ export const OriginProductEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
-    Automation: 'automation',
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
@@ -1595,6 +1572,8 @@ export const OriginProductEnumApi = {
     ImageBuilder: 'image_builder',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
+    SignalsChat: 'signals_chat',
+    Workflow: 'workflow',
 } as const
 
 /**
@@ -1620,7 +1599,6 @@ export interface TaskCreateApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -1633,7 +1611,9 @@ export interface TaskCreateApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1663,14 +1643,12 @@ export interface TaskCreateApi {
      */
     signal_report?: string | null
     /**
-     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
      * @maxLength 200
      */
     signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
-    /** If true, this task is for internal use and should not be exposed to end users. */
-    internal?: boolean
     /** If true, the task is hidden from default list responses. */
     archived?: boolean
     /**
@@ -1763,7 +1741,6 @@ export interface TaskWriteApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -1776,7 +1753,9 @@ export interface TaskWriteApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1806,14 +1785,12 @@ export interface TaskWriteApi {
      */
     signal_report?: string | null
     /**
-     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
      * @maxLength 200
      */
     signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
-    /** If true, this task is for internal use and should not be exposed to end users. */
-    internal?: boolean
     /** If true, the task is hidden from default list responses. */
     archived?: boolean
     /**
@@ -1891,7 +1868,6 @@ export interface PatchedTaskWriteApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -1904,7 +1880,9 @@ export interface PatchedTaskWriteApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1934,14 +1912,12 @@ export interface PatchedTaskWriteApi {
      */
     signal_report?: string | null
     /**
-     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
      * @maxLength 200
      */
     signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
-    /** If true, this task is for internal use and should not be exposed to end users. */
-    internal?: boolean
     /** If true, the task is hidden from default list responses. */
     archived?: boolean
     /**
@@ -1994,6 +1970,150 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     channel?: string | null
+}
+
+export interface TaskArtifactApi {
+    /** Stable artifact id used to filter task comments. */
+    id: string
+    /** Artifact type: artifact or canvas. */
+    type: string
+    /** Display name of the artifact. */
+    name: string
+}
+
+export interface TaskArtifactsResponseApi {
+    /** Artifacts and canvases linked to this task. */
+    artifacts: TaskArtifactApi[]
+}
+
+export interface TaskCommentTargetApi {
+    /** Stable target id. */
+    id: string
+    /** Target type: task, artifact, or canvas. */
+    type: string
+    /** Display name of the comment target. */
+    name: string
+}
+
+export interface TaskCommentSummaryApi {
+    /** Root comment id. */
+    id: string
+    /** Task, artifact, or canvas receiving the comment. */
+    target: TaskCommentTargetApi
+    /** Bounded excerpt of the root comment body. */
+    content: string
+    /** Whether the root comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Text selected when the comment was created.
+     * @nullable
+     */
+    selected_text: string | null
+    /** When the root comment was created. */
+    created_at: string
+    /** Number of human replies. */
+    reply_count: number
+    /** Whether the comment is resolved. */
+    resolved: boolean
+}
+
+export interface TaskCommentsResponseApi {
+    /** Root comments, newest first. */
+    comments: TaskCommentSummaryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
+export interface TaskCommentAnchorApi {
+    /** Anchor kind. */
+    kind?: string
+    /** Selected text. */
+    quote?: string
+    /** Text immediately before the selection. */
+    prefix?: string
+    /** Text immediately after the selection. */
+    suffix?: string
+    /**
+     * Selection start offset.
+     * @minimum 0
+     */
+    start?: number
+    /**
+     * Selection end offset.
+     * @minimum 1
+     */
+    end?: number
+    /**
+     * Horizontal region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    x?: number
+    /**
+     * Vertical region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    y?: number
+    /**
+     * Region width.
+     * @minimum 0
+     * @maximum 1
+     */
+    width?: number
+    /**
+     * Region height.
+     * @minimum 0
+     * @maximum 1
+     */
+    height?: number
+}
+
+export interface TaskCommentEntryApi {
+    /** Comment id. */
+    id: string
+    /** Byte-bounded comment body chunk. */
+    content: string
+    /** Whether this comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Byte offset for the next body chunk, or null when complete.
+     * @nullable
+     */
+    content_next_offset: number | null
+    /**
+     * Comment author's display name.
+     * @nullable
+     */
+    author: string | null
+    /** When the comment was created. */
+    created_at: string
+    /** Normalized text or document anchor. */
+    anchor: TaskCommentAnchorApi | null
+    /**
+     * Canvas version receiving the comment.
+     * @nullable
+     */
+    canvas_version_id: string | null
+}
+
+export interface TaskCommentDetailApi {
+    /** Root comment id. */
+    id: string
+    /** Task, artifact, or canvas receiving the comment. */
+    target: TaskCommentTargetApi
+    /** Whether the comment is resolved. */
+    resolved: boolean
+    /** Comments in this page, oldest first. */
+    comments: TaskCommentEntryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
 }
 
 export interface TaskPinRequestApi {
@@ -2545,6 +2665,15 @@ export interface TaskStagedArtifactsPrepareUploadResponseApi {
     artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
 }
 
+export interface TaskUsageResponseApi {
+    /** Estimated model cost attributed to this task in US dollars. */
+    token_cost_usd: number
+    /** Estimated cloud compute cost attributed to this task in US dollars. */
+    compute_cost_usd: number
+    /** Estimated total cost attributed to this task in US dollars. */
+    total_cost_usd: number
+}
+
 export interface PaginatedTaskRunDetailDTOListApi {
     count: number
     /** @nullable */
@@ -2818,6 +2947,22 @@ export interface TaskRunArtifactsUploadResponseApi {
     artifacts: TaskRunArtifactResponseApi[]
 }
 
+export interface TaskRunArtifactsDismissRequestApi {
+    /**
+     * Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.
+     * @maxItems 100
+     * @items.maxLength 128
+     */
+    artifact_ids: string[]
+    /** True to hide the artifacts from clients, false to show them again. */
+    dismissed?: boolean
+}
+
+export interface TaskRunArtifactsDismissResponseApi {
+    /** Updated list of artifacts on the run */
+    artifacts: TaskRunArtifactResponseApi[]
+}
+
 export interface TaskRunArtifactPresignRequestApi {
     /**
      * S3 storage path returned in the artifact manifest
@@ -3051,6 +3196,97 @@ export interface TaskRunCommandResponseApi {
 export interface ConnectionTokenResponseApi {
     /** JWT token for authenticating with the sandbox */
     token: string
+}
+
+/**
+ * One peer agent run visible to the requesting run (agent peer messaging).
+ */
+export interface TaskRunPeerApi {
+    /** The peer run's id — the address send_agent_message targets. */
+    run_id: string
+    /** Id of the peer run's parent task. */
+    task_id: string
+    /** Title of the peer run's parent task. */
+    task_title: string
+    /**
+     * Email of the user whose task the peer run belongs to.
+     * @nullable
+     */
+    created_by_email: string | null
+    /** Agent runtime of the peer run's task (e.g. 'pi'). */
+    runtime: string
+    /**
+     * Model the peer run was started with, when recorded.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * Repository the peer run works on, or null for repo-less (channel-mode) runs.
+     * @nullable
+     */
+    repository: string | null
+    /**
+     * Current stage of the peer run (e.g. 'build').
+     * @nullable
+     */
+    stage: string | null
+    /** Run status: 'in_progress' or 'queued' (only these are listed). */
+    status: string
+    /** Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is listed but its workflow may not exist yet. Never infer sendability from status labels. */
+    sendable: boolean
+    /**
+     * ISO-8601 timestamp of the peer run's last update.
+     * @nullable
+     */
+    updated_at: string | null
+}
+
+export interface TaskRunPeersResponseApi {
+    /** Active agent runs the requesting run may message, most recently updated first. */
+    peers: TaskRunPeerApi[]
+}
+
+export interface TaskRunPeerMessageRequestApi {
+    /**
+     * Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.
+     * @maxLength 16000
+     */
+    content: string
+    /**
+     * Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot.
+     * @maxItems 10
+     * @items.maxLength 128
+     */
+    artifact_ids?: string[]
+}
+
+/**
+ * * `accepted` - accepted
+ * * `target_finished` - target_finished
+ * * `rejected` - rejected
+ */
+export type ResultEnumApi = (typeof ResultEnumApi)[keyof typeof ResultEnumApi]
+
+export const ResultEnumApi = {
+    Accepted: 'accepted',
+    TargetFinished: 'target_finished',
+    Rejected: 'rejected',
+} as const
+
+export interface TaskRunPeerMessageResponseApi {
+    /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
+     *
+     * * `accepted` - accepted
+     * * `target_finished` - target_finished
+     * * `rejected` - rejected */
+    result: ResultEnumApi
+    /** Human-readable explanation of the result. */
+    detail: string
+    /**
+     * Id of the recorded peer message, when one was created for this send.
+     * @nullable
+     */
+    message_id?: string | null
 }
 
 export interface TaskRunRelayMessageRequestApi {
@@ -3463,6 +3699,30 @@ export interface WizardCloudRunDTOApi {
     started_at?: string | null
 }
 
+/**
+ * One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.
+ *
+ * Both enums are declared with the same choices the run-detail response uses, so clients get the
+ * generated adapter/effort types here rather than bare strings.
+ */
+export interface ModelChoiceApi {
+    /** Runtime that drives this model, such as 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter: RuntimeAdapterEnumApi
+    model: string
+    /** Display name for the model, such as 'Claude Opus 4.8'. */
+    display_name: string
+    /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
+    supported_efforts: ReasoningEffortEnumApi[]
+}
+
+export interface ModelCatalogueResponseApi {
+    /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
+    models: ModelChoiceApi[]
+}
+
 export interface PinnedTaskIdsResponseApi {
     /** Visible task IDs pinned by the requester, newest pin first. */
     task_ids: string[]
@@ -3555,6 +3815,54 @@ export interface RepositoryReadinessResponseApi {
     cacheAgeSeconds: number
     /** Scan evidence details */
     scan?: ScanEvidenceApi
+}
+
+/**
+ * * `task` - task
+ * * `pull_request` - pull_request
+ * * `artifact` - artifact
+ * * `channel` - channel
+ */
+export type TaskSearchResultKindEnumApi = (typeof TaskSearchResultKindEnumApi)[keyof typeof TaskSearchResultKindEnumApi]
+
+export const TaskSearchResultKindEnumApi = {
+    Task: 'task',
+    PullRequest: 'pull_request',
+    Artifact: 'artifact',
+    Channel: 'channel',
+} as const
+
+export interface TaskSearchResultApi {
+    /** Search document identifier. */
+    id: string
+    /** Type of matched resource.
+     *
+     * * `task` - task
+     * * `pull_request` - pull_request
+     * * `artifact` - artifact
+     * * `channel` - channel */
+    kind: TaskSearchResultKindEnumApi
+    /** Primary result label. */
+    title: string
+    /** Secondary result context. */
+    subtitle: string
+    /**
+     * Containing task identifier, when applicable.
+     * @nullable
+     */
+    task_id: string | null
+    /**
+     * Containing task run identifier, when applicable.
+     * @nullable
+     */
+    task_run_id: string | null
+    /**
+     * Containing space identifier, when applicable.
+     * @nullable
+     */
+    channel_id: string | null
+    /** Resource-specific navigation metadata. */
+    metadata: unknown
 }
 
 /**
@@ -3780,18 +4088,28 @@ export interface PaginatedTaskSummaryDTOListApi {
  * Request body for warming a full idling Run while composing a Code-app cloud task.
  *
  * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
- * interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
- * the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
- * it to the caller's team before use.
+ * interactive Run that boots and starts the agent, optionally cloning and checking out a repository,
+ * then idles awaiting the first message. `github_integration` is a plain integration PK (an integer);
+ * the view re-scopes it to the caller's team before use.
  */
 export interface WarmTaskRequestApi {
     /**
-     * Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
+     * Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
      * @maxLength 255
+     * @nullable
      */
-    repository: string
-    /** Primary key of the team's GitHub integration to clone with. */
-    github_integration: number
+    repository?: string | null
+    /**
+     * GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.
+     * @maxItems 3
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /**
+     * Primary key of the team's GitHub integration to clone with when a repository is selected.
+     * @nullable
+     */
+    github_integration?: number | null
     /**
      * Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.
      * @maxLength 255
@@ -3909,17 +4227,6 @@ export type TaskActivityListParams = {
     limit?: number
 }
 
-export type TaskAutomationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type TaskChannelsListParams = {
     /**
      * Number of results to return per page.
@@ -3961,7 +4268,7 @@ export type TaskMentionsListParams = {
 
 export type TasksListParams = {
     /**
-     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     * Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.
      */
     all_team_tasks?: boolean
     /**
@@ -3977,6 +4284,20 @@ export type TasksListParams = {
      * Filter tasks to a channel's feed.
      */
     channel?: string
+    /**
+     * Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.
+     *
+     * * `passing` - passing
+     * * `failing` - failing
+     * * `pending` - pending
+     * * `none` - none
+     * @minLength 1
+     */
+    ci_status?: TasksListCiStatus
+    /**
+     * Filter to tasks carrying a thread comment written by this user ID.
+     */
+    commented_by?: number
     /**
      * Filter by creator user ID
      */
@@ -3997,10 +4318,22 @@ export type TasksListParams = {
      */
     limit?: number
     /**
+     * Filter to tasks whose thread mentions this user ID.
+     */
+    mentions?: number
+    /**
      * The initial index from which to return the results.
      * @minimum 0
      */
     offset?: number
+    /**
+     * Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.
+     *
+     * * `-created_at` - -created_at
+     * * `-last_activity_at` - -last_activity_at
+     * @minLength 1
+     */
+    ordering?: TasksListOrdering
     /**
      * Filter by repository organization
      * @minLength 1
@@ -4011,6 +4344,20 @@ export type TasksListParams = {
      * @minLength 1
      */
     origin_product?: string
+    /**
+     * With true, only tasks the requesting user has pinned.
+     */
+    pinned?: boolean
+    /**
+     * Filter tasks by the state of their most recent run's pull request, as last observed from GitHub (webhooks plus the CI follow-up snapshot).
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * @minLength 1
+     */
+    pr_state?: TasksListPrState
     /**
      * Filter by repository name (can include org/repo format)
      * @minLength 1
@@ -4047,12 +4394,37 @@ export const TasksListArchived = {
     All: 'all',
 } as const
 
+export type TasksListCiStatus = (typeof TasksListCiStatus)[keyof typeof TasksListCiStatus]
+
+export const TasksListCiStatus = {
+    Passing: 'passing',
+    Failing: 'failing',
+    Pending: 'pending',
+    None: 'none',
+} as const
+
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
 
 export const TasksListInternal = {
     True: 'true',
     False: 'false',
     All: 'all',
+} as const
+
+export type TasksListOrdering = (typeof TasksListOrdering)[keyof typeof TasksListOrdering]
+
+export const TasksListOrdering = {
+    CreatedAt: '-created_at',
+    LastActivityAt: '-last_activity_at',
+} as const
+
+export type TasksListPrState = (typeof TasksListPrState)[keyof typeof TasksListPrState]
+
+export const TasksListPrState = {
+    Open: 'open',
+    Draft: 'draft',
+    Merged: 'merged',
+    Closed: 'closed',
 } as const
 
 export type TasksListStatus = (typeof TasksListStatus)[keyof typeof TasksListStatus]
@@ -4065,6 +4437,55 @@ export const TasksListStatus = {
     Failed: 'failed',
     Cancelled: 'cancelled',
 } as const
+
+export type TasksCommentsListParams = {
+    /**
+     * Artifact id returned by the artifacts endpoint.
+     * @minLength 1
+     * @maxLength 72
+     */
+    artifact_id?: string
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Whether to include resolved comment threads.
+     */
+    include_resolved?: boolean
+    /**
+     * Maximum number of root comments to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type TasksCommentsRetrieveParams = {
+    /**
+     * Comment id whose truncated body should continue. Use with content_offset.
+     */
+    comment_id?: string
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Maximum number of comments in the thread to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
 
 export type TasksRunsListParams = {
     /**
@@ -4138,6 +4559,21 @@ export type TasksRepositoryReadinessRetrieveParams = {
      * @maximum 30
      */
     window_days?: number
+}
+
+export type TasksSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Text or exact identifier to search for.
+     * @minLength 1
+     * @maxLength 512
+     */
+    q: string
 }
 
 export type TasksSlackThreadContextRetrieveParams = {

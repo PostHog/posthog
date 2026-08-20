@@ -19,7 +19,12 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
@@ -142,21 +147,21 @@ class TestWidenedTsWindow(SimpleTestCase):
             "period_start": "2026-04-08T14:00:00+00:00",
             "period_end": "2026-04-08T15:00:00+00:00",
         }
-        ts_start, ts_end = _widened_ts_window(state)
-        self.assertEqual(ts_start, dt.datetime(2026, 4, 1, 14, 0, tzinfo=dt.UTC))
-        self.assertEqual(ts_end, dt.datetime(2026, 4, 9, 15, 0, tzinfo=dt.UTC))
+        window = _widened_ts_window(state)
+        self.assertEqual(window.ts_start, dt.datetime(2026, 4, 1, 14, 0, tzinfo=dt.UTC))
+        self.assertEqual(window.ts_end, dt.datetime(2026, 4, 9, 15, 0, tzinfo=dt.UTC))
 
     def test_falls_back_to_sentinels_on_missing_keys(self):
-        ts_start, ts_end = _widened_ts_window({})
+        window = _widened_ts_window({})
         # Wide sentinel bounds so a bad state doesn't prevent partition pruning
-        self.assertEqual(ts_start.year, 2020)
-        self.assertEqual(ts_end.year, 2099)
+        self.assertEqual(window.ts_start.year, 2020)
+        self.assertEqual(window.ts_end.year, 2099)
 
     def test_falls_back_on_malformed_timestamps(self):
         state = {"period_start": "not-a-timestamp", "period_end": "also-bad"}
-        ts_start, ts_end = _widened_ts_window(state)
-        self.assertEqual(ts_start.year, 2020)
-        self.assertEqual(ts_end.year, 2099)
+        window = _widened_ts_window(state)
+        self.assertEqual(window.ts_start.year, 2020)
+        self.assertEqual(window.ts_end.year, 2099)
 
 
 class TestSummaryMetrics(SimpleTestCase):
@@ -613,6 +618,39 @@ class TestAddSection(SimpleTestCase):
         titles = [s.title for s in state["report"].sections]
         self.assertEqual(titles, ["First", "Second", "Third"])
 
+    def test_rejects_section_backticking_an_uncited_uuid(self):
+        # A run_id from list_recent_report_runs is a canonical UUID but not citable,
+        # so backticking it would ship a dead identifier. The guard blocks it in-loop.
+        state = _state_with_empty_report()
+        run_id = "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f"
+        result = _add_section_fn(state=state, title="Summary", content=f"Steady since run `{run_id}`.")
+        self.assertIn("Error", result)
+        self.assertIn(run_id, result)
+        self.assertEqual(state["report"].sections, [])
+
+    def test_allows_section_when_backticked_uuid_is_cited(self):
+        state = _state_with_empty_report()
+        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+        result = _add_section_fn(state=state, title="Summary", content=f"See `{_VALID_GEN_ID}` for the regression.")
+        self.assertNotIn("Error", result)
+        self.assertEqual(len(state["report"].sections), 1)
+
+    @parameterized.expand(
+        [
+            ("different_casing", f"`{_VALID_GEN_ID.upper()}`"),
+            ("surrounding_spaces", f"` {_VALID_GEN_ID} `"),
+            ("multiple_backticks", f"``{_VALID_GEN_ID}``"),
+        ]
+    )
+    def test_rejects_cited_uuid_when_format_will_not_link(self, _name: str, formatted_id: str) -> None:
+        state = _state_with_empty_report()
+        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+
+        result = _add_section_fn(state=state, title="Summary", content=f"See {formatted_id} for the regression.")
+
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].sections, [])
+
 
 class TestAddCitation(SimpleTestCase):
     def test_appends_citation(self):
@@ -1058,7 +1096,7 @@ class TestExecuteChQueryWithRetry(SimpleTestCase):
         [
             ("network", NetworkError()),
             ("socket_timeout", SocketTimeoutError()),
-            ("cluster_memory_pressure", ClickHouseQueryMemoryLimitExceeded()),
+            ("cluster_memory_pressure", ClickHouseClusterMemoryLimitExceeded()),
         ]
     )
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")

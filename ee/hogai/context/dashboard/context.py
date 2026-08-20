@@ -66,7 +66,7 @@ class DashboardContext:
         self.name = name
         self.description = description
         self.dashboard_id = dashboard_id
-        self.dashboard_url = build_dashboard_url(team, int(dashboard_id)) if dashboard_id else None
+        self.dashboard_url = build_dashboard_url(int(dashboard_id)) if dashboard_id else None
         self.dashboard_filters = dashboard_filters
         self._semaphore = asyncio.Semaphore(max_concurrent_queries)
 
@@ -171,6 +171,7 @@ class DashboardContext:
             user=self.user,
             name=data.name,
             description=data.description,
+            insight_id=data.short_id,
             insight_model_id=data.db_id,
             insight_short_id=data.short_id,
             dashboard_filters=self.dashboard_filters,

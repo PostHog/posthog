@@ -30,6 +30,8 @@ const OVERVIEW: RepoOverviewApi = {
     merged_pr_count_prev: 49,
     median_open_to_merge_seconds: 14 * 3600,
     median_open_to_merge_seconds_prev: 19 * 3600,
+    median_ready_to_merge_seconds: 9 * 3600,
+    median_ready_to_merge_seconds_prev: 12 * 3600,
     billable_minutes: 5230,
     billable_minutes_prev: 4890,
     estimated_cost_usd: 412.5,
@@ -63,6 +65,13 @@ const OVERVIEW: RepoOverviewApi = {
         })
     ),
     open_to_merge_series_granularity: 'day',
+    ready_to_merge_series: [9 * 3600, 11 * 3600, null, 8 * 3600, 10 * 3600, 12 * 3600, 9 * 3600].map(
+        (p50_seconds, i) => ({
+            bucket_start: `2026-06-${25 + i}T00:00:00Z`,
+            p50_seconds,
+        })
+    ),
+    ready_to_merge_series_granularity: 'day',
 }
 
 const ACTIVITY: WorkflowRunActivityApi = {

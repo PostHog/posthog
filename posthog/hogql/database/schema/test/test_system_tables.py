@@ -24,6 +24,7 @@ from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mapping
 
 from products.actions.backend.models.action import Action
+from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
@@ -47,15 +48,15 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.surveys.backend.models import Survey
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable as DataWarehouseTableModel,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 from ee.models.rbac.role import Role
@@ -105,8 +106,11 @@ TEAM_ID_FILTER_PATTERNS = {
     # Junction tables without team_id; isolation is enforced via an account_id IN system.accounts predicate
     "_account_resource_notebooks": "system__accounts.team_id",
     "_account_tagged_items": "system__accounts.team_id",
-    "_account_custom_property_values": "system__accounts.team_id",
-    "_account_custom_property_values_history": "system__accounts.team_id",
+    # The custom property tables declare their real team_id column, so the standard direct
+    # guard applies (and is pushed into the federated read).
+    # Runs have no team_id column; isolation is enforced via a predicate scoping through the
+    # run's parent (scheduled or on-demand batch export)
+    "batch_export_runs": "system__batch_exports.team_id",
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
     "_ticket_assignments": "system__support_tickets.team_id",
@@ -194,6 +198,33 @@ def _create_batch_export_backfill(team: Team, label: str):
     return BatchExportBackfill.objects.create(team=team, batch_export=batch_export, status="Running")
 
 
+def _create_batch_export_run(team: Team, label: str):
+    from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+
+    destination = BatchExportDestination.objects.create(type="S3", config={})
+    batch_export = BatchExport.objects.create(
+        team=team, name=f"export_for_run_{label}", destination=destination, interval="hour"
+    )
+    return BatchExportRun.objects.create(batch_export=batch_export, status="Running", data_interval_end=timezone.now())
+
+
+def _create_batch_export_on_demand(team: Team, label: str):
+    from products.batch_exports.backend.models.batch_export import BatchExportDestination, BatchExportOnDemand
+
+    destination = BatchExportDestination.objects.create(type="S3", config={})
+    with team_scope(team.pk):
+        return BatchExportOnDemand.objects.create(team=team, destination=destination)
+
+
+def _create_batch_export_run_on_demand(team: Team, label: str):
+    from products.batch_exports.backend.models.batch_export import BatchExportRun
+
+    on_demand = _create_batch_export_on_demand(team, label)
+    return BatchExportRun.objects.create(
+        batch_export_on_demand=on_demand, status="Running", data_interval_end=timezone.now()
+    )
+
+
 def _create_alert(team: Team, label: str) -> AlertConfiguration:
     insight = Insight.objects.create(team=team, name=f"insight_for_alert_{label}")
     return AlertConfiguration.objects.create(team=team, insight=insight, name=f"alert_{label}")
@@ -246,6 +277,38 @@ def _create_dashboard_tile(team: Team, label: str) -> DashboardTile:
     dashboard = Dashboard.objects.create(team=team, name=f"dashboard_for_tile_{label}")
     insight = Insight.objects.create(team=team, short_id=f"tile_{label}"[:12], name=f"insight_{label}")
     return DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+
+def _create_dataset(team: Team, label: str) -> Dataset:
+    return Dataset.objects.for_team(team.id, canonical=True).create(team=team, name=f"dataset_{label}")
+
+
+def _create_dataset_revision(team: Team, label: str) -> DatasetRevision:
+    dataset = _create_dataset(team, f"for_revision_{label}")
+    return DatasetRevision.objects.for_team(team.id, canonical=True).create(team=team, dataset=dataset, revision=1)
+
+
+def _create_dataset_item(team: Team, label: str) -> DatasetItem:
+    dataset = _create_dataset(team, f"for_item_{label}")
+    return DatasetItem.objects.for_team(team.id, canonical=True).create(
+        team=team, dataset=dataset, client_item_id=f"item_{label}"
+    )
+
+
+def _create_dataset_item_version(team: Team, label: str) -> DatasetItemVersion:
+    dataset = _create_dataset(team, f"for_version_{label}")
+    revision = DatasetRevision.objects.for_team(team.id, canonical=True).create(team=team, dataset=dataset, revision=1)
+    item = DatasetItem.objects.for_team(team.id, canonical=True).create(
+        team=team, dataset=dataset, client_item_id=f"versioned_item_{label}"
+    )
+    return DatasetItemVersion.objects.for_team(team.id, canonical=True).create(
+        team=team,
+        dataset=dataset,
+        dataset_item=item,
+        dataset_revision=revision,
+        version=1,
+        input={"label": label},
+    )
 
 
 def _create_data_modeling_job(team: Team, label: str) -> DataModelingJob:
@@ -611,11 +674,27 @@ def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
 
 
+def _create_survey_response_archive(team: Team, label: str) -> SurveyResponseArchive:
+    return SurveyResponseArchive.objects.create(
+        team=team,
+        survey=_create_survey(team, f"archived_{label}"),
+        response_uuid=uuid.uuid4(),
+    )
+
+
+def _create_public_task_channel(team: Team, label: str):
+    Channel = apps.get_model("tasks", "Channel")
+
+    with team_scope(team.pk):
+        return Channel.objects.create(team=team, name=f"channel_{label}")
+
+
 def _create_task(team: Team, label: str):
     Task = apps.get_model("tasks", "Task")
 
     return Task.objects.create(
         team=team,
+        channel=_create_public_task_channel(team, f"task_{label}"),
         title=f"task_{label}",
         description="x",
         origin_product=Task.OriginProduct.USER_CREATED,
@@ -623,11 +702,10 @@ def _create_task(team: Team, label: str):
 
 
 def _create_canvas(team: Team, label: str):
-    Channel = apps.get_model("tasks", "Channel")
     Canvas = apps.get_model("canvas", "Canvas")
 
     with team_scope(team.pk):
-        channel = Channel.objects.create(team=team, name=f"channel_for_canvas_{label}")
+        channel = _create_public_task_channel(team, f"canvas_{label}")
         return Canvas.objects.create(team=team, channel=channel, name=f"canvas_{label}")
 
 
@@ -637,6 +715,7 @@ def _create_task_run(team: Team, label: str):
 
     task = Task.objects.create(
         team=team,
+        channel=_create_public_task_channel(team, f"run_{label}"),
         title=f"task_for_run_{label}",
         description="x",
         origin_product=Task.OriginProduct.USER_CREATED,
@@ -727,6 +806,10 @@ SYSTEM_TABLE_FACTORIES = [
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
     ("batch_export_backfills", _create_batch_export_backfill),
+    ("batch_export_on_demands", _create_batch_export_on_demand),
+    ("batch_export_runs", _create_batch_export_run),
+    # A run parented by an on-demand export exercises the other branch of the runs table's scoping predicate
+    ("batch_export_runs", _create_batch_export_run_on_demand),
     ("batch_exports", _create_batch_export),
     ("business_knowledge_chunks", _create_business_knowledge_chunk),
     ("business_knowledge_documents", _create_business_knowledge_document),
@@ -737,6 +820,10 @@ SYSTEM_TABLE_FACTORIES = [
     ("custom_property_definitions", _create_custom_property_definition),
     ("dashboards", _create_dashboard),
     ("dashboard_tiles", _create_dashboard_tile),
+    ("dataset_item_versions", _create_dataset_item_version),
+    ("dataset_items", _create_dataset_item),
+    ("dataset_revisions", _create_dataset_revision),
+    ("datasets", _create_dataset),
     ("data_modeling_jobs", _create_data_modeling_job),
     ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
@@ -780,7 +867,9 @@ SYSTEM_TABLE_FACTORIES = [
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
+    ("survey_response_archives", _create_survey_response_archive),
     ("surveys", _create_survey),
+    ("_task_public_channels", _create_public_task_channel),
     ("tags", _create_tag),
     ("task_runs", _create_task_run),
     ("tasks", _create_task),
@@ -823,6 +912,42 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
         assert str(obj_team1.pk) in ids
         assert str(obj_team2.pk) not in ids
+
+    def test_error_tracking_issue_severity(self):
+        ErrorTrackingIssue.objects.create(
+            team=self.team,
+            name="high_severity_issue",
+            status=ErrorTrackingIssue.Status.ACTIVE,
+            severity=ErrorTrackingIssue.Severity.HIGH,
+        )
+
+        response = execute_hogql_query(
+            "SELECT severity FROM system.error_tracking_issues WHERE severity IS NOT NULL",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [("high",)]
+
+
+class TestDataWarehouseSourcesLiveQueryability(BaseTest):
+    """`is_live_queryable` is how an agent finds the sources it can pass as a query's connection id."""
+
+    def test_covers_every_source_type_with_a_direct_engine(self):
+        # An engine added to the registry without reaching this column would hide those connections from
+        # discovery, leaving their tables reachable only by a connection id the caller already knew.
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+
+        query, _ = prepare_and_print_ast(
+            parse_select("SELECT is_live_queryable FROM system.data_warehouse_sources"), context, dialect="clickhouse"
+        )
+
+        # The literals are parameterized, so the source types land in the query's values, not its text.
+        values = set(context.values.values())
+        assert {str(source_type) for source_type in DIRECT_ENGINE_BY_SOURCE_TYPE}.issubset(values)
+        assert "direct" in values
+        assert "system__data_warehouse_sources.direct_query_enabled" in query
 
 
 class TestSystemTablesSandboxEnvironmentPrivacy(BaseTest):
@@ -884,6 +1009,7 @@ class TestSystemTablesCanvasDeletedExclusion(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
         query, _ = prepare_and_print_ast(parse_select("SELECT id FROM system.canvases"), context, dialect="clickhouse")
         assert "system__canvases.deleted" in query
+        assert "system___task_public_channels" in query
         assert f"equals(system__canvases.team_id, {self.team.pk})" in query
 
 
@@ -917,6 +1043,7 @@ class TestSystemTablesTaskInternalExclusion(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
         query, _ = prepare_and_print_ast(parse_select("SELECT id FROM system.tasks"), context, dialect="clickhouse")
         assert "system__tasks.internal" in query
+        assert "system___task_public_channels" in query
         assert f"equals(system__tasks.team_id, {self.team.pk})" in query
 
 
@@ -927,9 +1054,11 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
     def test_internal_tasks_excluded(self):
         Task = apps.get_model("tasks", "Task")
+        channel = _create_public_task_channel(self.team, "internal-exclusion")
 
         regular_task = Task.objects.create(
             team=self.team,
+            channel=channel,
             title="regular",
             description="x",
             origin_product=Task.OriginProduct.USER_CREATED,
@@ -937,6 +1066,7 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
         )
         internal_task = Task.objects.create(
             team=self.team,
+            channel=channel,
             title="internal",
             description="x",
             origin_product=Task.OriginProduct.USER_CREATED,
@@ -948,6 +1078,73 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_private_and_unfiled_task_resources_are_excluded(self):
+        Channel = apps.get_model("tasks", "Channel")
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        Canvas = apps.get_model("canvas", "Canvas")
+
+        with team_scope(self.team.pk):
+            public_channel = Channel.objects.create(team=self.team, name="public-space")
+            private_channel = Channel.objects.create(
+                team=self.team,
+                name=Channel.PERSONAL_CHANNEL_NAME,
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=self.user,
+            )
+            deleted_channel = Channel.objects.create(team=self.team, name="deleted-space", deleted=True)
+            public_canvas = Canvas.objects.create(team=self.team, channel=public_channel, name="public")
+            Canvas.objects.create(team=self.team, channel=private_channel, name="private")
+            Canvas.objects.create(team=self.team, channel=deleted_channel, name="deleted")
+
+        public_task = Task.objects.create(
+            team=self.team,
+            channel=public_channel,
+            created_by=self.user,
+            title="public",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        private_task = Task.objects.create(
+            team=self.team,
+            channel=private_channel,
+            created_by=self.user,
+            title="private",
+            description="x",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        unfiled_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="unfiled",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        deleted_channel_task = Task.objects.create(
+            team=self.team,
+            channel=deleted_channel,
+            created_by=self.user,
+            title="deleted space",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        public_run = TaskRun.objects.create(task=public_task, team=self.team)
+        TaskRun.objects.create(task=private_task, team=self.team)
+        TaskRun.objects.create(task=unfiled_task, team=self.team)
+        TaskRun.objects.create(task=deleted_channel_task, team=self.team)
+
+        task_response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team, user=self.user)
+        run_response = execute_hogql_query("SELECT id FROM system.task_runs", team=self.team, user=self.user)
+        canvas_response = execute_hogql_query("SELECT id FROM system.canvases", team=self.team, user=self.user)
+
+        assert {str(row[0]) for row in task_response.results} == {str(public_task.id)}
+        assert {str(row[0]) for row in run_response.results} == {str(public_run.id)}
+        assert {str(row[0]) for row in canvas_response.results} == {str(public_canvas.id)}
 
 
 class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):

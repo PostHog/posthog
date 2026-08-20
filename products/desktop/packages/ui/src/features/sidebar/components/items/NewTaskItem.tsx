@@ -23,15 +23,13 @@ export function NewTaskItem({ isActive, onClick }: NewTaskItemProps) {
       isActive={isActive}
       onClick={onClick}
       endContent={
-        <>
-          {hasDraft ? (
-            <Badge variant="default" title="You have unsubmitted changes">
-              Draft
-            </Badge>
-          ) : null}
-          <SidebarKbdHint keys={SHORTCUTS.NEW_TASK} />
-        </>
+        hasDraft ? (
+          <Badge variant="default" title="You have unsubmitted changes">
+            Draft
+          </Badge>
+        ) : null
       }
+      endHint={<SidebarKbdHint keys={SHORTCUTS.NEW_TASK} />}
     />
   );
 }

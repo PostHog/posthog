@@ -34,7 +34,9 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
     "COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS", 1800, type_cast=int
 )
 
-# If updating this, need to look into adding more values to S3 TTLs (see query_cache_s3.py)
+# The query-cache buckets' lifecycle rule (posthog-cloud-infra) garbage-collects S3 blobs after
+# this many days. Raising this value needs the bucket rule raised first, or blobs get deleted
+# while their Redis pointers still live (see docs/internal/workflows/s3-query-cache-setup.md).
 CACHED_RESULTS_TTL_DAYS = 7
 CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 
@@ -55,24 +57,4 @@ CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON = get_from_env(
     "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
     # Every third month 5AM UTC on 1st of the month
     "0 5 1 */3 *",
-)
-
-# Cohort selection for the Python realtime cohort calculation coordinator, which no longer has a
-# schedule (rust/cohort-stream-processor replaced it). These survive only because the coordinator
-# still parses them, and go away with the Python implementation. Unrelated to
-# REALTIME_COHORT_TEAM_ALLOWLIST, which is the live setting Rust and Django both read.
-# Teams that should process all their cohorts (comma-separated team IDs)
-# Example: "2,42" means team 2 and team 42 process all cohorts
-REALTIME_COHORT_CALCULATION_TEAMS: set[int] = {
-    int(team_id.strip())
-    for team_id in get_from_env("REALTIME_COHORT_CALCULATION_TEAMS", "2").split(",")
-    if team_id.strip()
-}
-
-# Global percentage for teams not in REALTIME_COHORT_CALCULATION_TEAMS (0.0 to 1.0)
-# Example: 0.5 means 50% of cohorts for all other teams
-REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE: float = get_from_env(
-    "REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE",
-    0.0,
-    type_cast=float,
 )

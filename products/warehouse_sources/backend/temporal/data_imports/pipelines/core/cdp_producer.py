@@ -10,6 +10,7 @@ import orjson
 import pyarrow as pa
 import pyarrow.fs as pa_fs
 import pyarrow.parquet as pq
+from prometheus_client import Counter
 from pyarrow.parquet import write_table
 from structlog.types import FilteringBoundLogger
 
@@ -27,6 +28,20 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
+# Per-file exceptions are swallowed (the file is deleted and the run continues), so a failed file
+# is silently dropped rows. The outcome label is what makes that visible to alerting.
+CDP_PRODUCER_FILES_TOTAL = Counter(
+    "warehouse_cdp_producer_files_total",
+    "Staged CDP files read from S3 and produced to Kafka, by outcome",
+    labelnames=["team_id", "outcome"],
+)
+
+CDP_PRODUCER_ROWS_TOTAL = Counter(
+    "warehouse_cdp_producer_rows_total",
+    "Warehouse rows produced to the CDP raw-table Kafka topic",
+    labelnames=["team_id"],
+)
+
 
 class CDPProducer:
     team_id: int
@@ -35,6 +50,7 @@ class CDPProducer:
     logger: FilteringBoundLogger
     _should_run_cache: bool | None
     _table_name_cache: str | None
+    _fs_cache: pa_fs.S3FileSystem | None
 
     def __init__(self, team_id: int, schema_id: str, job_id: str, logger: FilteringBoundLogger) -> None:
         self.team_id = team_id
@@ -43,8 +59,16 @@ class CDPProducer:
         self.logger = logger
         self._should_run_cache = None
         self._table_name_cache = None
+        self._fs_cache = None
 
     def _get_fs(self) -> pa_fs.S3FileSystem:
+        # Cached per instance: stage_chunk() calls this once per chunk, and a producer lives for
+        # a whole sync (potentially thousands of chunks). A fresh S3FileSystem per call opens its
+        # own AWS SDK client/connections that outlive the call, exhausting the process' file
+        # descriptor limit over a long sync.
+        if self._fs_cache is not None:
+            return self._fs_cache
+
         if settings.USE_LOCAL_SETUP:
             ensure_bucket_exists(
                 f"s3://{self._get_path_prefix()}",
@@ -53,13 +77,15 @@ class CDPProducer:
                 settings.OBJECT_STORAGE_ENDPOINT,
             )
 
-            return pa_fs.S3FileSystem(
+            self._fs_cache = pa_fs.S3FileSystem(
                 access_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
                 secret_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
             )
+        else:
+            self._fs_cache = pa_fs.S3FileSystem()
 
-        return pa_fs.S3FileSystem()
+        return self._fs_cache
 
     def _get_path_prefix(self) -> str:
         return f"{settings.DATAWAREHOUSE_BUCKET}/cdp_producer/{self.team_id}/{self.schema_id}/{self.job_id}"
@@ -144,12 +170,17 @@ class CDPProducer:
                     trigger__type="data-warehouse-table",
                     trigger__table_name=dot_notated_table_name,
                 ).exists()
-            except DjangoOperationalError as e:
+            except (DjangoOperationalError, OSError) as e:
                 # This queries PostHog's own database, not the source being synced. A transient
                 # failure reaching it (e.g. a DNS blip resolving our host) stringifies with the
                 # same wording a customer's misconfigured source host would, which the source's
                 # `get_non_retryable_errors` would misclassify as non-retryable and permanently
                 # stop a healthy sync. Re-raise clear of those substrings so it stays retryable.
+                # A bare OSError (e.g. "Too many open files") reaches here unwrapped rather than as
+                # a DjangoOperationalError when the worker runs out of file descriptors while
+                # opening the connection's selector, before libpq has anything to report — same
+                # transient condition, different exception type depending on which connect step it
+                # hits, so both need the same reclassification.
                 raise PostHogInternalDatabaseError(
                     "Failed to check hog function/workflow triggers in PostHog's database"
                 ) from e
@@ -219,12 +250,16 @@ class CDPProducer:
                                 row_index += 1
 
                     await kafka_producer.flush()
+                    CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="produced").inc()
                     await self.logger.adebug(f"Finished producing file {file_path} to Kafka")
                 except Exception as e:
+                    CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="failed").inc()
                     capture_exception(e)
                     await self.logger.adebug(f"Error producing file {file_path} to Kafka: {e}")
                 finally:
                     # TODO(Gilbert09): have better row tracking so we can retry from a particular row
+                    if row_index:
+                        CDP_PRODUCER_ROWS_TOTAL.labels(team_id=str(self.team_id)).inc(row_index)
                     await self.logger.adebug(f"Produced {row_index} rows")
                     await self.logger.adebug(f"Deleting file {file_path}")
                     await asyncio.to_thread(fs.delete_file, file_path)

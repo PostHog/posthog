@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { FieldNamePath, capitalizeFirstLetter, forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
@@ -18,6 +18,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -37,14 +38,26 @@ import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
     canAccessBilling as canAccessBillingUtil,
+    canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
+    getMinimumUsageSpendReadAccessLevel,
+    isMemberUsageSpendReadAccessEnabled,
 } from './billing-utils'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
-export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
+export const ALLOCATION_THRESHOLD_ALERT = 0.8 // Threshold to show warning of event usage near limit (aligned with the 80% billing warning email)
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
 
 const BILLING_ALERT_DISMISS_PREFIX = 'scenes.billing.billingLogic.billingAlertDismissed.'
+
+const getFirstProductFromProductsParam = (productsParam: unknown): ProductKey | null => {
+    if (typeof productsParam !== 'string') {
+        return null
+    }
+
+    const [product] = productsParam.split(',')
+    return product ? (product as ProductKey) : null
+}
 
 export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
@@ -187,12 +200,15 @@ export interface billingLogicValues {
     >
     billing: BillingType | null
     billingAlert: BillingAlertConfig | null
+    billingEntryUrl: string | null
     billingError: BillingError | null
     billingErrorLoading: boolean
     billingLoading: boolean
     billingPeriodUTC: BillingPeriod
     billingPlan: BillingPlan | null
     canAccessBilling: boolean
+    canOnlyViewUsageAndSpend: boolean
+    canViewUsageAndSpend: boolean
     computedDiscount: number | null
     creditBrackets: any[]
     creditDiscount: number
@@ -246,6 +262,7 @@ export interface billingLogicValues {
     isPurchaseCreditsModalOpen: boolean
     isUnlicensedDebug: boolean
     minimumBillingAccessLevel: OrganizationMembershipLevel
+    minimumUsageSpendReadAccessLevel: OrganizationMembershipLevel
     platformAddons: BillingProductV2AddonType[]
     productSpecificAlert: BillingAlertConfig | null
     products: BillingProductV2Type[]
@@ -601,6 +618,14 @@ export interface billingLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         minimumBillingAccessLevel: (featureFlags: FeatureFlagsSet) => OrganizationMembershipLevel
         canAccessBilling: (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet) => boolean
+        minimumUsageSpendReadAccessLevel: (featureFlags: FeatureFlagsSet) => OrganizationMembershipLevel
+        canViewUsageAndSpend: (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet) => boolean
+        canOnlyViewUsageAndSpend: (canViewUsageAndSpend: boolean, canAccessBilling: boolean) => boolean
+        billingEntryUrl: (
+            canAccessBilling: boolean,
+            canOnlyViewUsageAndSpend: boolean,
+            featureFlags: FeatureFlagsSet
+        ) => string | null
         upgradeLink: (preflight: PreflightStatus | null) => string
         isUnlicensedDebug: (preflight: PreflightStatus | null, billing: BillingType | null) => boolean
         supportPlans: (billing: BillingType | null) => BillingPlanType[]
@@ -1040,6 +1065,46 @@ export const billingLogic = kea<billingLogicType>([
                     currentOrganization?.membership_level,
                     !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
                 ),
+        ],
+        minimumUsageSpendReadAccessLevel: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): OrganizationMembershipLevel =>
+                getMinimumUsageSpendReadAccessLevel(
+                    isMemberUsageSpendReadAccessEnabled(featureFlags),
+                    !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                ),
+        ],
+        canViewUsageAndSpend: [
+            (s) => [s.currentOrganization, s.featureFlags],
+            (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet): boolean =>
+                canViewUsageAndSpendUtil(
+                    currentOrganization?.membership_level,
+                    isMemberUsageSpendReadAccessEnabled(featureFlags),
+                    !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                ),
+        ],
+        canOnlyViewUsageAndSpend: [
+            (s) => [s.canViewUsageAndSpend, s.canAccessBilling],
+            (canViewUsageAndSpend: boolean, canAccessBilling: boolean): boolean =>
+                canViewUsageAndSpend && !canAccessBilling,
+        ],
+        billingEntryUrl: [
+            (s) => [s.canAccessBilling, s.canOnlyViewUsageAndSpend, s.featureFlags],
+            (
+                canAccessBilling: boolean,
+                canOnlyViewUsageAndSpend: boolean,
+                featureFlags: FeatureFlagsSet
+            ): string | null => {
+                if (canAccessBilling) {
+                    return featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+                        ? urls.organizationBillingSection('overview')
+                        : urls.organizationBilling()
+                }
+                if (canOnlyViewUsageAndSpend) {
+                    return urls.organizationBillingSection('usage')
+                }
+                return null
+            },
         ],
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
         isUnlicensedDebug: [
@@ -1563,19 +1628,22 @@ export const billingLogic = kea<billingLogicType>([
             })
         },
     })),
-    urlToAction(({ actions, values }) => ({
-        // IMPORTANT: This needs to be above the "*" so it takes precedence
-        '/*/billing': (_params, _search, hash) => {
-            if (hash.license) {
+    urlToAction(({ actions, values }) => {
+        const handleBillingRoute = (
+            _params: Record<string, string | undefined>,
+            _search: Record<string, unknown>,
+            hash: Record<string, unknown>
+        ): void => {
+            if (typeof hash.license === 'string') {
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
             }
-            if (_search.products) {
-                const products = _search.products.split(',')
-                actions.setScrollToProductKey(products[0])
+            const product = getFirstProductFromProductsParam(_search.products)
+            if (product) {
+                actions.setScrollToProductKey(product)
             }
-            if (_search.billing_error) {
+            if (typeof _search.billing_error === 'string') {
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Error',
@@ -1594,8 +1662,52 @@ export const billingLogic = kea<billingLogicType>([
             if (values.isOnboarding !== isOnboarding) {
                 actions.setIsOnboarding(isOnboarding)
             }
-        },
-        '*': () => {
+        }
+
+        return {
+            // IMPORTANT: These need to be above the "*" so they take precedence
+            '/*/billing': handleBillingRoute,
+            '/*/billing/overview': handleBillingRoute,
+            '*': () => {
+                const redirectPath = window.location.pathname.includes('/onboarding')
+                    ? window.location.pathname + window.location.search
+                    : ''
+                if (values.redirectPath !== redirectPath) {
+                    actions.setRedirectPath(redirectPath)
+                }
+                const isOnboarding = window.location.pathname.includes('/onboarding')
+                if (values.isOnboarding !== isOnboarding) {
+                    actions.setIsOnboarding(isOnboarding)
+                }
+            },
+        }
+    }),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            const { location, searchParams, hashParams } = router.values
+            const isBillingOverviewRoute =
+                location.pathname.endsWith('/billing') || location.pathname.endsWith('/billing/overview')
+
+            if (isBillingOverviewRoute) {
+                if (typeof hashParams.license === 'string') {
+                    actions.setShowLicenseDirectInput(true)
+                    actions.setActivateLicenseValues({ license: hashParams.license })
+                    actions.submitActivateLicense()
+                }
+                const product = getFirstProductFromProductsParam(searchParams.products)
+                if (product) {
+                    actions.setScrollToProductKey(product)
+                }
+                if (typeof searchParams.billing_error === 'string') {
+                    actions.setBillingAlert({
+                        status: 'error',
+                        title: 'Error',
+                        message: searchParams.billing_error,
+                        contactSupport: true,
+                    })
+                }
+            }
+
             const redirectPath = window.location.pathname.includes('/onboarding')
                 ? window.location.pathname + window.location.search
                 : ''

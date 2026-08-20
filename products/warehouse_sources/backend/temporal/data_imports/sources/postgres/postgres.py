@@ -3,9 +3,7 @@ from __future__ import annotations
 import re
 import math
 import time
-import socket
-import ipaddress
-import threading
+import errno
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -35,6 +33,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 
 from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -44,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
+    restrict_schema_to_columns,
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import (
@@ -247,6 +247,16 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # activity. Match the stable code, distinct from genuine credential-rejection wordings
     # ("password authentication failed", "SASL authentication failed").
     "(eauthquery)",
+    # Supavisor caches the per-tenant database credentials it needs to authenticate and proxy
+    # connections; when it can't fetch them (e.g. its own metadata store is briefly unreachable) it
+    # retries internally and, after exhausting those attempts, trips an internal circuit breaker
+    # that rejects new connects outright rather than retrying forever: a bare OperationalError
+    # carrying "(ECIRCUITBREAKER) failed to retrieve database credentials after multiple attempts,
+    # new connections are temporarily blocked". Same class as EAUTHQUERY above — the pooler's own
+    # bookkeeping failing, not a rejection of the client's credentials — and the breaker resets once
+    # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the
+    # stable code, distinct from genuine credential-rejection wordings.
+    "(ecircuitbreaker)",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
     # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
@@ -257,6 +267,17 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # retry must catch it. Match the stable prefix + reason and leave pgcat's non-transient reasons
     # (e.g. BadConfig) to surface.
     "could not get connection from the pool - allserversdown",
+    # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
+    # ever begins and libpq has no server-reported error text to attach (see
+    # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other
+    # connect-time failure — which completes enough of the protocol to get an actual message, e.g.
+    # "FATAL: password authentication failed" — this one is a purely local failure before any bytes
+    # reach the network, typically the worker running out of a local resource needed to open a new
+    # socket (file descriptors, ephemeral ports). Transient: the condition clears once the worker's
+    # resource pressure eases, so a fresh connect attempt after backoff usually succeeds. The literal
+    # "no error details available" suffix is the signal — libpq only omits the message in this local,
+    # pre-handshake case, so it never matches a genuine (and permanent) server-reported rejection.
+    "connection is bad: no error details available",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -321,12 +342,16 @@ _CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
 # yields — psycopg maps it to InternalError, not OperationalError, so it must be
 # named explicitly or the type-based catch below would miss it. InternalError_ is the
 # generic XX000 class Supavisor's "DbHandler exited" pooler drop arrives as; it's only
-# treated as a drop when its message matches the narrow pooler signature above.
+# treated as a drop when its message matches the narrow pooler signature above. OSError
+# is not psycopg-specific — it's the bare exception the connect-path socket setup raises on
+# EMFILE/ENFILE (see `_is_too_many_open_files_error`) — but every site below narrows it with
+# a message/errno-based predicate before retrying, so an unrelated OSError still re-raises.
 _CONNECTION_DROPPED_ERROR_TYPES = (
     psycopg.errors.ProtocolViolation,
     psycopg.OperationalError,
     psycopg.errors.IdleInTransactionSessionTimeout,
     psycopg.errors.InternalError_,
+    OSError,
 )
 
 
@@ -387,6 +412,21 @@ def _is_connection_limit_error(error: BaseException) -> bool:
     return any(substring in message for substring in _CONNECTION_LIMIT_ERROR_SUBSTRINGS)
 
 
+def _is_too_many_open_files_error(error: BaseException) -> bool:
+    """True if the connect attempt failed because this worker process is out of file descriptors.
+
+    The tunnel/TLS socket setup on the connect path (`_tunnel_with_handshake_translation`,
+    psycopg's own socket creation before libpq takes over) raises a bare `OSError` — not a
+    psycopg exception — when `socket()` hits EMFILE (this process's fd table is full) or ENFILE
+    (the system-wide table is full). Same transient-capacity class as `_is_connection_limit_error`:
+    a descriptor frees the moment another connection/cursor/tunnel in this worker closes, so a
+    fresh connect after backoff usually succeeds. It's fd pressure on our own worker, never a
+    customer database or config problem, so it stays retryable and must never become a
+    `NonRetryableError`.
+    """
+    return isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE)
+
+
 # Connect-time "server not ready" refusals: PostgreSQL rejects a *new* connection with SQLSTATE
 # 57P03 (cannot_connect_now) while it is still coming up — a primary or standby booting ("the
 # database system is starting up"), a server replaying WAL after a crash ("the database system is
@@ -422,25 +462,28 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     """Transient connect-path failures the import/read reconnect recovers from in process.
 
     A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, a connect-time
-    connection-limit refusal (`_is_connection_limit_error`), or a connect-time "server not ready"
-    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`).
-    psycopg raises `ConnectionTimeout` ("connection timeout expired") only while *establishing* a
-    connection, never mid-query, so on the import/read path it's transient: the source was reachable
-    moments earlier in the same sync, and the reconnect just needs retrying. Connection-limit
-    refusals ("sorry, too many clients already", etc.) and server-still-starting-up refusals ("the
-    database system is not yet accepting connections", etc.) are likewise transient — a slot frees
-    the moment another connection closes, and the server begins accepting connections once
-    startup/recovery finishes. Used by the read/sync connect retry (`_connect_with_dropped_retry`)
-    and the `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit
-    refusals, server-startup refusals, and recovery conflicts too (via
-    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
-    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
-    and `get_non_retryable_errors`).
+    connection-limit refusal (`_is_connection_limit_error`), a connect-time "server not ready"
+    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`), or
+    this worker process running out of file descriptors while opening the socket
+    (`_is_too_many_open_files_error`). psycopg raises `ConnectionTimeout` ("connection timeout
+    expired") only while *establishing* a connection, never mid-query, so on the import/read path
+    it's transient: the source was reachable moments earlier in the same sync, and the reconnect
+    just needs retrying. Connection-limit refusals ("sorry, too many clients already", etc.) and
+    server-still-starting-up refusals ("the database system is not yet accepting connections", etc.)
+    are likewise transient — a slot frees the moment another connection closes, and the server
+    begins accepting connections once startup/recovery finishes. A file-descriptor exhaustion is the
+    same shape on our side of the wire: a descriptor frees the moment another connection/cursor in
+    this worker closes. Used by the read/sync connect retry (`_connect_with_dropped_retry`) and the
+    `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit refusals,
+    server-startup refusals, and recovery conflicts too (via `_is_dropped_or_connection_limit`) but
+    deliberately keeps failing fast on connect-time *timeouts*, where a timeout usually means an
+    unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
         or _is_server_starting_up_error(error)
+        or _is_too_many_open_files_error(error)
         or isinstance(error, psycopg.errors.ConnectionTimeout)
     )
 
@@ -626,6 +669,25 @@ def _raised_while_closing_generator(error: BaseException) -> bool:
     return False
 
 
+def _schema_discovery_timeout_error() -> QueryTimeoutException:
+    """Build the timeout error for the schema discovery catalog scan in `_schemas_from_conn`.
+
+    That function already raises `statement_timeout` to `METADATA_STATEMENT_TIMEOUT_MS` before this
+    query, so hitting it here means the catalog has enough tables/columns in scope that enumerating
+    them can't finish even under the generous timeout — a fixed cost of the schema's size, not
+    something a retry against the same schema fixes. Narrowing the source's `schema` field, or the
+    tables selected for sync, is the customer's lever. Distinct wording from
+    `_statement_timeout_as_non_retryable`'s incremental-field message, which doesn't apply here —
+    this query scans every table in scope, not one column.
+    """
+    return QueryTimeoutException(
+        "Timed out listing table columns while discovering the database schema. There are enough "
+        "tables in scope that PostHog could not enumerate their columns within the timeout. Narrow "
+        "the schema selected for this source, or reduce the number of tables synced, then re-enable "
+        "the sync."
+    )
+
+
 def _pk_uniqueness_probe_timeout_error() -> QueryTimeoutException:
     """Build the timeout error for the fallback `id` primary-key uniqueness probe.
 
@@ -709,79 +771,7 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
 
 
-def _is_ip_literal(host: str) -> bool:
-    try:
-        ipaddress.ip_address(host.strip("[]"))
-        return True
-    except ValueError:
-        return False
-
-
-def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> list[str] | None:
-    """Resolve `host` to its addresses under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
-
-    psycopg3 resolves hostnames in Python before libpq ever connects — `conninfo_attempts` calls
-    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved
-    address(es) to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so
-    a stalled or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as
-    long as the OS resolver takes. It never trips `connect_timeout`; the activity instead runs until
-    Temporal's `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a
-    misleading `CancelledError` and burning the whole activity's retry budget. Resolving here turns a
-    stalled resolver into a fast, retryable error instead.
-
-    Returns every resolved address, not just one: when a host resolves to more than one address (most
-    commonly a dual-stack host with both an AAAA and an A record), `Connection.connect` tries each
-    `hostaddr` attempt in turn and only fails once all of them do (see `conninfo_attempts` /
-    `Connection.connect`'s attempt loop) — a network that can't route one address family (e.g. no IPv6
-    egress) still connects via the other. Handing psycopg a single pre-resolved `hostaddr` would
-    collapse that to one attempt and turn an unreachable-address-family blip into a hard failure.
-
-    Returns None when there is nothing to bound — an empty host, a Unix-socket path, or a host that is
-    already an IP literal — and also on a genuine resolution failure, so psycopg connects (and
-    re-raises that failure) exactly as before and the existing "Name or service not known"
-    classification still applies. Only a resolver that exceeds `timeout` becomes an `OperationalError`;
-    its message deliberately avoids the non-retryable "could not translate host name" /
-    "Name or service not known" fragments because a stalled resolver is usually transient.
-    """
-    if not host or host.startswith("/") or _is_ip_literal(host):
-        return None
-
-    addrinfo: list[Any] = []
-    lookup_error: list[BaseException] = []
-
-    def _lookup() -> None:
-        try:
-            addrinfo.extend(socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP, type=socket.SOCK_STREAM))
-        except BaseException as e:  # noqa: BLE001 — surfaced to the caller below via lookup_error
-            lookup_error.append(e)
-
-    # Daemon thread so a stalled getaddrinfo can be abandoned without blocking worker shutdown or
-    # piling up non-daemon threads — the OS resolver bounds the orphaned lookup on its own.
-    thread = threading.Thread(target=_lookup, daemon=True)
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        raise psycopg.OperationalError(f"Timed out resolving database host name after {timeout}s")
-    # A genuine resolution failure falls through to None so psycopg connects and re-raises it,
-    # preserving the existing "Name or service not known" classification.
-    if lookup_error:
-        if isinstance(lookup_error[0], OSError):
-            return None
-        raise lookup_error[0]
-    if not addrinfo:
-        return None
-    # sockaddr[0] is the address string (getaddrinfo types it as str | int across the IPv4/IPv6
-    # tuple variants, so coerce to satisfy the str return type). Dedupe while preserving order —
-    # getaddrinfo can repeat an address across otherwise-distinct tuples (e.g. differing canonical
-    # names), and a duplicate `hostaddr` attempt would just fail the same way twice.
-    seen: set[str] = set()
-    addresses: list[str] = []
-    for info in addrinfo:
-        address = str(info[4][0])
-        if address not in seen:
-            seen.add(address)
-            addresses.append(address)
-    return addresses
+_resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
 
 
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
@@ -1400,39 +1390,49 @@ def _schemas_from_conn(
         )
         schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
 
-        cursor.execute(
-            f"""
-            SELECT * FROM (
-                SELECT
-                    table_schema,
-                    table_name,
-                    column_name,
-                    data_type,
-                    is_nullable,
-                    ordinal_position
-                FROM information_schema.columns
-                WHERE table_schema IN ({schema_placeholders})
-                UNION ALL
-                SELECT
-                    n.nspname AS table_schema,
-                    c.relname AS table_name,
-                    a.attname AS column_name,
-                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
-                    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
-                    a.attnum AS ordinal_position
-                FROM pg_class c
-                JOIN pg_namespace n ON c.relnamespace = n.oid
-                JOIN pg_attribute a ON a.attrelid = c.oid
-                WHERE c.relkind = 'm'
-                  AND n.nspname IN ({schema_placeholders})
-                  AND a.attnum > 0
-                  AND NOT a.attisdropped
-            ) t
-            ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
-            """,
-            schema_params,
-        )
-        result = cursor.fetchall()
+        try:
+            cursor.execute(
+                f"""
+                SELECT * FROM (
+                    SELECT
+                        table_schema,
+                        table_name,
+                        column_name,
+                        data_type,
+                        is_nullable,
+                        ordinal_position
+                    FROM information_schema.columns
+                    WHERE table_schema IN ({schema_placeholders})
+                    UNION ALL
+                    SELECT
+                        n.nspname AS table_schema,
+                        c.relname AS table_name,
+                        a.attname AS column_name,
+                        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+                        a.attnum AS ordinal_position
+                    FROM pg_class c
+                    JOIN pg_namespace n ON c.relnamespace = n.oid
+                    JOIN pg_attribute a ON a.attrelid = c.oid
+                    WHERE c.relkind = 'm'
+                      AND n.nspname IN ({schema_placeholders})
+                      AND a.attnum > 0
+                      AND NOT a.attisdropped
+                ) t
+                ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
+                """,
+                schema_params,
+            )
+            result = cursor.fetchall()
+        except psycopg.errors.QueryCanceled as e:
+            # QueryCanceled also covers a hot-standby recovery conflict mid-scan ("conflict with
+            # recovery"), which `get_schemas`'s outer `_retry_on_connection_dropped` already retries
+            # via `_is_recovery_conflict_error` — that one is transient and must keep propagating
+            # unconverted. Only a genuine statement_timeout means the catalog is too big to enumerate
+            # in time, where retrying re-runs the same futile scan against the same schema.
+            if "statement timeout" not in " ".join(str(arg) for arg in e.args).lower():
+                raise
+            raise _schema_discovery_timeout_error() from e
 
         columns_by_table: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         discovered_pairs_by_schema_and_table = {
@@ -1848,7 +1848,7 @@ class SafeTimetzLoader(TimetzLoader):
         return _load_time_clamping_hour_24(super().load, data)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class XminBounds:
     """Bounded xmin window captured once at sync start (see §2.2/§2.3 of the design).
 
@@ -1856,6 +1856,11 @@ class XminBounds:
     full 64-bit `pg_snapshot_xmin` we persist as the durable, wraparound-safe cursor; `num_wraparound`
     is its epoch (high 32 bits). `wraparound_or_range` selects the single-wrap `>= lower OR < upper`
     predicate instead of the steady-state `>= lower AND < upper`.
+
+    `full_scan` drops the window and reads every tuple. A backfill has to do that because tuple
+    `xmin` carries no epoch: on a cluster past its first wraparound the rows written in earlier
+    epochs keep 32-bit xids above the current epoch's remainder, so no `[0, ceiling)` window
+    reaches them.
     """
 
     lower: int
@@ -1863,6 +1868,7 @@ class XminBounds:
     ceiling_xid8: int
     num_wraparound: int
     wraparound_or_range: bool
+    full_scan: bool = False
 
 
 def _capture_xmin_ceiling(
@@ -1893,8 +1899,13 @@ def _capture_xmin_ceiling(
     ceiling_xid = ceiling_xid8 & 0xFFFFFFFF
     num_wraparound = ceiling_xid8 >> 32
 
-    # First run (no stored cursor): read everything `< ceiling` once. `lower = 0` is below
-    # FrozenTransactionId (2) so even frozen tuples are captured by the initial snapshot.
+    # First run (no stored cursor): read the whole table, with no xmin predicate. An
+    # `xmin < ceiling` window silently drops most of the table on a wrapped cluster, because
+    # `ceiling_xid` is only the low 32 bits of the ceiling while historical tuples keep raw xids
+    # above it (since PG 9.4 freezing sets HEAP_XMIN_FROZEN in the infomask and leaves `xmin`
+    # alone instead of rewriting it to FrozenTransactionId, so those xids stay large). The
+    # ceiling is still captured here and persisted after the run, so rows committed during the
+    # scan are re-read next run rather than skipped.
     if stored_last_value is None:
         return XminBounds(
             lower=0,
@@ -1902,6 +1913,7 @@ def _capture_xmin_ceiling(
             ceiling_xid8=ceiling_xid8,
             num_wraparound=num_wraparound,
             wraparound_or_range=False,
+            full_scan=True,
         )
 
     delta = num_wraparound - (stored_num_wraparound or 0)
@@ -1922,14 +1934,19 @@ def _capture_xmin_ceiling(
             num_wraparound=num_wraparound,
             wraparound_or_range=True,
         )
-    # delta >= 2 (or a negative epoch drift): too much churn to reconstruct safely — force a full
-    # re-read of everything `< ceiling`.
+    # delta >= 2 (or a negative epoch drift): too much churn to reconstruct safely, so re-read the
+    # whole table like a backfill does.
     logger.warning(
         f"xmin epoch advanced by {delta} since the last sync (stored={stored_num_wraparound}, "
         f"current={num_wraparound}); forcing a full re-read."
     )
     return XminBounds(
-        lower=0, upper=ceiling_xid, ceiling_xid8=ceiling_xid8, num_wraparound=num_wraparound, wraparound_or_range=False
+        lower=0,
+        upper=ceiling_xid,
+        ceiling_xid8=ceiling_xid8,
+        num_wraparound=num_wraparound,
+        wraparound_or_range=False,
+        full_scan=True,
     )
 
 
@@ -1992,7 +2009,10 @@ def _build_query(
     if incremental_field_type == IncrementalFieldType.XID:
         raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
 
-    if db_incremental_field_last_value is None:
+    # A stored watermark of "" (e.g. a stale/corrupted sync_type_config value) must not become a
+    # literal `''` in the WHERE clause — Postgres rejects casting it against a numeric/date/etc.
+    # column with "invalid input syntax", so treat it the same as no watermark at all.
+    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     # Use the type-aware operator (`>=` for Date) only for single-shot scans. Windowed
@@ -2054,6 +2074,9 @@ def _build_query(
 
 def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
     """Bounded predicate over the cast `xmin` (no ordering operators exist on raw `xid`)."""
+    if bounds.full_scan:
+        # No window is safe across wraparound epochs (see `_capture_xmin_ceiling`), so read it all.
+        return sql.SQL("TRUE").format()
     xmin_expr = sql.SQL("xmin::text::bigint")
     if bounds.wraparound_or_range:
         return sql.SQL("({xmin} >= {lo} OR {xmin} < {hi})").format(
@@ -2119,7 +2142,7 @@ def _build_count_query(
     if incremental_field_type == IncrementalFieldType.XID:
         raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
 
-    if db_incremental_field_last_value is None:
+    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
@@ -2642,12 +2665,17 @@ def _get_table(
     # statement with QueryCanceled mid-discovery. Session, not LOCAL: the connection is autocommit,
     # so a LOCAL timeout has nothing to bind to and a scoping transaction's own `BEGIN` would itself
     # run under the short default. Best-effort: engines without statement_timeout (e.g. DuckDB)
-    # reject the SET, so clear any aborted transaction and fall back to the default.
+    # reject the SET, so clear any aborted transaction and fall back to the default. A genuine
+    # connection drop/limit (mirrors `_schemas_from_conn`) fails this statement too, and rolling
+    # that back raises a misleading "the connection is lost" that buries the real cause — re-raise
+    # instead so the discovery retry recovers on a fresh connection.
     try:
         cursor.execute(
             sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
         )
-    except psycopg.Error:
+    except psycopg.Error as e:
+        if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+            raise
         cursor.connection.rollback()
 
     is_mat_view_query = sql.SQL(
@@ -3446,7 +3474,10 @@ def postgres_source(
 
                             offset += len(rows)
 
-                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            yield table_from_iterator(
+                                (dict(zip(column_names, row)) for row in rows),
+                                restrict_schema_to_columns(arrow_schema, column_names),
+                            )
 
                             successive_errors = 0
                             successive_conn_errors = 0
@@ -3645,6 +3676,7 @@ def postgres_source(
                             cursor.execute(query)
 
                             column_names = [column.name for column in cursor.description or []]
+                            read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
                             while True:
                                 rows = cursor.fetchmany(chunk_size)
@@ -3653,7 +3685,7 @@ def postgres_source(
 
                                 dicts = [dict(zip(column_names, row)) for row in rows]
                                 del rows
-                                yield table_from_iterator(iter(dicts), arrow_schema)
+                                yield table_from_iterator(iter(dicts), read_schema)
                                 offset += len(dicts)
                     return
                 except psycopg.errors.SerializationFailure as e:

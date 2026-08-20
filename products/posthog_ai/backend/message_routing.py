@@ -40,7 +40,7 @@ from products.tasks.backend.facade import (
     warm as warm_facade,
 )
 from products.tasks.backend.facade.run_config import INITIAL_PERMISSION_MODE_CHOICES, InitialPermissionMode
-from products.tasks.backend.facade.temporal import execute_task_processing_workflow, signal_task_followup_message
+from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow, signal_task_followup_message
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -333,7 +333,7 @@ class SandboxSession(BaseSandboxService):
         # rather than a follow-up onto a run that never started; on a conversion, also revert the
         # runtime flip so the user is left on a clean idle LangGraph conversation.
         try:
-            execute_task_processing_workflow(
+            dispatch_task_processing_workflow(
                 task_id=str(created.task_id),
                 run_id=str(run_dto.id),
                 team_id=self.team.id,
@@ -387,10 +387,6 @@ class SandboxSession(BaseSandboxService):
                 error=str(e),
             )
             raise Conflict("The sandbox run is no longer accepting messages. Please try again.") from e
-
-        # Attribution stamp for the sandbox usage ledger: starts the user-attributable
-        # window on a claimed warm Run and records last-activity on every follow-up.
-        tasks_facade.record_task_run_user_activity(run.id, run.team_id)
 
         # The Run has received its first human message, so it is no longer speculative — drop the
         # warm flag so the warm-pool cap stops counting it (it's now an active Run governed by AI
@@ -466,16 +462,13 @@ class SandboxSession(BaseSandboxService):
                 "initial_permission_mode": initial_permission_mode,
                 "inactivity_timeout_seconds": SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
             }
-            # Carry the prior Run's snapshot forward so the resume reuses its filesystem.
-            snapshot_external_id = (run.state or {}).get("snapshot_external_id")
-            if snapshot_external_id:
-                extra_state["snapshot_external_id"] = snapshot_external_id
+            extra_state.update(tasks_facade.get_resume_snapshot_carry_state(run.state))
 
             new_run = task.create_run(mode="interactive", extra_state=extra_state)
 
         # Same write scopes as the first message — the resumed agent keeps creating
         # insights/dashboards/notebooks on follow-up turns.
-        execute_task_processing_workflow(
+        dispatch_task_processing_workflow(
             task_id=str(task.id),
             run_id=str(new_run.id),
             team_id=self.team.id,

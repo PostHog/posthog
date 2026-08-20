@@ -117,10 +117,12 @@ jobs:
             - name: Check if ANTLR definitions are up to date
               run: |
                   cd ..
-                  sudo apt-get update && sudo apt-get install default-jre
                   mkdir antlr
                   cd antlr
-                  curl --fail --location https://www.antlr.org/download/antlr-${ANTLR_VERSION}-complete.jar --output antlr.jar || curl --fail --location https://repo.maven.apache.org/maven2/org/antlr/antlr4/${ANTLR_VERSION}/antlr4-${ANTLR_VERSION}-complete.jar --output antlr.jar
+                  # Short budget: the `||` mirror is the real fallback for a host that is down.
+                  fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
+                  "${fetch[@]}" https://www.antlr.org/download/antlr-${ANTLR_VERSION}-complete.jar --output antlr.jar \
+                      || "${fetch[@]}" https://repo.maven.apache.org/maven2/org/antlr/antlr4/${ANTLR_VERSION}/antlr4-${ANTLR_VERSION}-complete.jar --output antlr.jar
                   export PWD=`pwd`
                   echo '#!/bin/bash' > antlr
                   echo "java -jar $PWD/antlr.jar \$*" >> antlr

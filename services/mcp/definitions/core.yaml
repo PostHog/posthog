@@ -43,6 +43,9 @@ tools:
     cimd-verification-tokens-list:
         operation: cimd_verification_tokens_list
         enabled: false
+    cimd-verification-tokens-partial-update:
+        operation: cimd_verification_tokens_partial_update
+        enabled: false
     cimd-verification-tokens-retrieve:
         operation: cimd_verification_tokens_retrieve
         enabled: false
@@ -384,6 +387,9 @@ tools:
     reset-token-partial-update:
         operation: organizations_projects_reset_token_partial_update
         enabled: false
+    revoke-leaked-key-create:
+        operation: revoke_leaked_key_create
+        enabled: false
     rotate-secret-token-partial-update:
         operation: organizations_projects_rotate_secret_token_partial_update
         enabled: false
@@ -517,6 +523,9 @@ tools:
         enabled: false
     users-integrations-github-destroy:
         operation: users_integrations_github_destroy
+        enabled: false
+    users-integrations-github-install-requests-retrieve:
+        operation: users_integrations_github_install_requests_retrieve
         enabled: false
     users-integrations-github-prepare-callback-create:
         operation: users_integrations_github_prepare_callback_create

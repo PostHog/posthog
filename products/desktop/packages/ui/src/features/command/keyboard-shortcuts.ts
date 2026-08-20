@@ -13,6 +13,7 @@ export const SHORTCUTS = {
   GO_BACK_ALT: "mod+left",
   GO_FORWARD_ALT: "mod+right",
   TOGGLE_LEFT_SIDEBAR: "mod+b",
+  TOGGLE_ACTIVITY_PANEL: "mod+alt+b",
   TOGGLE_REVIEW_PANEL: "mod+shift+b",
   PREV_TASK: "mod+shift+[,ctrl+shift+tab",
   NEXT_TASK: "mod+shift+],ctrl+tab",
@@ -21,10 +22,11 @@ export const SHORTCUTS = {
   SWITCH_TAB: "ctrl+1,ctrl+2,ctrl+3,ctrl+4,ctrl+5,ctrl+6,ctrl+7,ctrl+8,ctrl+9",
   SWITCH_TASK: "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
   // No mod+0: the Electron View menu owns CmdOrCtrl+0 for "Actual Size", and a
-  // renderer preventDefault can't reliably beat a main-process accelerator. #me
-  // takes slot 1 instead.
+  // renderer preventDefault can't reliably beat a main-process accelerator. The
+  // personal space takes slot 1 instead.
   SWITCH_STARRED_CHANNEL:
     "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
+  FOCUS_SPACE_SEARCH: "mod+shift+s",
   TOGGLE_FOCUS: "mod+r",
   PASTE_AS_FILE: "mod+shift+v",
   INBOX: "mod+i",
@@ -139,7 +141,15 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
   {
     id: "switch-starred-channel",
     keys: "mod+1-9",
-    description: "Switch to space (⌘1 = #me, ⌘2-9 = starred)",
+    description: "Switch to space (⌘1 = personal, ⌘2-9 = starred)",
+    category: "navigation",
+    context: "Spaces",
+    availability: "channels-layout",
+  },
+  {
+    id: "focus-space-search",
+    keys: SHORTCUTS.FOCUS_SPACE_SEARCH,
+    description: "Search spaces",
     category: "navigation",
     context: "Spaces",
     availability: "channels-layout",
@@ -196,6 +206,14 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     keys: SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
     description: "Toggle left sidebar",
     category: "navigation",
+  },
+  {
+    id: "toggle-activity-panel",
+    keys: SHORTCUTS.TOGGLE_ACTIVITY_PANEL,
+    description: "Toggle activity panel",
+    category: "panels",
+    context: "Spaces",
+    availability: "channels-layout",
   },
   {
     id: "toggle-review-panel",
@@ -342,6 +360,7 @@ function formatKey(key: string): string {
   if (k === "=") return "+";
   if (k === "-") return "-";
   if (k === "tab") return "Tab";
+  if (k === "space") return "Space";
   return k.toUpperCase();
 }
 

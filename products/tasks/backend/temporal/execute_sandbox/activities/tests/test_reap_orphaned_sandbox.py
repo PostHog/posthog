@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 from asgiref.sync import async_to_sync
 
@@ -80,6 +80,35 @@ class TestReapOrphanedSandbox:
         # State key is cleared; other keys preserved.
         assert SANDBOX_ID_STATE_KEY not in test_task_run.state
         assert test_task_run.state == {"mode": "background"}
+
+    def test_records_cpu_usage_before_destroy(self, activity_environment, test_task_run):
+        test_task_run.state = {SANDBOX_ID_STATE_KEY: "sb-orphan"}
+        test_task_run.save(update_fields=["state"])
+
+        with (
+            patch(SANDBOX_IMPORT_PATH) as sandbox_cls,
+            patch(
+                "products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox.close_sandbox_session"
+            ) as close_session,
+        ):
+            sandbox = sandbox_cls.get_by_id.return_value
+            sandbox.read_cpu_usage_usec.return_value = 12_345_678
+            sandbox.read_billed_cpu_usage_usec.return_value = 15_000_000
+
+            async_to_sync(activity_environment.run)(
+                reap_orphaned_sandbox,
+                ReapOrphanedSandboxInput(run_id=str(test_task_run.id)),
+            )
+
+        sandbox.read_cpu_usage_usec.assert_called_once_with()
+        sandbox.destroy.assert_called_once_with()
+        close_session.assert_called_once_with(
+            "sb-orphan",
+            reason="reaped",
+            cpu_usage_usec=12_345_678,
+            billed_cpu_usage_usec=15_000_000,
+            cpu_usage_measured_at=ANY,
+        )
 
     def test_clears_state_even_when_modal_destroy_fails(self, activity_environment, test_task_run):
         # If Modal destroy raises (sandbox already gone, transient API failure)

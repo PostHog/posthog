@@ -10,6 +10,8 @@
 
 ## Changes
 
+<!-- For each change a person can notice, say what they will now see or do differently, not only the code path that does it. Mark the rest as mechanical so a reviewer knows nothing user-visible is hiding in it. -->
+
 <!-- If there are frontend changes, please include screenshots. -->
 <!-- PostHog employees: `hogli pr:upload-image <file>` uploads to the public PostHog/pr-assets repo and prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
 
@@ -45,6 +47,7 @@
 
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
+     - Public artifact: nothing in this PR — code, fixtures and sample data, comments, commit messages, or this description — carries material from the agent session that isn't already public. If the work drew on a customer conversation, ticket, or log, say so here and state that the committed data is invented. Renaming people, hosts, and identifiers does not clear real material; see AGENTS.md "Public open source repo guidance".
 -->
 
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
@@ -55,7 +58,7 @@
      Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
      This is the ONLY section that should contain descriptions of what this PR might have looked like before its present final state.
      Don't duplicate info already present in preceding sections.
-     DO NOT INCLUDE sensitive data that may have been shared in an agent session.
+     DO NOT INCLUDE sensitive data that may have been shared in an agent session — that applies to every part of this PR, not just this section.
 -->
 
 <!-- Overall PR authoring rules for agents:
@@ -63,9 +66,12 @@
   ✅ feat(insights): add retention graph export
   ❌ feat: Added retention export.   (capitalized, period, no scope)
 - Description: high-level rationale, not a step-by-step replay.
+- Voice: the subject of every sentence is the change, never its author. No "I", "me" or "my" anywhere in the body. "I (actually Claude)" is worse than either half: it hands the assignee an account of work they did not do. Authorship is one stated fact in the Agent context section below.
 - Body: pass it straight to the creation tool's `body` arg (GitHub MCP `create_pull_request` body, or `gh pr create --body-file -` via stdin) — don't write it to a temp file first; the arg preserves markdown and newlines verbatim.
+- Flow and topology changes: include separate before-and-after Mermaid `flowchart` blocks with PostHog colors. This includes CI wiring, pipelines, state machines, and request paths. Use `/writing-pr-descriptions` for the palette and role mapping.
 - Public OSS repo: no internal customers, incidents, or operational metrics.
 - Stack instead of stuffing: if the diff holds two or more separable steps (migration then behavior, rename then rewrite), open a stack rather than one big PR. See AGENTS.md, "Stacked PRs" and /stacking-prs.
+- Simplify before opening: if your agent has a behavior-preserving cleanup pass (Claude Code: `/simplify`), run it on a non-trivial diff before final tests and preflight, since it edits the tree. Skip it for small mechanical changes.
 - Draft by default: open new PRs as drafts (`gh pr create --draft`) — drafts run only a narrow CI subset and save runner credits. Fix CI and run affected tests locally before marking ready for review.
 - Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
 - When a human directed the work, the PR must be attributable to that person, even if agent-assisted.

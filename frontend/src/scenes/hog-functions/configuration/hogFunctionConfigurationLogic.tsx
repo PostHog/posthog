@@ -24,6 +24,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import {
     CyclotronJobInputsValidation,
     CyclotronJobInputsValidationResult,
@@ -1005,7 +1006,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         return null
                     }
 
-                    return await api.hogFunctions.get(props.id)
+                    try {
+                        return await api.hogFunctions.get(props.id)
+                    } catch (e) {
+                        // A missing id, or one from another project reached via a cross-project deep
+                        // link, 404s here. Fall back to null so the scene renders its not-found state
+                        // instead of filing the rejection in error tracking.
+                        if (e instanceof ApiError && e.status === 404) {
+                            return null
+                        }
+                        throw e
+                    }
                 },
 
                 upsertHogFunction: async ({ configuration }) => {
@@ -2058,7 +2069,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 actions.setConfigurationValues({
                     ...config,
                     enabled: values.configuration.enabled,
-                    filters: config.filters ?? values.configuration.filters,
+                    filters: values.configuration.filters ?? config.filters,
                     // NOTE: Technically mapping should also be sanitized against the template mappings but this is a bit of a pain
                     mappings: values.configuration.mappings?.length ? values.configuration.mappings : config.mappings,
                     // Keep some existing things when manually resetting the template

@@ -2,6 +2,7 @@ import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 
@@ -24,8 +25,8 @@ import {
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
-import type { BillingPeriodMarker } from './BillingLineGraph'
 import { billingLogic } from './billingLogic'
+import type { BillingPeriodMarker } from './BillingPeriodMarkers'
 import type { BillingFilters } from './types'
 import type { BillingUsageInteractionProps } from './types'
 
@@ -54,6 +55,35 @@ export interface BillingUsageResponse {
     next?: string
 }
 
+const DESKTOP_USAGE_SERIES_CONVERSIONS: Record<string, { divisor: number; label: string }> = {
+    posthog_code_token_credits_used_in_period: { divisor: 100, label: 'PostHog Desktop token spend (USD)' },
+    sandbox_compute_credits_used_in_period: { divisor: 100, label: 'Cloud compute spend (USD)' },
+    sandbox_compute_cpu_millicore_seconds_in_period: {
+        divisor: 1_000,
+        label: 'Cloud compute CPU (core-seconds)',
+    },
+    sandbox_compute_memory_mib_seconds_in_period: {
+        divisor: 1_024,
+        label: 'Cloud compute memory (GiB-seconds)',
+    },
+}
+
+export const convertDesktopUsageSeries = (
+    series: BillingUsageResponse['results'][number]
+): BillingUsageResponse['results'][number] => {
+    const usageType = Array.isArray(series.breakdown_value) ? series.breakdown_value[0] : series.breakdown_value
+    const conversion = usageType ? DESKTOP_USAGE_SERIES_CONVERSIONS[usageType] : undefined
+    const labelSeparatorIndex = series.label.lastIndexOf('::')
+    const labelPrefix = labelSeparatorIndex === -1 ? '' : series.label.slice(0, labelSeparatorIndex + 2)
+    return conversion
+        ? {
+              ...series,
+              label: `${labelPrefix}${conversion.label}`,
+              data: series.data.map((value) => value / conversion.divisor),
+          }
+        : series
+}
+
 export const DEFAULT_BILLING_USAGE_FILTERS: BillingFilters = {
     breakdowns: ['type'],
     usage_types: [],
@@ -76,7 +106,7 @@ export interface BillingUsageLogicProps {
 export interface billingUsageLogicValues {
     billing: BillingType | null // billingLogic
     billingPeriodUTC: BillingPeriod // billingLogic
-    canAccessBilling: boolean // billingLogic
+    canViewUsageAndSpend: boolean // billingLogic
     currentOrganization: OrganizationType | null // billingLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
@@ -248,7 +278,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'billingPeriodUTC', 'canAccessBilling', 'currentOrganization'],
+            ['billing', 'billingPeriodUTC', 'canViewUsageAndSpend', 'currentOrganization'],
             preflightLogic,
             ['isHobby'],
         ],
@@ -275,7 +305,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    if (!values.canAccessBilling || values.isHobby) {
+                    if (!values.canViewUsageAndSpend || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters
@@ -387,7 +417,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     return []
                 }
 
-                return response.results
+                return response.results.map(convertDesktopUsageSeries)
             },
         ],
         dates: [
@@ -622,6 +652,18 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             await breakpoint(200)
             actions.reportBillingUsageInteraction(buildTrackingProperties('breakdown_toggled', values))
             actions.loadBillingUsage()
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
+        canViewUsageAndSpend: (canViewUsageAndSpend: boolean, previousCanViewUsageAndSpend: boolean | undefined) => {
+            if (canViewUsageAndSpend && previousCanViewUsageAndSpend === false && !values.isHobby) {
+                actions.loadBillingUsage()
+            }
+        },
+        isHobby: (isHobby: boolean, previousIsHobby: boolean | undefined) => {
+            if (!isHobby && previousIsHobby === true && values.canViewUsageAndSpend) {
+                actions.loadBillingUsage()
+            }
         },
     })),
     afterMount(({ actions }: billingUsageLogicType) => {

@@ -1,10 +1,19 @@
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    NewEventsSchemaSnapshotExtension,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 
 from django.conf import settings
 from django.test import override_settings
+
+from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, InlineCohortCalculation
 
@@ -34,7 +43,7 @@ class EventsSchemaSnapshotMixin:
             snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
             self._new_events_schema_snapshot_index = snapshot_index + 1
             snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
-            return self.snapshot(name=snapshot_name)
+            return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
         return self.snapshot
 
     def _assert_response_matches_snapshot(self, response) -> None:
@@ -243,6 +252,34 @@ class TestInCohort(EventsSchemaSnapshotMixin, BaseTest):
                 pretty=False,
             )
         self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
+
+    @parameterized.expand([(InCohortVia.LEFTJOIN,), (InCohortVia.LEFTJOIN_CONJOINED,)])
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_static_cohort_duplicate_membership_rows_do_not_fan_out(self, in_cohort_via: InCohortVia):
+        # person_static_cohort keeps a per-row UUID in its sort key, so ReplacingMergeTree never
+        # collapses repeated inserts of the same member. Without dedup in the join, each duplicate
+        # row multiplies the matched events.
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        person = _create_person(
+            properties={"$os": "Chrome"},
+            team=self.team,
+            distinct_ids=["person1"],
+            is_identified=True,
+        )
+        _create_event(distinct_id="person1", event=random_uuid, team=self.team)
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+        for _ in range(3):
+            insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.pk)
+
+        response = execute_hogql_query(
+            f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'",
+            self.team,
+            modifiers=HogQLQueryModifiers(inCohortVia=in_cohort_via),
+            pretty=False,
+        )
+        assert len(response.results or []) == 1
 
 
 class TestInlineCohortLeftjoin(EventsSchemaSnapshotMixin, QueryMatchingTest, BaseTest):

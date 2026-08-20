@@ -25,6 +25,18 @@ class TestLangfuseSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.LANGFUSE
 
+    def test_v1_is_deprecated_advisory_and_default_is_v2(self):
+        # New sources start on v2; v1 stays supported so already-pinned rows keep resolving to the
+        # unchanged wire. Langfuse announced no sunset date, so the deprecation is advisory
+        # (sunset_at is None) — the generic in-product warning fires but no repin migration ships.
+        assert self.source.default_version == "v2"
+        assert set(self.source.supported_versions) == {"v1", "v2"}
+
+        deprecation = self.source.get_version_deprecation("v1")
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert self.source.get_version_deprecation("v2") is None
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 
@@ -58,6 +70,25 @@ class TestLangfuseSource:
     )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "expected_pattern", ["Langfuse API error (retryable)", "Read timed out", "Max retries exceeded with url"]
+    )
+    def test_retryable_errors(self, expected_pattern):
+        assert expected_pattern in self.source.get_retryable_errors()
+
+    def test_exhausted_connection_pool_error_is_classified_retryable(self):
+        # Matches the message urllib3 raises once `get_rows`'s tenacity retry (which covers read
+        # timeouts and connection failures, not just 429/422/5xx) exhausts its budget — keeps this
+        # transient, self-recovering failure out of error tracking instead of reaching
+        # `logger.aexception`.
+        observed_error = (
+            "HTTPSConnectionPool(host='us.cloud.langfuse.com', port=443): Max retries exceeded with "
+            "url: /api/public/traces?limit=50&orderBy=timestamp.asc&page=5339 (Caused by "
+            "ReadTimeoutError(\"HTTPSConnectionPool(host='us.cloud.langfuse.com', port=443): "
+            'Read timed out. (read timeout=60)"))'
+        )
+        assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

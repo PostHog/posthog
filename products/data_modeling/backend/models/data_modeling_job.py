@@ -9,6 +9,7 @@ class DataModelingJobStatus(models.TextChoices):
     COMPLETED = "Completed", "Completed"
     FAILED = "Failed", "Failed"
     RUNNING = "Running", "Running"
+    SKIPPED = "Skipped", "Skipped"
 
 
 class DataModelingJobEngine(models.TextChoices):
@@ -16,14 +17,22 @@ class DataModelingJobEngine(models.TextChoices):
     DUCKGRES = "duckgres", "Duckgres"
 
 
+class DataModelingJobRunMode(models.TextChoices):
+    FULL_REFRESH = "full_refresh", "Full refresh"
+    INCREMENTAL = "incremental", "Incremental"
+
+
 class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     Status = DataModelingJobStatus
     Engine = DataModelingJobEngine
+    RunMode = DataModelingJobRunMode
 
     team = models.ForeignKey("posthog.Team", on_delete=models.SET_NULL, null=True)
     saved_query = models.ForeignKey("data_modeling.DataWarehouseSavedQuery", on_delete=models.SET_NULL, null=True)
     status = models.CharField(max_length=400, choices=Status, default=Status.RUNNING)
     engine = models.CharField(max_length=20, choices=Engine, default=Engine.CLICKHOUSE)
+    # Null: recorded before run modes existed, or the run failed before the write plan resolved.
+    run_mode = models.CharField(max_length=20, choices=RunMode, null=True, blank=True)
     rows_materialized = models.IntegerField(default=0)
     error = models.TextField(null=True, blank=True)
     workflow_id = models.CharField(max_length=400, null=True, blank=True)

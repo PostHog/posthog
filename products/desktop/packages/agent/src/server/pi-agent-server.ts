@@ -24,6 +24,7 @@ import {
   createRuntimeMcpServers,
   createRuntimeMcpStdioServers,
   type PiRpcClient,
+  type PiRuntimeExtension,
 } from "../pi/rpc-client";
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
@@ -518,6 +519,7 @@ export class PiAgentServer {
         taskId: this.config.taskId,
         taskRunId: this.config.runId,
         baseBranch: this.config.baseBranch,
+        peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
       },
     );
     const mcpConfiguration = await this.posthogAPI.getMcpRuntimeConfiguration(
@@ -528,11 +530,23 @@ export class PiAgentServer {
       ...createRuntimeMcpStdioServers(localTools ? [localTools] : []),
     };
 
+    const extensions: PiRuntimeExtension[] = [];
+    if (!this.config.repositoryPath) {
+      extensions.push("repository-tools");
+    }
+    if (this.config.autoPublish === true && this.config.createPr !== false) {
+      extensions.push("auto-publish");
+    }
     const client = createPiRpcClient({
       cliPath: this.config.piRpcHostPath,
       cwd,
       model: this.config.model,
       sessionFile: restoredSessionFile,
+      enrichment: {
+        apiUrl: this.config.apiUrl,
+        projectId: this.config.projectId,
+        apiKey: this.config.apiKey,
+      },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
       providerOptions: {
@@ -542,7 +556,7 @@ export class PiAgentServer {
           this.config.apiUrl,
         ),
       },
-      channelMode: !this.config.repositoryPath,
+      extensions,
     });
     const runtime = new PiRuntime(client);
     const unsubscribeConversation = runtime.onConversationEvent((event) =>
@@ -704,13 +718,14 @@ export class PiAgentServer {
       typeof params.content === "string" ? params.content : "",
       artifacts,
     );
-    return this.dispatchUserMessage(
+    const result = await this.dispatchUserMessage(
       runtime,
       message.content,
       message.images,
       typeof params.messageId === "string" ? params.messageId : randomUUID(),
       params.steer === true,
     );
+    return result;
   }
 
   private async prepareUserMessage(
@@ -775,29 +790,22 @@ export class PiAgentServer {
     id: string,
     steer: boolean,
   ): Promise<unknown> {
+    const send = (type: "prompt" | "follow_up") =>
+      runtime.sendCommand({ id, type, message: content, images });
     const state = await runtime.client.getState();
-    if (state.isStreaming && steer) {
-      return runtime.sendCommand({
-        id,
-        type: "steer",
-        message: content,
-        images,
-      });
+    if (!state.isStreaming) {
+      return send("prompt");
     }
-    if (state.isStreaming) {
-      return runtime.sendCommand({
-        id,
-        type: "follow_up",
-        message: content,
-        images,
-      });
+    if (!steer) {
+      return send("follow_up");
     }
-    return runtime.sendCommand({
-      id,
-      type: "prompt",
-      message: content,
-      images,
-    });
+    await runtime.client.abort();
+    const prompted = await send("prompt");
+    if (prompted.success) {
+      return prompted;
+    }
+    const afterPrompt = await runtime.client.getState();
+    return afterPrompt.isStreaming ? send("follow_up") : prompted;
   }
 
   private installSseController(sseController: SseController | null): void {

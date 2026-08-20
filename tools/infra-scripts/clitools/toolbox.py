@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Import functions from the modular package
 from toolbox.kubernetes import ensure_context_access, select_context, validate_context
 from toolbox.pod import ClaimRaceError, claim_pod, connect_to_pod, delete_pod, get_toolbox_pod
+from toolbox.tailscale import ensure_tailscale_connected
 from toolbox.telemetry import capture_invocation, prompt_for_reason
 from toolbox.user import get_current_user
 
@@ -94,6 +95,10 @@ def main():
             help="Skip the [y/N] prompt on exit and unconditionally delete the claimed pod on normal exit, Ctrl-C, or terminal close.",
         )
         args = parser.parse_args()
+
+        # The cluster endpoints are only reachable over the tailnet; without this
+        # check a disconnected Tailscale surfaces as opaque kubectl timeouts.
+        ensure_tailscale_connected()
 
         # Ask up front (before the kubectl waits) what this session is for; skipped
         # automatically on non-interactive stdin so automation never blocks.

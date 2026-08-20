@@ -10,13 +10,13 @@ import type {
   ReadResourceResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import { applyCspToHtml } from "@posthog/core/mcp-apps/csp";
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import type { EdgeInsets } from "react-native-safe-area-context";
 import type WebView from "react-native-webview";
 import { logger } from "@/lib/logger";
 import type { ThemeColors } from "@/lib/theme";
-import { applyCspToHtml } from "./mcpAppCsp";
 import { buildMcpHostStyles } from "./mcpAppTheme";
 import { WebViewTransport } from "./webViewTransport";
 

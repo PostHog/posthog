@@ -628,6 +628,26 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None:
+    """The organizations a scoped token is confined to, or None when the credential carries no
+    organization restriction (session auth, or a token scoped to every organization).
+
+    The organization-level counterpart of `get_authenticator_scoped_team_ids`. Both exist so that a
+    check outside `TeamAndOrgViewSetMixin` reads a credential's reach from one place.
+    """
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return list(authenticator.personal_api_key.scoped_organizations or []) or None
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return list(authenticator.access_token.scoped_organizations or []) or None
+    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+        # An ID-JAG access token is bound to the one PostHog organization whose OrganizationDomain
+        # pinned the trusted IdP, carried in the `org_id` claim. Confining it to that organization
+        # keeps it away from the other organizations the resolved user happens to belong to
+        # (cross-org confused-deputy defense).
+        return [authenticator.organization_id]
+    return None
+
+
 def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     """The teams a scoped token is confined to, or None when the credential carries no team
     restriction (session auth, or a token scoped to every team in the organization).
@@ -759,22 +779,15 @@ class APIScopePermission(ScopeBasePermission):
 
         self._check_organization_personal_api_key_restrictions(request, view)
 
-        if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
-            scoped_organizations = request.successful_authenticator.access_token.scoped_organizations
-            scoped_teams = request.successful_authenticator.access_token.scoped_teams
-        elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
-            scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
-        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
-            # ID-JAG access tokens are bound to the specific PostHog Organization
-            # whose OrganizationDomain pinned the trusted IdP — carried in the
-            # `org_id` claim. Pin `scoped_organizations` to that single org so
-            # the token cannot reach other orgs the resolved user happens to
-            # be a member of (cross-org confused-deputy defense).
-            scoped_organizations = [request.successful_authenticator.organization_id]
-            scoped_teams = None
-        else:
+        authenticator = request.successful_authenticator
+        if not isinstance(
+            authenticator,
+            OAuthAccessTokenAuthentication | PersonalAPIKeyAuthentication | IDJagAccessTokenAuthentication,
+        ):
             raise ValueError("Unexpected authentication type")
+
+        scoped_organizations = get_authenticator_scoped_organization_ids(authenticator)
+        scoped_teams = get_authenticator_scoped_team_ids(authenticator)
 
         if scoped_teams and not skip_team_and_org:
             # Views that aren't project-nested but still need to accept
@@ -971,13 +984,13 @@ _raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
 _FORCE_ENABLED_FLAGS: frozenset[str] = frozenset(f.strip() for f in _raw.split(",") if f.strip())
 
 
-def posthog_feature_flag_enabled(
+def posthog_feature_flag_value(
     flag: str,
     distinct_id: str,
     *,
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
-) -> bool:
+) -> bool | None:
     """Server-side check of a PostHog-internal gating flag with org/project group context.
 
     Matches in-app flag evaluation: posthog-js often has project (team) context; server-only org
@@ -996,14 +1009,29 @@ def posthog_feature_flag_enabled(
         groups["project"] = project_id
         group_properties["project"] = {"id": project_id}
 
+    return posthoganalytics.feature_enabled(
+        flag,
+        distinct_id,
+        groups=groups,
+        group_properties=group_properties,
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+def posthog_feature_flag_enabled(
+    flag: str,
+    distinct_id: str,
+    *,
+    organization_id: str | uuid.UUID,
+    team_id: int | None = None,
+) -> bool:
     return bool(
-        posthoganalytics.feature_enabled(
+        posthog_feature_flag_value(
             flag,
             distinct_id,
-            groups=groups,
-            group_properties=group_properties,
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
+            organization_id=organization_id,
+            team_id=team_id,
         )
     )
 

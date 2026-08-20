@@ -256,6 +256,31 @@ describe("McpProxyService", () => {
       expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(2);
     });
 
+    it("passes an installation credential failure through without refreshing", async () => {
+      // The failing credential belongs to the connected vendor, not to PostHog, so a
+      // PostHog token refresh cannot fix it and the retry only hides the real error.
+      authServiceMock.authenticatedFetch.mockResolvedValue(
+        new Response(JSON.stringify({ error: "Authentication failed" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+      await service.start();
+      const proxyUrl = service.register(
+        "installation-abc",
+        "https://app.posthog.com/api/environments/1/mcp_server_installations/abc/proxy/",
+        { credentialOwner: "installation" },
+      );
+
+      const res = await fetch(proxyUrl, { method: "POST", body: "payload" });
+
+      expect(res.status).toBe(401);
+      expect(await res.text()).toBe('{"error":"Authentication failed"}');
+      expect(authServiceMock.refreshAccessToken).not.toHaveBeenCalled();
+      expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(1);
+    });
+
     it("does not retry when the body looks healthy", async () => {
       authServiceMock.authenticatedFetch.mockResolvedValue(
         new Response('{"ok":true}', {

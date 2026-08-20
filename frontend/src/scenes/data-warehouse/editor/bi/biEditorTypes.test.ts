@@ -3,13 +3,16 @@ import { ChartDisplayType } from '~/types'
 
 import {
     BIConfig,
+    BIEditorView,
     BIField,
     buildBIQuery,
     createDefaultDateFilter,
     defaultAggregationForField,
     getBIDataSourceKey,
     getBIFieldId,
+    getBISortOptions,
     isBIFieldCompatible,
+    parseBIEditorState,
 } from './biEditorTypes'
 
 const eventField: BIField = {
@@ -36,6 +39,22 @@ const timestampField: BIField = {
     source: { table: 'events' },
 }
 
+const browserField: BIField = {
+    id: 'warehouse:events:properties.$browser',
+    name: 'browser',
+    expression: 'properties.$browser',
+    type: 'string',
+    source: { table: 'events' },
+}
+
+const countryField: BIField = {
+    id: 'warehouse:events:properties.$geoip_country_name',
+    name: 'country',
+    expression: 'properties.$geoip_country_name',
+    type: 'string',
+    source: { table: 'events' },
+}
+
 describe('BI editor query generation', () => {
     it('builds a visualization node with dimensions, aggregations, and filters', () => {
         const expectedQuery = [
@@ -47,6 +66,8 @@ describe('BI editor query generation', () => {
             "    lower(event) LIKE lower('%sign\\'up%')",
             'GROUP BY',
             '    event',
+            'ORDER BY',
+            '    sum_revenue DESC',
             'LIMIT 1000',
         ].join('\n')
         const config: BIConfig = {
@@ -87,6 +108,33 @@ describe('BI editor query generation', () => {
         expect(result?.query).toContain('count(*) AS count')
     })
 
+    it('maps every BI row and column dimension to pivot table axes', () => {
+        const result = buildBIQuery({
+            source: { table: 'events' },
+            chartType: ChartDisplayType.TwoDimensionalHeatmap,
+            rows: [eventField, timestampField],
+            columns: [browserField, countryField],
+            values: [{ field: revenueField, aggregation: 'sum' }],
+            filters: [],
+            limit: 50000,
+        })
+
+        expect(result?.query).toContain('toJSONString(tuple(event, timestamp)) AS bi_rows')
+        expect(result?.query).toContain(
+            'toJSONString(tuple(properties.$browser, properties.$geoip_country_name)) AS bi_columns'
+        )
+        expect(result?.query).toContain('LIMIT 1000')
+        expect(result?.node.chartSettings).toEqual({
+            heatmap: {
+                xAxisColumn: 'bi_columns',
+                yAxisColumn: 'bi_rows',
+                valueColumn: 'sum_revenue',
+                xAxisLabel: 'browser / country',
+                yAxisLabel: 'event / timestamp',
+            },
+        })
+    })
+
     it('ignores blank shelf fields until they are configured', () => {
         const blankField: BIField = {
             id: 'blank-field',
@@ -120,9 +168,17 @@ describe('BI editor query generation', () => {
         })
 
         expect(result?.query).toEqual(
-            ['SELECT', '    event,', '    count(*) AS count', 'FROM events', 'GROUP BY', '    event', 'LIMIT 100'].join(
-                '\n'
-            )
+            [
+                'SELECT',
+                '    event,',
+                '    count(*) AS count',
+                'FROM events',
+                'GROUP BY',
+                '    event',
+                'ORDER BY',
+                '    count DESC',
+                'LIMIT 100',
+            ].join('\n')
         )
     })
 
@@ -264,6 +320,95 @@ describe('BI editor query generation', () => {
         ],
     ])('accepts fields from %s according to the active source', (_name, source, field, expected) => {
         expect(isBIFieldCompatible(source, field)).toBe(expected)
+    })
+
+    const sortableConfig: BIConfig = {
+        source: { table: 'events' },
+        chartType: ChartDisplayType.ActionsBar,
+        rows: [browserField],
+        columns: [],
+        values: [{ field: revenueField, aggregation: 'sum' }],
+        filters: [],
+        limit: 1000,
+    }
+
+    test.each([
+        ['automatically by the first value, descending', undefined, 'ORDER BY\n    sum_revenue DESC'],
+        [
+            'by a selected dimension',
+            { key: `rows:${browserField.id}`, direction: 'asc' },
+            'ORDER BY\n    properties.$browser ASC',
+        ],
+        [
+            'by a selected value',
+            { key: `values:${revenueField.id}`, direction: 'asc' },
+            'ORDER BY\n    sum_revenue ASC',
+        ],
+        [
+            'automatically when the sorted field no longer exists',
+            { key: 'rows:removed-field', direction: 'asc' },
+            'ORDER BY\n    sum_revenue DESC',
+        ],
+    ] as const)('sorts %s', (_name, sort, expectedClause) => {
+        expect(buildBIQuery({ ...sortableConfig, sort })?.query).toContain(expectedClause)
+    })
+
+    it('auto-sorts date dimensions newest first', () => {
+        const result = buildBIQuery({ ...sortableConfig, rows: [{ ...timestampField, dateBucket: 'day' }] })
+
+        expect(result?.query).toContain('ORDER BY\n    toStartOfDay(timestamp) DESC')
+    })
+
+    it('offers dimensions and values as sort options, and a count fallback without values', () => {
+        expect(getBISortOptions(sortableConfig).map((option) => option.key)).toEqual([
+            `rows:${browserField.id}`,
+            `values:${revenueField.id}`,
+        ])
+        expect(getBISortOptions({ ...sortableConfig, values: [] }).map((option) => option.key)).toEqual([
+            `rows:${browserField.id}`,
+            'values:count',
+        ])
+        expect(getBISortOptions({ ...sortableConfig, rows: [] })).toEqual([])
+    })
+
+    it('keeps every aggregation of the same field sortable', () => {
+        const twoAggregationsConfig: BIConfig = {
+            ...sortableConfig,
+            values: [
+                { field: revenueField, aggregation: 'sum' },
+                { field: revenueField, aggregation: 'average' },
+            ],
+        }
+
+        expect(getBISortOptions(twoAggregationsConfig).map((option) => option.key)).toEqual([
+            `rows:${browserField.id}`,
+            `values:${revenueField.id}`,
+            `values:${revenueField.id}:2`,
+        ])
+        expect(
+            buildBIQuery({
+                ...twoAggregationsConfig,
+                sort: { key: `values:${revenueField.id}:2`, direction: 'asc' },
+            })?.query
+        ).toContain('ORDER BY\n    average_revenue_2 ASC')
+    })
+
+    test.each([
+        ['a state persisted before sort existed', {}, null],
+        [
+            'an explicit sort',
+            { rows: [eventField], sort: { key: `rows:${eventField.id}`, direction: 'asc' } },
+            { key: `rows:${eventField.id}`, direction: 'asc' },
+        ],
+        ['a sort whose field was removed', { sort: { key: 'rows:removed-field', direction: 'desc' } }, null],
+    ])('restores %s', (_name, configOverrides, expectedSort) => {
+        const persistedConfig = { ...sortableConfig, rows: [], values: [], ...configOverrides }
+
+        expect(parseBIEditorState(BIEditorView.BI, persistedConfig)?.config.sort).toEqual(expectedSort)
+    })
+
+    it('rejects a persisted state with a malformed sort', () => {
+        expect(parseBIEditorState(BIEditorView.BI, { ...sortableConfig, sort: { key: 1, direction: 'up' } })).toBeNull()
     })
 
     it('keeps same-named sources and fields distinct across connections', () => {

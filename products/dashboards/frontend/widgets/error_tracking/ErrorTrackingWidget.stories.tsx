@@ -75,7 +75,7 @@ function ErrorTrackingWidgetTileStory({
 
 // Storybook CSF requires a string literal `title` derived from catalog groupLabel/label.
 const meta: Meta<typeof ErrorTrackingWidgetTileStory> = {
-    title: 'Dashboards/Dashboard Widgets/Widget types/Error tracking/Top issues',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Error tracking/Top issues',
     component: ErrorTrackingWidgetTileStory,
     parameters: {
         layout: 'padded',

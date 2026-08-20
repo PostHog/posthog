@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
@@ -33,6 +35,20 @@ class TestResolveScopes(SimpleTestCase):
     def test_full_preset(self) -> None:
         result = resolve_scopes("full")
         assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES)
+
+    def test_report_canvas_preset_adds_only_canvas_write(self) -> None:
+        result = resolve_scopes("report_canvas")
+        assert "insight:read" in result
+        assert "canvas:write" in result
+        assert "llm_gateway:read" in result
+        assert "internal_run:read" in result
+        assert "task:write" not in result
+        assert "feature_flag:write" not in result
+        assert has_write_scopes("report_canvas")
+
+    def test_report_canvas_without_internal_scopes(self) -> None:
+        result = resolve_scopes("report_canvas", include_internal_scopes=False)
+        assert set(result) == {*MCP_READ_SCOPES, "canvas:write"}
 
     def test_signals_scout_preset_adds_scout_internal_write(self) -> None:
         # `signals_scout` = `read_only` content PLUS the scout's own internal write scope
@@ -163,6 +179,18 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert access_token.application_id == app.id
         assert access_token.scoped_teams == [team.id]
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_task_binding_is_persisted_only_when_supplied(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+        task_id = uuid4()
+
+        bound = create_oauth_access_token_for_user(user, team.id, sandbox_task_id=task_id)
+        unbound = create_oauth_access_token_for_user(user, team.id)
+
+        assert OAuthAccessToken.objects.get(token=bound).sandbox_task_id == task_id
+        assert OAuthAccessToken.objects.get(token=unbound).sandbox_task_id is None
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
     def test_posthog_ai_application_requires_existing_app(self) -> None:

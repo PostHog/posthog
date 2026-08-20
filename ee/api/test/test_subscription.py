@@ -36,7 +36,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
@@ -95,6 +95,18 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.organization.save()
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
         assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("daily", ["monday", "tuesday", "wednesday", "thursday", "friday"]),
+            ("weekly", ["monday", "wednesday", "friday"]),
+        ]
+    )
+    def test_accepts_multiple_delivery_weekdays(self, frequency: str, byweekday: list[str]) -> None:
+        response = self._create_subscription(frequency=frequency, byweekday=byweekday, bysetpos=None)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["byweekday"] == byweekday
 
     def test_can_create_new_subscription(self):
         response = self._create_subscription()
@@ -1454,6 +1466,33 @@ class TestSubscriptionTemporal(APILicensedTest):
         results = list_res.json()["results"]
         assert len(results) == 1
         assert results[0]["title"] == "UniqueSearchableTitle"
+
+    def test_list_subscriptions_search_matches_ai_prompt_text(self):
+        # An AI report's subject exists only in its prompt, so without this a caller wanting the
+        # reports about one thing has to fetch every ai_prompt row and sift them client-side.
+        for title, prompt in [
+            ("Tool health", "Report on $mcp_tool_call errors this week."),
+            ("Pageviews", "Summarize $pageview trends this week."),
+        ]:
+            Subscription.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title=title,
+                prompt=prompt,
+                target_type="email",
+                target_value="test@posthog.com",
+                frequency="weekly",
+                interval=1,
+                start_date=datetime(2022, 1, 1, tzinfo=UTC),
+            )
+
+        list_res = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {"resource_type": "ai_prompt", "search": "$mcp_"},
+        )
+
+        assert list_res.status_code == status.HTTP_200_OK
+        assert [r["title"] for r in list_res.json()["results"]] == ["Tool health"]
 
     def test_list_subscriptions_filter_by_resource_type(self):
         self.dashboard.tiles.create(insight=self.insight)

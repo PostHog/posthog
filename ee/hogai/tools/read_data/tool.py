@@ -436,8 +436,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
 
-        saved_insight = result.model if isinstance(result, ModelArtifactResult) else None
-
         # Create insight context
         context = InsightContext(
             team=self._team,
@@ -445,9 +443,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             query=result.content.query,
             name=insight_name,
             description=result.content.description,
-            artifact_id=None if saved_insight else artifact_or_insight_id,
-            insight_model_id=saved_insight.id if saved_insight else None,
-            insight_short_id=saved_insight.short_id if saved_insight else None,
+            insight_id=artifact_or_insight_id,
+            insight_model_id=result.model.id if isinstance(result, ModelArtifactResult) else None,
+            insight_short_id=result.model.short_id if isinstance(result, ModelArtifactResult) else None,
         )
 
         # The agent wants to read the schema, just return it
@@ -804,7 +802,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                     query=content.query,
                     name=content.name,
                     description=content.description,
-                    artifact_id=artifact_id,
+                    insight_id=artifact_id,
                 )
                 return await context.format_schema()
 

@@ -45,7 +45,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use metrics::{counter, gauge};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
-use rdkafka::ClientContext;
+use rdkafka::{ClientContext, Statistics};
 use tracing::{info, warn};
 
 use crate::types::SerializedKafkaMessage;
@@ -523,7 +523,8 @@ impl KeyOrderSentinel {
 
 /// The consumer's rdkafka context: observes async commit results (a
 /// fire-and-forget `CommitMode::Async` failure is otherwise invisible until
-/// restart-time redelivery) and resets sentinel baselines around rebalances.
+/// restart-time redelivery), resets sentinel baselines around rebalances, and
+/// exports librdkafka's internal statistics (see [`crate::kafka_stats`]).
 pub struct SentinelContext {
     commit_sentinel: Arc<CommitSentinel>,
     key_sentinel: Arc<KeyOrderSentinel>,
@@ -551,7 +552,13 @@ impl SentinelContext {
     }
 }
 
-impl ClientContext for SentinelContext {}
+impl ClientContext for SentinelContext {
+    /// Fired on a librdkafka thread every `statistics.interval.ms`; disabled
+    /// when that is 0.
+    fn stats(&self, stats: Statistics) {
+        crate::kafka_stats::export(&stats);
+    }
+}
 
 impl ConsumerContext for SentinelContext {
     fn pre_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {

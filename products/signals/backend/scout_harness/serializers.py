@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from django.utils import timezone
 
@@ -24,12 +25,14 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
+from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
+from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import (
@@ -39,7 +42,15 @@ from products.signals.backend.scout_harness.tools.emit import (
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
-from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
+from products.signals.backend.scout_harness.tools.runs import (
+    DEFAULT_FINDINGS_WINDOW_HOURS,
+    DEFAULT_RUNS_PER_SCOUT,
+    DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+    MAX_FINDINGS_WINDOW_HOURS,
+    MAX_RUNS_PER_SCOUT,
+    MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+    STALENESS_INTERVAL_MULTIPLE,
+)
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 from products.signals.backend.scout_harness.tools.structured_output import (
     MAX_RECORDS_PER_CALL,
@@ -486,6 +497,13 @@ class FleetFindingsSummarySerializer(serializers.Serializer):
             "falls outside the cap counts as edited)."
         )
     )
+    run_count = serializers.IntegerField(
+        help_text=(
+            "Number of scout runs created in the window, whether or not they produced output. "
+            "Unlike the report tallies it is not capped, so it is the fleet's activity over the "
+            "same span the output counts describe."
+        )
+    )
     latest_at = serializers.DateTimeField(
         allow_null=True,
         help_text=(
@@ -505,6 +523,35 @@ class FleetFindingsSummaryQuerySerializer(serializers.Serializer):
         help_text=(
             f"Lookback window in hours over runs' `created_at` "
             f"(default {DEFAULT_FINDINGS_WINDOW_HOURS}, hard cap {MAX_FINDINGS_WINDOW_HOURS})."
+        ),
+    )
+
+
+class RecentRunsPerScoutQuerySerializer(serializers.Serializer):
+    """Query parameters for the `recent-per-scout` action."""
+
+    per_scout_limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_RUNS_PER_SCOUT,
+        help_text=(
+            f"How many of each scout's most recent runs to return (default {DEFAULT_RUNS_PER_SCOUT}, "
+            f"hard cap {MAX_RUNS_PER_SCOUT}). The count is per scout, so a scout's history depth "
+            f"does not depend on how often the rest of the fleet runs."
+        ),
+    )
+    max_age_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+        help_text=(
+            f"Floor for the staleness guard on `created_at`, in days (default "
+            f"{DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS}, hard cap {MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS}). "
+            f"Runs older than the guard are excluded even when a scout has fewer than "
+            f"`per_scout_limit` newer ones, so a scout that stopped running doesn't report its last "
+            f"runs as current. Each scout's own cadence extends its guard to cover "
+            f"{STALENESS_INTERVAL_MULTIPLE} runs' worth of its schedule, so a slow scout on a "
+            f"monthly cron or a 30-day interval keeps its history."
         ),
     )
 
@@ -2064,6 +2111,63 @@ def _validate_structured_output_schema(value: dict | None) -> dict | None:
         raise serializers.ValidationError(str(exc))
 
 
+_SCOUT_MODEL_HELP = (
+    "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the "
+    "platform's agent models; an invalid id is rejected with the available ones listed. Null keeps "
+    "the default model, chosen by the platform. Early access: the pin can only be set on projects "
+    "enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+)
+
+
+def _validate_scout_model(value: str | None, context: dict, current: str | None = None) -> str | None:
+    """Normalize a scout model pin, gate setting one on the `scouts-model-config` dogfood flag, and
+    hold it to the platform's model catalog.
+
+    Two writes stay ungated: clearing (null, or a blank string normalized to null), and re-sending
+    the stored value unchanged — clients (MCP callers especially) resend whole config objects, and
+    a stale pin must not block unrelated edits after a team leaves the preview.
+    """
+    if value is not None:
+        value = value.strip() or None
+    if value is None or value == current:
+        return value
+    get_team = context.get("get_team")
+    # Some create paths pass a `team` object instead of the routed `get_team` lambda.
+    team = get_team() if callable(get_team) else context.get("team")
+    if not isinstance(team, Team) or not scout_model_config_enabled(team):
+        raise serializers.ValidationError("Choosing a scout model is not available on this project yet.")
+    catalog = scout_model_pin_catalog()
+    if value not in catalog:
+        raise serializers.ValidationError(f"Not an available model. Available models: {', '.join(sorted(catalog))}.")
+    return value
+
+
+# One scout should never need anywhere near this many external tools; the cap only bounds
+# abuse of the JSON column.
+MAX_SCOUT_MCP_GATEWAY_SERVERS = 100
+
+_MCP_GATEWAY_SERVER_IDS_HELP = (
+    "MCP gateway servers (by id) this scout's runs may use, chosen from the connections "
+    "members shared to the whole team. Selection is per scout: an empty list gives the "
+    "scout no MCP servers. Applies from the scout's next run."
+)
+
+
+def _mcp_gateway_server_ids_field(*, read_only: bool = False) -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=read_only,
+        required=False,
+        max_length=MAX_SCOUT_MCP_GATEWAY_SERVERS,
+        help_text=_MCP_GATEWAY_SERVER_IDS_HELP,
+    )
+
+
+def _normalize_mcp_gateway_server_ids(value: list[UUID]) -> list[str]:
+    # The JSON column stores canonical strings — UUID instances aren't JSON-serializable.
+    return [str(server_id) for server_id in value]
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -2114,9 +2218,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the "
-            "evaluation window), `ignored` (its output received no human engagement), or "
-            "`repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` "
-            "or `paused_by_system`."
+            "evaluation window), `ignored` (no person engaged with its reports — no view, rating, "
+            "note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null "
+            "unless `status` is `pending_pause` or `paused_by_system`."
         ),
     )
     emit = serializers.BooleanField(
@@ -2156,6 +2260,11 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "external sources such as documentation or papers."
         ),
     )
+    model = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=_SCOUT_MODEL_HELP,
+    )
     last_run_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -2175,9 +2284,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "When `status` last changed. For `pending_pause` this is when the warning was issued "
-            "(an `ignored` warning pauses about a week later unless someone acts on the scout's "
-            "reports; a `no_output` warning only flags the scout); for the paused statuses it is "
-            "when the scout was paused. Null if the status never changed."
+            "(an `ignored` warning pauses about a week later unless someone engages with the scout's "
+            "reports — opening one counts; a `no_output` warning only flags the scout); for the "
+            "paused statuses it is when the scout was paused. Null if the status never changed."
         ),
     )
     auto_pause_exempt = serializers.BooleanField(
@@ -2185,8 +2294,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=(
             "Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` "
             "pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is "
-            "staying quiet. Also set automatically when someone re-enables a scout the inactivity "
-            "sweep paused, so the sweep never overrules a person twice."
+            "staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a "
+            "fresh grace window before the sweep may judge it again."
         ),
     )
     # Read through `tag_list`, not the column, so a pre-migration NULL reads as `[]`.
@@ -2202,6 +2311,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         required=False,
         help_text=_SCOUT_TAGS_HELP_TEXT,
     )
+    mcp_gateway_server_ids = _mcp_gateway_server_ids_field(read_only=True)
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -2233,6 +2343,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "output_destinations",
             "structured_output_schema",
             "network_access",
+            "model",
+            "mcp_gateway_server_ids",
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
@@ -2362,12 +2474,20 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "`no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet."
         ),
     )
+    model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=200,
+        help_text=_SCOUT_MODEL_HELP,
+    )
     tags = _scout_tags_field()
     structured_output_schema = StructuredOutputSchemaField(
         required=False,
         allow_null=True,
         help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
     )
+    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
@@ -2378,8 +2498,14 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     def validate_tags(self, value: list[str]) -> list[str]:
         return _validate_scout_tags(value)
 
+    def validate_model(self, value: str | None) -> str | None:
+        return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
+
     def validate_structured_output_schema(self, value: dict | None) -> dict | None:
         return _validate_structured_output_schema(value)
+
+    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
+        return _normalize_mcp_gateway_server_ids(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
@@ -2415,13 +2541,12 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             target = SignalScoutConfig.Status.ACTIVE
         else:
             target = None
-        # A re-enable of an inactivity pause is a human overruling the sweep, and the sweep must
-        # never overrule them back: the same quiet fortnight that triggered the pause would
-        # otherwise re-qualify the scout the moment its fresh grace window lapses. Marking it
-        # exempt (unless the caller set the flag explicitly in the same request) makes the
-        # exemption visible and reversible where a hidden marker would not be.
         reverted_reason = instance.pause_reason
         reverted_paused_at = instance.status_changed_at
+        # Only feeds the revert metric below. A resume deliberately leaves `auto_pause_exempt`
+        # alone: the move back to `active` re-anchors `in_cold_start_grace`, so the sweep
+        # already waits a full fresh window and re-derives its verdict before judging the scout
+        # again, and permanent immunity stays the explicit flag's choice.
         resumed_from_inactivity_pause = (
             target == SignalScoutConfig.Status.ACTIVE
             and instance.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
@@ -2437,8 +2562,6 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
                 # Same rule as `transition_status_by_system`: a resume starts with a clean
                 # failure streak, or the next failed run re-trips the breaker off stale evidence.
                 validated_data["consecutive_failure_count"] = 0
-            if resumed_from_inactivity_pause:
-                validated_data.setdefault("auto_pause_exempt", True)
         updated = super().update(instance, validated_data)
         if resumed_from_inactivity_pause:
             # The false-positive metric for the sweep: a re-enable soon after the pause means the
@@ -2456,8 +2579,10 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "output_destinations",
             "structured_output_schema",
             "network_access",
+            "model",
             "auto_pause_exempt",
             "tags",
+            "mcp_gateway_server_ids",
         ]
 
 
@@ -2513,6 +2638,13 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
         ),
     )
+    model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=200,
+        help_text=_SCOUT_MODEL_HELP,
+    )
     tags = _scout_tags_field()
     structured_output_schema = StructuredOutputSchemaField(
         required=False,
@@ -2520,11 +2652,16 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
         help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
     )
 
+    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
 
     def validate_tags(self, value: list[str]) -> list[str]:
         return _validate_scout_tags(value)
+
+    def validate_model(self, value: str | None) -> str | None:
+        return _validate_scout_model(value, self.context)
 
     def validate_output_destinations(self, value: dict) -> dict:
         context = self.context
@@ -2535,6 +2672,9 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
 
     def validate_structured_output_schema(self, value: dict | None) -> dict | None:
         return _validate_structured_output_schema(value)
+
+    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
+        return _normalize_mcp_gateway_server_ids(value)
 
 
 class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):

@@ -39,6 +39,8 @@ export const dataCatalogMetricsCreateBodyNameMax = 128
 export const dataCatalogMetricsCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsCreateBodyDisplayNameMax = 255
 
+export const dataCatalogMetricsCreateBodyDescriptionMax = 1000
+
 export const dataCatalogMetricsCreateBodyUnitMax = 64
 
 export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
@@ -53,13 +55,20 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(dataCatalogMetricsCreateBodyNameMax)
         .regex(dataCatalogMetricsCreateBodyNameRegExp)
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsCreateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsCreateBodyDescriptionMax)
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsCreateBodyUnitMax)
@@ -98,12 +107,14 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsUpdateBodyNameMax = 128
 
 export const dataCatalogMetricsUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsUpdateBodyDisplayNameMax = 255
+
+export const dataCatalogMetricsUpdateBodyDescriptionMax = 1000
 
 export const dataCatalogMetricsUpdateBodyUnitMax = 64
 
@@ -119,13 +130,20 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(dataCatalogMetricsUpdateBodyNameMax)
         .regex(dataCatalogMetricsUpdateBodyNameRegExp)
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsUpdateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsUpdateBodyDescriptionMax)
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsUpdateBodyUnitMax)
@@ -164,12 +182,14 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsPartialUpdateBodyNameMax = 128
 
 export const dataCatalogMetricsPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsPartialUpdateBodyDisplayNameMax = 255
+
+export const dataCatalogMetricsPartialUpdateBodyDescriptionMax = 1000
 
 export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 
@@ -186,13 +206,21 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyNameMax)
         .regex(dataCatalogMetricsPartialUpdateBodyNameRegExp)
         .optional()
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().optional().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyUnitMax)
@@ -254,6 +282,40 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })
     .describe('Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.')
+
+/**
+ * Approve many metrics as canonical. Unknown, already-approved, and drifted metrics are skipped.
+ */
+export const dataCatalogMetricsBulkApproveCreateBodyNamesItemMax = 128
+
+export const dataCatalogMetricsBulkApproveCreateBodyNamesMax = 100
+
+export const DataCatalogMetricsBulkApproveCreateBody = /* @__PURE__ */ zod
+    .object({
+        names: zod
+            .array(zod.string().max(dataCatalogMetricsBulkApproveCreateBodyNamesItemMax))
+            .min(1)
+            .max(dataCatalogMetricsBulkApproveCreateBodyNamesMax)
+            .describe('Names of the metrics to act on, at most 100. Duplicates are collapsed.'),
+    })
+    .describe('Input for the bulk metric actions: the metric names to act on.')
+
+/**
+ * Delete many metrics, freeing their names for reuse. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkDeleteCreateBodyNamesItemMax = 128
+
+export const dataCatalogMetricsBulkDeleteCreateBodyNamesMax = 100
+
+export const DataCatalogMetricsBulkDeleteCreateBody = /* @__PURE__ */ zod
+    .object({
+        names: zod
+            .array(zod.string().max(dataCatalogMetricsBulkDeleteCreateBodyNamesItemMax))
+            .min(1)
+            .max(dataCatalogMetricsBulkDeleteCreateBodyNamesMax)
+            .describe('Names of the metrics to act on, at most 100. Duplicates are collapsed.'),
+    })
+    .describe('Input for the bulk metric actions: the metric names to act on.')
 
 /**
  * Reviewed join facts. Accepting one promotes it to a real DataWarehouseJoin; rejections persist.

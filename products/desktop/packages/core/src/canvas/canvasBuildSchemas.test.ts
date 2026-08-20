@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type CanvasBuildLifecycle,
   type CanvasBuildRecord,
+  canvasBuildRecordSchema,
   currentHeadBuildFailure,
   hasActiveCanvasBuild,
+  historicalCanvasBuild,
   latestFinishedCanvasBuild,
+  placementComponentBuild,
   publishedCanvasBuild,
 } from "./canvasBuildSchemas";
 import { DashboardsService } from "./dashboardsService";
@@ -36,6 +39,32 @@ function lifecycle(builds: CanvasBuildRecord[]): CanvasBuildLifecycle {
 }
 
 describe("canvas build lifecycle", () => {
+  // The builder freezes project.capabilities into the manifest verbatim, and
+  // a project declares only the capabilities it uses. A partial manifest must
+  // parse with deny-by-default fills — an unparseable record is silently
+  // dropped, which rendered a ready build as "failed to build" on grid tiles.
+  it("parses a manifest declaring only the capabilities the project uses", () => {
+    const parsed = canvasBuildRecordSchema.parse({
+      ...build("b1", "ready"),
+      manifest: {
+        entryHtml: "index.html",
+        assets: [],
+        dependencies: { react: "19.0.0" },
+        canvasSdkVersion: "0.1.0",
+        capabilities: {
+          posthog: { state: ["user"] },
+          network: { origins: [] },
+        },
+      },
+    });
+    expect(parsed.manifest?.capabilities.posthog).toMatchObject({
+      insights: [],
+      inlineQueries: false,
+      captureEvents: [],
+      state: ["user"],
+    });
+  });
+
   // hasActiveCanvasBuild drives the polling interval: a wrong answer either
   // polls forever or stops while a build is still running.
   it.each([
@@ -72,6 +101,62 @@ describe("canvas build lifecycle", () => {
     value.publishedBuildId = "b0";
 
     expect(publishedCanvasBuild(value)).toBe(ready);
+  });
+
+  it("selects a retained ready artifact for a historical version", () => {
+    const ready = build("historical", "ready");
+    ready.sourceVersionId = "version-1";
+
+    expect(
+      historicalCanvasBuild(
+        lifecycle([build("latest", "ready"), ready]),
+        "version-1",
+      ),
+    ).toBe(ready);
+  });
+
+  it.each([
+    ["an unfinished build", build("historical", "building")],
+    [
+      "a ready build without a retained artifact",
+      { ...build("historical", "ready"), artifactUrl: null },
+    ],
+  ])("rejects %s for a historical version", (_name, candidate) => {
+    candidate.sourceVersionId = "version-1";
+
+    expect(
+      historicalCanvasBuild(lifecycle([candidate]), "version-1"),
+    ).toBeNull();
+  });
+
+  // A pinned placement's config and size were written against the version it
+  // names, so rendering the live build instead would feed the widget a
+  // contract nobody validated it for.
+  it("renders a pinned placement from the pinned version's own build", () => {
+    const pinned = build("pinned", "ready");
+    pinned.sourceVersionId = "version-1";
+    const value = lifecycle([build("live", "ready"), pinned]);
+    value.publishedBuildId = "live";
+
+    expect(placementComponentBuild(value, "version-1")).toBe(pinned);
+  });
+
+  // Build retention can sweep a pinned version's artifact (only an explicit
+  // pin action protects a build), and falling back to the live build would
+  // silently render a different widget than the placement asked for.
+  it("resolves no build when the pinned version's artifact is gone", () => {
+    const value = lifecycle([build("live", "ready")]);
+    value.publishedBuildId = "live";
+
+    expect(placementComponentBuild(value, "version-1")).toBeNull();
+  });
+
+  it("follows the published pointer when the placement pins nothing", () => {
+    const live = build("live", "ready");
+    const value = lifecycle([live, build("older", "ready")]);
+    value.publishedBuildId = "live";
+
+    expect(placementComponentBuild(value, null)).toBe(live);
   });
 
   it("surfaces a failed build of the current head even when an older published build is also ready", () => {
@@ -136,7 +221,7 @@ describe("canvas build lifecycle", () => {
       },
     } as unknown as ProjectApiClient);
 
-    const result = await service.getBuilds("canvas-1");
+    const result = await service.getBuilds({ id: "canvas-1" });
 
     expect(result.publishedBuildId).toBe("b0");
     expect(result.builds[0]).toMatchObject({

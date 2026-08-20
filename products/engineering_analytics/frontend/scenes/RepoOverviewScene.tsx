@@ -4,11 +4,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonCard, LemonSkeleton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
-import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
+import { LemonButton, LemonCard, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
@@ -40,6 +38,7 @@ export function RepoOverviewScene(): JSX.Element {
         timeToGreenSeries,
         passRateSeries,
         openToMergeSeries,
+        readyToMergeSeries,
         jobsAvailable,
         overviewDefaultBranch,
         notConnected,
@@ -52,8 +51,6 @@ export function RepoOverviewScene(): JSX.Element {
         useValues(engineeringAnalyticsLogic)
     const { loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
-    const { timezone } = useValues(teamLogic)
-    const chartTheme = useChartTheme()
 
     // Window/source changes reload the overview, activity, and workflow health (the date-scoped
     // surfaces); the PR backlog is current-state, not windowed, so it stays put. Surface the reload
@@ -75,6 +72,23 @@ export function RepoOverviewScene(): JSX.Element {
     // jobsAvailable reads false until the overview payload lands, so "not synced" messaging
     // during the initial fetch would misread as a broken setup — hold it back while loading.
     const overviewPending = overviewLoading && !overview
+
+    // Cycle time is ready→merge wherever the backend can observe the draft/ready transitions. Without
+    // them it falls back to the coarse created→merged span and says so, rather than labelling one
+    // measure with the other's name.
+    const cycleTime = readyToMergeSeries
+        ? {
+              title: 'Median PR ready→merge',
+              series: readyToMergeSeries,
+              caption:
+                  'Median ready-for-review to merged time, bots and drafts excluded. Time as a draft is not counted.',
+          }
+        : {
+              title: 'Median PR open→merge',
+              series: openToMergeSeries,
+              caption:
+                  'Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused.',
+          }
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -147,7 +161,6 @@ export function RepoOverviewScene(): JSX.Element {
                         caption="Share of completed CI runs that passed, all branches."
                     />
 
-                    {/* Median time-to-green on PR runs (success-only, PR-scoped; see #67398). */}
                     <TrendCard
                         title="PR time to green"
                         series={timeToGreenSeries}
@@ -155,61 +168,35 @@ export function RepoOverviewScene(): JSX.Element {
                         renderTooltipValue={formatAxisMinutes}
                         goodWhenDown
                         loading={overviewPending}
-                        emptyText="Not enough successful PR CI runs in the window yet."
-                        caption="Median time-to-green on pull requests: successful runs only, default branch excluded."
+                        emptyText="No fully green PR pushes in the window yet."
+                        caption="Median time from a push until every workflow on it is green. Only fully green pushes count."
                     />
 
-                    {/* PR throughput: coarse created→merged time, bots and drafts excluded. */}
                     <TrendCard
-                        title="Median PR open→merge"
-                        series={openToMergeSeries}
+                        title={cycleTime.title}
+                        series={cycleTime.series}
                         formatValue={compactHoursLabel}
                         renderTooltipValue={compactHoursLabel}
                         goodWhenDown
                         loading={overviewPending}
                         emptyText="No PRs merged in the window yet."
-                        caption="Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused."
+                        caption={cycleTime.caption}
                     />
 
-                    {/* CI cost per merged PR — the headline economic trend, so it earns a full quill line
-                        chart (axes + tooltip) rather than a sparkline. costPerMergeSeries carries ISO labels
-                        plus its interval; the chart owns tick/tooltip date formatting. Card chrome mirrors
-                        TrendCard so it sits flush in the grid. */}
-                    <LemonCard hoverEffect={false} className="flex flex-col p-4">
-                        <h3 className="mb-1 text-xs font-semibold text-secondary">Cost per merged PR</h3>
-                        {overviewPending ? (
-                            <LemonSkeleton className="h-20 w-full" />
-                        ) : jobsAvailable && costPerMergeSeries ? (
-                            <div className="h-20 w-full">
-                                <TimeSeriesLineChart
-                                    series={[
-                                        {
-                                            key: 'cost_per_merge',
-                                            label: 'Cost per merged PR',
-                                            data: costPerMergeSeries.values,
-                                        },
-                                    ]}
-                                    labels={costPerMergeSeries.labels}
-                                    theme={chartTheme}
-                                    config={{
-                                        xAxis: { timezone, interval: costPerMergeSeries.interval },
-                                        yAxis: { format: 'currency', currency: 'USD' },
-                                        tooltip: { valueFormatter: (value) => compactUsd(value) },
-                                    }}
-                                />
-                            </div>
-                        ) : (
-                            <div className="flex h-20 items-center text-xs text-secondary">
-                                {jobsAvailable
-                                    ? 'No costable jobs in the window.'
-                                    : 'Cost appears once the job-level source is synced.'}
-                            </div>
-                        )}
-                        <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
-                            Estimated Depot CI cost per merged PR, trailing-window ratio. Per-workflow spend is in
-                            Workflows below.
-                        </div>
-                    </LemonCard>
+                    <TrendCard
+                        title="Cost per merged PR"
+                        series={jobsAvailable ? costPerMergeSeries : null}
+                        formatValue={compactUsd}
+                        renderTooltipValue={compactUsd}
+                        goodWhenDown
+                        loading={overviewPending}
+                        emptyText={
+                            jobsAvailable
+                                ? 'No costable jobs in the window.'
+                                : 'Cost appears once the job-level source is synced.'
+                        }
+                        caption="Estimated Depot CI cost per merged PR, trailing-window ratio. Per-workflow spend is in Workflows below."
+                    />
                 </div>
             </Section>
 

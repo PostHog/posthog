@@ -6,7 +6,6 @@ import {
     CyclotronInvocationQueueParametersSendPushNotificationType,
     PushNotificationPayloadType,
 } from '~/cdp/schema/cyclotron'
-import { mirrorCall, mirrorCompare } from '~/cdp/utils/mirror-call'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -66,10 +65,14 @@ const pushNotificationRescheduledCounter = new Counter({
 })
 
 // Apple rate-limits new APNs provider tokens (returns 429 TooManyProviderTokenUpdates if refreshed more
-// than once every ~20 min per key) and accepts a token for up to 1 hour. Cache the signed JWT in Redis
+// than once every ~20 min per key) and accepts a token for up to 1 hour. Cache the signed JWT in Valkey
 // keyed by the auth key id so the whole fleet reuses one token per key rather than minting one per send.
 const APNS_JWT_CACHE_PREFIX = '@posthog/apns-provider-jwt/'
 const APNS_JWT_TTL_SECONDS = 45 * 60
+
+// One entry per signing key, so the ceiling is the number of APNs integrations routed through this pod.
+// Pruned on write rather than on a timer.
+const APNS_JWT_LOCAL_CACHE_MAX = 500
 
 // A push action fans out to its selected channels within one invocation. Cap the count so a workflow
 // crafted with a huge channel list can't tie up a worker with an unbounded outbound-request loop; a real
@@ -163,10 +166,15 @@ export class PushNotificationService {
         private integrationManager: IntegrationManagerService,
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
-        private redis: RedisV2 | null,
-        private messageAssetsService?: MessageAssetsService,
-        private redisMirror: RedisV2 | null = null
+        private valkey: RedisV2,
+        private messageAssetsService?: MessageAssetsService
     ) {}
+
+    // Both Valkey calls for the APNs token are failOpen, so an outage turns every send into a fresh mint —
+    // the exact pattern Apple answers with 429 TooManyProviderTokenUpdates. This per-pod copy bounds that
+    // to one token per pod per TTL. It is a fallback, not the cache: Valkey is still read first, so the
+    // fleet normally shares one token per key.
+    private apnsJwtLocalCache = new Map<string, { jwt: string; expiresAtMs: number }>()
 
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
@@ -563,17 +571,16 @@ export class PushNotificationService {
         const keyFingerprint = createHash('sha256').update(`${teamId}:${keyId}:${signingKey}`).digest('hex')
         const cacheKey = `${APNS_JWT_CACHE_PREFIX}${keyFingerprint}`
 
-        const read = (pool: RedisV2) =>
-            pool.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) => client.get(cacheKey))
-        const cached = this.redis
-            ? await mirrorCompare(
-                  'push-notification.apns-jwt-read',
-                  () => read(this.redis!),
-                  () => (this.redisMirror ? read(this.redisMirror) : undefined)
-              )
-            : null
+        const cached = await this.valkey.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
+            client.get(cacheKey)
+        )
         if (cached) {
             return cached
+        }
+
+        const local = this.apnsJwtLocalCache.get(cacheKey)
+        if (local && local.expiresAtMs > Date.now()) {
+            return local.jwt
         }
 
         const header = Buffer.from(JSON.stringify({ alg: 'ES256', kid: keyId })).toString('base64url')
@@ -585,17 +592,33 @@ export class PushNotificationService {
         const signature = sign.sign({ key: signingKey, dsaEncoding: 'ieee-p1363' }, 'base64url')
         const jwt = `${signingInput}.${signature}`
 
-        const write = (pool: RedisV2) =>
-            pool.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
-                client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
-            )
-        await Promise.all([
-            this.redis ? write(this.redis) : undefined,
-            mirrorCall('push-notification.apns-jwt-write', () =>
-                this.redisMirror ? write(this.redisMirror) : undefined
-            ),
-        ])
+        this.rememberApnsJwtLocally(cacheKey, jwt)
+        await this.valkey.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
+            client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
+        )
         return jwt
+    }
+
+    private rememberApnsJwtLocally(cacheKey: string, jwt: string): void {
+        const nowMs = Date.now()
+        this.apnsJwtLocalCache.set(cacheKey, { jwt, expiresAtMs: nowMs + APNS_JWT_TTL_SECONDS * 1000 })
+
+        if (this.apnsJwtLocalCache.size <= APNS_JWT_LOCAL_CACHE_MAX) {
+            return
+        }
+        for (const [key, entry] of this.apnsJwtLocalCache) {
+            if (entry.expiresAtMs <= nowMs) {
+                this.apnsJwtLocalCache.delete(key)
+            }
+        }
+        // Map iterates in insertion order, so this drops the least recently minted. Safe because Valkey
+        // is the real cache — a dropped entry only costs a signature during an outage.
+        for (const key of this.apnsJwtLocalCache.keys()) {
+            if (this.apnsJwtLocalCache.size <= APNS_JWT_LOCAL_CACHE_MAX) {
+                break
+            }
+            this.apnsJwtLocalCache.delete(key)
+        }
     }
 
     private buildApnsPayload(payload: PushNotificationPayloadType): Record<string, unknown> {

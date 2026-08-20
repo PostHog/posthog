@@ -1,14 +1,12 @@
-from typing import Any, cast
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
-from rest_framework.request import Request
-from rest_framework.test import APIRequestFactory
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Team
 from posthog.models.integration import Integration
 
@@ -44,11 +42,6 @@ class TestVisionActionDelivery(APIBaseTest):
         super().setUp()
         sync_template_to_db(template_slack)
         sync_template_to_db(_WEBHOOK_TEMPLATE)
-        self.flag_patcher = patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
         # Saving a HogFunction pushes it to the CDP workers; there are none in tests.
         self.reload_patcher = patch(
             "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers",
@@ -60,7 +53,6 @@ class TestVisionActionDelivery(APIBaseTest):
 
     def tearDown(self) -> None:
         self.reload_patcher.stop()
-        self.flag_patcher.stop()
         super().tearDown()
 
     @property
@@ -73,7 +65,7 @@ class TestVisionActionDelivery(APIBaseTest):
             name="my-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _create_slack_integration(self) -> Integration:
@@ -104,12 +96,6 @@ class TestVisionActionDelivery(APIBaseTest):
         self.assertEqual(resp.status_code, 201, resp.content)
         return VisionAction.all_teams.get(id=resp.json()["id"])
 
-    def _request(self) -> Request:
-        # provision_delivery threads a DRF Request into HogFunctionSerializer, which reads request.user.
-        drf_request = Request(APIRequestFactory().post("/"))
-        drf_request.user = self.user
-        return cast(Request, drf_request)
-
     def _provision_action(self, delivery_config: list[dict[str, Any]]) -> VisionAction:
         """Create an action with delivery_config set on the model and provision it directly, bypassing
         the API serializer so a delivery type's provisioning can be exercised independently of the
@@ -122,7 +108,7 @@ class TestVisionActionDelivery(APIBaseTest):
             delivery_config=delivery_config,
         )
         action.save()
-        provision_delivery(action, request=self._request(), team=self.team)
+        provision_delivery(action, user=self.user, team=self.team)
         return action
 
     def _destinations(self, action: VisionAction) -> list[HogFunction]:
@@ -295,6 +281,6 @@ class TestVisionActionDelivery(APIBaseTest):
 
         action.delivery_config = [{"type": "webhook", "url": "https://example.com/hook"}]
         action.save(update_fields=["delivery_config"])
-        provision_delivery(action, request=self._request(), team=self.team)
+        provision_delivery(action, user=self.user, team=self.team)
 
         self.assertEqual([d.template_id for d in self._destinations(action)], ["template-webhook"])

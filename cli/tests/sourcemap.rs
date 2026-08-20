@@ -1,6 +1,9 @@
 use posthog_cli::{
     sourcemaps::{
-        content::SourceMapContent, inject::inject_pairs, plain::inject::is_javascript_file,
+        args::ReleaseMode,
+        content::SourceMapContent,
+        inject::{inject_pairs, inject_pairs_legacy},
+        plain::inject::{is_javascript_file, is_stylesheet_file},
         source_pairs::SourcePair,
     },
     utils::files::FileSelection,
@@ -61,6 +64,38 @@ fn test_search_without_multiple_files() {
     )
     .expect("Failed to read pairs");
     assert_eq!(pairs.len(), 2);
+}
+
+#[test]
+fn test_stylesheet_pair_is_discoverable_for_cleanup() {
+    let dir = tempfile::tempdir().expect("Failed to create stylesheet fixture directory");
+    let stylesheet_path = dir.path().join("app.css");
+    fs::write(
+        &stylesheet_path,
+        ".app { color: black; }\n/*# sourceMappingURL=app.css.map*/\n",
+    )
+    .expect("Failed to write stylesheet fixture");
+    fs::write(
+        dir.path().join("app.css.map"),
+        r#"{"version":3,"sources":[],"names":[],"mappings":""}"#,
+    )
+    .expect("Failed to write stylesheet sourcemap fixture");
+
+    let selection = FileSelection::from_roots(vec![dir.path().to_path_buf()])
+        .include(vec![])
+        .expect("Failed to select stylesheet fixture");
+    let pairs = posthog_cli::sourcemaps::source_pairs::read_pairs(
+        selection.into_iter().filter(is_stylesheet_file),
+        &None,
+    );
+
+    assert_eq!(pairs.len(), 1);
+    assert_eq!(
+        pairs[0].source.inner.path,
+        stylesheet_path
+            .canonicalize()
+            .expect("Failed to canonicalize stylesheet fixture")
+    );
 }
 
 #[test]
@@ -129,7 +164,7 @@ fn test_pair_inject() {
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
     current_pair
-        .add_chunk_id(chunk_id.to_string())
+        .add_chunk_id(chunk_id.to_string(), None)
         .expect("Failed to set chunk ID");
 
     assert_file_eq(
@@ -152,7 +187,7 @@ fn test_index_inject() {
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
     current_pair
-        .add_chunk_id(chunk_id.to_string())
+        .add_chunk_id(chunk_id.to_string(), None)
         .expect("Failed to set chunk ID");
 
     let bytes = serde_json::to_string(&current_pair.sourcemap.inner.content).unwrap();
@@ -177,7 +212,7 @@ fn test_index_inject_retains_extension_fields() {
 
     let chunk_id = "00000-00000-00000";
     current_pair
-        .add_chunk_id(chunk_id.to_string())
+        .add_chunk_id(chunk_id.to_string(), None)
         .expect("Failed to set chunk ID");
 
     // Extension field should be retained after flattening
@@ -206,7 +241,7 @@ fn test_pair_remove() {
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
     current_pair
-        .add_chunk_id(chunk_id.to_string())
+        .add_chunk_id(chunk_id.to_string(), None)
         .expect("Failed to set chunk ID");
 
     current_pair
@@ -222,12 +257,149 @@ fn test_pair_remove() {
 }
 
 #[test]
-fn test_reinject_without_new_release() {
+fn test_reinject_is_idempotent() {
+    // A chunk that already carries a content-addressed id must survive re-injection untouched.
+    // Regenerating the id on every build would orphan the already-uploaded symbol set.
     let case_path = get_case_path("reinject");
     let pairs =
         read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
+    let source_before = pairs.first().unwrap().source.inner.content.clone();
+
     let injected_pairs = inject_pairs(pairs, None).expect("Failed to inject pairs");
+    let first_pair = injected_pairs.first().expect("Failed to get first pair");
+
+    assert_eq!(first_pair.source.get_chunk_id().as_deref(), Some("0"));
+    assert_eq!(first_pair.source.inner.content, source_before);
+}
+
+#[test]
+fn test_pair_remove_strips_release_variant_snippet() {
+    // Removal must strip the release-carrying snippet too, or updating a chunk would stack
+    // a second snippet on top of the old one.
+    let case_path = get_case_path("inject");
+    let mut pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let current_pair = pairs.first_mut().expect("Failed to get first pair");
+    let chunk_id = "00000-00000-00000";
+    current_pair
+        .add_chunk_id(
+            chunk_id.to_string(),
+            Some("0199f7c2-1c4e-7c3a-9f8b-2d6e4a1b7c05"),
+        )
+        .expect("Failed to set chunk ID");
+
+    current_pair
+        .remove_chunk_id(chunk_id.to_string())
+        .expect("Failed to remove chunk ID");
+
+    assert_file_eq(&case_path, "chunk.js", &current_pair.source.inner.content);
+
+    let expected_val: SourceMapContent =
+        serde_json::from_str(include_str!(case!("inject/chunk.js.map"))).unwrap();
+    assert_eq!(expected_val, current_pair.sourcemap.inner.content);
+}
+
+#[test]
+fn test_reinject_refreshes_stale_release_id() {
+    // Re-running inject over an already-injected dist with a new release must swap the
+    // embedded release id while keeping the content-addressed chunk id.
+    let case_path = get_case_path("inject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let injected = inject_pairs(pairs, Some("release-a")).expect("Failed to inject pairs");
+    let chunk_id = injected
+        .first()
+        .and_then(|p| p.get_chunk_id())
+        .expect("chunk id");
+
+    let refreshed = inject_pairs(injected, Some("release-b")).expect("Failed to re-inject pairs");
+    let pair = refreshed.first().expect("Failed to get first pair");
+
+    assert_eq!(pair.get_chunk_id().as_deref(), Some(chunk_id.as_str()));
+    let source = &pair.source.inner.content;
+    assert!(
+        source.contains(r#"_posthogReleaseId||"release-b""#),
+        "source: {source}"
+    );
+    assert!(!source.contains("release-a"), "source: {source}");
+}
+
+#[test]
+fn test_reinject_without_release_keeps_embedded_release_id() {
+    // A run that can't resolve a release has no information — it must not clear the
+    // release id a previous run embedded.
+    let case_path = get_case_path("inject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let injected = inject_pairs(pairs, Some("release-a")).expect("Failed to inject pairs");
+    let source_before = injected.first().unwrap().source.inner.content.clone();
+
+    let reinjected = inject_pairs(injected, None).expect("Failed to re-inject pairs");
+
+    assert_eq!(
+        reinjected.first().unwrap().source.inner.content,
+        source_before
+    );
+}
+
+#[test]
+fn test_reinject_adds_release_to_releaseless_chunk() {
+    // A chunk injected while no release was resolvable must pick the release up on a later
+    // run, keeping its content-addressed chunk id.
+    let case_path = get_case_path("inject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let injected = inject_pairs(pairs, None).expect("Failed to inject pairs");
+    let chunk_id = injected
+        .first()
+        .and_then(|p| p.get_chunk_id())
+        .expect("chunk id");
+
+    let refreshed = inject_pairs(injected, Some("release-a")).expect("Failed to re-inject pairs");
+    let pair = refreshed.first().expect("Failed to get first pair");
+
+    assert_eq!(pair.get_chunk_id().as_deref(), Some(chunk_id.as_str()));
+    assert!(pair
+        .source
+        .inner
+        .content
+        .contains(r#"_posthogReleaseId||"release-a""#));
+}
+
+#[test]
+fn test_inject_with_release_embeds_id_in_source() {
+    // Injecting with a release must embed its id into the JS chunk itself — that global is the
+    // SDK's only source of the release — and must leave the release out of the sourcemap, so
+    // nothing binds the uploaded symbol set to it. The SDK ignores the global unless it is a
+    // non-empty string, so it has to be emitted as a quoted string literal.
+    let case_path = get_case_path("inject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 1);
+    let release_id = "0199f7c2-1c4e-7c3a-9f8b-2d6e4a1b7c05";
+
+    let injected_pairs = inject_pairs(pairs, Some(release_id)).expect("Failed to inject pairs");
+    let first_pair = injected_pairs.first().expect("Failed to get first pair");
+
+    let source = &first_pair.source.inner.content;
+    assert!(
+        source.contains(&format!(r#"_posthogReleaseId||"{release_id}""#)),
+        "source: {source}"
+    );
+    assert!(first_pair.source.get_chunk_id().is_some());
+    assert!(first_pair.sourcemap.get_release_id().is_none());
+}
+
+#[test]
+fn test_legacy_reinject_without_new_release() {
+    // Legacy path: with no release, an existing chunk carrying a stale release id is regenerated
+    // and the release id is cleared from the sourcemap.
+    let case_path = get_case_path("reinject");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 1);
+    let injected_pairs = inject_pairs_legacy(pairs, None).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
     assert_ne!(&first_pair.source.get_chunk_id().unwrap(), "0");
     assert_eq!(
@@ -238,14 +410,15 @@ fn test_reinject_without_new_release() {
 }
 
 #[test]
-fn test_reinject_with_new_release() {
+fn test_legacy_reinject_with_new_release() {
+    // Legacy path: a new release id regenerates the chunk id and is stamped into the sourcemap.
     let case_path = get_case_path("reinject");
     let pairs =
         read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
     let release_id = uuid::Uuid::now_v7().to_string();
     let injected_pairs =
-        inject_pairs(pairs, Some(release_id.clone())).expect("Failed to inject pairs");
+        inject_pairs_legacy(pairs, Some(release_id.clone())).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
     assert_ne!(&first_pair.source.get_chunk_id().unwrap(), "0");
     assert_eq!(
@@ -284,14 +457,55 @@ fn test_upload_set() {
     assert_ne!(source_chunk_id, sourcemap_chunk_id);
 
     // Convert to UploadSet
-    use posthog_cli::api::symbol_sets::SymbolSetUpload;
-    let upload_set: SymbolSetUpload = pair_with_different_ids
-        .try_into()
+    let upload_set = pair_with_different_ids
+        .into_upload(ReleaseMode::SymbolSet)
         .expect("Failed to convert to SymbolSetUpload");
 
     // Verify that the upload set uses the source's chunk ID, not the sourcemap's
     assert_eq!(upload_set.chunk_id, source_chunk_id);
     assert_ne!(upload_set.chunk_id, sourcemap_chunk_id);
+    // Symbol-set uploads must not precompute a hash: the server stores raw-payload hashes
+    // for previously uploaded chunks, and a different hash form would flag every unchanged
+    // chunk as a content conflict.
+    assert!(upload_set.content_hash.is_none());
+}
+
+#[test]
+fn test_event_mode_content_hash_is_stable_across_release_states() {
+    // The hash must not depend on which snippet variant is embedded. A chunk injected while
+    // no release was resolvable, the same chunk injected with a release, and the transition
+    // between the two all keep one chunk id, so they must hash identically or the server
+    // rejects the later upload as a content_hash_mismatch.
+    let case_path = get_case_path("inject");
+    let load = || {
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs")
+    };
+    let hash_of = |pairs: Vec<SourcePair>| -> String {
+        pairs
+            .into_iter()
+            .next()
+            .expect("Failed to get first pair")
+            .into_upload(ReleaseMode::Event)
+            .expect("Failed to convert to SymbolSetUpload")
+            .content_hash
+            .expect("event mode always sets a content hash")
+    };
+
+    let releaseless = hash_of(inject_pairs(load(), None).expect("Failed to inject pairs"));
+    let with_release = hash_of(
+        inject_pairs(load(), Some("11111111-2222-4333-8444-555555555555"))
+            .expect("Failed to inject pairs"),
+    );
+    let transitioned = {
+        let injected = inject_pairs(load(), None).expect("Failed to inject pairs");
+        hash_of(
+            inject_pairs(injected, Some("99999999-8888-4777-8666-000000000000"))
+                .expect("Failed to re-inject pairs"),
+        )
+    };
+
+    assert_eq!(releaseless, with_release);
+    assert_eq!(releaseless, transitioned);
 }
 
 #[test]

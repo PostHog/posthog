@@ -14,6 +14,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from .. import logic, weekly_digest
+from ..logic import rules
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -22,13 +23,17 @@ from ..models import (
 )
 from ..remote_config import build_error_tracking_config as build_error_tracking_config
 from . import contracts
+from .contracts import (
+    CrashFreeSummary as CrashFreeSummary,
+    ExceptionSummary as ExceptionSummary,
+)
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
 ExternalReferenceValidationError = logic.ErrorTrackingExternalReferenceValidationError
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
-InvalidBytecodeError = logic.ErrorTrackingInvalidBytecodeError
+InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 
-SOURCE_MAPS_DOCS_URL = weekly_digest.SOURCE_MAPS_DOCS_URL
+SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
 
 def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | None:
@@ -75,6 +80,7 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
     return contracts.ErrorTrackingIssuePreview(
         id=issue.id,
         status=issue.status,
+        severity=issue.severity,
         name=issue.name,
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),
@@ -86,6 +92,7 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
     return contracts.ErrorTrackingIssue(
         id=issue.id,
         status=issue.status,
+        severity=issue.severity,
         name=issue.name,
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),
@@ -339,7 +346,7 @@ def delete_release(team_id: int, release_id: str) -> bool:
 
 
 def has_filter_values(filters: dict) -> bool:
-    return logic.has_filter_values(filters)
+    return rules.has_filter_values(filters)
 
 
 def _to_rule_assignee(rule) -> contracts.ErrorTrackingRuleAssignee | None:
@@ -363,18 +370,18 @@ def _to_assignment_rule(rule) -> contracts.ErrorTrackingAssignmentRule:
 
 
 def list_assignment_rules(team_id: int) -> list[contracts.ErrorTrackingAssignmentRule]:
-    return [_to_assignment_rule(rule) for rule in logic.list_assignment_rules(team_id)]
+    return [_to_assignment_rule(rule) for rule in rules.list_assignment_rules(team_id)]
 
 
 def get_assignment_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingAssignmentRule | None:
-    rule = logic.get_assignment_rule(team_id, rule_id)
+    rule = rules.get_assignment_rule(team_id, rule_id)
     return _to_assignment_rule(rule) if rule is not None else None
 
 
 def create_assignment_rule(
     team_id: int, *, filters: dict, assignee: dict, order_key: int = 0
 ) -> contracts.ErrorTrackingAssignmentRule:
-    rule = logic.create_assignment_rule(
+    rule = rules.create_assignment_rule(
         team_id,
         filters=filters,
         assignee_type=assignee["type"],
@@ -387,16 +394,16 @@ def create_assignment_rule(
 def update_assignment_rule(
     team_id: int, rule_id: str, *, filters: dict | None = None, assignee: dict | None = None
 ) -> contracts.ErrorTrackingAssignmentRule | None:
-    rule = logic.update_assignment_rule(team_id, rule_id, filters=filters, assignee=assignee)
+    rule = rules.update_assignment_rule(team_id, rule_id, filters=filters, assignee=assignee)
     return _to_assignment_rule(rule) if rule is not None else None
 
 
 def delete_assignment_rule(team_id: int, rule_id: str) -> bool:
-    return logic.delete_assignment_rule(team_id, rule_id)
+    return rules.delete_assignment_rule(team_id, rule_id)
 
 
 def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
-    logic.reorder_assignment_rules(team_id, orders)
+    rules.reorder_assignment_rules(team_id, orders)
 
 
 def _to_grouping_rule(rule, issue: tuple[UUID, str | None] | None = None) -> contracts.ErrorTrackingGroupingRule:
@@ -414,36 +421,36 @@ def _to_grouping_rule(rule, issue: tuple[UUID, str | None] | None = None) -> con
 
 
 def list_grouping_rules(team_id: int) -> list[contracts.ErrorTrackingGroupingRule]:
-    rules = list(logic.list_grouping_rules(team_id))
-    issue_map = logic.grouping_rule_issue_map(team_id, [str(rule.id) for rule in rules])
-    return [_to_grouping_rule(rule, issue_map.get(str(rule.id))) for rule in rules]
+    grouping_rules = list(rules.list_grouping_rules(team_id))
+    issue_map = rules.grouping_rule_issue_map(team_id, [str(rule.id) for rule in grouping_rules])
+    return [_to_grouping_rule(rule, issue_map.get(str(rule.id))) for rule in grouping_rules]
 
 
 def get_grouping_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingGroupingRule | None:
-    rule = logic.get_grouping_rule(team_id, rule_id)
+    rule = rules.get_grouping_rule(team_id, rule_id)
     return _to_grouping_rule(rule) if rule is not None else None
 
 
 def create_grouping_rule(
     team_id: int, *, filters: dict, assignee: dict | None = None, description: str | None = None
 ) -> contracts.ErrorTrackingGroupingRule:
-    rule = logic.create_grouping_rule(team_id, filters=filters, assignee=assignee, description=description)
+    rule = rules.create_grouping_rule(team_id, filters=filters, assignee=assignee, description=description)
     return _to_grouping_rule(rule)
 
 
 def update_grouping_rule(
     team_id: int, rule_id: str, *, filters: dict | None = None
 ) -> contracts.ErrorTrackingGroupingRule | None:
-    rule = logic.update_grouping_rule(team_id, rule_id, filters=filters)
+    rule = rules.update_grouping_rule(team_id, rule_id, filters=filters)
     return _to_grouping_rule(rule) if rule is not None else None
 
 
 def delete_grouping_rule(team_id: int, rule_id: str) -> bool:
-    return logic.delete_grouping_rule(team_id, rule_id)
+    return rules.delete_grouping_rule(team_id, rule_id)
 
 
 def reorder_grouping_rules(team_id: int, orders: dict[str, int]) -> None:
-    logic.reorder_grouping_rules(team_id, orders)
+    rules.reorder_grouping_rules(team_id, orders)
 
 
 def _to_suppression_rule(rule) -> contracts.ErrorTrackingSuppressionRule:
@@ -459,38 +466,38 @@ def _to_suppression_rule(rule) -> contracts.ErrorTrackingSuppressionRule:
 
 
 def list_suppression_rules(team_id: int) -> list[contracts.ErrorTrackingSuppressionRule]:
-    return [_to_suppression_rule(rule) for rule in logic.list_suppression_rules(team_id)]
+    return [_to_suppression_rule(rule) for rule in rules.list_suppression_rules(team_id)]
 
 
 def get_suppression_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingSuppressionRule | None:
-    rule = logic.get_suppression_rule(team_id, rule_id)
+    rule = rules.get_suppression_rule(team_id, rule_id)
     return _to_suppression_rule(rule) if rule is not None else None
 
 
 def create_suppression_rule(
     team_id: int, *, filters: dict, sampling_rate: float
 ) -> contracts.ErrorTrackingSuppressionRule:
-    rule = logic.create_suppression_rule(team_id, filters=filters, sampling_rate=sampling_rate)
+    rule = rules.create_suppression_rule(team_id, filters=filters, sampling_rate=sampling_rate)
     return _to_suppression_rule(rule)
 
 
 def update_suppression_rule(
     team_id: int, rule_id: str, *, filters: dict | None = None, sampling_rate: float | None = None
 ) -> contracts.ErrorTrackingSuppressionRule | None:
-    rule = logic.update_suppression_rule(team_id, rule_id, filters=filters, sampling_rate=sampling_rate)
+    rule = rules.update_suppression_rule(team_id, rule_id, filters=filters, sampling_rate=sampling_rate)
     return _to_suppression_rule(rule) if rule is not None else None
 
 
 def delete_suppression_rule(team_id: int, rule_id: str) -> bool:
-    return logic.delete_suppression_rule(team_id, rule_id)
+    return rules.delete_suppression_rule(team_id, rule_id)
 
 
 def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
-    logic.reorder_suppression_rules(team_id, orders)
+    rules.reorder_suppression_rules(team_id, orders)
 
 
 def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
-    return logic.get_client_safe_suppression_rules(team_id)
+    return rules.get_client_safe_suppression_rules(team_id)
 
 
 def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:
@@ -505,32 +512,32 @@ def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:
 
 
 def list_bypass_rules(team_id: int) -> list[contracts.ErrorTrackingBypassRule]:
-    return [_to_bypass_rule(rule) for rule in logic.list_bypass_rules(team_id)]
+    return [_to_bypass_rule(rule) for rule in rules.list_bypass_rules(team_id)]
 
 
 def get_bypass_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingBypassRule | None:
-    rule = logic.get_bypass_rule(team_id, rule_id)
+    rule = rules.get_bypass_rule(team_id, rule_id)
     return _to_bypass_rule(rule) if rule is not None else None
 
 
 def create_bypass_rule(team_id: int, *, filters: dict) -> contracts.ErrorTrackingBypassRule:
-    rule = logic.create_bypass_rule(team_id, filters=filters)
+    rule = rules.create_bypass_rule(team_id, filters=filters)
     return _to_bypass_rule(rule)
 
 
 def update_bypass_rule(
     team_id: int, rule_id: str, *, filters: dict | None = None
 ) -> contracts.ErrorTrackingBypassRule | None:
-    rule = logic.update_bypass_rule(team_id, rule_id, filters=filters)
+    rule = rules.update_bypass_rule(team_id, rule_id, filters=filters)
     return _to_bypass_rule(rule) if rule is not None else None
 
 
 def delete_bypass_rule(team_id: int, rule_id: str) -> bool:
-    return logic.delete_bypass_rule(team_id, rule_id)
+    return rules.delete_bypass_rule(team_id, rule_id)
 
 
 def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
-    logic.reorder_bypass_rules(team_id, orders)
+    rules.reorder_bypass_rules(team_id, orders)
 
 
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
@@ -584,27 +591,48 @@ def create_external_reference(
     team_id: int,
     issue_id: UUID,
     integration_id: int,
-    config: dict[str, Any],
+    config: dict[str, Any] | None = None,
+    external_context: dict[str, Any] | None = None,
     distinct_id: int | str,
 ) -> contracts.ErrorTrackingExternalReference:
-    reference = logic.create_external_reference(
+    reference, created = logic.create_external_reference(
         team_id=team_id,
         issue_id=issue_id,
         integration_id=integration_id,
         config=config,
+        external_context=external_context,
     )
 
-    posthoganalytics.capture(
-        "error_tracking_external_issue_created",
-        distinct_id=distinct_id,
-        groups=groups(reference.issue.team.organization, reference.issue.team),
-        properties={
-            "issue_id": reference.issue_id,
-            "integration_kind": reference.integration.kind,
-        },
-    )
+    # Idempotent re-links return an existing reference; counting those would inflate the metric.
+    if created:
+        posthoganalytics.capture(
+            "error_tracking_external_issue_created",
+            distinct_id=distinct_id,
+            groups=groups(reference.issue.team.organization, reference.issue.team),
+            properties={
+                "issue_id": reference.issue_id,
+                "integration_kind": reference.integration.kind,
+                # Distinguish linking an existing issue from creating a brand-new one.
+                "linked_existing": external_context is not None,
+            },
+        )
 
     return _to_external_reference(reference)
+
+
+def search_external_issues(
+    *,
+    team_id: int,
+    integration_id: int,
+    search: str,
+    repository: str | None = None,
+) -> list[dict[str, Any]]:
+    return logic.search_external_issues(
+        team_id=team_id,
+        integration_id=integration_id,
+        search=search,
+        repository=repository,
+    )
 
 
 def is_supported_external_issue_provider(kind: str) -> bool:
@@ -642,7 +670,7 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list[Any]:
     return weekly_digest.get_exception_counts(team_ids=team_ids)
 
 
-def get_exception_summary_for_team(team: Any) -> dict[str, Any]:
+def get_exception_summary_for_team(team: Any) -> ExceptionSummary | None:
     return weekly_digest.get_exception_summary_for_team(team)
 
 
@@ -658,11 +686,11 @@ def get_daily_exception_counts(team: Any) -> list[dict[str, Any]]:
     return weekly_digest.get_daily_exception_counts(team)
 
 
-def get_crash_free_sessions(team: Any) -> dict[str, Any]:
+def get_crash_free_sessions(team: Any) -> CrashFreeSummary | None:
     return weekly_digest.get_crash_free_sessions(team)
 
 
-def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: dict[int, dict[str, Any]]) -> bool:
+def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: dict[int, ExceptionSummary]) -> bool:
     return weekly_digest.auto_select_project_for_user(
         user=user,
         org_id=org_id,

@@ -1,4 +1,8 @@
+import { useEffect, useRef } from 'react'
+
 import { IconCheck, IconWarning } from '@posthog/icons'
+
+import { cn } from 'lib/utils/css-classes'
 
 import { type AdblockDetectionResult } from './hooks/useAdblockDetection'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
@@ -7,28 +11,47 @@ import { OnboardingLiveEvents } from './OnboardingLiveEvents'
 export type RealtimeCheckIndicatorProps = {
     teamPropertyToVerify: string
     listeningForName?: string
+    /** Compact presentation for tight headers: no "Verify installation" label, no chip border. */
+    minimal?: boolean
+    /** Fires once when verification flips from waiting to complete. Already-complete mounts don't fire. */
+    onComplete?: () => void
 }
 
 export function RealtimeCheckIndicator({
     teamPropertyToVerify,
     listeningForName = 'event',
+    minimal = false,
+    onComplete,
 }: RealtimeCheckIndicatorProps): JSX.Element {
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const wasComplete = useRef(installationComplete)
+    useEffect(() => {
+        if (installationComplete && !wasComplete.current) {
+            onComplete?.()
+        }
+        wasComplete.current = installationComplete
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [installationComplete])
 
     return (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
             {installationComplete ? (
-                <div className="flex flex-row gap-2">
-                    <div className="flex items-center gap-2 px-2 py-1 font-medium">
+                <div className="flex flex-row items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 px-2 py-1 font-medium shrink-0">
                         <IconCheck className="text-success" />
-                        <span className="text-success text-sm">Installation complete</span>
+                        <span className="text-success text-sm whitespace-nowrap">Installation complete</span>
                     </div>
                     <OnboardingLiveEvents />
                 </div>
             ) : (
                 <div className="flex flex-row gap-3 items-center">
-                    <div className="font-medium">Verify installation</div>
-                    <div className="flex items-center gap-2 px-2 py-1 border border-accent rounded-sm">
+                    {!minimal && <div className="font-medium">Verify installation</div>}
+                    <div
+                        className={cn(
+                            'flex items-center gap-2 px-2 py-1',
+                            !minimal && 'border border-accent rounded-sm'
+                        )}
+                    >
                         <div className="relative flex items-center justify-center">
                             <div className="absolute w-3 h-3 border-2 border-accent rounded-full animate-ping" />
                             <div className="w-2 h-2 bg-accent rounded-full" />

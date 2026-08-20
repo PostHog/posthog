@@ -1,24 +1,16 @@
 INSIGHT_RESULT_TEMPLATE = """
 Name: {{{insight_name}}}
-{{#insight_short_id}}
-Insight ID: {{{insight_short_id}}}
-{{/insight_short_id}}
-{{#artifact_id}}
-Visualization ID: {{{artifact_id}}}
-{{/artifact_id}}
+{{#insight_id}}
+{{#insight_url}}Insight ID: {{{insight_id}}}{{/insight_url}}{{^insight_url}}Artifact ID: {{{insight_id}}}{{/insight_url}}
+{{/insight_id}}
 {{#insight_description}}
 Description: {{{insight_description}}}
 {{/insight_description}}
 {{#insight_url}}
 Insight URL: {{{insight_url}}}
 {{/insight_url}}
-{{#artifact_id}}
-This visualization is transient: it lives only in this conversation, is not saved to the project, and has no URL. Never write it as a link such as `/insights/{{{artifact_id}}}`, and never tell the user it has been saved. Pass the visualization ID to tools that accept one, such as alerts. If the user wants a permanent, linkable insight, tell them to use the "Open as new insight" icon below the chart.
-{{/artifact_id}}
 {{^insight_url}}
-{{^artifact_id}}
-This insight cannot be accessed via a URL. Never present it as a link, and never tell the user it has been saved.
-{{/artifact_id}}
+This insight is not saved in the project, so it cannot be accessed via a URL. Any `Artifact ID` above is scoped to this conversation, not an insight short ID, so an `/insights/...` link built from it would 404. If the user wants a saved insight, tell them to open the chart as a new insight from the icon below it and save it from there.
 {{/insight_url}}
 {{#query_schema}}
 

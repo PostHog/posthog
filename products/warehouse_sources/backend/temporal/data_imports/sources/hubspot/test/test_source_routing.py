@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -123,12 +124,9 @@ class TestShouldUseSearchPath:
     def test_false_when_endpoint_has_no_cursor(self) -> None:
         src = HubspotSource()
         inputs = _make_inputs(schema_name="deals")
-        original = HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field
-        HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = None
-        try:
+        no_cursor = replace(HUBSPOT_ENDPOINTS["deals"], cursor_filter_property_field=None)
+        with patch.dict(HUBSPOT_ENDPOINTS, {"deals": no_cursor}):
             assert src._should_use_search_path(inputs) is False
-        finally:
-            HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = original
 
     def test_false_when_initial_sync_not_complete(self) -> None:
         src = HubspotSource()
@@ -313,6 +311,8 @@ def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
         "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
         "Hubspot v4 associations malformed JSON response (retryable): "
         "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
+        # auth.hubspot_refresh_access_token, exhausted after tenacity's 5 in-process attempts
+        "You have reached your rate limit.",
     ],
 )
 def test_transient_http_error_is_retryable(error_msg: str) -> None:

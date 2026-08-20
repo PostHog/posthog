@@ -16,6 +16,20 @@ interface ObjectTagsPropsBase {
     className?: string
     actionButtonSize?: ComponentProps<typeof LemonTag>['size']
     'data-attr'?: string
+    /** Label for the action button when there are no tags yet. Defaults to "Add tag". */
+    addLabel?: string
+    /** Label for the action button when tags already exist. Defaults to "Edit tags". */
+    editLabel?: string
+    /** Placeholder for the input shown while editing. Defaults to `try "official"`. */
+    inputPlaceholder?: string
+    /** Makes each displayed tag clickable, e.g. to filter by it. */
+    onTagClick?: (tag: string) => void
+    /**
+     * Let a long tag wrap and shrink rather than overflow its container. For narrow containers like a
+     * sidebar column — off by default, since it lowers the min-content width and so shifts how much
+     * room surrounding table columns get.
+     */
+    wrap?: boolean
 }
 
 export type ObjectTagsProps =
@@ -53,6 +67,11 @@ export function ObjectTags({
     className,
     actionButtonSize = 'small',
     'data-attr': dataAttr,
+    addLabel = 'Add tag',
+    editLabel = 'Edit tags',
+    inputPlaceholder = 'try "official"',
+    onTagClick,
+    wrap = false,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
@@ -71,7 +90,7 @@ export function ObjectTags({
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center')}
+            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center', wrap && 'min-w-0 max-w-full')}
             data-attr={dataAttr}
         >
             {editingTags ? (
@@ -87,7 +106,7 @@ export function ObjectTags({
                     }}
                     loading={saving}
                     data-attr="new-tag-input"
-                    placeholder='try "official"'
+                    placeholder={inputPlaceholder}
                     autoFocus
                     popoverClassName="click-outside-block"
                 />
@@ -99,7 +118,13 @@ export function ObjectTags({
                               .filter((t) => !!t)
                               .map((tag, index) => {
                                   return (
-                                      <LemonTag key={index} type={COLOR_OVERRIDES[tag] || colorForString(tag)}>
+                                      <LemonTag
+                                          key={index}
+                                          type={COLOR_OVERRIDES[tag] || colorForString(tag)}
+                                          onClick={onTagClick ? () => onTagClick(tag) : undefined}
+                                          className={wrap ? 'max-w-full' : undefined}
+                                          wrap={wrap}
+                                      >
                                           {tag}
                                       </LemonTag>
                                   )
@@ -114,7 +139,7 @@ export function ObjectTags({
                                 className="border border-dashed"
                                 size={actionButtonSize}
                             >
-                                {hasTags ? 'Edit tags' : 'Add tag'}
+                                {hasTags ? editLabel : addLabel}
                             </LemonTag>
                         </span>
                     )}

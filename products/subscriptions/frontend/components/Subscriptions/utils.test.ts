@@ -1,4 +1,44 @@
-import { getAiSubscriptionGate, getNextDeliveryDate } from './utils'
+import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+
+import {
+    canNudgeToSubscribe,
+    getAiSubscriptionGate,
+    getNextDeliveryDate,
+    selectedDaysToDayPickerLabel,
+    shouldShowDayPicker,
+    toggleSelectedDay,
+} from './utils'
+
+describe('day picker values', () => {
+    it.each([
+        ['daily', 1, true],
+        ['daily', 2, false],
+        ['weekly', 1, true],
+        ['weekly', 2, true],
+        ['monthly', 1, false],
+        ['yearly', 1, false],
+    ] as const)('%s interval %s shows day picker: %s', (frequency, interval, expected) => {
+        expect(shouldShowDayPicker(frequency, interval)).toBe(expected)
+    })
+
+    it.each([
+        [[], 'Select at least one day'],
+        [['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], 'on Monday to Sunday'],
+        [['monday', 'tuesday', 'wednesday', 'thursday', 'friday'], 'on weekdays'],
+        [['saturday', 'sunday'], 'on weekends'],
+        [['wednesday'], 'on Wednesday'],
+        [['monday', 'wednesday'], 'on 2 days'],
+    ] as const)('summarizes %s as %s', (selectedDays, expected) => {
+        expect(selectedDaysToDayPickerLabel([...selectedDays])).toBe(expected)
+    })
+
+    it.each([
+        ['adds another day', ['wednesday'], 'tuesday', ['tuesday', 'wednesday']],
+        ['removes a selected day', ['tuesday', 'wednesday'], 'tuesday', ['wednesday']],
+    ] as const)('%s without replacing the other selections', (_label, selectedDays, day, expected) => {
+        expect(toggleSelectedDay([...selectedDays], day)).toEqual(expected)
+    })
+})
 
 describe('getNextDeliveryDate', () => {
     beforeEach(() => {
@@ -25,12 +65,22 @@ describe('getNextDeliveryDate', () => {
         expect(getNextDeliveryDate(subscription)).toEqual(new Date('2024-01-16T09:00:00Z'))
     })
 
-    it('computes next weekly delivery', () => {
+    it('computes the next selected daily delivery day', () => {
+        const result = getNextDeliveryDate({
+            frequency: 'daily',
+            interval: 1,
+            start_date: '2024-01-01T09:00:00Z',
+            byweekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+        })
+        expect(result).toEqual(new Date('2024-01-16T09:00:00Z'))
+    })
+
+    it('computes the next selected weekly delivery day', () => {
         const result = getNextDeliveryDate({
             frequency: 'weekly',
             interval: 1,
             start_date: '2024-01-01T09:00:00Z',
-            byweekday: ['wednesday'],
+            byweekday: ['wednesday', 'friday'],
         })
         expect(result).toEqual(new Date('2024-01-17T09:00:00Z'))
     })
@@ -108,5 +158,18 @@ describe('getAiSubscriptionGate', () => {
         ],
     ] as const)('%s', (_label, overrides, expected) => {
         expect(getAiSubscriptionGate({ ...base, ...overrides })).toMatchObject(expected)
+    })
+})
+
+describe('canNudgeToSubscribe', () => {
+    // isFreeTierCreateAtLimit fails open on an unknown count so the form still renders. The nudge
+    // wants the opposite, so the null case is decided here rather than left to that helper.
+    it.each([
+        ['a paid plan is nudged whatever the free-tier count says', true, null, true],
+        ['free tier with room left is nudged', false, 0, true],
+        ['free tier at the limit is not nudged', false, SubscriptionFreeTierLimit.COUNT, false],
+        ['an unknown count is not nudged', false, null, false],
+    ] as const)('%s', (_label, hasSubscriptionsFeature, freeTierSubscriptionCount, expected) => {
+        expect(canNudgeToSubscribe(hasSubscriptionsFeature, freeTierSubscriptionCount)).toBe(expected)
     })
 })

@@ -63,7 +63,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
@@ -322,7 +322,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 ),
             },
             "byweekday": {
-                "help_text": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+                "help_text": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
             },
             "bysetpos": {
                 "help_text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."
@@ -1014,6 +1014,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         "insight__name",
         "insight__derived_name",
         "dashboard__name",
+        # An AI report's subject lives only in its prompt, so without this the only way to find the
+        # reports about a given thing is to fetch every ai_prompt row and sift them client-side.
+        # Scoped to one team by the viewset, so the ILIKE never widens past that team's rows.
+        "prompt",
     ]
     ordering_fields = [
         "created_at",

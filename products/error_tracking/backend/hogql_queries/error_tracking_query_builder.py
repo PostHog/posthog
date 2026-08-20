@@ -294,9 +294,9 @@ class ErrorTrackingQueryBuilder:
                     ),
                 )
             )
-            # Resolving person_id adds a full person-distinct-id override join before
-            # aggregation. event_person_id avoids that join and is already nullable for
-            # personless events, where distinct_id remains the fallback.
+            # Same HLL tradeoff as `sessions`. Input semantics preserved
+            # (resolved person_id with distinct_id fallback) so the user
+            # population is unchanged — only the counting algorithm changed.
             exprs.append(
                 ast.Alias(
                     alias="users_state",
@@ -310,9 +310,7 @@ class ErrorTrackingQueryBuilder:
                                         ast.Call(
                                             name="nullIf",
                                             args=[
-                                                ast.Call(
-                                                    name="toString", args=[ast.Field(chain=["e", "event_person_id"])]
-                                                ),
+                                                ast.Call(name="toString", args=[ast.Field(chain=["e", "person_id"])]),
                                                 ast.Constant(value="00000000-0000-0000-0000-000000000000"),
                                             ],
                                         ),
@@ -529,7 +527,7 @@ class ErrorTrackingQueryBuilder:
 
     def _select_expressions_legacy(self) -> list[ast.Expr]:
         exprs: list[ast.Expr] = [
-            ast.Alias(alias="id", expr=ast.Field(chain=["e", "issue_id_v2"])),
+            ast.Alias(alias="id", expr=ast.Field(chain=["e", "issue_id"])),
             ast.Alias(alias="status", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_status"])])),
             ast.Alias(alias="name", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_name"])])),
             ast.Alias(
@@ -642,7 +640,7 @@ class ErrorTrackingQueryBuilder:
                 left=ast.Field(chain=["e", "event"]),
                 right=ast.Constant(value="$exception"),
             ),
-            ast.Call(name="isNotNull", args=[ast.Field(chain=["e", "issue_id_v2"])]),
+            ast.Call(name="isNotNull", args=[ast.Field(chain=["e", "issue_id"])]),
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
 
@@ -668,7 +666,7 @@ class ErrorTrackingQueryBuilder:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["e", "issue_id_v2"]),
+                    left=ast.Field(chain=["e", "issue_id"]),
                     right=ast.Constant(value=self.query.issueId),
                 )
             )

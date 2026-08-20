@@ -539,11 +539,17 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
         if (params.structured_output_schema !== undefined) {
             body['structured_output_schema'] = params.structured_output_schema
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
@@ -637,11 +643,17 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         if (params.network_access !== undefined) {
             body['network_access'] = params.network_access
         }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -1224,11 +1236,17 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
         if (params.structured_output_schema !== undefined) {
             body['structured_output_schema'] = params.structured_output_schema
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
@@ -1331,11 +1349,17 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.network_access !== undefined) {
             body['network_access'] = params.network_access
         }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',

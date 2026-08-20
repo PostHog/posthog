@@ -1,3 +1,4 @@
+import { useActions } from 'kea'
 import { useMemo } from 'react'
 
 import api from 'lib/api'
@@ -5,6 +6,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { IntegrationType } from '~/types'
 
@@ -51,6 +53,7 @@ export function IntegrationScopesWarning({
     integration: IntegrationType
     schema?: { requiredScopes?: string }
 }): JSX.Element {
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -73,6 +76,8 @@ export function IntegrationScopesWarning({
                         kind: integration.kind,
                         next: window.location.pathname,
                     }),
+                    onClick: () =>
+                        reportIntegrationConnectClicked(integration.kind, integration.kind, 'missing_scopes_reconnect'),
                     disabledReason: restrictedReason,
                 }}
             >

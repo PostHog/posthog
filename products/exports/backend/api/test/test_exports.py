@@ -32,14 +32,16 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.tasks import exporter
+from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
+from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER
 from products.exports.backend.tasks.image_exporter import export_image
-from products.product_analytics.backend.api.insight import InsightSerializer
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.presentation.insight import InsightSerializer
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -343,15 +345,16 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_errors_if_bad_format(self) -> None:
-        response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "not/allowed"})
+    @parameterized.expand(["not/allowed", ExportedAsset.ExportFormat.JSONL])
+    def test_errors_if_bad_format(self, export_format: str) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": export_format})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             {
                 "attr": "export_format",
                 "code": "invalid_choice",
-                "detail": '"not/allowed" is not a valid choice.',
+                "detail": f'"{export_format}" is not a valid choice.',
                 "type": "validation_error",
             },
         )
@@ -585,6 +588,90 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)
 
+    def test_dataset_exports_are_visible_to_their_creator_in_the_export_list(self) -> None:
+        dataset_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5",
+                "dataset_revision": 1,
+            },
+            created_by=self.user,
+        )
+        other_user = User.objects.create_and_join(self.organization, "dataset-export-peer@posthog.com", "password")
+        other_dataset_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": "c5a78135-2418-42ab-b721-e493a6743d3b",
+                "dataset_revision": 1,
+            },
+            created_by=other_user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results_by_id = {result["id"]: result for result in response.json()["results"]}
+        self.assertEqual(results_by_id[dataset_export.id]["export_format"], ExportedAsset.ExportFormat.JSONL)
+        self.assertNotIn(other_dataset_export.id, results_by_id)
+
+    def test_dataset_exports_are_hidden_from_generic_retrieve(self) -> None:
+        dataset_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5",
+                "dataset_revision": 1,
+            },
+            created_by=self.user,
+            content=b"{}\n",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{dataset_export.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_dataset_export_content_redirects_to_dataset_endpoint(self) -> None:
+        dataset_id = "302b0ee8-18a2-45d1-91a9-1a347853f6e5"
+        dataset_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={
+                "kind": DATASET_EXPORT_KIND,
+                "dataset_id": dataset_id,
+                "dataset_revision": 1,
+            },
+            created_by=self.user,
+            content=b"{}\n",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{dataset_export.id}/content")
+
+        self.assertRedirects(
+            response,
+            f"/api/projects/{self.team.id}/datasets/{dataset_id}/exports/{dataset_export.id}/content",
+            fetch_redirect_response=False,
+        )
+
+    def test_dataset_id_metadata_does_not_hide_an_ordinary_export(self) -> None:
+        ordinary_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"dataset_id": "caller-metadata"},
+            created_by=self.user,
+            content=b"png",
+        )
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/exports/{ordinary_export.id}")
+        list_response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+        self.assertIn(ordinary_export.id, {result["id"] for result in list_response.json()["results"]})
+
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
         with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -657,6 +744,98 @@ class TestExports(APIBaseTest):
         self.assertIsNone(stuck_export.exception)
         self.assertIsNone(recent_export.exception)
         self.assertIsNone(completed_export.exception)
+
+    DATASET_EXPORT_CONTEXT = {
+        "kind": DATASET_EXPORT_KIND,
+        "dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5",
+        "dataset_revision": 1,
+    }
+    VIDEO_EXPORT_CONTEXT = {"session_recording_id": "01890a0e-0000-0000-0000-000000000000"}
+
+    @parameterized.expand(
+        [
+            # A png still answers to the HogQL query timeout it inherits from the Celery exporter.
+            (
+                "png_past_query_timeout",
+                ExportedAsset.ExportFormat.PNG,
+                None,
+                timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 31),
+                True,
+            ),
+            (
+                "dataset_within_workflow_timeout",
+                ExportedAsset.ExportFormat.JSONL,
+                DATASET_EXPORT_CONTEXT,
+                timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 31),
+                False,
+            ),
+            (
+                "dataset_past_workflow_timeout",
+                ExportedAsset.ExportFormat.JSONL,
+                DATASET_EXPORT_CONTEXT,
+                EXPORT_WORKFLOW_TIMEOUT + timedelta(seconds=31),
+                True,
+            ),
+            # A video render legitimately runs well past the query timeout, so measuring it against
+            # that timeout reports long recordings as failed while they are still rendering.
+            (
+                "video_within_workflow_timeout",
+                ExportedAsset.ExportFormat.MP4,
+                VIDEO_EXPORT_CONTEXT,
+                timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 31),
+                False,
+            ),
+            (
+                "video_past_workflow_timeout",
+                ExportedAsset.ExportFormat.MP4,
+                VIDEO_EXPORT_CONTEXT,
+                RASTERIZE_WORKFLOW_TIMEOUT + timedelta(seconds=31),
+                True,
+            ),
+        ]
+    )
+    def test_stuck_threshold_matches_the_rendering_pipeline(
+        self,
+        _name,
+        export_format: str,
+        export_context: Optional[dict],
+        age: timedelta,
+        expected_failed: bool,
+    ) -> None:
+        with freeze_time(now() - age):
+            export = ExportedAsset.objects.create(
+                team=self.team,
+                export_format=export_format,
+                export_context=export_context,
+                created_by=self.user,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results_by_id = {result["id"]: result for result in response.json()["results"]}
+        self.assertEqual(results_by_id[export.id]["exception"] is not None, expected_failed)
+
+    def test_listing_stuck_exports_emits_no_analytics_events(self) -> None:
+        """Reporting stuck exports is a read path, so polling the list must not emit events.
+
+        An event emitted while serializing fires once per asset per request for as long as the row
+        stays incomplete, so the count reflects how often clients poll rather than how many exports
+        failed.
+        """
+        with freeze_time(now() - RASTERIZE_WORKFLOW_TIMEOUT - timedelta(minutes=1)):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.MP4,
+                export_context=self.VIDEO_EXPORT_CONTEXT,
+                created_by=self.user,
+            )
+
+        with patch("posthoganalytics.capture") as mock_capture:
+            response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([call for call in mock_capture.call_args_list if "export" in str(call)], [])
 
     def test_retrieve_shows_stuck_export_as_failed_in_response(self) -> None:
         with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
@@ -732,6 +911,116 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         if "/content" in url_template:
             self.assertEqual(response.content, b"png-bytes")
+
+    @parameterized.expand(
+        [
+            ("traversal", "../../2/recordings/other-session"),
+            ("slash", "abc/def"),
+            ("backslash", "abc\\def"),
+            ("percent_encoded", "%2e%2e%2f2"),
+            ("not_a_string", 12345),
+            ("dot_segment", ".."),
+            ("trailing_newline", "abc\n"),
+        ]
+    )
+    def test_cannot_create_export_with_unsafe_session_recording_id(self, _name, session_recording_id) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {"session_recording_id": session_recording_id},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("session_recording_id", str(response.json()))
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_export_pairing_allowed_dashboard_with_denied_insight(self, _name, url_template) -> None:
+        other_user = User.objects.create_and_join(self.organization, "rbac-pairing@posthog.com", "password")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            created_by=other_user,
+        )
+
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+
+        # The dashboard stays reachable, so only checking it would authorize the private insight.
+        AccessControl.objects.create(
+            resource="insight",
+            resource_id=str(self.insight.id),
+            team=self.team,
+            access_level="none",
+        )
+
+        self.client.force_login(other_user)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_export_pairing_allowed_dashboard_with_denied_recording(self, _name, url_template) -> None:
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        other_user = User.objects.create_and_join(self.organization, "rbac-mixed@posthog.com", "password")
+        recording = SessionRecording.objects.create(team=self.team, session_id="mixed-asset-recording")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            export_format="image/png",
+            export_context={"session_recording_id": recording.session_id},
+            created_by=other_user,
+        )
+
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            resource_id=str(recording.id),
+            team=self.team,
+            access_level="none",
+        )
+
+        self.client.force_login(other_user)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cannot_create_session_recording_export_without_recording_access(self) -> None:
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            team=self.team,
+            access_level="none",
+        )
+
+        member = User.objects.create_and_join(self.organization, "rbac-no-replay@posthog.com", "password")
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {"session_recording_id": "some-session-id"},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand(
         [

@@ -307,7 +307,7 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config.'
+                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
                         ),
                 })
             )
@@ -608,7 +608,7 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config.'
+                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
                         ),
                 })
             )
@@ -768,6 +768,8 @@ export const sandboxCreateBodyNameMax = 255
 export const sandboxCreateBodyNetworkAccessLevelDefault = `full`
 export const sandboxCreateBodyAllowedDomainsItemMax = 255
 
+export const sandboxCreateBodyAllowedDomainsMax = 100
+
 export const sandboxCreateBodyIncludeDefaultDomainsDefault = false
 export const sandboxCreateBodyRepositoriesItemMax = 255
 
@@ -785,6 +787,7 @@ export const SandboxCreateBody = /* @__PURE__ */ zod
             ),
         allowed_domains: zod
             .array(zod.string().max(sandboxCreateBodyAllowedDomainsItemMax))
+            .max(sandboxCreateBodyAllowedDomainsMax)
             .optional()
             .describe('Allowed domains for custom network access.'),
         include_default_domains: zod
@@ -820,6 +823,8 @@ export const sandboxPartialUpdateBodyNameMax = 255
 export const sandboxPartialUpdateBodyNetworkAccessLevelDefault = `full`
 export const sandboxPartialUpdateBodyAllowedDomainsItemMax = 255
 
+export const sandboxPartialUpdateBodyAllowedDomainsMax = 100
+
 export const sandboxPartialUpdateBodyIncludeDefaultDomainsDefault = false
 export const sandboxPartialUpdateBodyRepositoriesItemMax = 255
 
@@ -841,6 +846,7 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
             ),
         allowed_domains: zod
             .array(zod.string().max(sandboxPartialUpdateBodyAllowedDomainsItemMax))
+            .max(sandboxPartialUpdateBodyAllowedDomainsMax)
             .optional()
             .describe('Allowed domains for custom network access.'),
         include_default_domains: zod
@@ -869,7 +875,7 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for creating or updating a sandbox environment.')
 
 /**
- * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
+ * Clear collapsed task activity through task timestamps and individual comment activity through activity IDs.
  * @summary Mark task activity read
  */
 export const taskActivityMarkReadCreateBodyActivitiesMax = 500
@@ -880,6 +886,10 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
             .array(
                 zod.object({
                     task_id: zod.uuid().describe('Task whose displayed activity should be marked read.'),
+                    activity_id: zod
+                        .uuid()
+                        .nullish()
+                        .describe('Comment activity row to mark read. Omit for collapsed task activity.'),
                     seen_before: zod.iso
                         .datetime({ offset: true })
                         .describe('Mark activity at or before this timestamp read without clearing newer activity.'),
@@ -891,117 +901,12 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
     .describe('Request body for clearing the unread flag on specific tasks.')
 
 /**
- * API for managing scheduled task automations.
- */
-export const taskAutomationsCreateBodyNameMax = 255
-
-export const taskAutomationsCreateBodyRepositoryMax = 255
-
-export const taskAutomationsCreateBodyCronExpressionMax = 100
-
-export const taskAutomationsCreateBodyTimezoneDefault = `UTC`
-export const taskAutomationsCreateBodyTimezoneMax = 128
-
-export const taskAutomationsCreateBodyTemplateIdMax = 255
-
-export const taskAutomationsCreateBodyEnabledDefault = true
-
-export const TaskAutomationsCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .max(taskAutomationsCreateBodyNameMax)
-            .describe("Display name (stored as the backing task's title)."),
-        prompt: zod.string().describe("The automation prompt (stored as the backing task's description)."),
-        repository: zod
-            .string()
-            .max(taskAutomationsCreateBodyRepositoryMax)
-            .describe('Target repository in the format organization\/repository.'),
-        github_integration: zod
-            .number()
-            .nullish()
-            .describe("GitHub integration to run as. Defaults to the team's GitHub integration when omitted."),
-        cron_expression: zod
-            .string()
-            .max(taskAutomationsCreateBodyCronExpressionMax)
-            .describe('Standard 5-field cron expression (minute hour day month weekday).'),
-        timezone: zod
-            .string()
-            .max(taskAutomationsCreateBodyTimezoneMax)
-            .default(taskAutomationsCreateBodyTimezoneDefault)
-            .describe('IANA timezone the schedule runs in.'),
-        template_id: zod
-            .string()
-            .max(taskAutomationsCreateBodyTemplateIdMax)
-            .nullish()
-            .describe('Optional template identifier this automation was created from.'),
-        enabled: zod
-            .boolean()
-            .default(taskAutomationsCreateBodyEnabledDefault)
-            .describe('Whether the schedule is active; paused when false.'),
-    })
-    .describe('Request body for creating or updating a task automation.')
-
-/**
- * API for managing scheduled task automations.
- */
-export const taskAutomationsPartialUpdateBodyNameMax = 255
-
-export const taskAutomationsPartialUpdateBodyRepositoryMax = 255
-
-export const taskAutomationsPartialUpdateBodyCronExpressionMax = 100
-
-export const taskAutomationsPartialUpdateBodyTimezoneDefault = `UTC`
-export const taskAutomationsPartialUpdateBodyTimezoneMax = 128
-
-export const taskAutomationsPartialUpdateBodyTemplateIdMax = 255
-
-export const taskAutomationsPartialUpdateBodyEnabledDefault = true
-
-export const TaskAutomationsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .max(taskAutomationsPartialUpdateBodyNameMax)
-            .optional()
-            .describe("Display name (stored as the backing task's title)."),
-        prompt: zod.string().optional().describe("The automation prompt (stored as the backing task's description)."),
-        repository: zod
-            .string()
-            .max(taskAutomationsPartialUpdateBodyRepositoryMax)
-            .optional()
-            .describe('Target repository in the format organization\/repository.'),
-        github_integration: zod
-            .number()
-            .nullish()
-            .describe("GitHub integration to run as. Defaults to the team's GitHub integration when omitted."),
-        cron_expression: zod
-            .string()
-            .max(taskAutomationsPartialUpdateBodyCronExpressionMax)
-            .optional()
-            .describe('Standard 5-field cron expression (minute hour day month weekday).'),
-        timezone: zod
-            .string()
-            .max(taskAutomationsPartialUpdateBodyTimezoneMax)
-            .default(taskAutomationsPartialUpdateBodyTimezoneDefault)
-            .describe('IANA timezone the schedule runs in.'),
-        template_id: zod
-            .string()
-            .max(taskAutomationsPartialUpdateBodyTemplateIdMax)
-            .nullish()
-            .describe('Optional template identifier this automation was created from.'),
-        enabled: zod
-            .boolean()
-            .default(taskAutomationsPartialUpdateBodyEnabledDefault)
-            .describe('Whether the schedule is active; paused when false.'),
-    })
-    .describe('Request body for creating or updating a task automation.')
-
-/**
- * Returns the existing public channel with the (normalized) name, creating it if needed.
+ * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false.
  * @summary Resolve or create a public channel
  */
 export const taskChannelsCreateBodyNameMax = 128
+
+export const taskChannelsCreateBodyStarDefault = true
 
 export const TaskChannelsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1009,6 +914,12 @@ export const TaskChannelsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(taskChannelsCreateBodyNameMax)
             .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+        star: zod
+            .boolean()
+            .default(taskChannelsCreateBodyStarDefault)
+            .describe(
+                'Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched.'
+            ),
     })
     .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
 
@@ -1179,7 +1090,6 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
-                'automation',
                 'slack',
                 'support_queue',
                 'session_summaries',
@@ -1193,13 +1103,15 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'image_builder',
                 'loop',
                 'mcp_analytics',
+                'signals_chat',
+                'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
@@ -1222,13 +1134,9 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .max(tasksCreateBodySignalReportTaskRelationshipMax)
             .optional()
             .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
             ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
-        internal: zod
-            .boolean()
-            .optional()
-            .describe('If true, this task is for internal use and should not be exposed to end users.'),
         archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
         ci_prompt: zod
             .string()
@@ -1343,7 +1251,6 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
-                'automation',
                 'slack',
                 'support_queue',
                 'session_summaries',
@@ -1357,13 +1264,15 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'image_builder',
                 'loop',
                 'mcp_analytics',
+                'signals_chat',
+                'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
@@ -1386,13 +1295,9 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .max(tasksUpdateBodySignalReportTaskRelationshipMax)
             .optional()
             .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
             ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
-        internal: zod
-            .boolean()
-            .optional()
-            .describe('If true, this task is for internal use and should not be exposed to end users.'),
         archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
         ci_prompt: zod
             .string()
@@ -1492,7 +1397,6 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
-                'automation',
                 'slack',
                 'support_queue',
                 'session_summaries',
@@ -1506,13 +1410,15 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'image_builder',
                 'loop',
                 'mcp_analytics',
+                'signals_chat',
+                'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
@@ -1535,13 +1441,9 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .max(tasksPartialUpdateBodySignalReportTaskRelationshipMax)
             .optional()
             .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
             ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
-        internal: zod
-            .boolean()
-            .optional()
-            .describe('If true, this task is for internal use and should not be exposed to end users.'),
         archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
         ci_prompt: zod
             .string()
@@ -2494,6 +2396,29 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Hides artifacts from clients without deleting them from storage, so a file dismissed by mistake can be restored.
+ * @summary Dismiss or restore task run artifacts
+ */
+export const tasksRunsArtifactsDismissCreateBodyArtifactIdsItemMax = 128
+
+export const tasksRunsArtifactsDismissCreateBodyArtifactIdsMax = 100
+
+export const tasksRunsArtifactsDismissCreateBodyDismissedDefault = true
+
+export const TasksRunsArtifactsDismissCreateBody = /* @__PURE__ */ zod.object({
+    artifact_ids: zod
+        .array(zod.string().max(tasksRunsArtifactsDismissCreateBodyArtifactIdsItemMax))
+        .max(tasksRunsArtifactsDismissCreateBodyArtifactIdsMax)
+        .describe(
+            'Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.'
+        ),
+    dismissed: zod
+        .boolean()
+        .default(tasksRunsArtifactsDismissCreateBodyDismissedDefault)
+        .describe('True to hide the artifacts from clients, false to show them again.'),
+})
+
+/**
  * Streams artifact content for a task run artifact after validating that it belongs to the run.
  * @summary Download an artifact through the backend
  */
@@ -2753,6 +2678,32 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
         id: zod.unknown().optional().describe('Optional JSON-RPC request ID (string or number)'),
     })
     .describe('JSON-RPC request to send a command to the agent server in the sandbox.')
+
+/**
+ * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
+ * @summary Send a message to a peer agent run
+ */
+export const tasksRunsPeersMessageCreateBodyContentMax = 16000
+
+export const tasksRunsPeersMessageCreateBodyArtifactIdsItemMax = 128
+
+export const tasksRunsPeersMessageCreateBodyArtifactIdsMax = 10
+
+export const TasksRunsPeersMessageCreateBody = /* @__PURE__ */ zod.object({
+    content: zod
+        .string()
+        .max(tasksRunsPeersMessageCreateBodyContentMax)
+        .describe(
+            'Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.'
+        ),
+    artifact_ids: zod
+        .array(zod.string().max(tasksRunsPeersMessageCreateBodyArtifactIdsItemMax))
+        .max(tasksRunsPeersMessageCreateBodyArtifactIdsMax)
+        .optional()
+        .describe(
+            "Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot."
+        ),
+})
 
 /**
  * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
@@ -3036,6 +2987,10 @@ export const TasksSummariesCreateBody = /* @__PURE__ */ zod.object({
  */
 export const tasksWarmCreateBodyRepositoryMax = 255
 
+export const tasksWarmCreateBodyRepositoriesItemMax = 255
+
+export const tasksWarmCreateBodyRepositoriesMax = 3
+
 export const tasksWarmCreateBodyBranchMax = 255
 
 export const TasksWarmCreateBody = /* @__PURE__ */ zod
@@ -3043,8 +2998,17 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
         repository: zod
             .string()
             .max(tasksWarmCreateBodyRepositoryMax)
-            .describe('Target GitHub repository to clone, in `organization\/repo` format (e.g. `posthog\/posthog`).'),
-        github_integration: zod.number().describe("Primary key of the team's GitHub integration to clone with."),
+            .nullish()
+            .describe('Optional GitHub repository to clone, in `organization\/repo` format (e.g. `posthog\/posthog`).'),
+        repositories: zod
+            .array(zod.string().max(tasksWarmCreateBodyRepositoriesItemMax))
+            .max(tasksWarmCreateBodyRepositoriesMax)
+            .optional()
+            .describe('GitHub repositories to clone into the warm sandbox, each in `organization\/repo` format.'),
+        github_integration: zod
+            .number()
+            .nullish()
+            .describe("Primary key of the team's GitHub integration to clone with when a repository is selected."),
         branch: zod
             .string()
             .max(tasksWarmCreateBodyBranchMax)
@@ -3089,5 +3053,5 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Request body for warming a full idling Run while composing a Code-app cloud task.\n\nCollection-level: no task exists yet at typing time. The warmer births a draft Task and an\ninteractive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting\nthe first message. `github_integration` is a plain integration PK (an integer); the view re-scopes\nit to the caller's team before use."
+        "Request body for warming a full idling Run while composing a Code-app cloud task.\n\nCollection-level: no task exists yet at typing time. The warmer births a draft Task and an\ninteractive Run that boots and starts the agent, optionally cloning and checking out a repository,\nthen idles awaiting the first message. `github_integration` is a plain integration PK (an integer);\nthe view re-scopes it to the caller's team before use."
     )

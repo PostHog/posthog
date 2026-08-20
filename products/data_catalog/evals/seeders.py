@@ -51,6 +51,10 @@ from products.data_catalog.evals.constants import (
     INJECTION_RELATIONSHIP_REASONING,
     INJECTION_RELATIONSHIP_SOURCE_NAME,
     INJECTION_RELATIONSHIP_TARGET_NAME,
+    OPERATIONAL_METRIC_DEFINITION,
+    OPERATIONAL_METRIC_DESCRIPTION,
+    OPERATIONAL_METRIC_DISPLAY_NAME,
+    OPERATIONAL_METRIC_NAME,
     PROPOSED_METRIC_DEFINITION,
     PROPOSED_METRIC_DESCRIPTION,
     PROPOSED_METRIC_NAME,
@@ -64,7 +68,7 @@ from products.data_catalog.evals.constants import (
     TOP_CUSTOMERS_METRIC_NAME,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 if TYPE_CHECKING:
@@ -80,6 +84,7 @@ __all__ = [
     "seed_failing_top_customers_metric",
     "seed_instruction_like_relationship_context",
     "seed_metric_listing_catalog",
+    "seed_operational_metric",
     "seed_proposed_metric",
     "seed_top_customers_metric",
 ]
@@ -204,6 +209,29 @@ def seed_failing_top_customers_metric(context: CustomPromptSandboxContext) -> di
             "status": "approved",
             "is_drifted": False,
             "expected_run": "failed",
+        }
+    }
+
+
+def seed_operational_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    metric = upsert_metric(
+        team=team,
+        user=user,
+        name=OPERATIONAL_METRIC_NAME,
+        display_name=OPERATIONAL_METRIC_DISPLAY_NAME,
+        description=OPERATIONAL_METRIC_DESCRIPTION,
+        unit="percent",
+        definition=OPERATIONAL_METRIC_DEFINITION,
+    )
+    approve_metric(metric, user)
+    return {
+        "metric": {
+            "name": OPERATIONAL_METRIC_NAME,
+            "status": "approved",
+            "is_drifted": False,
+            "denominator": "pageviews",
+            "time_window": "trailing 30 days",
         }
     }
 

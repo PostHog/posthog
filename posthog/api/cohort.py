@@ -5,7 +5,6 @@ import uuid
 import hashlib
 from collections.abc import Iterator
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.db.models import OuterRef, QuerySet, Subquery
@@ -46,6 +45,7 @@ from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -98,10 +98,11 @@ from products.cohorts.backend.models.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
@@ -185,7 +186,7 @@ def validate_filters_and_compute_realtime_support(
         return filters_dict, current_cohort_type, [str(e)]
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class CohortFilterBytecodeResult:
     bytecode: list[Any] | None = None
     error: str | None = None
@@ -410,9 +411,10 @@ def _calculate_realtime_support(group: CohortFilterGroup) -> bool:
                 return False
         else:  # It's a filter
             # person_metadata reads top-level persons-table columns, which the realtime
-            # precalculated_person_properties table doesn't carry. Any cohort referencing one
-            # must use the standard (non-realtime) calculation path, so force the whole cohort
-            # non-realtime as soon as a person_metadata filter appears in any group.
+            # evaluator's person scope doesn't expose (it carries only person.id and
+            # person.properties). Any cohort referencing one must use the standard
+            # (non-realtime) calculation path, so force the whole cohort non-realtime as
+            # soon as a person_metadata filter appears in any group.
             if getattr(value, "type", None) == "person_metadata":
                 return False
             # Check if filter has FilterBytecodeMixin and valid bytecode
@@ -1021,6 +1023,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             raise ValidationError("Query must be a dictionary.")
         if query.get("kind") == "ActorsQuery":
             ActorsQuery.model_validate(query)
+            validate_actors_query_for_cohort(query)
         elif query.get("kind") == "HogQLQuery":
             HogQLQuery.model_validate(query)
         else:
