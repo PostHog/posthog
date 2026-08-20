@@ -1,13 +1,15 @@
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import ServerException, UnexpectedPacketFromServerError
 from parameterized import parameterized
 
 from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
+from posthog.exceptions import ClickHouseConnectionError
 
 
 class TestWrapClickhouseQueryError:
@@ -79,3 +81,20 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    @parameterized.expand(
+        [
+            ("connection_reset", ConnectionResetError(104, "Connection reset by peer")),
+            ("eof", EOFError("Unexpected EOF while reading bytes")),
+            ("socket_timeout", TimeoutError("timed out")),
+            ("unexpected_packet", UnexpectedPacketFromServerError("Unexpected packet from server")),
+        ]
+    )
+    def test_socket_level_errors_wrap_as_transient_connection_error(self, _name: str, err: Exception) -> None:
+        # These carry no ClickHouse error code, so before classification they passed through
+        # unwrapped and fingerprinted into a separate error-tracking issue per socket frame.
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ClickHouseConnectionError)
+        # Must join the transient set so celery autoretry and the Temporal interceptor retry it.
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)

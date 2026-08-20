@@ -1,9 +1,10 @@
 import re
+import socket
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import ServerException, UnexpectedPacketFromServerError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -11,10 +12,20 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseConnectionError,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
+)
+
+# Socket-level failures the clickhouse_driver raises when the connection drops mid-query. Unlike
+# ServerException, these carry no ClickHouse error code, so the code lookup below never reaches them.
+CLICKHOUSE_CONNECTION_ERROR_TYPES: tuple[type[BaseException], ...] = (
+    ConnectionResetError,
+    EOFError,
+    socket.timeout,
+    UnexpectedPacketFromServerError,
 )
 
 
@@ -106,6 +117,8 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
+    if isinstance(err, CLICKHOUSE_CONNECTION_ERROR_TYPES):
+        return ClickHouseConnectionError()
     if not isinstance(err, ServerException):
         return err
 
@@ -1034,4 +1047,5 @@ CH_TRANSIENT_ERRORS = (
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseConnectionError,
 )

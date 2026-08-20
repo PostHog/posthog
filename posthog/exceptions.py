@@ -85,6 +85,21 @@ class ClickHouseAtCapacity(APIException):
     )
 
 
+class ClickHouseConnectionError(APIException):
+    """The ClickHouse socket dropped mid-query (connection reset, EOF, read timeout, or an
+    unexpected packet from the server).
+
+    The driver raises these as raw socket-level errors that carry no ClickHouse error code, and the
+    exact frame varies, so left unclassified they fingerprint into many separate error-tracking
+    issues. Wrapping them in this one type with a fixed detail keeps the type and message stable, so
+    they group into a single issue. It clears on its own, so it belongs to `CH_TRANSIENT_ERRORS` and
+    every retry path that references that tuple.
+    """
+
+    status_code = 503
+    default_detail = "The connection to the database dropped while running your query. Please try again."
+
+
 class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."

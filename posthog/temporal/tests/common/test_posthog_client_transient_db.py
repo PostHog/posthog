@@ -8,6 +8,7 @@ from parameterized import parameterized
 from temporalio.worker import ExecuteActivityInput
 
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseConnectionError
 from posthog.temporal.common.posthog_client import _PostHogClientActivityInboundInterceptor
 
 
@@ -55,6 +56,9 @@ class TestTransientDatabaseErrorReporting:
                     psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
                 ),
             ),
+            # A ClickHouse socket that drops mid-query wraps to ClickHouseConnectionError; Temporal
+            # retries it, so a burst must not mint an issue each.
+            ("clickhouse_connection_dropped", ClickHouseConnectionError()),
         ]
     )
     async def test_transient_db_errors_are_not_reported(self, _name, error):
