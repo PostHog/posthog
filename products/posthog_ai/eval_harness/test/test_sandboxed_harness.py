@@ -16,8 +16,13 @@ from parameterized import parameterized
 from products.posthog_ai.eval_harness import runner
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.cli import parse_args
+from products.posthog_ai.eval_harness.harness.lifecycle import eval_feature_enabled
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
 from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
+from products.tasks.backend.constants import (
+    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
+    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
+)
 from products.tasks.backend.facade.agents import TurnPollResult
 
 
@@ -141,6 +146,17 @@ def test_parse_args_resolves_team_setup_concurrency(
         options = parse_args([])
 
     assert options.team_setup_concurrency == expected_concurrency
+
+
+@parameterized.expand(
+    [
+        ("workflow dispatch async", WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG, False),
+        ("workflow dispatch restart", WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG, False),
+        ("anything else", "tasks-modal-vm-sandbox", True),
+    ]
+)
+def test_eval_feature_enabled_leaves_dispatcher_flags_off(_name: str, flag: str, expected: bool) -> None:
+    assert eval_feature_enabled(flag, distinct_id="distinct-1") is expected
 
 
 @pytest.mark.asyncio

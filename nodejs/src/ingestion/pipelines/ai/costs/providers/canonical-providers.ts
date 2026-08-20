@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-19 20:04:04 UTC
+// Generated at: 2026-08-20 10:08:39 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -66,6 +66,8 @@ export type CanonicalProvider =
     | 'digitalocean'
     | 'fireworks'
     | 'fireworks-fast'
+    | 'fireworks-fast-us'
+    | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
     | 'gmicloud-fp8'
@@ -101,6 +103,7 @@ export type CanonicalProvider =
     | 'minimax-fp8'
     | 'minimax-highspeed'
     | 'mistral'
+    | 'mistral-zdr'
     | 'modal-mxfp4'
     | 'modal-nvfp4'
     | 'modelrun-fp4'
@@ -150,6 +153,7 @@ export type CanonicalProvider =
     | 'poolside-fp4'
     | 'poolside-fp8'
     | 'reka-bf16'
+    | 'reka-fp4'
     | 'reka-fp8'
     | 'relace-bf16'
     | 'relace-fp4'

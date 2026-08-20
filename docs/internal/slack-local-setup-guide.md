@@ -46,25 +46,19 @@ Cloudflare Tunnel (`cloudflared`) is a fine free alternative; whatever you pick,
 **8010** (Caddy) and make it rewrite the upstream `Host` header to `localhost` (see "How requests
 flow" for why).
 
-ngrok config — point the tunnel at **8010** and set `host_header: localhost`:
-
-```yaml
-# ~/Library/Application Support/ngrok/ngrok.yml   (macOS)
-# ~/.config/ngrok/ngrok.yml                        (Linux)
-version: '3'
-tunnels:
-  app:
-    proto: http
-    addr: 8010
-    domain: <you>-posthog.ngrok.dev # a domain you've reserved in the ngrok dashboard
-    host_header: localhost # REQUIRED — see "How requests flow" above
-agent:
-  authtoken: <your-ngrok-authtoken>
-```
+Reserve an ngrok domain, then authenticate once:
 
 ```bash
-ngrok start --all
+ngrok config add-authtoken <your-ngrok-authtoken>
 ```
+
+Set the reserved URL in `.env.local`:
+
+```bash
+SITE_URL=https://<you>-posthog.ngrok.dev
+```
+
+`hogli start` detects an ngrok `SITE_URL` and starts the tunnel for you. It creates a temporary ngrok configuration that forwards to **8010** and rewrites the upstream Host header to `localhost`.
 
 Verify the tunnel reaches Django through Caddy:
 
@@ -168,16 +162,8 @@ curl -sS https://<you>-posthog.ngrok.dev/_preflight | jq '.slack_service'
 ```
 
 `SITE_URL` must point at your tunnel for the OAuth step (Step 5), or the redirect goes to
-`https://localhost:8010/...` and the browser fails with an SSL error. It only matters during
-OAuth, so you don't have to commit it to `.env` — a plain `export` in the shell that runs the
-stack is enough, and the connected integration keeps working afterwards (until you re-auth) even
-if you drop it:
-
-```bash
-export SITE_URL=https://<you>-posthog.ngrok.dev   # then (re)start the stack from this shell
-```
-
-Put it in `.env` instead if you want it to survive restarts from a fresh shell.
+`https://localhost:8010/...` and the browser fails with an SSL error. Put it in `.env.local` so
+it is available every time you run `hogli start`.
 
 > There's also an `NGROK_URL` env var that `redirect_uri()` checks before `SITE_URL` in DEBUG —
 > it would override just the OAuth redirect and leave `SITE_URL` alone. We used `SITE_URL` and
