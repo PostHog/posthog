@@ -167,15 +167,22 @@ class TestSandboxWrapper:
         assert result["shell"] == "cargo run --bin x"
         assert "sandbox" not in result
 
-    def test_temporal_worker_excluded_by_default(self, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize(
+        ("name", "shell"),
+        [
+            ("temporal-worker", "./run-worker"),
+            ("backend", "./bin/start-backend"),
+        ],
+    )
+    def test_default_excludes_left_unwrapped(self, name: str, shell: str, monkeypatch: Any) -> None:
         monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
         monkeypatch.delenv("POSTHOG_DEV_SANDBOX_EXCLUDE", raising=False)
         generator = MprocsGenerator(MockRegistry({}))
-        excluded = generator._add_sandbox_wrapper({"shell": "./run-worker", "sandbox": True}, "temporal-worker")
-        assert excluded["shell"] == "./run-worker"
+        excluded = generator._add_sandbox_wrapper({"shell": shell, "sandbox": True}, name)
+        assert excluded["shell"] == shell
         assert "sandbox" not in excluded
-        wrapped = generator._add_sandbox_wrapper({"shell": "./bin/start-backend", "sandbox": True}, "backend")
-        assert wrapped["shell"] == "bin/dev-sandbox ./bin/start-backend"
+        wrapped = generator._add_sandbox_wrapper({"shell": "./bin/start-frontend", "sandbox": True}, "frontend")
+        assert wrapped["shell"] == "bin/dev-sandbox ./bin/start-frontend"
 
     def test_excluded_proc_left_unwrapped(self, monkeypatch: Any) -> None:
         # POSTHOG_DEV_SANDBOX_EXCLUDE is additive on top of the default excludes.
@@ -185,8 +192,8 @@ class TestSandboxWrapper:
         excluded = generator._add_sandbox_wrapper({"shell": "./run-other", "sandbox": True}, "other-proc")
         assert excluded["shell"] == "./run-other"
         assert "sandbox" not in excluded
-        wrapped = generator._add_sandbox_wrapper({"shell": "./bin/start-backend", "sandbox": True}, "backend")
-        assert wrapped["shell"] == "bin/dev-sandbox ./bin/start-backend"
+        wrapped = generator._add_sandbox_wrapper({"shell": "./bin/start-frontend", "sandbox": True}, "frontend")
+        assert wrapped["shell"] == "bin/dev-sandbox ./bin/start-frontend"
 
     def test_docker_gate_runs_outside_sandbox(self, monkeypatch: Any) -> None:
         monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
