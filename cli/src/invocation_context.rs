@@ -10,6 +10,7 @@ use std::{
     path::PathBuf,
     sync::{Mutex, OnceLock},
     thread::JoinHandle,
+    time::Duration,
 };
 use tracing::debug;
 use uuid::Uuid;
@@ -253,8 +254,11 @@ impl InvocationContext {
     }
 
     pub fn build_http_client(&self) -> Result<Client> {
+        // Fail fast on unreachable hosts instead of waiting out the full request
+        // timeout for each attempt.
         let client = Client::builder()
             .danger_accept_invalid_certs(self.config.skip_ssl)
+            .connect_timeout(Duration::from_secs(5))
             .build()?;
         Ok(client)
     }
