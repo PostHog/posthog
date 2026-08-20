@@ -27,6 +27,7 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -185,6 +186,8 @@ function ActivityNavItem({
 export function ChannelNav() {
   const view = useAppView();
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  // With channel reports on, spaces own reports and the inbox icon goes away.
+  const channelReportsEnabled = useChannelReportsEnabled();
 
   const { counts } = useInboxAllReports({
     ignoreFilters: true,
@@ -221,18 +224,20 @@ export function ChannelNav() {
           isActive={isHome}
           onClick={withTrack("home", navigateToHome)}
         />
-        <NavIcon
-          icon={
-            <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
-          }
-          label="Inbox"
-          shortcut={formatHotkey(SHORTCUTS.INBOX)}
-          isActive={isInbox}
-          onClick={withTrack("inbox", navigateToInbox)}
-          badge={
-            <CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />
-          }
-        />
+        {!channelReportsEnabled && (
+          <NavIcon
+            icon={
+              <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
+            }
+            label="Inbox"
+            shortcut={formatHotkey(SHORTCUTS.INBOX)}
+            isActive={isInbox}
+            onClick={withTrack("inbox", navigateToInbox)}
+            badge={
+              <CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />
+            }
+          />
+        )}
         <ActivityNavItem
           isActive={isActivity}
           unreadCount={unseenActivity}
