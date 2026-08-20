@@ -12,6 +12,7 @@ import { DeepLinkApprovalModal } from "@posthog/ui/features/agent-applications/c
 import { useApprovalDeepLink } from "@posthog/ui/features/agent-applications/hooks/useApprovalDeepLink";
 import { AnnouncementBanner } from "@posthog/ui/features/announcements/AnnouncementBanner";
 import { AnnouncementsHost } from "@posthog/ui/features/announcements/AnnouncementsHost";
+import { useServerArchiveSync } from "@posthog/ui/features/archive/useServerArchiveSync";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
@@ -235,6 +236,7 @@ function RootLayout() {
   const approvalDeepLink = useApprovalDeepLink();
   useSetupDiscovery();
   useNewTaskDeepLink();
+  useServerArchiveSync();
 
   // hydrateTask is no longer needed — the URL is the source of truth and the
   // task cache populates the route automatically.
