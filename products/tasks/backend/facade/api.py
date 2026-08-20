@@ -3065,7 +3065,7 @@ def upload_task_run_artifacts(
     # after the save so it stays off the persisted manifest.
     response_manifest = [
         {**entry, "url": absolute_uri(_build_artifact_download_path(run, entry["id"]))}
-        if entry.get("id")
+        if entry.get("id") and entry.get("storage_path")
         else dict(entry)
         for entry in manifest
     ]
