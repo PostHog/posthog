@@ -58,12 +58,10 @@ export interface IGitWriteClient {
   generateCommitMessage(input: {
     directoryPath: string;
     conversationContext?: string;
-    taskId?: string;
   }): Promise<{ message: string }>;
   generatePrTitleAndBody(input: {
     directoryPath: string;
     conversationContext?: string;
-    taskId?: string;
   }): Promise<{ title: string; body: string }>;
   linkBranch(taskId: string, branchName: string): Promise<void>;
   onCreatePrProgress(
@@ -430,7 +428,6 @@ export class GitInteractionService {
       const result = await this.git.generateCommitMessage({
         directoryPath: repoPath,
         conversationContext: this.effects.getConversationContext(taskId),
-        taskId,
       });
       if (result.message) return { message: result.message };
       return { error: "No changes detected to generate a commit message." };
@@ -453,7 +450,6 @@ export class GitInteractionService {
       const result = await this.git.generatePrTitleAndBody({
         directoryPath: repoPath,
         conversationContext: this.effects.getConversationContext(taskId),
-        taskId,
       });
       if (result.title || result.body) {
         return { title: result.title, body: result.body };

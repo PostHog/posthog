@@ -89,7 +89,6 @@ function attachPrUrlToTask(
               .git.generatePrShortSummary.mutate({
                 conversationContext,
                 prTitle,
-                taskId,
               })
               .then((r) => r.summary || null)
               .catch(() => null)
@@ -142,7 +141,6 @@ export async function backfillPrSummaries(
           .git.generatePrShortSummary.mutate({
             conversationContext,
             prTitle: title,
-            taskId,
           })
           .then((r) => r.summary || null)
           .catch(() => null);
