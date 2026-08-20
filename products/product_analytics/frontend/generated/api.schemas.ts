@@ -4005,6 +4005,7 @@ export const IntegrationKindApi = {
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
+    LinkedinPages: 'linkedin-pages',
     Snapchat: 'snapchat',
     Stripe: 'stripe',
     Intercom: 'intercom',

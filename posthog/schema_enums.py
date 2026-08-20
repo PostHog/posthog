@@ -2938,6 +2938,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_SEARCH_CONSOLE = "google-search-console"
     GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
+    LINKEDIN_PAGES = "linkedin-pages"
     SNAPCHAT = "snapchat"
     STRIPE = "stripe"
     INTERCOM = "intercom"
