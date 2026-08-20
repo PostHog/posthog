@@ -144,6 +144,11 @@ def _client_config(domain: str, api_key: str) -> ClientConfig:
         # A source pointed at a customer-controlled host that accepts a connection and then never
         # responds would otherwise hold an import worker forever; bound every request.
         "request_timeout": REQUEST_TIMEOUT_SECONDS,
+        # Canvas responses carry student/staff PII and grading data (SIS identifiers, assignment
+        # HTML, scores) that the name-based sample scrubbers aren't guaranteed to catch, so keep
+        # raw bodies out of HTTP sample capture even where an operator enables it -- same pattern
+        # as the Clever source, which carries comparable student/guardian/staff PII.
+        "capture": False,
     }
 
 
@@ -201,8 +206,9 @@ def validate_credentials(
     url = f"{_base_url(domain)}/accounts/{account_id}/courses"
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address, defeating
-        # the host check above (SSRF).
-        response = make_tracked_session(redact_values=(api_key,)).get(
+        # the host check above (SSRF). The probe response body carries real course data, so also
+        # keep it out of HTTP sample capture -- same reasoning as `_client_config`.
+        response = make_tracked_session(redact_values=(api_key,), capture=False).get(
             url,
             headers=_get_headers(api_key),
             params={"per_page": 1},
