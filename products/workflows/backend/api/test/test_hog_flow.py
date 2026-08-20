@@ -1,6 +1,7 @@
 import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -4926,7 +4927,7 @@ class TestFlagGatedTemplates(APIBaseTest):
         # actually use. Web-client draft saves stay lenient; the gate holds at publish there.
         return self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
-            {"name": "Test Flow", "actions": [trigger_action, action]},
+            {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
@@ -4957,3 +4958,60 @@ class TestFlagGatedTemplates(APIBaseTest):
             side_effect=Exception("flag service down"),
         ):
             assert gated_template_enabled("workflow-ai-task-action", self.team) is False
+
+    def _create_active_flow_with_gated_step(self) -> str:
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+            response = self._post_flow_with_create_task_action()
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            flow_id = response.json()["id"]
+            activate = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"status": "active"},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+            assert activate.status_code == status.HTTP_200_OK, activate.json()
+        return flow_id
+
+    def test_stored_gated_step_survives_the_flag_turning_off(self):
+        # The gate polices new adoption. A workflow that already carries the step must keep
+        # saving after a flag dial-down or eval blip, or the flow becomes un-editable and
+        # refresh_hog_flows starts failing on it. Resend the stored actions, as any builder
+        # save or programmatic full update does.
+        flow_id = self._create_active_flow_with_gated_step()
+
+        # No MCP header: MCP callers can't resend the whole actions array (workflows-patch-graph
+        # owns that), but an active flow validates strictly for every client, so the gate still runs.
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"name": "Renamed flow", "actions": HogFlow.objects.get(id=flow_id).actions},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_refresh_command_survives_the_flag_turning_off(self):
+        self._create_active_flow_with_gated_step()
+
+        out = StringIO()
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+            call_command("refresh_hog_flows", "--team-id", str(self.team.id), stdout=out)
+
+        assert "Errors: 0" in out.getvalue(), out.getvalue()
+
+    def test_a_new_gated_step_is_still_rejected_on_a_flow_that_has_one(self):
+        flow_id = self._create_active_flow_with_gated_step()
+
+        second_step = {
+            "id": "action_2",
+            "name": "action_2",
+            "type": "function",
+            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Another"}}},
+        }
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"actions": [*HogFlow.objects.get(id=flow_id).actions, second_step]},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Template not found" in str(response.json())
