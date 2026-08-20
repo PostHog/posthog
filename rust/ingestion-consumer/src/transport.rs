@@ -616,6 +616,9 @@ pub enum TransportError {
     #[error("Lane failed: {0}")]
     LaneFailed(&'static str),
 
+    #[error("Lane busy: {0}")]
+    LaneBusy(&'static str),
+
     #[error("Lane closed without resolving the send")]
     LaneClosed,
 }
@@ -638,6 +641,9 @@ impl TransportError {
             // Lane failures resolve through the deferral path, not the HTTP
             // retry loop — never retried in place.
             TransportError::LaneFailed(_) => false,
+            // A busy lane is transient backpressure (like WorkerBusy), so the
+            // fenced work re-routes as retriable rather than a worker fault.
+            TransportError::LaneBusy(_) => true,
             TransportError::LaneClosed => false,
         }
     }

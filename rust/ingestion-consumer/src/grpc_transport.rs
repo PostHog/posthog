@@ -69,7 +69,6 @@ struct LaneItem {
 
 struct Lane {
     tx: mpsc::UnboundedSender<LaneItem>,
-    task: tokio::task::JoinHandle<()>,
 }
 
 /// How a worker's gRPC address is derived from its HTTP URL.
@@ -171,17 +170,17 @@ impl GrpcTransport {
             ack_timeout: self.ack_timeout,
             assignment_epoch: Arc::clone(&self.assignment_epoch),
         };
-        let task = tokio::spawn(async move { runner.run(rx).await });
-        Lane { tx, task }
+        tokio::spawn(async move { runner.run(rx).await });
+        Lane { tx }
     }
 
-    /// Tear down a departed worker's lane. The reaper only removes workers
-    /// with no in-flight work, so the queue and ledger are empty; anything
-    /// racing in resolves as failed and re-routes via the deferral path.
+    /// Tear down a departed worker's lane. Dropping the lane closes its queue
+    /// sender, so the runner fences whatever is still in flight **in order**,
+    /// with the messages intact, and exits on its own. Aborting the task would
+    /// instead drop the un-acked sends unresolved, which the caller can only
+    /// recover by crashing and replaying — so let the graceful path run.
     pub fn remove_worker(&self, worker_url: &str) {
-        if let Some((_, lane)) = self.lanes.remove(worker_url) {
-            lane.task.abort();
-        }
+        self.lanes.remove(worker_url);
     }
 
     /// Check if a worker is ready by probing its HTTP health endpoint.
@@ -506,7 +505,7 @@ impl LaneRunner {
                     if response.seq == 0 {
                         continue;
                     }
-                    if response.status != SubBatchStatus::Ok as i32 {
+                    if response.status == SubBatchStatus::Failed as i32 {
                         warn!(
                             worker = %self.worker_url,
                             seq = response.seq,
@@ -514,6 +513,20 @@ impl LaneRunner {
                             "Worker nacked sub-batch — fencing lane"
                         );
                         return self.fence(None, &mut ledger, queue, "sub-batch nacked");
+                    }
+                    if response.status != SubBatchStatus::Ok as i32 {
+                        // BUSY, or any status this consumer predates: transient
+                        // backpressure, not a fault. Fence in order (the ordered
+                        // stream cannot retry one sub-batch in place) but as
+                        // retriable, so the work re-routes without marking the
+                        // worker unhealthy.
+                        warn!(
+                            worker = %self.worker_url,
+                            seq = response.seq,
+                            status = response.status,
+                            "Worker signalled busy — fencing lane as retriable"
+                        );
+                        return self.fence_with(true, None, &mut ledger, queue, "worker busy");
                     }
                     let Some(position) = ledger.iter().position(|e| e.seq == response.seq) else {
                         warn!(worker = %self.worker_url, seq = response.seq, "Ack for unknown seq — fencing lane");
@@ -560,10 +573,30 @@ impl LaneRunner {
         queue: &mut mpsc::UnboundedReceiver<LaneItem>,
         reason: &'static str,
     ) -> StreamEnd {
+        self.fence_with(false, pending_first, ledger, queue, reason)
+    }
+
+    /// `retriable` distinguishes transient backpressure (a busy worker) from a
+    /// real fault: the fenced sends carry a retriable error so the caller
+    /// re-routes them without counting the worker as unhealthy, and the metric
+    /// records `busy` rather than `error`.
+    fn fence_with(
+        &self,
+        retriable: bool,
+        pending_first: Option<LaneItem>,
+        ledger: &mut VecDeque<LedgerEntry>,
+        queue: &mut mpsc::UnboundedReceiver<LaneItem>,
+        reason: &'static str,
+    ) -> StreamEnd {
         let mut fenced = 0usize;
         let fail = |item: LaneItem| {
+            let error = if retriable {
+                TransportError::LaneBusy(reason)
+            } else {
+                TransportError::LaneFailed(reason)
+            };
             let _ = item.reply.send(Err(SendError {
-                error: TransportError::LaneFailed(reason),
+                error,
                 messages: item.messages,
             }));
         };
@@ -582,7 +615,7 @@ impl LaneRunner {
         counter!(
             "ingestion_consumer_transport_requests_total",
             "worker" => self.worker_url.clone(),
-            "status" => "error"
+            "status" => if retriable { "busy" } else { "error" }
         )
         .increment(1);
         gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())

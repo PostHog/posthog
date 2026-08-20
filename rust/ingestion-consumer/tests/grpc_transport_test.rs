@@ -33,6 +33,8 @@ enum AckMode {
     Manual,
     /// Nack the sub-batch with this seq (and ack the others immediately).
     NackSeq(u64),
+    /// Report busy for the sub-batch with this seq (and ack the others).
+    BusySeq(u64),
 }
 
 /// Manual mode: the test sends (seq, accepted) acks through this.
@@ -111,6 +113,22 @@ impl WorkerIngest for MockWorker {
                                 }));
                             }
                             AckMode::NackSeq(_) => {
+                                let _ = tx.send(Ok(IngestStreamResponse {
+                                    seq,
+                                    status: SubBatchStatus::Ok as i32,
+                                    accepted,
+                                    error: String::new(),
+                                }));
+                            }
+                            AckMode::BusySeq(busy) if seq == busy => {
+                                let _ = tx.send(Ok(IngestStreamResponse {
+                                    seq,
+                                    status: SubBatchStatus::Busy as i32,
+                                    accepted: 0,
+                                    error: "at capacity".to_string(),
+                                }));
+                            }
+                            AckMode::BusySeq(_) => {
                                 let _ = tx.send(Ok(IngestStreamResponse {
                                     seq,
                                     status: SubBatchStatus::Ok as i32,
@@ -363,4 +381,63 @@ async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
         .expect_err("un-acked send fails back to the caller");
     assert_eq!(err.messages.len(), 1, "messages come back for deferral");
     assert_eq!(err.messages[0].offset, 1);
+}
+
+#[tokio::test]
+async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
+    // Regression: reaping a worker that still has in-flight work must resolve
+    // its un-acked sends with the messages intact, so the deferral path can
+    // replay them. Aborting the lane task instead dropped the sends unresolved,
+    // which the caller could only recover by crashing and replaying.
+    let (_ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_millis(200),
+    );
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    // Wait until the send is on the wire (in the lane's ledger) before reaping.
+    for _ in 0..200 {
+        if mock.received.lock().await.len() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        mock.received.lock().await.len(),
+        1,
+        "send reached the worker"
+    );
+
+    transport.remove_worker(&url);
+
+    let err = tokio::time::timeout(Duration::from_secs(5), pending.wait())
+        .await
+        .expect("reaped lane must fence, not hang")
+        .expect_err("reaped worker fences the in-flight send");
+    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages[0].offset, 1);
+}
+
+#[tokio::test]
+async fn a_busy_status_fences_as_retriable_with_messages() {
+    // A worker reporting busy is applying backpressure, not failing: the fenced
+    // sends must carry their messages (to replay) and classify as retriable, so
+    // the consumer re-routes without counting the worker as unhealthy.
+    let mock = start_mock(AckMode::BusySeq(1), None).await;
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        1,
+        Duration::from_secs(30),
+    );
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let err = pending.wait().await.expect_err("busy fences the lane");
+    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert!(err.error.is_retriable(), "busy is retriable backpressure");
+    assert!(matches!(err.error, TransportError::LaneBusy(_)));
 }

@@ -582,10 +582,14 @@ impl IngestionConsumer {
                 // across defer_failed (+1) and the clears_deferral resolve
                 // (-1) the count nets to unchanged and never dips to zero —
                 // newer batches keep deferring behind the re-stashed group.
+                // A busy worker is backpressure, not a fault: re-route the work
+                // but keep it off the worker's health, so passive health tracks
+                // real faults.
+                let is_fault = !send_err.error.is_retriable();
                 dispatcher.defer_failed(&batch_id, send_err.messages);
                 dispatcher.eager_flush_failed(&batch_id);
                 dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys, true, true);
-                dispatcher.record_send_outcome(&worker, true);
+                dispatcher.record_send_outcome(&worker, is_fault);
             }
         }
     }
@@ -766,6 +770,10 @@ impl IngestionConsumer {
                         // with the `clears_deferral` decrement in the resolve, so the
                         // outstanding count nets to unchanged (never dipping to zero)
                         // and the key keeps deferring across the retry.
+                        // Backpressure (a busy worker) is transient, not a fault:
+                        // re-route the work but do not count it against the
+                        // worker's health, so passive health tracks real faults.
+                        let is_fault = !send_err.error.is_retriable();
                         dispatcher.defer_failed(&bid, send_err.messages);
                         dispatcher.on_sub_batch_resolved(
                             &worker,
@@ -774,7 +782,7 @@ impl IngestionConsumer {
                             from_flush,
                             true,
                         );
-                        dispatcher.record_send_outcome(&worker, true);
+                        dispatcher.record_send_outcome(&worker, is_fault);
                         0
                     }
                 }
