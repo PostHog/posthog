@@ -61,6 +61,16 @@ class TestGongSource:
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
 
+    def test_only_call_content_is_default_off(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        # Call summaries reach the warehouse only when an admin picks them, so one-shot setup and
+        # new-schema auto-sync must leave this table alone.
+        assert schemas["calls_content"].should_sync_default is False
+
+        for name in ("calls", "calls_extensive", "users", "scorecards", "workspaces"):
+            assert schemas[name].should_sync_default is True
+
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["calls"])
 

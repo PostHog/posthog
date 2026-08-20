@@ -106,6 +106,7 @@ To also sync the `calls_extensive` table (call participants and CRM associations
                 supports_incremental=endpoint_config.supports_incremental,
                 supports_append=endpoint_config.supports_incremental,
                 incremental_fields=endpoint_config.incremental_fields,
+                should_sync_default=endpoint_config.should_sync_default,
                 description="Only syncs the last 365 days on initial sync"
                 if endpoint_config.uses_date_window
                 else None,
