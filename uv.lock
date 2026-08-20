@@ -5971,7 +5971,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-owners", editable = "tools/owners" },
-    { name = "posthoganalytics", specifier = "==7.39.1" },
+    { name = "posthoganalytics", specifier = "==7.39.2" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6131,7 +6131,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.39.1"
+version = "7.39.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6139,9 +6139,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/df/61/b78317abb7f99b0b31513f171907434cc9c6fb18a80ffac17e44c0651731/posthoganalytics-7.39.1.tar.gz", hash = "sha256:a81d402b1d139774346ed224016d1f5310ebe89f955b08377fb546691e3a4a91", size = 428630, upload-time = "2026-08-14T13:51:17.661Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/84/83/d56d3750e88d8c74feed0c6accbf0297e5e5e8f38158c48322e16cdbfc40/posthoganalytics-7.39.2.tar.gz", hash = "sha256:a22ab08897451648e113faff1e1417152fc8e58996882b1264357757bea3cd25", size = 430701, upload-time = "2026-08-20T12:50:17.885Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/11/3302e6195b9f9dba0b912ce6008cbc6ec89e1d15ad94a4532794bc694fab/posthoganalytics-7.39.1-py3-none-any.whl", hash = "sha256:9349851f4c996e6fd2c8defade3aa7d3d8b9677640ccfa316df4c8d074d4c4e9", size = 507626, upload-time = "2026-08-14T13:51:15.76Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/8f/199a053f4a47c8c9e5cc32e8f1ceee8961f080c6870b5c5486646eb1bb7f/posthoganalytics-7.39.2-py3-none-any.whl", hash = "sha256:4a7556cdf51f6514eeb9594c52bfdc46a361b614281851e1b47451a924854bbb", size = 510372, upload-time = "2026-08-20T12:50:16.264Z" },
 ]
 
 [[package]]

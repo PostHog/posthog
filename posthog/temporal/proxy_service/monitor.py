@@ -16,6 +16,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from posthog.dns_utils import dnssec_resolver
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.proxy_record import is_valid_proxy_domain
@@ -127,8 +128,9 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
 
 
 def _resolve_dns(proxy_record: ProxyRecord) -> CheckActivityOutput:
+    resolver = dnssec_resolver()
     try:
-        cnames = dns.resolver.resolve(proxy_record.domain, "CNAME", lifetime=DNS_LOOKUP_LIFETIME_S)
+        cnames = resolver.resolve(proxy_record.domain, "CNAME", lifetime=DNS_LOOKUP_LIFETIME_S)
         value = cnames[0].target.canonicalize().to_text()
         if cnames[0].target == dns.name.from_text(proxy_record.target_cname):
             return CheckActivityOutput(
@@ -148,7 +150,7 @@ def _resolve_dns(proxy_record: ProxyRecord) -> CheckActivityOutput:
         # A likely reason for this is that they have set Cloudflare proxying on.
         # Check for this explicitly to create a nice message for the user.
         try:
-            arecords = dns.resolver.resolve(proxy_record.domain, "A", lifetime=DNS_LOOKUP_LIFETIME_S)
+            arecords = resolver.resolve(proxy_record.domain, "A", lifetime=DNS_LOOKUP_LIFETIME_S)
         except DNS_LOOKUP_FAILURES:
             return CheckActivityOutput(
                 errors=["No CNAME or A record DNS records found"],

@@ -22,6 +22,7 @@ from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
+from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
@@ -337,6 +338,14 @@ async def arun_signals_scout(
         github_guidance = await database_sync_to_async(
             tasks_facade.can_mint_readonly_github_token, thread_sensitive=False
         )(team.id)
+    # Resolved here alongside `github_guidance`, and for the same reason: it forks the prompt, so
+    # the failure and cancellation paths below must report the same shape the run got, and a value
+    # resolved inside `_spawn_and_run` would be missing on exactly the runs that raised before
+    # reaching it. The helper never raises (it swallows read errors to off), so it is safe outside
+    # the try. Whether the business-knowledge section rendered rides on this boolean.
+    business_knowledge_maintained = await database_sync_to_async(
+        _business_knowledge_maintained_for_team, thread_sensitive=False
+    )(team)
     try:
         last_message, task_run_id = await _spawn_and_run(
             team=team,
@@ -348,6 +357,7 @@ async def arun_signals_scout(
             verbose=verbose,
             user_id=user_id,
             github_guidance=github_guidance,
+            business_knowledge_maintained=business_knowledge_maintained,
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
@@ -367,6 +377,7 @@ async def arun_signals_scout(
             config=config,
             skill=skill,
             github_guidance=github_guidance,
+            business_knowledge_maintained=business_knowledge_maintained,
             run_id=run_id,
             task_run_id=task_run_id,
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
@@ -428,6 +439,7 @@ async def arun_signals_scout(
             config=config,
             skill=skill,
             github_guidance=github_guidance,
+            business_knowledge_maintained=business_knowledge_maintained,
             run_id=run_id,
             task_run_id=failed_task_run_id,
             status=tasks_facade.TaskRunStatus.FAILED.value,
@@ -487,6 +499,7 @@ async def arun_signals_scout(
             config=config,
             skill=skill,
             github_guidance=github_guidance,
+            business_knowledge_maintained=business_knowledge_maintained,
             run_id=run_id,
             task_run_id=None,
             status=tasks_facade.TaskRunStatus.CANCELLED.value,
@@ -510,6 +523,26 @@ def _data_catalog_enabled_for_team(team: Team) -> bool:
     """
     try:
         return is_data_catalog_enabled(team)
+    except Exception as error:
+        capture_exception(error)
+        return False
+
+
+def _business_knowledge_maintained_for_team(team: Team) -> bool:
+    """Whether this team's scouts get the business-knowledge section.
+
+    `is_maintained_for_team`, not `is_available_for_team`: the section rides on every run, so a
+    knowledge base a team tried once and abandoned would tax the whole lane forever. Resolved
+    fresh per run so a flag flip, a first finished ingest, or a team returning to curate lands on
+    the next run. Falls back to off on a read error for the same reason
+    `_data_catalog_enabled_for_team` does: the resolved value forks the prompt and is stamped on
+    the run row + both lifecycle events, so a raise would book a failed run and advance the streak
+    over a section the run does not need. Swallowing here also keeps it safe to resolve in
+    `arun_signals_scout` (outside the run's try/except), where the failure and cancellation paths
+    read it back to report the shape the run got.
+    """
+    try:
+        return is_maintained_for_team(team)
     except Exception as error:
         capture_exception(error)
         return False
@@ -540,6 +573,7 @@ async def _spawn_and_run(
     verbose: bool,
     user_id: int,
     github_guidance: bool,
+    business_knowledge_maintained: bool,
     model: str | None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
@@ -627,6 +661,7 @@ async def _spawn_and_run(
         github_read_access=github_guidance,
         data_catalog_enabled=data_catalog_enabled,
         governed_metric_names=governed_metric_names,
+        business_knowledge_maintained=business_knowledge_maintained,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
@@ -660,6 +695,7 @@ async def _spawn_and_run(
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
             github_guidance=github_guidance,
+            business_knowledge_maintained=business_knowledge_maintained,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -671,6 +707,7 @@ async def _spawn_and_run(
             config=config,
             skill=skill,
             github_guidance=github_guidance,
+            business_knowledge_maintained=business_knowledge_maintained,
             run_id=run_id,
             task_run_id=str(task_run.id),
             model=model,
@@ -855,6 +892,7 @@ def _create_run_row(
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
     github_guidance: bool = False,
+    business_knowledge_maintained: bool = False,
 ) -> SignalScoutRun:
     # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
     # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
@@ -889,6 +927,11 @@ def _create_run_row(
     # minted. Both can change between runs, so this is a fourth composition fork rather than a
     # property of the build.
     metadata["github_guidance"] = github_guidance
+    # Whether the business-knowledge section rendered — a fifth composition fork, resolved per run
+    # from the team's flag + a maintained knowledge base (`_business_knowledge_maintained_for_team`).
+    # Both inputs can change between runs, so like `github_guidance` this is stamped rather than
+    # re-derived at read time, letting an eval or A/B compare only runs that got the same prompt.
+    metadata["business_knowledge_maintained"] = business_knowledge_maintained
     # Dispatch-time snapshot of the structured-output contract. The prompt renders this exact
     # schema, so the record endpoint validates against the snapshot rather than the live config
     # value — a mid-run schema edit must not reject records that match what the run was shown.
@@ -1088,6 +1131,7 @@ def _capture_run_started(
     config: SignalScoutConfig,
     skill: LoadedSkill,
     github_guidance: bool,
+    business_knowledge_maintained: bool,
     run_id: Any,
     task_run_id: str,
     model: str | None = None,
@@ -1114,6 +1158,7 @@ def _capture_run_started(
         config=config,
         skill=skill,
         github_guidance=github_guidance,
+        business_knowledge_maintained=business_knowledge_maintained,
         model=model,
         runtime_adapter=runtime_adapter,
     )
@@ -1220,6 +1265,7 @@ def _attach_run_shape_props(
     config: SignalScoutConfig,
     skill: LoadedSkill,
     github_guidance: bool,
+    business_knowledge_maintained: bool,
     model: str | None,
     runtime_adapter: str | None,
 ) -> None:
@@ -1239,6 +1285,7 @@ def _attach_run_shape_props(
     properties["report_channel"] = resolve_report_channel_variant(skill.allowed_tools)
     properties["skill_origin"] = skill.origin
     properties["github_guidance"] = github_guidance
+    properties["business_knowledge_maintained"] = business_knowledge_maintained
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         properties["network_access"] = config.network_access
     if model is not None:
@@ -1253,6 +1300,7 @@ def _capture_run_finished(
     config: SignalScoutConfig,
     skill: LoadedSkill,
     github_guidance: bool,
+    business_knowledge_maintained: bool,
     run_id: Any,
     task_run_id: str | None,
     status: str,
@@ -1296,6 +1344,7 @@ def _capture_run_finished(
         config=config,
         skill=skill,
         github_guidance=github_guidance,
+        business_knowledge_maintained=business_knowledge_maintained,
         model=model,
         runtime_adapter=runtime_adapter,
     )

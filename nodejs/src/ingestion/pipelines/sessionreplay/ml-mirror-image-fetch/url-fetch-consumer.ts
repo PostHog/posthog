@@ -51,7 +51,7 @@ export class UrlFetchConsumer {
         // a 7-second TTL empties the ledger as fast as it fills, so nothing dedups.
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error(
-                `SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS must be an integer of at least 3600, got ` +
+                `AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be an integer of at least 3600, got ` +
                     `${options.seenTtlSeconds} (a unit suffix like "7d" parses as 7: give the value in seconds)`
             )
         }
