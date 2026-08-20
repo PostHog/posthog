@@ -985,6 +985,13 @@ class ClickHousePrinter(BasePrinter):
             return None
         return retention_floor_for_table(node_type, months)
 
+    def _prewhere_needs_demotion(self, main_from_sql: str) -> bool:
+        # ClickHouse accepts PREWHERE only on a table or table function. A subquery source prints
+        # wrapped in parentheses, so treat a leading "(" as the signal to demote. This catches
+        # every subquery rewrite uniformly — the persons argMax dedup, the Parquet reader wrap, and
+        # any future one — without re-deriving each wrap condition here.
+        return main_from_sql.lstrip().startswith("(")
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         table = table_type.table
         if hasattr(table, "to_printed_clickhouse_table_ref"):

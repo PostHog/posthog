@@ -2517,6 +2517,38 @@ class TestPrinter(BaseTest):
             ),
         )
 
+    def test_prewhere_demoted_to_where_on_persons_subquery(self):
+        # The persons lazy table rewrites FROM into an argMax dedup subquery, which cannot carry
+        # PREWHERE. Without demotion, ClickHouse rejects the query with IllegalPrewhere.
+        printed = self._select("select id from persons prewhere id = toUUID('00000000-0000-0000-0000-000000000000')")
+        assert "FROM (SELECT" in printed  # the lazy table rewrote FROM into a subquery
+        assert "PREWHERE" not in printed
+        assert "WHERE " in printed
+
+    @parameterized.expand(["Parquet", "Delta", "DeltaS3Wrapper"])
+    def test_prewhere_demoted_to_where_on_warehouse_subquery(self, fmt: str):
+        from posthog.hogql.database.models import TableNode
+        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+
+        parquet_table = HogQLDataWarehouseTable(
+            name="parquet_table",
+            url="https://example.com/test.parquet",
+            format=fmt,
+            fields={"col1": StringDatabaseField(name="col1")},
+            structure="`col1` String",
+        )
+        db = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="parquet_table", table=parquet_table))
+        db._add_warehouse_tables(root)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query = parse_select("SELECT col1 FROM parquet_table PREWHERE col1 = 'x'")
+        printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        # The Parquet/Delta read is wrapped in a subquery, which cannot carry PREWHERE, so the
+        # clause moves to WHERE. Only the lowercase wrap setting keeps the word "prewhere".
+        assert "PREWHERE" not in printed
+        assert "WHERE " in printed
+
     def test_select_order_by(self):
         self.assertEqual(
             self._select("select event from events order by event"),

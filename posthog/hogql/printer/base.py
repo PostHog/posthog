@@ -367,7 +367,16 @@ class BasePrinter(Visitor[str]):
             if node.window_exprs
             else None
         )
-        prewhere = self.visit(node.prewhere) if node.prewhere else None
+        prewhere_expr = node.prewhere
+        if prewhere_expr is not None and len(joined_tables) > 0 and self._prewhere_needs_demotion(joined_tables[0]):
+            # PREWHERE is legal only on a physical table or table function. When the main FROM
+            # source prints as a subquery — the persons argMax dedup, the Parquet reader wrap, or
+            # any later rewrite — ClickHouse rejects PREWHERE with IllegalPrewhere. PREWHERE is
+            # only a performance hint, so fold it into WHERE and keep the same result.
+            where = prewhere_expr if where is None else ast.And(exprs=[where, prewhere_expr])
+            prewhere_expr = None
+
+        prewhere = self.visit(prewhere_expr) if prewhere_expr else None
         where = self.visit(where) if where else None
         group_by: list[str] | None = None
         if node.group_by:
@@ -542,6 +551,14 @@ class BasePrinter(Visitor[str]):
         ``HogQLPrinter`` returns the HogQL identifier; SQL dialects resolve to real table names.
         """
         raise ImpossibleASTError(f"Unsupported dialect {type(self).__name__}")
+
+    def _prewhere_needs_demotion(self, main_from_sql: str) -> bool:
+        """Return True when PREWHERE must be folded into WHERE for this FROM source.
+
+        Default False: the HogQL dialect round-trips PREWHERE unchanged. SQL dialects that
+        reject PREWHERE on a subquery source override this.
+        """
+        return False
 
     def _render_lazy_table_join_expr(self, node: ast.JoinExpr) -> str:
         """Render a ``LazyTableType`` join target. SQL dialects resolve these before printing."""
