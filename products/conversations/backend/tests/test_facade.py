@@ -9,10 +9,12 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.models import Team
+from posthog.models.comment import Comment
 
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.api import (
     SupportMessageSendError,
+    list_account_ticket_messages,
     list_account_tickets,
     post_support_message,
     trigger_immediate_channel_summary,
@@ -111,6 +113,82 @@ class TestListAccountTickets(BaseTest):
 
         assert [t.id for t in result] == [str(mine.id)]
         assert result[0].deep_link.endswith(f"/project/{self.team.pk}/support/tickets/1")
+
+    def test_returns_latest_public_message_sender(self):
+        ticket = self._create_ticket(
+            team=self.team,
+            organization_id="acct-1",
+            number=1,
+            last_message_at=timezone.now(),
+        )
+        ticket.anonymous_traits = {"name": "Example customer", "email": "customer@example.com"}
+        ticket.save(update_fields=["anonymous_traits"])
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Support reply",
+            item_context={"author_type": "support", "is_private": False},
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Customer reply",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Private note",
+            item_context={"author_type": "support", "is_private": True},
+        )
+
+        result = list_account_tickets(self.team.pk, "acct-1")
+
+        assert result[0].last_message is not None
+        assert result[0].last_message.sender.name == "Example customer"
+        assert result[0].last_message.sender.email == "customer@example.com"
+        assert result[0].last_message.sender.distinct_id == ticket.distinct_id
+        assert result[0].last_message.direction == "inbound"
+
+        message_page = list_account_ticket_messages(self.team.pk, "acct-1", str(ticket.id))
+        assert message_page is not None
+        messages, count = message_page
+        assert count == 3
+        assert [message.content for message in messages] == ["Support reply", "Customer reply", "Private note"]
+        assert [message.direction for message in messages] == ["outbound", "inbound", "outbound"]
+        assert messages[-1].is_private is True
+
+    def test_returns_imported_support_sender_without_a_posthog_user(self):
+        ticket = self._create_ticket(
+            team=self.team,
+            organization_id="acct-1",
+            number=1,
+            last_message_at=timezone.now(),
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Imported support reply",
+            item_context={
+                "author_type": "support",
+                "author_name": "Imported agent",
+                "author_email": "agent@example.com",
+                "is_private": False,
+            },
+        )
+
+        result = list_account_tickets(self.team.pk, "acct-1")
+
+        assert result[0].last_message is not None
+        assert result[0].last_message.sender.name == "Imported agent"
+        assert result[0].last_message.sender.email == "agent@example.com"
+        assert result[0].last_message.direction == "outbound"
 
     def test_orders_by_last_message_activity_with_nulls_last(self):
         older = timezone.now() - timedelta(hours=1)

@@ -31,8 +31,11 @@ from posthog.models import OrganizationMembership
 from products.customer_analytics.backend.facade.api import (
     AccountEmailThreadMessage,
     AccountEmailThreadSummary,
+    ConversationMessageSender,
+    ConversationMessageSummary,
     EmailThreadAddress,
     EmailThreadParticipantSummary,
+    SupportTicketMessage,
     TicketSummary,
 )
 from products.customer_analytics.backend.facade.constants import (
@@ -977,6 +980,66 @@ class AccountChannelSummarySerializer(DataclassSerializer):
         ]
 
 
+class ConversationMessageSenderSerializer(DataclassSerializer):
+    name = serializers.CharField(read_only=True, help_text="Display name of the message sender.")
+    email = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text="Email address of the message sender, when available.",
+    )
+    person_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="UUID of the matched PostHog person, when available.",
+    )
+    distinct_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Distinct ID of the sender, when available.",
+    )
+
+    class Meta:
+        dataclass = ConversationMessageSender
+        ref_name = "ConversationMessageSender"
+        fields = ["name", "email", "person_id", "distinct_id"]
+
+
+class ConversationMessageSummarySerializer(DataclassSerializer):
+    sender = ConversationMessageSenderSerializer(read_only=True, help_text="Sender of the message.")
+    sent_at = serializers.DateTimeField(read_only=True, help_text="Timestamp from the message source.")
+    direction = serializers.ChoiceField(
+        read_only=True,
+        choices=[("inbound", "Inbound"), ("outbound", "Outbound")],
+        help_text="Whether PostHog received or sent the message.",
+    )
+
+    class Meta:
+        dataclass = ConversationMessageSummary
+        ref_name = "ConversationMessageSummary"
+        fields = ["sender", "sent_at", "direction"]
+
+
+class SupportTicketMessageSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the support ticket message.")
+    content = serializers.CharField(read_only=True, allow_blank=True, help_text="Plain-text message content.")
+    author_name = serializers.CharField(read_only=True, help_text="Display name of the message author.")
+    direction = serializers.ChoiceField(
+        read_only=True,
+        choices=[("inbound", "Inbound"), ("outbound", "Outbound")],
+        help_text="Whether PostHog received or sent the message.",
+    )
+    is_private = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the message is an internal note hidden from the customer.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the message was created.")
+
+    class Meta:
+        dataclass = SupportTicketMessage
+        ref_name = "AccountSupportTicketMessage"
+        fields = ["id", "content", "author_name", "direction", "is_private", "created_at"]
+
+
 class SupportTicketSerializer(DataclassSerializer):
     """A support ticket linked to an account, sourced from the conversations product (read-only)."""
 
@@ -988,6 +1051,11 @@ class SupportTicketSerializer(DataclassSerializer):
     )
     last_message_text = serializers.CharField(
         read_only=True, allow_null=True, help_text="Truncated preview of the most recent message."
+    )
+    last_message = ConversationMessageSummarySerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Sender, timestamp, and direction of the latest public message, when available.",
     )
     deep_link = serializers.CharField(read_only=True, help_text="Absolute URL to open this ticket in the app.")
     created_at = serializers.DateTimeField(read_only=True, help_text="When the ticket conversation started.")
@@ -1003,6 +1071,7 @@ class SupportTicketSerializer(DataclassSerializer):
             "status",
             "last_message_at",
             "last_message_text",
+            "last_message",
             "deep_link",
             "created_at",
             "started_by",
@@ -1052,6 +1121,11 @@ class AccountEmailThreadSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Source timestamp of the latest captured message.",
     )
+    last_message = ConversationMessageSummarySerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Sender, timestamp, and direction of the latest captured message, when available.",
+    )
     message_count = serializers.IntegerField(
         read_only=True,
         help_text="Number of captured messages in the thread.",
@@ -1071,6 +1145,7 @@ class AccountEmailThreadSerializer(DataclassSerializer):
             "preview",
             "first_message_at",
             "last_message_at",
+            "last_message",
             "message_count",
             "participants",
         ]

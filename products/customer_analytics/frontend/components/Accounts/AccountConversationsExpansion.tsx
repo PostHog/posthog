@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSupport } from '@posthog/icons'
+import { IconChevronDown, IconLock, IconSupport } from '@posthog/icons'
 import {
     LemonButton,
     LemonCard,
+    LemonCheckbox,
+    LemonDropdown,
     LemonInput,
-    LemonInputSelect,
+    LemonMenu,
+    LemonMenuItems,
     LemonSkeleton,
     LemonTable,
     LemonTableColumns,
@@ -25,6 +28,8 @@ import gmailIcon from 'public/services/gmail.png'
 import type {
     AccountEmailThreadMessageApi,
     AccountEmailThreadParticipantApi,
+    AccountSupportTicketMessageApi,
+    ConversationMessageSummaryApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
@@ -37,11 +42,12 @@ import { accountEmailThreadsLogic } from './accountEmailThreadsLogic'
 import { periodLabel } from './AccountSummariesExpansion'
 import { AccountSummaryCadencePicker } from './AccountSummaryCadencePicker'
 
-const SOURCE_OPTIONS = [
+const SOURCE_OPTIONS: { key: ConversationSource; label: string }[] = [
     { key: 'email', label: 'Gmail' },
     { key: 'support', label: 'Support' },
     { key: 'slack', label: 'Slack' },
 ]
+const VISIBLE_PARTICIPANT_COUNT = 3
 
 function EmptyState({ title, detail }: { title: string; detail: string }): JSX.Element {
     return (
@@ -57,7 +63,7 @@ function SourceIcon({ source }: { source: ConversationSource }): JSX.Element {
     const label = SOURCE_OPTIONS.find((option) => option.key === source)?.label ?? source
     return (
         <Tooltip title={label}>
-            <span className="inline-flex text-lg" aria-label={label}>
+            <span className="inline-flex shrink-0 text-lg" aria-label={label}>
                 {source === 'email' ? (
                     <img src={gmailIcon} alt="" className="size-4 object-contain" />
                 ) : source === 'support' ? (
@@ -67,6 +73,114 @@ function SourceIcon({ source }: { source: ConversationSource }): JSX.Element {
                 )}
             </span>
         </Tooltip>
+    )
+}
+
+function SourceFilter({
+    sources,
+    onChange,
+}: {
+    sources: ConversationSource[]
+    onChange: (sources: ConversationSource[]) => void
+}): JSX.Element {
+    const allSelected = sources.length === SOURCE_OPTIONS.length
+    const label = allSelected
+        ? 'All sources'
+        : sources.length === 1
+          ? (SOURCE_OPTIONS.find((option) => option.key === sources[0])?.label ?? sources[0])
+          : `${sources.length} sources`
+    const items: LemonMenuItems = [
+        {
+            title: 'Sources',
+            items: SOURCE_OPTIONS.map((option) => ({
+                icon: <LemonCheckbox checked={sources.includes(option.key)} className="pointer-events-none" />,
+                label: option.label,
+                onClick: () =>
+                    onChange(
+                        sources.includes(option.key)
+                            ? sources.filter((source) => source !== option.key)
+                            : SOURCE_OPTIONS.map(({ key }) => key).filter(
+                                  (source) => sources.includes(source) || source === option.key
+                              )
+                    ),
+            })),
+        },
+    ]
+
+    return (
+        <LemonMenu items={items} closeOnClickInside={false} placement="bottom-start">
+            <LemonButton
+                type="secondary"
+                size="small"
+                sideIcon={<IconChevronDown />}
+                className="shrink-0"
+                aria-label={allSelected ? 'All sources selected' : `${sources.length} sources selected`}
+                data-attr="account-conversations-source-filter"
+            >
+                {label}
+            </LemonButton>
+        </LemonMenu>
+    )
+}
+
+function ActivityTimestamp({ time }: { time: string }): JSX.Element {
+    return (
+        <span className="self-start text-xs text-muted">
+            <TZLabel time={time} />
+        </span>
+    )
+}
+
+interface ConversationParticipant {
+    key: string
+    name: string
+    email?: string
+    personId?: string | null
+}
+
+function ParticipantList({ participants }: { participants: ConversationParticipant[] }): JSX.Element {
+    const visibleParticipants = participants.slice(0, VISIBLE_PARTICIPANT_COUNT)
+    const hiddenParticipants = participants.slice(VISIBLE_PARTICIPANT_COUNT)
+
+    return (
+        <span className="flex flex-wrap items-center gap-2">
+            {visibleParticipants.map((participant) => (
+                <Person
+                    key={participant.key}
+                    name={participant.name}
+                    email={participant.email}
+                    personId={participant.personId}
+                />
+            ))}
+            {hiddenParticipants.length > 0 && (
+                <LemonDropdown
+                    closeOnClickInside={false}
+                    placement="bottom-start"
+                    overlay={
+                        <div className="flex max-h-80 min-w-56 flex-col gap-2 overflow-y-auto p-3">
+                            {participants.map((participant) => (
+                                <Person
+                                    key={participant.key}
+                                    name={participant.name}
+                                    email={participant.email}
+                                    personId={participant.personId}
+                                />
+                            ))}
+                        </div>
+                    }
+                >
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        noPadding
+                        className="text-muted"
+                        data-attr="account-conversations-participant-overflow"
+                    >
+                        +{hiddenParticipants.length} more
+                    </LemonButton>
+                </LemonDropdown>
+            )}
+        </span>
     )
 }
 
@@ -90,6 +204,54 @@ function EmailParticipant({ participant }: { participant: AccountEmailThreadPart
     )
 }
 
+function LatestMessageActivity({ message }: { message: ConversationMessageSummaryApi }): JSX.Element {
+    const person = (
+        <Person
+            name={message.sender.name || message.sender.email || 'Unknown sender'}
+            email={message.sender.email ?? undefined}
+            personId={message.sender.person_id}
+        />
+    )
+    const sender = message.sender.distinct_id ? (
+        <Link to={urls.personByDistinctId(message.sender.distinct_id)}>{person}</Link>
+    ) : (
+        person
+    )
+
+    return (
+        <span className="flex min-w-0 flex-col gap-0.5">
+            {sender}
+            <span className="flex self-start items-center gap-1 text-xs text-muted">
+                <span>{message.direction === 'inbound' ? 'Inbound' : 'Outbound'}</span>
+                <span>·</span>
+                <ActivityTimestamp time={message.sent_at} />
+            </span>
+        </span>
+    )
+}
+
+function LatestActivity({ conversation }: { conversation: AccountConversation }): JSX.Element {
+    if (conversation.source === 'slack') {
+        return (
+            <span className="flex flex-col gap-0.5">
+                <span>Summary generated</span>
+                <ActivityTimestamp time={conversation.summary.generated_at} />
+            </span>
+        )
+    }
+
+    const lastMessage =
+        conversation.source === 'email' ? conversation.email.last_message : conversation.ticket.last_message
+    if (lastMessage) {
+        return <LatestMessageActivity message={lastMessage} />
+    }
+    return conversation.occurredAt ? (
+        <ActivityTimestamp time={conversation.occurredAt} />
+    ) : (
+        <span className="text-muted">—</span>
+    )
+}
+
 function EmailMessage({ message }: { message: AccountEmailThreadMessageApi }): JSX.Element {
     const outgoing = message.direction === 'outbound'
     return (
@@ -100,7 +262,38 @@ function EmailMessage({ message }: { message: AccountEmailThreadMessageApi }): J
             >
                 <div className="flex items-center justify-between gap-4">
                     <Person name={message.sender.name || message.sender.email} email={message.sender.email} />
-                    <TZLabel time={message.sent_at} />
+                    <ActivityTimestamp time={message.sent_at} />
+                </div>
+                <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
+            </LemonCard>
+        </div>
+    )
+}
+
+function SupportMessage({ message }: { message: AccountSupportTicketMessageApi }): JSX.Element {
+    const outgoing = message.direction === 'outbound'
+    return (
+        <div className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}>
+            <LemonCard
+                hoverEffect={false}
+                className={`flex max-w-3xl flex-col gap-1 p-3 ${
+                    message.is_private
+                        ? 'bg-warning-highlight'
+                        : outgoing
+                          ? 'bg-surface-primary'
+                          : 'bg-surface-secondary'
+                }`}
+            >
+                <div className="flex items-center justify-between gap-4">
+                    <span className="flex items-center gap-1.5">
+                        <span className="font-medium">{message.author_name}</span>
+                        {message.is_private && (
+                            <span className="flex items-center gap-1 text-xs text-warning-dark">
+                                <IconLock /> Private note
+                            </span>
+                        )}
+                    </span>
+                    <ActivityTimestamp time={message.created_at} />
                 </div>
                 <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
             </LemonCard>
@@ -117,26 +310,90 @@ function ConversationDetail({
 }): JSX.Element {
     const emailLogic = accountEmailThreadsLogic({ accountId })
     const { threadDetails, threadDetailsLoading, threadDetailErrors } = useValues(emailLogic)
+    const {
+        expandedSummaryMessageIds,
+        supportTicketMessages,
+        supportTicketMessagesLoading,
+        supportTicketMessageErrors,
+    } = useValues(accountConversationsLogic({ accountId }))
+    const { toggleSummaryMessages } = useActions(accountConversationsLogic({ accountId }))
 
     if (conversation.source === 'slack') {
         return (
-            <LemonCard hoverEffect={false} className="p-4">
+            <div className="flex flex-col gap-4 bg-surface-primary p-4">
                 <LemonMarkdown lowKeyHeadings disableImages disableDocsRedirect>
                     {conversation.summary.content}
                 </LemonMarkdown>
-            </LemonCard>
+                {conversation.summary.messages.length > 0 && (
+                    <div className="flex flex-col gap-2 border-t pt-3">
+                        <LemonButton
+                            type="tertiary"
+                            fullWidth
+                            noPadding
+                            className="justify-between"
+                            sideIcon={
+                                <IconChevronDown
+                                    className={
+                                        expandedSummaryMessageIds[conversation.summary.id] ? 'rotate-180' : undefined
+                                    }
+                                />
+                            }
+                            aria-expanded={!!expandedSummaryMessageIds[conversation.summary.id]}
+                            onClick={() => toggleSummaryMessages(conversation.summary.id)}
+                            data-attr="account-summary-messages-toggle"
+                        >
+                            {conversation.summary.message_count}{' '}
+                            {conversation.summary.message_count === 1 ? 'message' : 'messages'} summarized
+                        </LemonButton>
+                        {expandedSummaryMessageIds[conversation.summary.id] && (
+                            <div className="flex flex-col gap-1">
+                                {conversation.summary.messages.map((message, index) => (
+                                    <Link
+                                        key={`${message.permalink}-${index}`}
+                                        to={message.permalink}
+                                        target="_blank"
+                                        className="flex items-center justify-between gap-4 rounded px-2 py-1 hover:bg-surface-secondary"
+                                    >
+                                        <span className="font-medium">{message.author}</span>
+                                        <ActivityTimestamp time={message.sent_at} />
+                                    </Link>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
         )
     }
     if (conversation.source === 'support') {
+        const messages = supportTicketMessages[conversation.ticket.id]
+        if (
+            supportTicketMessagesLoading[conversation.ticket.id] ||
+            (!messages && !supportTicketMessageErrors[conversation.ticket.id])
+        ) {
+            return <LemonSkeleton className="h-40 w-full" />
+        }
+        if (!messages || supportTicketMessageErrors[conversation.ticket.id]) {
+            return <EmptyState title="Couldn't load this ticket" detail="Collapse it and try again." />
+        }
         return (
-            <LemonCard hoverEffect={false} className="p-4 flex flex-col gap-3">
-                <p className="mb-0 whitespace-pre-wrap">
-                    {conversation.ticket.last_message_text || 'No message preview.'}
-                </p>
-                <LemonButton type="secondary" to={conversation.ticket.deep_link} targetBlank className="self-start">
-                    Open in Support
-                </LemonButton>
-            </LemonCard>
+            <div className="flex flex-col gap-3 bg-surface-primary p-4">
+                <div className="flex justify-end">
+                    <LemonButton type="secondary" to={conversation.ticket.deep_link} targetBlank>
+                        Open in Support
+                    </LemonButton>
+                </div>
+                {messages.results.length > 0 ? (
+                    messages.results.map((message) => <SupportMessage key={message.id} message={message} />)
+                ) : (
+                    <span className="text-sm text-muted">No messages in this ticket yet.</span>
+                )}
+                {messages.count > messages.results.length && (
+                    <span className="text-xs text-muted">
+                        Showing {messages.results.length} of {messages.count} messages.
+                    </span>
+                )}
+            </div>
         )
     }
 
@@ -148,7 +405,7 @@ function ConversationDetail({
         return <EmptyState title="Couldn't load this conversation" detail="Collapse it and try again." />
     }
     return (
-        <div className="flex flex-col gap-2 py-2">
+        <div className="flex flex-col gap-2 bg-surface-primary p-4">
             {detail.results.map((message) => (
                 <EmailMessage key={message.id} message={message} />
             ))}
@@ -225,7 +482,8 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
     const columns: LemonTableColumns<AccountConversation> = [
         {
             title: 'Conversation',
-            key: 'id',
+            key: 'conversation',
+            align: 'left',
             render: (_, conversation) => (
                 <LemonButton
                     type="tertiary"
@@ -235,22 +493,20 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
                     aria-expanded={expandedConversationId === conversation.id}
                     onClick={() => toggleConversation(conversation)}
                 >
-                    <span className="flex flex-col min-w-0 py-1">
-                        <span className="font-medium truncate">{conversationTitle(conversation)}</span>
-                        <span className="text-xs text-muted truncate">{conversationPreview(conversation)}</span>
+                    <span className="flex min-w-0 items-center gap-2 py-1">
+                        <SourceIcon source={conversation.source} />
+                        <span className="flex min-w-0 flex-col">
+                            <span className="font-medium truncate">{conversationTitle(conversation)}</span>
+                            <span className="text-xs text-muted line-clamp-2">{conversationPreview(conversation)}</span>
+                        </span>
                     </span>
                 </LemonButton>
             ),
         },
         {
-            title: 'Source',
-            key: 'source',
-            width: 70,
-            render: (_, conversation) => <SourceIcon source={conversation.source} />,
-        },
-        {
             title: 'Started by',
-            key: 'id',
+            key: 'startedBy',
+            align: 'left',
             render: (_, conversation) => {
                 if (conversation.source === 'email') {
                     const starter = conversation.email.participants[0]
@@ -268,77 +524,52 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
             },
         },
         {
-            title: 'Last message',
-            key: 'occurredAt',
-            width: 145,
-            render: (_, conversation) =>
-                conversation.occurredAt ? (
-                    <TZLabel time={conversation.occurredAt} />
-                ) : (
-                    <span className="text-muted">—</span>
-                ),
+            title: 'Latest activity',
+            key: 'latestActivity',
+            align: 'left',
+            width: 190,
+            render: (_, conversation) => <LatestActivity conversation={conversation} />,
         },
         {
             title: 'Participants',
-            key: 'id',
+            key: 'participants',
+            align: 'left',
             render: (_, conversation) => {
                 if (conversation.source === 'email') {
                     return (
-                        <span className="flex flex-wrap gap-2">
-                            {conversation.email.participants.slice(0, 3).map((participant) => (
-                                <EmailParticipant key={participant.email} participant={participant} />
-                            ))}
-                        </span>
+                        <ParticipantList
+                            participants={conversation.email.participants.map((participant) => ({
+                                key: participant.email,
+                                name: participant.display_name || participant.email,
+                                email: participant.email,
+                                personId: participant.kind === 'customer' ? participant.person_id : null,
+                            }))}
+                        />
                     )
                 }
                 if (conversation.source === 'support') {
                     return <Person name={conversation.ticket.started_by} />
                 }
                 const authors = [...new Set(conversation.summary.messages.map((message) => message.author))]
-                return (
-                    <span className="flex flex-wrap gap-2">
-                        {authors.slice(0, 3).map((author) => (
-                            <Person key={author} name={author} />
-                        ))}
-                    </span>
-                )
+                return <ParticipantList participants={authors.map((author) => ({ key: author, name: author }))} />
             },
-        },
-        {
-            title: 'Last message status',
-            key: 'id',
-            width: 170,
-            render: (_, conversation) =>
-                conversation.source === 'slack' ? (
-                    'Summary generated'
-                ) : (
-                    <span className="text-muted">Not available</span>
-                ),
         },
     ]
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap gap-2">
+            <div className="hide-scrollbar flex items-center gap-4 overflow-x-auto pb-1">
                 <LemonInput
                     type="search"
                     value={searchTerm}
                     onChange={setSearchTerm}
                     placeholder="Search conversations"
-                    className="max-w-md flex-1"
+                    size="small"
+                    className="min-w-56 max-w-md flex-1"
                     data-attr="account-conversations-search"
                 />
-                <LemonInputSelect
-                    mode="multiple"
-                    value={sources}
-                    onChange={(values) => setSources(values as ConversationSource[])}
-                    options={SOURCE_OPTIONS.map((option) => ({ key: option.key, label: option.label }))}
-                    placeholder="All sources"
-                    displayMode="count"
-                    allowCustomValues={false}
-                    data-attr="account-conversations-source-filter"
-                />
-                <div className="flex items-center gap-2 ml-auto">
+                <SourceFilter sources={sources} onChange={setSources} />
+                <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
                     <span className="text-sm text-muted">Slack summary cadence</span>
                     <AccountSummaryCadencePicker accountId={accountId} />
                 </div>

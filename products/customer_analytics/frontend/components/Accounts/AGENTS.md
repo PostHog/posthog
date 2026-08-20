@@ -33,7 +33,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
         ├── (usage)         AccountBillingExpansion kind="usage"     (accountBillingLogic — a saved billing-usage insight)
         ├── (spend)         AccountBillingExpansion kind="spend"     (accountBillingLogic — saved billing-spend insights)
         └── (opportunities) AccountOpportunitiesExpansion            (accountOpportunitiesLogic, keyed by accountId — DWH Salesforce opportunities)
-        └── (conversations) AccountConversationsExpansion             (accountConversationsLogic, keyed by accountId — combined email threads, support tickets, and Slack summaries with search, source filters, and shared expansion behavior)
+        └── (conversations) AccountConversationsExpansion             (accountConversationsLogic, keyed by accountId — combined email threads, support tickets, and Slack summaries; expansions use flat white panels, participant overflow opens the full list, Slack message links are collapsed by default behind a count toggle, Support loads the real ticket thread with its action at top right, and a compact checkbox menu filters sources)
         └── (meetings)      AccountMeetingsExpansion                 (accountMeetingsLogic, keyed by accountId — synced Google Calendar meetings via the accounts/:id/meetings endpoint, plus the matching editor; flag-gated tab, CUSTOMER_ANALYTICS_CSP)
         └── (event_stream)  AccountEventStreamToggle (`../EventStream/`)   flag-gated tab (CUSTOMER_ANALYTICS_CSP); membership toggle for the Slack event stream
 ```

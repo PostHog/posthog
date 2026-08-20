@@ -460,7 +460,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         </tr>
                                     )}
                                     <tr>
-                                        {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
+                                        {
+                                            isRowExpansionToggleShown && (
+                                                <th className="LemonTable__toggle" />
+                                            ) /* Expand/collapse */
+                                        }
                                         {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                             columnGroup.children
                                                 .filter((column) => !column.isHidden)

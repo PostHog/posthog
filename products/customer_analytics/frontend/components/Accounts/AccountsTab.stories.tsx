@@ -478,6 +478,16 @@ export const RowExpandedEmailThreads: Story = {
                     preview: 'I shared the revised timeline with the team.',
                     first_message_at: '2026-05-20T09:00:00Z',
                     last_message_at: '2026-05-20T11:30:00Z',
+                    last_message: {
+                        sender: {
+                            name: 'Alice Anderson',
+                            email: 'alice@posthog.com',
+                            person_id: null,
+                            distinct_id: null,
+                        },
+                        sent_at: '2026-05-20T11:30:00Z',
+                        direction: 'outbound',
+                    },
                     message_count: 2,
                     participants: [
                         {

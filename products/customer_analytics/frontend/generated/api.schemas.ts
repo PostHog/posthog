@@ -476,6 +476,50 @@ export interface PatchedAccountApi {
     readonly updated_at?: string | null
 }
 
+export interface ConversationMessageSenderApi {
+    /** Display name of the message sender. */
+    readonly name: string
+    /**
+     * Email address of the message sender, when available.
+     * @nullable
+     */
+    readonly email: string | null
+    /**
+     * UUID of the matched PostHog person, when available.
+     * @nullable
+     */
+    readonly person_id: string | null
+    /**
+     * Distinct ID of the sender, when available.
+     * @nullable
+     */
+    readonly distinct_id: string | null
+}
+
+/**
+ * * `inbound` - Inbound
+ * * `outbound` - Outbound
+ */
+export type EmailThreadMessageDirectionEnumApi =
+    (typeof EmailThreadMessageDirectionEnumApi)[keyof typeof EmailThreadMessageDirectionEnumApi]
+
+export const EmailThreadMessageDirectionEnumApi = {
+    Inbound: 'inbound',
+    Outbound: 'outbound',
+} as const
+
+export interface ConversationMessageSummaryApi {
+    /** Sender of the message. */
+    readonly sender: ConversationMessageSenderApi
+    /** Timestamp from the message source. */
+    readonly sent_at: string
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+}
+
 /**
  * * `internal` - Internal
  * * `customer` - Customer
@@ -522,6 +566,8 @@ export interface AccountEmailThreadApi {
      * @nullable
      */
     readonly last_message_at: string | null
+    /** Sender, timestamp, and direction of the latest captured message, when available. */
+    readonly last_message: ConversationMessageSummaryApi | null
     /** Number of captured messages in the thread. */
     readonly message_count: number
     /** Participants included in the email thread. */
@@ -543,18 +589,6 @@ export interface AccountEmailThreadAddressApi {
     /** Email address from the email header. */
     readonly email: string
 }
-
-/**
- * * `inbound` - Inbound
- * * `outbound` - Outbound
- */
-export type EmailThreadMessageDirectionEnumApi =
-    (typeof EmailThreadMessageDirectionEnumApi)[keyof typeof EmailThreadMessageDirectionEnumApi]
-
-export const EmailThreadMessageDirectionEnumApi = {
-    Inbound: 'inbound',
-    Outbound: 'outbound',
-} as const
 
 export interface AccountEmailThreadMessageApi {
     /** UUID of the captured email message. */
@@ -707,6 +741,8 @@ export interface SupportTicketApi {
      * @nullable
      */
     readonly last_message_text: string | null
+    /** Sender, timestamp, and direction of the latest public message, when available. */
+    readonly last_message: ConversationMessageSummaryApi | null
     /** Absolute URL to open this ticket in the app. */
     readonly deep_link: string
     /** When the ticket conversation started. */
@@ -715,6 +751,33 @@ export interface SupportTicketApi {
     readonly started_by: string
     /** Distinct ID of the customer who started the ticket. */
     readonly distinct_id: string
+}
+
+export interface AccountSupportTicketMessageApi {
+    /** UUID of the support ticket message. */
+    readonly id: string
+    /** Plain-text message content. */
+    readonly content: string
+    /** Display name of the message author. */
+    readonly author_name: string
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+    /** Whether the message is an internal note hidden from the customer. */
+    readonly is_private: boolean
+    /** When the message was created. */
+    readonly created_at: string
+}
+
+export interface PaginatedAccountSupportTicketMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountSupportTicketMessageApi[]
 }
 
 /**
@@ -2389,6 +2452,17 @@ export type AccountsMeetingsListParams = {
 }
 
 export type AccountsSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AccountsSupportTicketMessagesListParams = {
     /**
      * Number of results to return per page.
      */

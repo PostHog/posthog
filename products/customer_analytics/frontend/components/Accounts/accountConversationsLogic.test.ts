@@ -6,6 +6,7 @@ import { initKeaTests } from '~/test/init'
 import {
     accountsEmailThreadsList,
     accountsSummariesList,
+    accountsSupportTicketMessagesList,
     accountsSupportTicketsList,
 } from 'products/customer_analytics/frontend/generated/api'
 
@@ -15,11 +16,15 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountsEmailThreadsList: jest.fn(),
     accountsSummariesList: jest.fn(),
+    accountsSupportTicketMessagesList: jest.fn(),
     accountsSupportTicketsList: jest.fn(),
 }))
 
 const mockEmailThreads = accountsEmailThreadsList as jest.MockedFunction<typeof accountsEmailThreadsList>
 const mockSummaries = accountsSummariesList as jest.MockedFunction<typeof accountsSummariesList>
+const mockSupportTicketMessages = accountsSupportTicketMessagesList as jest.MockedFunction<
+    typeof accountsSupportTicketMessagesList
+>
 const mockSupportTickets = accountsSupportTicketsList as jest.MockedFunction<typeof accountsSupportTicketsList>
 
 describe('accountConversationsLogic', () => {
@@ -40,6 +45,16 @@ describe('accountConversationsLogic', () => {
                     preview: 'Latest email',
                     first_message_at: '2026-08-01T09:00:00Z',
                     last_message_at: '2026-08-03T09:00:00Z',
+                    last_message: {
+                        sender: {
+                            name: 'Account manager',
+                            email: 'manager@example.com',
+                            person_id: null,
+                            distinct_id: null,
+                        },
+                        sent_at: '2026-08-03T09:00:00Z',
+                        direction: 'outbound',
+                    },
                     message_count: 2,
                     participants: [],
                 },
@@ -52,17 +67,65 @@ describe('accountConversationsLogic', () => {
                 status: 'open',
                 last_message_at: '2026-08-02T09:00:00Z',
                 last_message_text: 'Support preview',
+                last_message: {
+                    sender: {
+                        name: 'Example customer',
+                        email: 'customer@example.com',
+                        person_id: null,
+                        distinct_id: 'customer@example.com',
+                    },
+                    sent_at: '2026-08-02T09:00:00Z',
+                    direction: 'inbound',
+                },
                 deep_link: '/support/tickets/42',
                 created_at: '2026-08-01T09:00:00Z',
                 started_by: 'Example customer',
                 distinct_id: 'customer@example.com',
             },
         ])
-        mockSummaries.mockResolvedValue({
-            count: 0,
+        mockSupportTicketMessages.mockResolvedValue({
+            count: 1,
             next: null,
             previous: null,
-            results: [],
+            results: [
+                {
+                    id: '33333333-3333-3333-3333-333333333333',
+                    content: 'Support reply',
+                    author_name: 'Account manager',
+                    direction: 'outbound',
+                    is_private: false,
+                    created_at: '2026-08-02T10:00:00Z',
+                },
+            ],
+        })
+        mockSummaries.mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [
+                {
+                    id: '22222222-2222-2222-2222-222222222222',
+                    slack_channel_id: 'C012345',
+                    cadence: 'weekly',
+                    period_start: '2026-08-01T00:00:00Z',
+                    period_end: '2026-08-10T00:00:00Z',
+                    content: 'Slack summary',
+                    message_count: 2,
+                    messages: [
+                        {
+                            author: 'Example customer',
+                            sent_at: '2026-08-01T12:00:00Z',
+                            permalink: 'https://example.com/slack/1',
+                        },
+                        {
+                            author: 'Account manager',
+                            sent_at: '2026-08-02T12:00:00Z',
+                            permalink: 'https://example.com/slack/2',
+                        },
+                    ],
+                    generated_at: '2026-08-10T01:00:00Z',
+                },
+            ],
         })
     })
 
@@ -74,9 +137,13 @@ describe('accountConversationsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.filteredConversations.map((conversation) => conversation.source)).toEqual([
+            'slack',
             'email',
             'support',
         ])
+        expect(
+            logic.values.filteredConversations.find((conversation) => conversation.source === 'slack')?.occurredAt
+        ).toBe('2026-08-10T01:00:00Z')
 
         logic.actions.setSearchTerm('support preview')
         expect(logic.values.filteredConversations.map((conversation) => conversation.source)).toEqual(['support'])
@@ -84,5 +151,17 @@ describe('accountConversationsLogic', () => {
         logic.actions.setSearchTerm('')
         logic.actions.setSources(['email'])
         expect(logic.values.filteredConversations.map((conversation) => conversation.source)).toEqual(['email'])
+
+        logic.actions.openConversation('support:ticket-1')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockSupportTicketMessages).toHaveBeenCalledWith('997', 'account-1', 'ticket-1', {
+            limit: 200,
+            offset: 0,
+        })
+        expect(logic.values.supportTicketMessages['ticket-1'].results[0].content).toBe('Support reply')
+
+        expect(logic.values.expandedSummaryMessageIds['22222222-2222-2222-2222-222222222222']).toBeUndefined()
+        logic.actions.toggleSummaryMessages('22222222-2222-2222-2222-222222222222')
+        expect(logic.values.expandedSummaryMessageIds['22222222-2222-2222-2222-222222222222']).toBe(true)
     })
 })

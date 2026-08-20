@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -7,11 +7,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import {
     accountsEmailThreadsList,
     accountsSummariesList,
+    accountsSupportTicketMessagesList,
     accountsSupportTicketsList,
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountChannelSummaryApi,
     AccountEmailThreadApi,
+    PaginatedAccountSupportTicketMessageListApi,
     SupportTicketApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -39,9 +41,13 @@ interface accountConversationsLogicValues {
     conversationsResultLoading: boolean
     currentTeamId: number | null
     expandedConversationId: string | null
+    expandedSummaryMessageIds: Record<string, boolean>
     filteredConversations: AccountConversation[]
     searchTerm: string
     sources: ConversationSource[]
+    supportTicketMessageErrors: Record<string, boolean>
+    supportTicketMessages: Record<string, PaginatedAccountSupportTicketMessageListApi>
+    supportTicketMessagesLoading: Record<string, boolean>
 }
 
 interface accountConversationsLogicActions {
@@ -52,9 +58,16 @@ interface accountConversationsLogicActions {
         conversationsResult: AccountConversationsResult,
         payload?: unknown
     ) => { conversationsResult: AccountConversationsResult; payload?: unknown }
+    loadSupportTicketMessages: (ticketId: string) => { ticketId: string }
+    loadSupportTicketMessagesFailure: (ticketId: string) => { ticketId: string }
+    loadSupportTicketMessagesSuccess: (
+        ticketId: string,
+        messages: PaginatedAccountSupportTicketMessageListApi
+    ) => { ticketId: string; messages: PaginatedAccountSupportTicketMessageListApi }
     openConversation: (conversationId: string) => { conversationId: string }
     setSearchTerm: (searchTerm: string) => { searchTerm: string }
     setSources: (sources: ConversationSource[]) => { sources: ConversationSource[] }
+    toggleSummaryMessages: (summaryId: string) => { summaryId: string }
 }
 
 interface accountConversationsLogicMeta {
@@ -90,6 +103,13 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
         setSources: (sources: ConversationSource[]) => ({ sources }),
         openConversation: (conversationId: string) => ({ conversationId }),
         closeConversation: (conversationId: string) => ({ conversationId }),
+        loadSupportTicketMessages: (ticketId: string) => ({ ticketId }),
+        loadSupportTicketMessagesSuccess: (
+            ticketId: string,
+            messages: PaginatedAccountSupportTicketMessageListApi
+        ) => ({ ticketId, messages }),
+        loadSupportTicketMessagesFailure: (ticketId: string) => ({ ticketId }),
+        toggleSummaryMessages: (summaryId: string) => ({ summaryId }),
     }),
     loaders(({ props, values }) => ({
         conversationsResult: [
@@ -113,7 +133,7 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
                                 (email): AccountConversation => ({
                                     id: `email:${email.id}`,
                                     source: 'email',
-                                    occurredAt: email.last_message_at,
+                                    occurredAt: email.last_message?.sent_at ?? email.last_message_at,
                                     email,
                                 })
                             ),
@@ -121,7 +141,7 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
                                 (ticket): AccountConversation => ({
                                     id: `support:${ticket.id}`,
                                     source: 'support',
-                                    occurredAt: ticket.last_message_at,
+                                    occurredAt: ticket.last_message?.sent_at ?? ticket.last_message_at,
                                     ticket,
                                 })
                             ),
@@ -129,7 +149,7 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
                                 (summary): AccountConversation => ({
                                     id: `slack:${summary.id}`,
                                     source: 'slack',
-                                    occurredAt: summary.period_end,
+                                    occurredAt: summary.generated_at,
                                     summary,
                                 })
                             ),
@@ -155,6 +175,40 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
                 closeConversation: (state, { conversationId }) => (state === conversationId ? null : state),
             },
         ],
+        expandedSummaryMessageIds: [
+            {} as Record<string, boolean>,
+            {
+                toggleSummaryMessages: (state, { summaryId }) => ({
+                    ...state,
+                    [summaryId]: !state[summaryId],
+                }),
+            },
+        ],
+        supportTicketMessages: [
+            {} as Record<string, PaginatedAccountSupportTicketMessageListApi>,
+            {
+                loadSupportTicketMessagesSuccess: (state, { ticketId, messages }) => ({
+                    ...state,
+                    [ticketId]: messages,
+                }),
+            },
+        ],
+        supportTicketMessagesLoading: [
+            {} as Record<string, boolean>,
+            {
+                loadSupportTicketMessages: (state, { ticketId }) => ({ ...state, [ticketId]: true }),
+                loadSupportTicketMessagesSuccess: (state, { ticketId }) => ({ ...state, [ticketId]: false }),
+                loadSupportTicketMessagesFailure: (state, { ticketId }) => ({ ...state, [ticketId]: false }),
+            },
+        ],
+        supportTicketMessageErrors: [
+            {} as Record<string, boolean>,
+            {
+                loadSupportTicketMessages: (state, { ticketId }) => ({ ...state, [ticketId]: false }),
+                loadSupportTicketMessagesSuccess: (state, { ticketId }) => ({ ...state, [ticketId]: false }),
+                loadSupportTicketMessagesFailure: (state, { ticketId }) => ({ ...state, [ticketId]: true }),
+            },
+        ],
     }),
     selectors({
         filteredConversations: [
@@ -169,5 +223,32 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
             },
         ],
     }),
+    listeners(({ actions, props, values }) => ({
+        openConversation: ({ conversationId }) => {
+            if (!conversationId.startsWith('support:')) {
+                return
+            }
+            const ticketId = conversationId.slice('support:'.length)
+            if (!values.supportTicketMessages[ticketId] && !values.supportTicketMessagesLoading[ticketId]) {
+                actions.loadSupportTicketMessages(ticketId)
+            }
+        },
+        loadSupportTicketMessages: async ({ ticketId }) => {
+            try {
+                const messages = await accountsSupportTicketMessagesList(
+                    String(values.currentTeamId),
+                    props.accountId,
+                    ticketId,
+                    { limit: 200, offset: 0 }
+                )
+                actions.loadSupportTicketMessagesSuccess(ticketId, messages)
+            } catch (error) {
+                posthog.captureException(error as Error, {
+                    scope: 'accountConversationsLogic.loadSupportTicketMessages',
+                })
+                actions.loadSupportTicketMessagesFailure(ticketId)
+            }
+        },
+    })),
     afterMount(({ actions }) => actions.loadConversations()),
 ])
