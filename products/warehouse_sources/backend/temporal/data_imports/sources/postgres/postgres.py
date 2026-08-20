@@ -4,9 +4,6 @@ import re
 import math
 import time
 import errno
-import socket
-import ipaddress
-import threading
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -36,6 +33,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 
 from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -45,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
+    restrict_schema_to_columns,
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import (
@@ -772,79 +771,7 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
 
 
-def _is_ip_literal(host: str) -> bool:
-    try:
-        ipaddress.ip_address(host.strip("[]"))
-        return True
-    except ValueError:
-        return False
-
-
-def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> list[str] | None:
-    """Resolve `host` to its addresses under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
-
-    psycopg3 resolves hostnames in Python before libpq ever connects — `conninfo_attempts` calls
-    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved
-    address(es) to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so
-    a stalled or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as
-    long as the OS resolver takes. It never trips `connect_timeout`; the activity instead runs until
-    Temporal's `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a
-    misleading `CancelledError` and burning the whole activity's retry budget. Resolving here turns a
-    stalled resolver into a fast, retryable error instead.
-
-    Returns every resolved address, not just one: when a host resolves to more than one address (most
-    commonly a dual-stack host with both an AAAA and an A record), `Connection.connect` tries each
-    `hostaddr` attempt in turn and only fails once all of them do (see `conninfo_attempts` /
-    `Connection.connect`'s attempt loop) — a network that can't route one address family (e.g. no IPv6
-    egress) still connects via the other. Handing psycopg a single pre-resolved `hostaddr` would
-    collapse that to one attempt and turn an unreachable-address-family blip into a hard failure.
-
-    Returns None when there is nothing to bound — an empty host, a Unix-socket path, or a host that is
-    already an IP literal — and also on a genuine resolution failure, so psycopg connects (and
-    re-raises that failure) exactly as before and the existing "Name or service not known"
-    classification still applies. Only a resolver that exceeds `timeout` becomes an `OperationalError`;
-    its message deliberately avoids the non-retryable "could not translate host name" /
-    "Name or service not known" fragments because a stalled resolver is usually transient.
-    """
-    if not host or host.startswith("/") or _is_ip_literal(host):
-        return None
-
-    addrinfo: list[Any] = []
-    lookup_error: list[BaseException] = []
-
-    def _lookup() -> None:
-        try:
-            addrinfo.extend(socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP, type=socket.SOCK_STREAM))
-        except BaseException as e:  # noqa: BLE001 — surfaced to the caller below via lookup_error
-            lookup_error.append(e)
-
-    # Daemon thread so a stalled getaddrinfo can be abandoned without blocking worker shutdown or
-    # piling up non-daemon threads — the OS resolver bounds the orphaned lookup on its own.
-    thread = threading.Thread(target=_lookup, daemon=True)
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        raise psycopg.OperationalError(f"Timed out resolving database host name after {timeout}s")
-    # A genuine resolution failure falls through to None so psycopg connects and re-raises it,
-    # preserving the existing "Name or service not known" classification.
-    if lookup_error:
-        if isinstance(lookup_error[0], OSError):
-            return None
-        raise lookup_error[0]
-    if not addrinfo:
-        return None
-    # sockaddr[0] is the address string (getaddrinfo types it as str | int across the IPv4/IPv6
-    # tuple variants, so coerce to satisfy the str return type). Dedupe while preserving order —
-    # getaddrinfo can repeat an address across otherwise-distinct tuples (e.g. differing canonical
-    # names), and a duplicate `hostaddr` attempt would just fail the same way twice.
-    seen: set[str] = set()
-    addresses: list[str] = []
-    for info in addrinfo:
-        address = str(info[4][0])
-        if address not in seen:
-            seen.add(address)
-            addresses.append(address)
-    return addresses
+_resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
 
 
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
@@ -1921,7 +1848,7 @@ class SafeTimetzLoader(TimetzLoader):
         return _load_time_clamping_hour_24(super().load, data)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class XminBounds:
     """Bounded xmin window captured once at sync start (see §2.2/§2.3 of the design).
 
@@ -1929,6 +1856,11 @@ class XminBounds:
     full 64-bit `pg_snapshot_xmin` we persist as the durable, wraparound-safe cursor; `num_wraparound`
     is its epoch (high 32 bits). `wraparound_or_range` selects the single-wrap `>= lower OR < upper`
     predicate instead of the steady-state `>= lower AND < upper`.
+
+    `full_scan` drops the window and reads every tuple. A backfill has to do that because tuple
+    `xmin` carries no epoch: on a cluster past its first wraparound the rows written in earlier
+    epochs keep 32-bit xids above the current epoch's remainder, so no `[0, ceiling)` window
+    reaches them.
     """
 
     lower: int
@@ -1936,6 +1868,7 @@ class XminBounds:
     ceiling_xid8: int
     num_wraparound: int
     wraparound_or_range: bool
+    full_scan: bool = False
 
 
 def _capture_xmin_ceiling(
@@ -1966,8 +1899,13 @@ def _capture_xmin_ceiling(
     ceiling_xid = ceiling_xid8 & 0xFFFFFFFF
     num_wraparound = ceiling_xid8 >> 32
 
-    # First run (no stored cursor): read everything `< ceiling` once. `lower = 0` is below
-    # FrozenTransactionId (2) so even frozen tuples are captured by the initial snapshot.
+    # First run (no stored cursor): read the whole table, with no xmin predicate. An
+    # `xmin < ceiling` window silently drops most of the table on a wrapped cluster, because
+    # `ceiling_xid` is only the low 32 bits of the ceiling while historical tuples keep raw xids
+    # above it (since PG 9.4 freezing sets HEAP_XMIN_FROZEN in the infomask and leaves `xmin`
+    # alone instead of rewriting it to FrozenTransactionId, so those xids stay large). The
+    # ceiling is still captured here and persisted after the run, so rows committed during the
+    # scan are re-read next run rather than skipped.
     if stored_last_value is None:
         return XminBounds(
             lower=0,
@@ -1975,6 +1913,7 @@ def _capture_xmin_ceiling(
             ceiling_xid8=ceiling_xid8,
             num_wraparound=num_wraparound,
             wraparound_or_range=False,
+            full_scan=True,
         )
 
     delta = num_wraparound - (stored_num_wraparound or 0)
@@ -1995,14 +1934,19 @@ def _capture_xmin_ceiling(
             num_wraparound=num_wraparound,
             wraparound_or_range=True,
         )
-    # delta >= 2 (or a negative epoch drift): too much churn to reconstruct safely — force a full
-    # re-read of everything `< ceiling`.
+    # delta >= 2 (or a negative epoch drift): too much churn to reconstruct safely, so re-read the
+    # whole table like a backfill does.
     logger.warning(
         f"xmin epoch advanced by {delta} since the last sync (stored={stored_num_wraparound}, "
         f"current={num_wraparound}); forcing a full re-read."
     )
     return XminBounds(
-        lower=0, upper=ceiling_xid, ceiling_xid8=ceiling_xid8, num_wraparound=num_wraparound, wraparound_or_range=False
+        lower=0,
+        upper=ceiling_xid,
+        ceiling_xid8=ceiling_xid8,
+        num_wraparound=num_wraparound,
+        wraparound_or_range=False,
+        full_scan=True,
     )
 
 
@@ -2065,7 +2009,10 @@ def _build_query(
     if incremental_field_type == IncrementalFieldType.XID:
         raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
 
-    if db_incremental_field_last_value is None:
+    # A stored watermark of "" (e.g. a stale/corrupted sync_type_config value) must not become a
+    # literal `''` in the WHERE clause — Postgres rejects casting it against a numeric/date/etc.
+    # column with "invalid input syntax", so treat it the same as no watermark at all.
+    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     # Use the type-aware operator (`>=` for Date) only for single-shot scans. Windowed
@@ -2127,6 +2074,9 @@ def _build_query(
 
 def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
     """Bounded predicate over the cast `xmin` (no ordering operators exist on raw `xid`)."""
+    if bounds.full_scan:
+        # No window is safe across wraparound epochs (see `_capture_xmin_ceiling`), so read it all.
+        return sql.SQL("TRUE").format()
     xmin_expr = sql.SQL("xmin::text::bigint")
     if bounds.wraparound_or_range:
         return sql.SQL("({xmin} >= {lo} OR {xmin} < {hi})").format(
@@ -2192,7 +2142,7 @@ def _build_count_query(
     if incremental_field_type == IncrementalFieldType.XID:
         raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
 
-    if db_incremental_field_last_value is None:
+    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
@@ -3524,7 +3474,10 @@ def postgres_source(
 
                             offset += len(rows)
 
-                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            yield table_from_iterator(
+                                (dict(zip(column_names, row)) for row in rows),
+                                restrict_schema_to_columns(arrow_schema, column_names),
+                            )
 
                             successive_errors = 0
                             successive_conn_errors = 0
@@ -3723,6 +3676,7 @@ def postgres_source(
                             cursor.execute(query)
 
                             column_names = [column.name for column in cursor.description or []]
+                            read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
                             while True:
                                 rows = cursor.fetchmany(chunk_size)
@@ -3731,7 +3685,7 @@ def postgres_source(
 
                                 dicts = [dict(zip(column_names, row)) for row in rows]
                                 del rows
-                                yield table_from_iterator(iter(dicts), arrow_schema)
+                                yield table_from_iterator(iter(dicts), read_schema)
                                 offset += len(dicts)
                     return
                 except psycopg.errors.SerializationFailure as e:

@@ -30,8 +30,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
 
-from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
-from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
+from products.product_analytics.backend.facade.queries import PathsQueryRunner, StickinessQueryRunner
 
 _TIME_SERIES = [EventsNode(event="$pageview")]
 
@@ -153,9 +152,7 @@ class TestDashboardPropertyOverrides(BaseTest):
             ]
         ).model_dump()
 
-        query, effective_filters = resolve_effective_dashboard_filters(
-            query, {"properties": [dashboard_property]}, None
-        )
-        result = apply_dashboard_filters_to_dict(query, effective_filters, self.team)
+        effective = resolve_effective_dashboard_filters(query, {"properties": [dashboard_property]}, None)
+        result = apply_dashboard_filters_to_dict(effective.query, effective.filters, self.team)
 
         assert [prop["value"] for prop in result["series"][0]["properties"]] == ["US"]

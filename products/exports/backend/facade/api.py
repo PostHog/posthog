@@ -1,5 +1,6 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
+from collections.abc import Collection
 from datetime import timedelta
 
 from django.conf import settings
@@ -21,11 +22,12 @@ from products.exports.backend.models.exported_asset import (
     get_content_response,
     save_content_from_file as _save_content_from_file,
 )
+from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext as InvalidExportContext,
     RetryableExportError as RetryableExportError,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -99,6 +101,36 @@ def save_export_asset_content_from_file(
     _save_content_from_file(asset, file_path, max_database_bytes=max_database_bytes)
 
 
+def insight_ids_with_subscriptions(insight_ids: Collection[int]) -> set[int]:
+    """Which of the given insights have a subscription that has not been deleted.
+
+    Paused subscriptions (enabled=False) count: disabling delivery does not withdraw the intent
+    to deliver this insight again.
+    """
+    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
+    # ids to ids and returns no row data.
+    # nosemgrep: idor-lookup-without-team
+    return set(
+        Subscription.objects.filter(insight_id__in=insight_ids, deleted=False).values_list("insight_id", flat=True)
+    )
+
+
+def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]:
+    """Which of the given dashboards have a subscription that has not been deleted.
+
+    Paused subscriptions (enabled=False) count: disabling delivery does not withdraw the intent
+    to deliver this dashboard again.
+    """
+    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
+    # ids to ids and returns no row data.
+    # nosemgrep: idor-lookup-without-team
+    return set(
+        Subscription.objects.filter(dashboard_id__in=dashboard_ids, deleted=False).values_list(
+            "dashboard_id", flat=True
+        )
+    )
+
+
 def _validate_adhoc_export_context(export_context: dict) -> None:
     """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch)
     assumes an InsightVizNode-wrapped source; anything else renders a JSON dump instead
@@ -106,6 +138,24 @@ def _validate_adhoc_export_context(export_context: dict) -> None:
     source = export_context.get("source")
     if not isinstance(source, dict) or source.get("kind") != "InsightVizNode":
         raise ValueError("export_context.source must be an InsightVizNode-wrapped query")
+
+
+def get_delivery_image_url(*, team_id: int, asset_id: int, expiry_delta: timedelta) -> str | None:
+    """Mint a delivery-purposed url for one of the team's own rendered images.
+
+    The token authenticates anonymously and bypasses the org's publicly-shared-resources
+    setting, so it is minted on demand rather than stored anywhere a lower-privileged
+    reader could reach. Callers are responsible for only passing an ``asset_id`` they
+    established server-side; the format and team filters bound the damage if one leaks —
+    an image url can never be turned into a CSV or XLSX download. The manager also
+    excludes assets past their TTL.
+    """
+    asset = ExportedAsset.objects.filter(
+        team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG
+    ).first()
+    if asset is None:
+        return None
+    return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
 
 
 def render_png_export(

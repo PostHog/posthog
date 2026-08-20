@@ -70,6 +70,7 @@ from products.experiments.backend.temporal.models import (
     OUTCOME_SKIPPED,
     CanaryMetricResult,
     CanaryMetricTarget,
+    CanaryOutcome,
     CanaryReportInputs,
     CanaryRunSnapshot,
     CanaryVariantStats,
@@ -224,9 +225,9 @@ def sample_canary_targets_sync(inputs: ExperimentPrecomputeCanaryInputs) -> list
 # ---------------------------------------------------------------------------
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CanaryVerdict:
-    outcome: str
+    outcome: CanaryOutcome
     stability_deviation: float | None = None
     correctness_deviation: float | None = None
     detail: str | None = None
@@ -476,7 +477,7 @@ def _send_slack_alert(divergent: list[CanaryMetricResult], counts: dict[str, int
 
 
 def report_canary_results_sync(report: CanaryReportInputs) -> None:
-    counts = dict.fromkeys(ALL_OUTCOMES, 0)
+    counts: dict[str, int] = dict.fromkeys(ALL_OUTCOMES, 0)
     for result in report.results:
         counts[result.outcome] = counts.get(result.outcome, 0) + 1
 

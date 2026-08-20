@@ -25,7 +25,14 @@ _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_import
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
 
-def _make_schema(*, is_cdc: bool, sync_type_config: dict | None = None, partition_count: int | None = 7) -> MagicMock:
+def _make_schema(
+    *,
+    is_cdc: bool,
+    sync_type_config: dict | None = None,
+    partition_count: int | None = 7,
+    cdc_table_mode: str = "consolidated",
+    initial_sync_complete: bool = True,
+) -> MagicMock:
     config = sync_type_config if sync_type_config is not None else {}
     schema = MagicMock()
     schema.id = uuid.uuid4()
@@ -36,8 +43,8 @@ def _make_schema(*, is_cdc: bool, sync_type_config: dict | None = None, partitio
     schema.last_vacuum_version = config.get("last_vacuum_version")
     schema.last_vacuum_version_cdc = config.get("last_vacuum_version_cdc")
     schema.partition_count = partition_count
-    schema.cdc_table_mode = "consolidated"
-    schema.initial_sync_complete = True
+    schema.cdc_table_mode = cdc_table_mode
+    schema.initial_sync_complete = initial_sync_complete
     return schema
 
 
@@ -68,6 +75,7 @@ async def _run_post_load(
         patch(f"{_LOAD_MODULE}.notify_revenue_analytics_that_sync_has_completed", AsyncMock()),
         patch(f"{_LOAD_MODULE}.sync_revenue_analytics_views", MagicMock()),
         patch(f"{_LOAD_MODULE}.DataWarehouseTable", MagicMock()),
+        patch(f"{_LOAD_MODULE}.set_initial_sync_complete", AsyncMock()),
         patch.object(DeltaMaintenance, "run_scheduled", run_scheduled),
         patch.object(DeltaMaintenance, "compact_table", compact_table),
         patch(f"{_PIPELINE_SYNC_MODULE}.update_last_synced_at", AsyncMock()),
@@ -170,6 +178,44 @@ class TestRunPostLoadDeltaMaintenance:
 
         assert mock_capture.called is expect_capture
         prepare_s3.assert_awaited_once()
+
+
+class TestCdcCompanionSeeding:
+    @parameterized.expand(
+        [
+            # The seed exists for exactly this: the companion starts as the snapshot's rows.
+            ("initial_snapshot_seeds", "both", False, None, True),
+            # The incident this guards: seeding resets the companion table, so re-running it on a
+            # streaming schema throws away every SCD2 version the stream has accumulated. A
+            # redelivered final batch reaches post-load with no write mode (the loader's
+            # already-processed path), which used to be indistinguishable from an initial load.
+            ("streaming_tick_without_write_mode_does_not_reseed", "both", True, None, False),
+            ("cdc_only_streaming_tick_does_not_reseed", "cdc_only", True, None, False),
+            # A consolidated schema has no companion table to seed.
+            ("consolidated_never_seeds", "consolidated", False, None, False),
+            # A companion write is the stream appending to the companion, never a reason to reset it.
+            ("companion_write_never_seeds", "both", False, "scd2_append", False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_seeds_only_on_the_initial_snapshot(
+        self,
+        _name: str,
+        cdc_table_mode: str,
+        initial_sync_complete: bool,
+        cdc_write_mode: str | None,
+        expect_seed: bool,
+    ) -> None:
+        schema = _make_schema(
+            is_cdc=True,
+            cdc_table_mode=cdc_table_mode,
+            initial_sync_complete=initial_sync_complete,
+        )
+
+        with patch(f"{_LOAD_MODULE}._seed_cdc_companion_from_snapshot", AsyncMock()) as seed:
+            await _run_post_load(schema, _make_helper(), cdc_write_mode=cdc_write_mode)
+
+        assert seed.await_count == (1 if expect_seed else 0)
 
 
 class TestGetIncrementalFieldValue:

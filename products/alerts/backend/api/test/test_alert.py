@@ -13,14 +13,21 @@ from rest_framework import status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.product_analytics.backend.facade.models import Insight
+
+TEST_DESTINATION_DELIVERY = AlertDelivery(
+    channel="hog_function", target="Eng alerts", template="slack", at="2026-08-11T00:00:00+00:00"
+)
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):
@@ -62,6 +69,8 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "enabled": True,
             "id": mock.ANY,
             "insight": mock.ANY,
+            "insight_display_name": mock.ANY,
+            "insight_short_id": mock.ANY,
             "last_notified_at": None,
             "name": "alert name",
             "subscribed_users": mock.ANY,
@@ -493,6 +502,189 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert len(checks) == 3
         values = [c["calculated_value"] for c in checks]
         assert 4.0 not in values
+
+    @parameterized.expand(
+        [
+            (
+                "recorded_email_composed_as_accepted",
+                {"users": ["a@example.com"], "destinations": []},
+                [
+                    {
+                        "channel": "email",
+                        "target": "a@example.com",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Email: a@example.com",
+                    }
+                ],
+                True,
+            ),
+            (
+                "row_predating_receipts_is_null_but_still_notified",
+                {"users": ["a@example.com"]},
+                None,
+                True,
+            ),
+            (
+                "hog_function_only_delivery_keeps_truthful_yes",
+                {
+                    "users": [],
+                    "destinations": [
+                        {
+                            "channel": "hog_function",
+                            "target": "Slack #eng-alerts",
+                            "target_id": "hf-1",
+                            "template": "slack",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        }
+                    ],
+                },
+                [
+                    {
+                        "channel": "hog_function",
+                        "target": "Slack #eng-alerts",
+                        "target_id": "hf-1",
+                        "template": "slack",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Slack #eng-alerts",
+                    }
+                ],
+                True,
+            ),
+            (
+                "combined_email_and_destination_row",
+                {
+                    "users": ["a@example.com"],
+                    "destinations": [
+                        {
+                            "channel": "hog_function",
+                            "target": "Slack #eng-alerts",
+                            "target_id": "hf-1",
+                            "template": "slack",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        }
+                    ],
+                },
+                [
+                    {
+                        "channel": "email",
+                        "target": "a@example.com",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Email: a@example.com",
+                    },
+                    {
+                        "channel": "hog_function",
+                        "target": "Slack #eng-alerts",
+                        "target_id": "hf-1",
+                        "template": "slack",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Slack #eng-alerts",
+                    },
+                ],
+                True,
+            ),
+            (
+                "non_slack_destinations_carry_an_id_suffix",
+                {
+                    "users": [],
+                    "destinations": [
+                        {
+                            "channel": "hog_function",
+                            "target": "Discord",
+                            "target_id": "hf-aaaa4f2a",
+                            "template": "discord",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        },
+                        {
+                            "channel": "hog_function",
+                            "target": "Webhook example.com",
+                            "target_id": "hf-bbbb9b17",
+                            "template": "webhook",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        },
+                        {
+                            "channel": "hog_function",
+                            "target": "Slack #eng-alerts",
+                            "target_id": "hf-cccc0000",
+                            "template": "slack",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        },
+                    ],
+                },
+                [
+                    {
+                        "channel": "hog_function",
+                        "target": "Discord",
+                        "target_id": "hf-aaaa4f2a",
+                        "template": "discord",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Discord · 4f2a",
+                    },
+                    {
+                        "channel": "hog_function",
+                        "target": "Webhook example.com",
+                        "target_id": "hf-bbbb9b17",
+                        "template": "webhook",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Webhook example.com · 9b17",
+                    },
+                    {
+                        "channel": "hog_function",
+                        "target": "Slack #eng-alerts",
+                        "target_id": "hf-cccc0000",
+                        "template": "slack",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Slack #eng-alerts",
+                    },
+                ],
+                True,
+            ),
+            (
+                "nothing_recorded_is_null",
+                {},
+                None,
+                False,
+            ),
+        ]
+    )
+    def test_alert_check_deliveries_field(
+        self,
+        _name: str,
+        targets_notified: dict,
+        expected_deliveries: list[dict] | None,
+        expected_targets_notified: bool,
+    ) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "deliveries field test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        check = AlertCheck.objects.create(
+            alert_configuration_id=alert["id"],
+            targets_notified=targets_notified,
+            notification_sent_at=datetime(2026, 8, 11, 0, 0, tzinfo=UTC) if targets_notified else None,
+            state=AlertState.FIRING,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        serialized = next(c for c in response.json()["checks"] if c["id"] == str(check.id))
+        assert serialized["deliveries"] == expected_deliveries
+        assert serialized["targets_notified"] is expected_targets_notified
 
     def test_alert_limit(self) -> None:
         with mock.patch(
@@ -1497,7 +1689,7 @@ class TestAlertTestDelivery(APIBaseTest):
 
     @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
     def test_queues_test_delivery_for_active_destinations_without_changing_alert(self, mock_trigger) -> None:
-        mock_trigger.return_value = True
+        mock_trigger.return_value = [TEST_DESTINATION_DELIVERY]
         self._create_destination()
         self._create_destination()
         self._create_destination(enabled=False)
@@ -1548,7 +1740,9 @@ class TestAlertTestDelivery(APIBaseTest):
         mock_trigger.assert_not_called()
 
     @mock.patch("products.alerts.backend.api.alert.send_test_alert_email", side_effect=RuntimeError("email failed"))
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=True)
+    @mock.patch(
+        "products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=[TEST_DESTINATION_DELIVERY]
+    )
     def test_destination_still_queues_when_email_fails(self, mock_trigger, _mock_email) -> None:
         alert = AlertConfiguration.objects.get(id=self.alert["id"])
         AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
@@ -1564,7 +1758,7 @@ class TestAlertTestDelivery(APIBaseTest):
         }
         mock_trigger.assert_called_once()
 
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=False)
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=[])
     def test_returns_service_unavailable_when_destination_fails_to_queue(self, mock_trigger) -> None:
         self._create_destination()
 
@@ -1786,13 +1980,57 @@ class TestAlertListFilters(APIBaseTest):
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
-    def _create_alert(self, name: str, user=None) -> AlertConfiguration:
+    def _create_alert(
+        self,
+        name: str,
+        user: User | None = None,
+        *,
+        insight_id: int | None = None,
+        detector_config: dict[str, Any] | None = None,
+    ) -> AlertConfiguration:
         return AlertConfiguration.objects.create(
             team=self.team,
-            insight_id=self.insight["id"],
+            insight_id=insight_id if insight_id is not None else self.insight["id"],
             name=name,
             created_by=user or self.user,
+            detector_config=detector_config,
         )
+
+    def test_list_filter_by_insight_tag_and_detector_type(self) -> None:
+        tagged_insight = Insight.objects.get(id=self.insight["id"])
+        set_tags_on_object(["ai-observability"], tagged_insight)
+        untagged_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
+        ).json()
+
+        matching_alert = self._create_alert(
+            "Tagged anomaly alert",
+            detector_config={"type": "zscore", "threshold": 0.9, "window": 30},
+        )
+        threshold_alert = self._create_alert("Tagged threshold alert")
+        untagged_alert = self._create_alert(
+            "Untagged anomaly alert",
+            insight_id=untagged_insight["id"],
+            detector_config={"type": "zscore", "threshold": 0.9, "window": 30},
+        )
+
+        unfiltered_response = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        assert {alert["id"] for alert in unfiltered_response.json()["results"]} == {
+            str(matching_alert.id),
+            str(threshold_alert.id),
+            str(untagged_alert.id),
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/alerts",
+            {"insight_tag": "AI-Observability", "has_detector": "true"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [alert["id"] for alert in results] == [str(matching_alert.id)]
+        assert results[0]["insight_short_id"] == tagged_insight.short_id
+        assert results[0]["insight_display_name"] == "Untitled insight"
 
     def test_list_filter_by_search(self) -> None:
         self._create_alert("Revenue spike")
@@ -1880,6 +2118,7 @@ class TestAlertListFilters(APIBaseTest):
         [
             ("search_length_cap", {"search": "a" * 201}, "search"),
             ("invalid_created_by_uuid", {"created_by": "not-a-uuid"}, "created_by"),
+            ("invalid_has_detector", {"has_detector": "sometimes"}, "has_detector"),
         ]
     )
     def test_list_filter_validation_errors(self, _name: str, query_params: dict[str, str], expected_attr: str) -> None:

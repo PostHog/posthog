@@ -27,8 +27,10 @@ export function getDelayDescription(duration: string): string {
     return `Wait for ${durationText}.`
 }
 
-export function shouldAutoUpdateDescription(description: string): boolean {
+export function shouldAutoUpdateDescription(description: string | undefined): boolean {
+    // Agent-created actions can arrive without a description at all; treat an absent one like empty.
     return (
+        !description ||
         description.trim() === '' ||
         AUTO_DESCRIPTION_REGEX.test(description) ||
         description === LEGACY_DEFAULT_DESCRIPTION
@@ -100,6 +102,12 @@ export interface stepDelayLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   condition: {
@@ -344,6 +352,12 @@ export interface stepDelayLogicActions {
                       name?: string | undefined
                   }[]
                   delay_duration?: string | undefined
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   filters: {

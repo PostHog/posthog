@@ -19,7 +19,14 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import Channel, SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    Channel,
+    SandboxCustomImage,
+    SandboxEnvironment,
+    Task,
+    TaskRun,
+    TaskWorkflowDispatch,
+)
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 
 FACADE_MODULES = [
@@ -407,6 +414,33 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
 
+    def test_run_task_resume_exposes_pending_prompt_to_agent(self):
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": str(previous_run.id),
+                    "pending_user_message": "Continue with the refactor",
+                    "pending_user_artifact_ids": [],
+                },
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        detail = facade.get_task_run_detail(new_run.id, task.id, self.team.id)
+        assert detail is not None
+        self.assertEqual(detail.state["pending_user_message"], "Continue with the refactor")
+
     @parameterized.expand(
         [
             ("ready", SandboxCustomImage.Status.READY, "posthog-sandbox-custom-1-abc:latest", True),
@@ -544,6 +578,39 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         self.assertIn(ancient.id, hard_capped)
         self.assertNotIn(resuming.id, hard_capped)
+
+    def test_cloud_sweep_guard_uses_dispatch_enqueue_time(self):
+        task = self._make_task()
+        now = django_timezone.now()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            environment=TaskRun.Environment.CLOUD,
+        )
+        TaskRun.objects.filter(pk=run.pk).update(
+            created_at=now - timedelta(hours=50), updated_at=now - timedelta(hours=2)
+        )
+        dispatch = TaskWorkflowDispatch.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=run,
+            workflow_id=run.workflow_id,
+            dispatch_kind=TaskWorkflowDispatch.Kind.RESTART,
+            payload={},
+            enqueued_at=now - timedelta(minutes=5),
+        )
+        TaskWorkflowDispatch.objects.for_team(self.team.id).filter(pk=dispatch.pk).update(
+            created_at=now - timedelta(hours=50)
+        )
+
+        stale_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24),
+            limit=100,
+            created_hard_cap=timedelta(hours=48),
+            environment=TaskRun.Environment.CLOUD,
+        )
+
+        self.assertNotIn(run.id, stale_ids)
 
     def test_update_task_run_state(self):
         task = self._make_task()
@@ -756,6 +823,29 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
             self.assertEqual(task.channel.created_by_id, self.user.id)
 
+    @parameterized.expand(
+        [
+            ("public", lambda self: self._make_channel().id, True),
+            ("unknown", lambda _self: uuid4(), False),
+            # Same rule as create_and_run_task above: someone else's "#me" is private,
+            # so filing into it must be refused, not just team-filtered.
+            ("other_users_personal", lambda self: self._make_teammates_personal_channel().id, False),
+        ]
+    )
+    def test_create_channel_task_respects_channel_visibility(self, _name, make_channel_id, expect_filed):
+        channel_id = make_channel_id(self)
+
+        if expect_filed:
+            task_id = facade.create_channel_task(
+                self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
+            )
+            self.assertEqual(Task.objects.get(id=task_id).channel_id, channel_id)
+        else:
+            with self.assertRaises(ValueError):
+                facade.create_channel_task(
+                    self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
+                )
+
     def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
         # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.
         first = facade.ensure_personal_channel_id(self.team.id, self.user.id)
@@ -768,6 +858,12 @@ class TestFacadeReadsAndMappers(TestCase):
                 .values_list("id", flat=True)
             ),
             [first],
+        )
+        # Callers outside Desktop file tasks through here, so an unstamped system space
+        # would escape from this path.
+        self.assertEqual(
+            Channel.objects.unscoped().get(id=first).system_role,
+            Channel.SystemRole.PERSONAL,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

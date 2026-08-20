@@ -74,7 +74,7 @@ from products.feature_flags.backend.api.feature_flag import (
     assert_feature_flag_write_scope,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
     SurveyRates,
@@ -3192,8 +3192,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                         "name": f"{source_survey.name} (duplicated at {duplicate_timestamp})",
                         "description": source_survey.description,
                         "type": source_survey.type,
+                        # Per-question translations are stripped here and restored verbatim after
+                        # validation (see below), for the same reason as the survey-level translations.
                         "questions": [
-                            {k: v for k, v in q.items() if k != "id"} for q in (source_survey.questions or [])
+                            {k: v for k, v in q.items() if k not in ("id", "translations")}
+                            for q in (source_survey.questions or [])
                         ],
                         "appearance": source_survey.appearance,
                         "conditions": cleaned_conditions,
@@ -3226,8 +3229,23 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     new_survey = Survey(
                         team=team,
                         created_by=user,
+                        # Copied outside the serializer so a duplicate is never stricter than its source:
+                        # these values are already sanitized, and surveys with grandfathered language keys
+                        # (which only validate against an existing instance) would otherwise fail to copy.
+                        base_language=source_survey.base_language,
+                        translations=source_survey.translations,
                         **serializer.validated_data,
                     )
+
+                    # Restore per-question translations verbatim. The create serializer grandfathers legacy
+                    # language keys only against an existing instance, so re-validating them here would 400
+                    # a copy the source already saved. Order matches: validate_questions keeps input order.
+                    source_questions = source_survey.questions or []
+                    for index, question in enumerate(new_survey.questions or []):
+                        source_translations = source_questions[index].get("translations")
+                        if source_translations is not None:
+                            question["translations"] = source_translations
+
                     surveys_to_create.append(new_survey)
 
                 for survey in surveys_to_create:

@@ -26,6 +26,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
+from posthog.cdp.internal_events import (
+    LEGACY_INSIGHT_ALERT_EVENT,
+    MANAGED_ALERT_EVENT_PATTERN,
+    is_managed_alert_internal_event,
+)
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -541,6 +546,24 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             self.context.get("view") and self.context["view"].action == "create"
         )
 
+        if not self.context.get("allow_managed_alert_destination"):
+            current_filters = self.instance.filters if isinstance(self.instance, HogFunction) else {}
+            proposed_filters = attrs.get("filters", current_filters)
+            current_is_managed = any(
+                is_managed_alert_internal_event(event_filter.get("id"))
+                for event_filter in (current_filters or {}).get("events", [])
+                if isinstance(event_filter, dict)
+            )
+            proposed_is_managed = any(
+                is_managed_alert_internal_event(event_filter.get("id"))
+                for event_filter in (proposed_filters or {}).get("events", [])
+                if isinstance(event_filter, dict)
+            )
+            if current_is_managed or proposed_is_managed:
+                raise serializers.ValidationError(
+                    {"filters": "Alert notification destinations are managed through the alert API."}
+                )
+
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
         # Existing functions keep working (and can be updated/disabled) if the flag is
@@ -928,6 +951,12 @@ class HogFunctionViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
+        # Managed alert destinations are single-event by construction, so events[0] is sufficient here.
+        queryset = queryset.filter(
+            Q(filters__events__0__id__isnull=True)
+            | Q(filters__events__0__id=LEGACY_INSIGHT_ALERT_EVENT)
+            | ~Q(filters__events__0__id__regex=MANAGED_ALERT_EVENT_PATTERN)
+        )
 
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
             # We only want to include deleted functions if we are un-deleting them
@@ -1078,7 +1107,8 @@ class HogFunctionViewSet(
         transformations during ingestion, `site_*` transpiled to client-side
         JS). A re-enqueued invocation of one of those would never drain and
         wedges the partition, so a rerun of a non-rerunnable type is rejected
-        with a 400 here.
+        with a 400 here. A disabled function is rejected the same way: the
+        worker skips its invocations, so the rerun could never execute.
 
         Because rerun replays historical event/person/group data, it requires
         `person:read` and `group:read` on top of `hog_function:write`.
@@ -1094,6 +1124,10 @@ class HogFunctionViewSet(
                 },
                 status=400,
             )
+
+        # The worker skips invocations of disabled functions, so an enqueued re-run could never execute.
+        if not hog_function.enabled:
+            raise serializers.ValidationError("This function is disabled. Enable it to re-run invocations.")
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

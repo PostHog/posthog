@@ -433,6 +433,10 @@ def object_storage_client() -> ObjectStorageClient:
         s3_config = Config(
             signature_version="s3v4",
             connect_timeout=1,
+            # Bounds socket inactivity, not total transfer time, so slow-but-flowing large
+            # objects still complete; the botocore default leaves callers blocked for 60s
+            # when the store accepts a connection but stops sending bytes.
+            read_timeout=5,
             retries={"max_attempts": 1},
         )
         aws_client = client(
@@ -531,8 +535,8 @@ def read_object(
     return object_storage_client().read_object(bucket, file_name, missing_ok=missing_ok)
 
 
-def list_objects(prefix: str) -> Optional[list[str]]:
-    return object_storage_client().list_objects(bucket=settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+def list_objects(prefix: str, bucket: str | None = None) -> Optional[list[str]]:
+    return object_storage_client().list_objects(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
 
 
 def copy_objects(source_prefix: str, target_prefix: str) -> int:
@@ -559,9 +563,10 @@ def get_presigned_url(
     expiration: int = 3600,
     content_type: Optional[str] = None,
     content_disposition: Optional[str] = None,
+    bucket: str | None = None,
 ) -> Optional[str]:
     return object_storage_client().get_presigned_url(
-        bucket=settings.OBJECT_STORAGE_BUCKET,
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
         file_key=file_key,
         expiration=expiration,
         content_type=content_type,

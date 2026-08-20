@@ -412,6 +412,8 @@ def _write_audit_events(
     caller: GatewayCaller,
     actor_label: str,
     entries: list[tuple[str, str]],
+    credential_owner_id: int | None = None,
+    grant_scope: str = "",
 ) -> None:
     """Best-effort audit trail — a failed insert must never break the proxy."""
     try:
@@ -424,6 +426,8 @@ def _write_audit_events(
                     actor_user_id=caller.user_id,
                     actor_service_account_id=caller.service_account_id,
                     actor_label=actor_label,
+                    credential_owner_id=credential_owner_id,
+                    grant_scope=grant_scope,
                     server_name=gateway_server.name,
                     tool_name=tool_name,
                     decision=decision,
@@ -444,7 +448,15 @@ def proxy_mcp_request(
     caller: GatewayCaller | None = None,
     gateway_server: MCPGatewayServer | None = None,
     actor_label: str = "",
+    credential_owner_id: int | None = None,
+    grant_scope: str = "",
 ) -> HttpResponseBase:
+    """Forward one MCP request upstream, enforcing tool policy and auditing it.
+
+    `credential_owner_id` and `grant_scope` describe the agent grant the call
+    rides, so the audit trail answers whose connection an agent used. Both are
+    empty for member calls, where the actor already is the credential owner.
+    """
     allowed, error = is_url_allowed(installation.url)
     if not allowed:
         logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
@@ -475,7 +487,15 @@ def proxy_mcp_request(
 
     enforcement_response = enforce_tool_approval(installation, data, policy_context, audit_entries)
     if gateway_server is not None and caller is not None and audit_entries:
-        _write_audit_events(installation, gateway_server, caller, actor_label, audit_entries)
+        _write_audit_events(
+            installation,
+            gateway_server,
+            caller,
+            actor_label,
+            audit_entries,
+            credential_owner_id=credential_owner_id,
+            grant_scope=grant_scope,
+        )
     if enforcement_response:
         return enforcement_response
 

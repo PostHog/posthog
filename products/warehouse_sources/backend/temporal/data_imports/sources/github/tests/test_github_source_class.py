@@ -129,6 +129,15 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
+    def test_transient_5xx_error_is_retryable_not_non_retryable(self):
+        # A GithubRetryableError (any transient upstream 5xx) that exhausts _fetch_page's tenacity
+        # retry must stay retryable, so a GitHub-side outage doesn't disable the source.
+        observed_error = "Github API error (retryable): status=503, url=https://api.github.com/repos/o/r/issues"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
     @pytest.mark.parametrize(
         "raised_message,expected_key",
         [
@@ -386,6 +395,33 @@ class TestGithubSource:
         assert schema.webhook_only is True
         assert schema.supports_incremental is False
         assert schema.should_sync_default is True
+
+    @pytest.mark.parametrize("endpoint", ["check_runs", "commit_statuses"])
+    def test_commit_fan_out_schemas_are_webhook_only(self, endpoint):
+        # Both fan out over commits, so any poll mode costs one API call per commit on every sync
+        # against a shared, rate-limited budget. The zero lookback floor is what stops the picker
+        # from offering that mode; if it regressed, a user could select incremental and a large
+        # repository would pay the per-commit fan-out indefinitely. They stay deselected by
+        # default because of their volume, unlike the deploy and review tables.
+        config = _pat_config("acme/widgets")
+        schema = {s.name: s for s in self.source.get_schemas(config, self.team_id)}[endpoint]
+
+        assert schema.supports_webhooks is True
+        assert schema.webhook_only is True
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+        assert schema.should_sync_default is False
+
+    @pytest.mark.parametrize("endpoint", ["issue_comments", "pull_request_comments", "commit_comments"])
+    def test_comment_schemas_stay_pollable_alongside_the_webhook(self, endpoint):
+        # The comment webhooks are a freshness win, not a load guard: their poll is the bootstrap
+        # feed that fills the table before webhook_enabled can flip (it needs initial_sync_complete),
+        # so giving them a zero lookback floor would strand them empty until the first delivery.
+        config = _pat_config("acme/widgets")
+        schema = {s.name: s for s in self.source.get_schemas(config, self.team_id)}[endpoint]
+
+        assert schema.supports_webhooks is True
+        assert schema.webhook_only is False
 
     def test_get_access_token_returns_pat(self):
         config = GithubSourceConfig(

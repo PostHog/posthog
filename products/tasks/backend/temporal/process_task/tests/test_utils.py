@@ -4,7 +4,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.tasks.backend.constants import (
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -35,6 +35,13 @@ from products.tasks.backend.temporal.process_task.utils import (
 
 
 class TestRuntimeModelCapabilities(SimpleTestCase):
+    def test_glm_5_3_supports_claude_reasoning_efforts(self) -> None:
+        assert "zai-org/glm-5.3" in get_models_for_runtime_adapter("claude")
+        assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", "zai-org/glm-5.3")) == (
+            "high",
+            "max",
+        )
+
     def test_kimi_is_known_without_selectable_reasoning_effort(self) -> None:
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
@@ -336,19 +343,20 @@ class TestFetchUserMcpServerConfigs(TestCase):
     TOKEN = "phx_test_token"
     TEAM_ID = 42
     USER_ID = 7
+    CREDENTIAL_OWNER_ID = 99
     API_BASE = "https://us.posthog.com"
 
     MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_installations_for_sandbox"
     MOCK_API_URL = "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url"
 
-    def _make_installation(self, **kwargs) -> ActiveInstallationInfo:
+    def _make_installation(self, **kwargs) -> ActiveInstallation:
         defaults = {
             "id": "abc-123",
             "name": "Linear",
             "proxy_path": f"/api/environments/{self.TEAM_ID}/mcp_server_installations/abc-123/proxy/",
         }
         defaults.update(kwargs)
-        return ActiveInstallationInfo(**defaults)
+        return ActiveInstallation(**defaults)
 
     def _expected_user_headers(self, *, consumer: str = "posthog-code") -> list[dict[str, str]]:
         return [
@@ -371,6 +379,8 @@ class TestFetchUserMcpServerConfigs(TestCase):
             include_personal=True,
             task_origin=None,
             task_agent_key=None,
+            credential_owner_id=None,
+            allowed_gateway_server_ids=None,
         )
         assert configs == [
             McpServerConfig(
@@ -462,14 +472,21 @@ class TestFetchUserMcpServerConfigs(TestCase):
             self.USER_ID,
             origin_product="support_reply",
             task_agent_key="support",
+            credential_owner_id=self.CREDENTIAL_OWNER_ID,
+            allowed_gateway_server_ids=["server-1"],
         )
 
+        # The credential owner is forwarded separately from the acting user: the sandbox acts
+        # as `user_id`, but it may only mount the grants belonging to the owner. The per-scout
+        # allowlist rides along untouched — the facade applies it, not this layer.
         mock_facade.assert_called_once_with(
             self.TEAM_ID,
             user_id=self.USER_ID,
             include_personal=True,
             task_origin="support_reply",
             task_agent_key="support",
+            credential_owner_id=self.CREDENTIAL_OWNER_ID,
+            allowed_gateway_server_ids=["server-1"],
         )
         assert configs == [
             McpServerConfig(
@@ -499,6 +516,8 @@ class TestFetchUserMcpServerConfigs(TestCase):
             include_personal=include_personal,
             task_origin=None,
             task_agent_key=None,
+            credential_owner_id=None,
+            allowed_gateway_server_ids=None,
         )
 
     @patch(MOCK_API_URL)
@@ -1134,6 +1153,22 @@ class TestGetRelayedMcpServerNames(TestCase):
         assert get_relayed_mcp_server_names(task_run, {"grafana"}) == ["Playwright", "internal-cli"]
 
 
+def _gateway_ctx_task() -> tuple[MagicMock, MagicMock]:
+    """Duck ctx/task for build_sandbox_environment_variables' run-context shape."""
+    ctx = MagicMock()
+    ctx.team_id = 1
+    ctx.origin_product = "signals_scout"
+    ctx.state = {}
+    ctx.distinct_id = "distinct-1"
+    ctx.sandbox_environment_id = None
+    task = MagicMock()
+    task.internal = False
+    return ctx, task
+
+
+_CTX, _TASK = _gateway_ctx_task()
+
+
 @patch(
     "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
     return_value="test-jwt-key",
@@ -1144,7 +1179,8 @@ class TestGetRelayedMcpServerNames(TestCase):
 )
 class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
     def _build(self):
-        return build_sandbox_environment_variables(github_token=None, access_token="tok", team_id=1)
+        ctx, task = _gateway_ctx_task()
+        return build_sandbox_environment_variables(github_token=None, access_token="tok", ctx=ctx, task=task)
 
     @override_settings(
         SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com",
@@ -1185,7 +1221,7 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
             SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
             SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
         ):
-            env = build_sandbox_environment_variables(None, "access-token", 1, otel_telemetry_enabled=True)
+            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK, otel_telemetry_enabled=True)
 
         assert env["POSTHOG_AGENT_OTEL_LOGS_URL"] == "https://us.i.posthog.com/i/v1/logs"
         assert env["POSTHOG_AGENT_OTEL_LOGS_TOKEN"] == "phc_telemetry"
@@ -1205,7 +1241,7 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
             SANDBOX_AGENT_OTEL_LOGS_TOKEN=None,
             SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
         ):
-            env = build_sandbox_environment_variables(None, "access-token", 1, otel_telemetry_enabled=True)
+            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK, otel_telemetry_enabled=True)
 
         assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
 
@@ -1223,7 +1259,7 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
             SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
             SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
         ):
-            env = build_sandbox_environment_variables(None, "access-token", 1)
+            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK)
 
         assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
 

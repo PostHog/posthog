@@ -143,9 +143,9 @@ export const DeletePersonOutcomeSchema: GenEnum<DeletePersonOutcome> =
     enumDesc(file_personhog_lifecycle_v1_lifecycle, 0)
 
 /**
- * PersonHogLifecycle runs person-destroying operations (delete now, merge
- * case 3 later) as durable sagas: all saga state lives in the lifecycle_op
- * tables on the persons primary, the service itself stays stateless.
+ * PersonHogLifecycle runs person-destroying operations as durable sagas:
+ * all saga state lives in the lifecycle_op tables on the persons primary,
+ * the service itself stays stateless.
  *
  * Ack semantics: the RPC drives the saga to Completed before responding —
  * an OK response means the operation's sync-plane work is committed and the

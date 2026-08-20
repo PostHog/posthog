@@ -1,6 +1,6 @@
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import field
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID, uuid5
@@ -11,6 +11,8 @@ import httpx
 import structlog
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI, OpenAI
+
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
@@ -205,10 +207,10 @@ def _gateway_misconfig(url: str, api_key: str) -> str | None:
     return None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class AIGatewayConfig:
     url: str
-    api_key: str
+    api_key: str = field(repr=False)
 
 
 def resolve_ai_gateway_config() -> AIGatewayConfig | None:

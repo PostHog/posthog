@@ -111,6 +111,17 @@ membership without adding permissions to Task.
 - Only a Canvas creator can change Canvas metadata or source.
 - Any project member can queue a build for the current source version through `publish-current-version`.
 
+Task sandboxes use the authenticated OAuth token user for the creator boundary across public and personal spaces:
+
+| Canvas space | Token user                    | Read | Write |
+| ------------ | ----------------------------- | ---- | ----- |
+| Public       | Canvas creator                | Yes  | Yes   |
+| Public       | Another user or no token user | Yes  | No    |
+| Personal     | Canvas creator                | Yes  | Yes   |
+| Personal     | Another user or no token user | No   | No    |
+
+An exact task-to-Canvas link does not grant additional write access. Canvas creation remains limited to the bound task's space.
+
 ### `/api/projects/{id}/tasks/{task_id}/thread_messages/`
 
 - `GET /` — thread messages, ascending `created_at` (paginated).

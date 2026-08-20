@@ -9,6 +9,8 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
+    from products.warehouse_sources.backend.facade.hooks import RevenueViewSyncInput
+
 
 class RevenueAnalyticsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
@@ -21,12 +23,12 @@ class RevenueAnalyticsConfig(AppConfig):
         # to keep the revenue views/orchestrator off the django.setup() path.
         from products.warehouse_sources.backend.facade.hooks import register_revenue_view_sync
 
-        def _sync_revenue_views(schema: object, source: object) -> None:
+        def _sync_revenue_views(sync_input: "RevenueViewSyncInput") -> None:
             from products.revenue_analytics.backend.warehouse_view_sync import (  # noqa: PLC0415
                 sync_revenue_analytics_views,
             )
 
-            sync_revenue_analytics_views(schema, source)  # type: ignore[arg-type]
+            sync_revenue_analytics_views(sync_input)
 
         register_revenue_view_sync(_sync_revenue_views)
 

@@ -476,6 +476,7 @@ class TestFormatEventsPrompt(BaseTest):
         mock_runner_class.assert_called_once_with(TeamTaxonomyQuery(), self.team, user=self.user)
         mock_runner_class.return_value.run.assert_called_once_with(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+            user=self.user,
             analytics_props=ANY,
         )
 

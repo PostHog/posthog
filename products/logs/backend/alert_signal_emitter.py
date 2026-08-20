@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from typing import Literal
 
 from django.conf import settings
 
@@ -16,11 +17,13 @@ logger = structlog.get_logger(__name__)
 SOURCE_PRODUCT = "logs"
 SOURCE_TYPE = "alert_state_change"
 
+AlertSignalAction = Literal["firing", "broken"]
+
 # Notification -> (action label, weight). Only FIRE and BROKEN are signalled —
 # both are investigate-now (weight 1.0). RESOLVE (rarely worth investigating) and
 # ERROR (transient — the real signal is the eventual BROKEN auto-disable) are
 # intentionally absent, so signal_action_and_weight returns None for them.
-_ACTION_WEIGHT: dict[NotificationAction, tuple[str, float]] = {
+_ACTION_WEIGHT: dict[NotificationAction, tuple[AlertSignalAction, float]] = {
     NotificationAction.FIRE: ("firing", 1.0),
     NotificationAction.BROKEN: ("broken", 1.0),
 }
@@ -36,7 +39,7 @@ class NotifiedAlert:
     alert_id: str
     team_id: int
     alert_name: str
-    action: str  # firing | broken
+    action: AlertSignalAction
     weight: float
     threshold_count: int
     threshold_operator: str
@@ -46,7 +49,7 @@ class NotifiedAlert:
     filters: dict
 
 
-def signal_action_and_weight(notification: NotificationAction) -> tuple[str, float] | None:
+def signal_action_and_weight(notification: NotificationAction) -> tuple[AlertSignalAction, float] | None:
     """Map a NotificationAction to (action label, weight), or None if not signalable."""
     return _ACTION_WEIGHT.get(notification)
 

@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
     name: string;
     channelType: "public" | "personal";
     starred: boolean;
+    repositories: string[];
+    createdBy: null;
   }[],
   tasks: [] as {
     id: string;
@@ -112,7 +114,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import {
-  consumeKeepListForNextRoute,
+  shouldKeepListForRoute,
   showChannelList,
   showChannelPane,
   useChannelPaneStore,
@@ -130,18 +132,24 @@ const ME = {
   name: "me",
   channelType: "personal" as const,
   starred: false,
+  repositories: [],
+  createdBy: null,
 };
 const ENG = {
   id: "eng-id",
   name: "engineering",
   channelType: "public" as const,
   starred: false,
+  repositories: [],
+  createdBy: null,
 };
 const DESIGN = {
   id: "design-id",
   name: "design",
   channelType: "public" as const,
   starred: false,
+  repositories: [],
+  createdBy: null,
 };
 
 function renderList() {
@@ -198,16 +206,16 @@ describe("ChannelsList", () => {
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
-  it("pins #me above the channels, with its ⌘1 shortcut", () => {
+  it("pins personal above the channels, with its ⌘1 shortcut", () => {
     renderList();
-    const me = screen.getByText("me");
+    const me = screen.getByText("personal");
     const eng = screen.getByText("engineering");
     expect(
       me.compareDocumentPosition(eng) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     // ChannelHotkeys binds ⌘1-9 to the same slots; the list is where they're
     // advertised now that the switcher popover is gone.
-    expect(me.parentElement?.textContent).toMatch(/me(⌘|Ctrl)/);
+    expect(me.parentElement?.textContent).toMatch(/personal(⌘|Ctrl)/);
   });
 
   describe("group headings", () => {
@@ -236,7 +244,7 @@ describe("ChannelsList", () => {
 
       expect(screen.getByText("engineering")).toBeTruthy();
       expect(screen.queryByText("design")).toBeNull();
-      expect(screen.queryByText("me")).toBeNull();
+      expect(screen.queryByText("personal")).toBeNull();
     });
 
     // Grouping is for browsing; once you've named what you want, "Starred" and
@@ -259,7 +267,9 @@ describe("ChannelsList", () => {
       mocks.channelsLayout = false;
       renderList();
       expect(screen.queryByLabelText("Search spaces")).toBeNull();
-      expect(screen.getByText("me").parentElement?.textContent).toBe("me");
+      expect(screen.getByText("personal").parentElement?.textContent).toBe(
+        "personal",
+      );
     });
 
     it("says so when nothing matches", async () => {
@@ -449,7 +459,7 @@ describe("ChannelsList", () => {
       expect(useChannelPaneStore.getState().pane).toBe("list");
       // The other half of it: the route effect in ChannelsSidebar slides into
       // the space unless the navigation says to stay put.
-      expect(consumeKeepListForNextRoute()).toBe(true);
+      expect(shouldKeepListForRoute(ENG.id)).toBe(true);
       // Still scoped, so whatever asks for the channel pane next opens on the
       // space the session came from.
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);

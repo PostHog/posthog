@@ -28,6 +28,8 @@ from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.models.integration import Integration, SlackIntegration
@@ -217,6 +219,95 @@ def _thread_replies_cache_key(integration_id: int, channel: str, thread_ts: str)
     return f"slack_thread_replies:{integration_id}:{channel}:{thread_ts}"
 
 
+def _message_exists_cache_key(channel: str, ts: str) -> str:
+    # Keyed on the Slack coordinates rather than the integration: the message either
+    # exists in that channel or it doesn't, regardless of which install is asking.
+    return f"slack_message_exists:{channel}:{ts}"
+
+
+def slack_message_exists(
+    client: WebClient,
+    channel: str,
+    ts: str,
+    *,
+    ttl: int = THREAD_REPLIES_CACHE_TTL_SECONDS,
+) -> bool:
+    """Whether a Slack message is still there.
+
+    Asked with a one-message window on `ts` itself: Slack answers with that message when
+    it is there and an empty list when it isn't. `conversations.replies` would answer a
+    different question — its result also depends on whether a thread was ever started and
+    on how Slack represents a deleted parent.
+
+    Cached on the same short TTL as the thread snapshot: a burst of relay chunks for one
+    reply collapses onto a single `conversations.history` call, while a message deleted
+    mid-run is noticed within seconds.
+    """
+    key = _message_exists_cache_key(channel, ts)
+    cached = cache.get(key)
+    if cached is not None:
+        return bool(cached)
+
+    try:
+        response = client.conversations_history(channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
+        exists = bool(response.get("messages"))
+    except Exception:
+        # Rate limits, transient 5xx, a scope we happen to lack — none of these are
+        # evidence the message is gone, and treating them as such would silence real
+        # replies. Fail open and let the post itself surface any real problem.
+        logger.warning("slack_app_message_exists_probe_failed", channel=channel, ts=ts, exc_info=True)
+        return True
+
+    try:
+        cache.set(key, exists, timeout=ttl)
+    except Exception:
+        logger.warning("slack_app_message_exists_cache_set_failed", channel=channel, ts=ts, exc_info=True)
+    return exists
+
+
+def post_slack_thread_reply(
+    client: WebClient,
+    *,
+    channel: str,
+    thread_ts: str | None,
+    trigger_ts: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Post a reply once confirmed the message it answers still exists.
+
+    The single funnel for every `@PostHog` reply. A deleted prompt has nobody left to
+    answer, and replies to one were seen landing at channel level rather than in the
+    thread. Returns ``None`` when nothing was posted.
+
+    Where the reply goes and what it answers are separate questions. ``thread_ts`` places
+    it — falsy posts at channel root, which some replies do deliberately because a
+    thread-anchored one is invisible to anyone not already reading that thread.
+    ``trigger_ts`` is the message being answered, and defaults to the anchor. Pass it
+    whenever the two differ, or a root-placed reply would go out unchecked.
+
+    With neither set there is nothing to check — a slash command creates no message — so
+    the reply posts unconditionally.
+    """
+    check_ts = trigger_ts or thread_ts
+    if check_ts and not slack_message_exists(client, channel, check_ts):
+        logger.warning(
+            "slack_app_thread_reply_skipped_message_deleted",
+            channel=channel,
+            thread_ts=thread_ts,
+            trigger_ts=trigger_ts,
+        )
+        return None
+    if thread_ts:
+        return client.chat_postMessage(channel=channel, thread_ts=thread_ts, **kwargs)
+    return client.chat_postMessage(channel=channel, **kwargs)
+
+
+# `conversations.replies` answers `thread_not_found` for a ts that no longer resolves to a
+# message; `message_not_found` is carried alongside it because Slack uses that spelling on
+# neighbouring methods and the two mean the same thing here.
+_MISSING_THREAD_ERRORS = frozenset({"thread_not_found", "message_not_found"})
+
+
 def collect_thread_messages(
     slack: SlackIntegration,
     integration: Integration,
@@ -224,10 +315,23 @@ def collect_thread_messages(
     thread_ts: str,
     our_bot_id: str | None,
 ) -> list[dict[str, str]]:
-    """Fetch thread messages, strip bot mentions, and resolve user display names."""
+    """Fetch thread messages, strip bot mentions, and resolve user display names.
+
+    A thread whose root no longer exists — the user deleted the message that triggered
+    us — comes back empty rather than raising. Callers read an empty thread as "nothing
+    to do"; letting `thread_not_found` escape instead would exhaust the activity's
+    retries and land in the workflow's error handler, which announces the failure in
+    Slack. There is nothing to announce: the prompt was retracted.
+    """
     client = slack.client
     client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
-    thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
+    try:
+        thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
+    except SlackApiError as e:
+        if e.response.get("error") not in _MISSING_THREAD_ERRORS:
+            raise
+        logger.warning("slack_app_thread_message_deleted", channel=channel, thread_ts=thread_ts)
+        return []
     raw_messages: list[dict] = thread_response.get("messages", [])
 
     user_cache: dict[str, str] = {}
@@ -329,11 +433,6 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
         )
 
 
-# The scheme a production desktop install registers. Dev builds register
-# `posthog-code-dev://` instead, which the server can't tell apart from here, so links
-# minted server-side always target the production build.
-DESKTOP_URL_SCHEME = "posthog-code"
-
 # Query param a link we compose can carry to tell our own unfurler to leave it alone
 # (honoured by `parse_posthog_resource_link`).
 UNFURL_OPT_OUT_PARAM = "unfurl"
@@ -386,9 +485,11 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
         state = parse_run_state(run.state)
         return RunFooter(
             task_url=_task_url(run.team_id, run.task_id, run.id),
-            # Task-scoped, matching the desktop app's own task route — the run id has no
-            # equivalent there.
-            desktop_url=f"{DESKTOP_URL_SCHEME}://task/{run.task_id}",
+            # The web bridge page, not the raw `posthog-code://` scheme: it redirects into the
+            # desktop app when installed and offers a download when not, so a reader without
+            # the app lands somewhere useful instead of a dead link. It also picks the right
+            # scheme (prod vs dev) client-side, which a server-minted scheme link can't.
+            desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
         )
@@ -447,7 +548,17 @@ def app_home_url(integration: Integration) -> str | None:
 def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
     # says what the card would, right next to the link.
-    path = f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false"
+    return _public_url(f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false")
+
+
+def _desktop_bridge_url(task_id: UUID) -> str:
+    # `/code/task/<id>` is the public bridge scene (see `CodeTaskLink`), not the desktop
+    # app's own route. `unfurl=false` keeps our unfurler off it — the footer already names
+    # the run right beside the link.
+    return _public_url(f"/code/task/{task_id}?{UNFURL_OPT_OUT_PARAM}=false")
+
+
+def _public_url(path: str) -> str:
     # Mirrors the Slack onboarding links: in local dev the tunnel is what makes a link
     # posted into Slack actually reachable.
     if settings.DEBUG and settings.NGROK_URL:

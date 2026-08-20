@@ -361,7 +361,7 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
 /// external effect and a same-op re-fence is a re-seal returning fresh
 /// state, so the fan-out is safe to repeat; the sealed values and the step
 /// CAS commit together afterwards. The sealed jsonb records `created_at`
-/// (epoch seconds, as the leader seals it) alongside `version`; its
+/// (epoch milliseconds, as the leader seals it) alongside `version`; its
 /// presence is what marks a victim as fenced when the release runs.
 ///
 /// A victim the leader reports NOT_FOUND vanished between the claim

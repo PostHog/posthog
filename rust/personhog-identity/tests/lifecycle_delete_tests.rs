@@ -21,14 +21,12 @@ use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePerso
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
     fn lifecycle_service(&self) -> PersonHogLifecycleService {
-        PersonHogLifecycleService::new(
-            Arc::new(self.engine()),
-            Arc::new(SimLeader::new(
-                self.pool.clone(),
-                self.tables.person.clone(),
-            )),
-            self.tables.clone(),
-        )
+        let engine = Arc::new(self.engine());
+        let leader = Arc::new(SimLeader::new(
+            self.pool.clone(),
+            self.tables.person.clone(),
+        ));
+        PersonHogLifecycleService::new(engine, leader.clone(), self.tables.clone())
     }
 
     /// (is_deleted, version, properties) of a person row.

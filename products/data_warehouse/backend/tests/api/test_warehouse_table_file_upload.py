@@ -1,5 +1,5 @@
 import io
-import socket
+import ipaddress
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -243,9 +243,12 @@ class TestCreateTableFromUpload(APIBaseTest):
         table = DataWarehouseTable.objects.get(id=created.json()["id"])
         original_url_pattern = table.url_pattern
 
-        with patch(
-            "products.warehouse_sources.backend.models.util.socket.getaddrinfo",
-            return_value=[(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 0))],
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch(
+                "posthog.security.url_validation.resolve_host_ips",
+                return_value={ipaddress.ip_address("93.184.216.34")},
+            ),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_tables/{table.id}",

@@ -36,6 +36,11 @@ import { SlotMachineSubmit } from "./SlotMachineSubmit";
 
 export type { EditorHandle };
 
+// How long the send button holds its own busy state when the surface never
+// reports one — long enough to register as a press, short enough that a send
+// the surface silently refuses doesn't strand the spinner.
+const SUBMIT_PRESS_FEEDBACK_MS = 800;
+
 export interface PromptInputProps {
   sessionId: string;
   placeholder?: string;
@@ -46,6 +51,8 @@ export interface PromptInputProps {
   isActiveSession?: boolean;
   submitDisabledExternal?: boolean;
   clearOnSubmit?: boolean;
+  /** What the composer starts from when this session has no draft yet. */
+  initialContent?: string;
   // session context
   taskId?: string;
   repoPath?: string | null;
@@ -58,14 +65,6 @@ export interface PromptInputProps {
    * last item (new-task composer only). `active` drives its checkmark.
    */
   autoresearch?: {
-    active: boolean;
-    onToggle: () => void;
-  };
-  /**
-   * When provided, the mode dropdown gains a "Canvas" toggle (channels
-   * composer only). `active` drives its checkmark and the trigger label.
-   */
-  canvas?: {
     active: boolean;
     onToggle: () => void;
   };
@@ -145,13 +144,13 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       isActiveSession = true,
       submitDisabledExternal = false,
       clearOnSubmit,
+      initialContent,
       taskId,
       repoPath,
       modeOption,
       onModeChange,
       allowBypassPermissions = false,
       autoresearch,
-      canvas,
       enableBashMode = false,
       enableCommands = true,
       modelSelector,
@@ -237,6 +236,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       isLoading,
       autoFocus,
       clearOnSubmit,
+      initialContent,
       context: { taskId, repoPath: repoPath ?? undefined },
       capabilities: {
         bashMode: enableBashMode,
@@ -390,13 +390,35 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       e.stopPropagation();
     }, []);
 
+    // Instant press feedback. Every surface that owns this composer flips its
+    // own busy flags only after a round trip (a usage pre-flight, a worktree
+    // probe, the send itself), so without this the button sits inert on click.
+    const [pressedSubmit, setPressedSubmit] = useState(false);
+    const surfaceBusy = disabled || isLoading || submitDisabledExternal;
+
     const doSubmit = useCallback(() => {
+      setPressedSubmit(true);
       if (onSubmitClick) {
         onSubmitClick();
       } else {
         submit();
       }
     }, [onSubmitClick, submit]);
+
+    // Hand over as soon as the surface reports busy itself, so the two states
+    // never fight over the button.
+    useEffect(() => {
+      if (!pressedSubmit) return;
+      if (surfaceBusy) {
+        setPressedSubmit(false);
+        return;
+      }
+      const timer = setTimeout(
+        () => setPressedSubmit(false),
+        SUBMIT_PRESS_FEEDBACK_MS,
+      );
+      return () => clearTimeout(timer);
+    }, [pressedSubmit, surfaceBusy]);
 
     const handleSubmitClick = (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -408,9 +430,15 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     // that is not running, a compacting Pi session), and the editor cannot be
     // typed into, so a live send button only invites a click that misfires.
     const submitBlocked = disabled || submitDisabledExternal || isEmpty;
-    const submitTooltip =
-      submitTooltipOverride ??
-      (submitBlocked ? "Enter a message" : "Send message");
+    // A surface that is loading *and* locked out of typing is working on the
+    // send itself, so the button keeps spinning until it lands. A surface that
+    // is loading but still typeable is mid-turn and accepting queued messages,
+    // where send has to stay live.
+    const submitBusy = pressedSubmit || (disabled && isLoading);
+    const submitTooltip = submitBusy
+      ? "Sending"
+      : (submitTooltipOverride ??
+        (submitBlocked ? "Enter a message" : "Send message"));
 
     // Stop takes priority over everything: you cancel a run, you don't gamble
     // on it. With slot machine mode on, the send affordance moves out to the
@@ -437,7 +465,8 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
           variant="primary"
           size="icon"
           onClick={handleSubmitClick}
-          disabled={submitBlocked}
+          disabled={submitBlocked || submitBusy}
+          loading={submitBusy}
           aria-label="Send message"
           className="rounded-xs"
           {...(tourTarget && { "data-tour": `${tourTarget}-submit` })}
@@ -486,7 +515,6 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
                 allowBypassPermissions={allowBypassPermissions}
                 disabled={disabled}
                 autoresearch={autoresearch}
-                canvas={canvas}
               />
             )}
             {isBashMode && (
@@ -574,7 +602,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
         </InputGroup>
         {slotMachineMode && !inStopMode && (
           <SlotMachineSubmit
-            disabled={submitBlocked}
+            disabled={submitBlocked || submitBusy}
             onSubmit={doSubmit}
             tourTarget={tourTarget}
           />

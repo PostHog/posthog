@@ -39,6 +39,11 @@ export function classifyAgentError(
   if (/API Error:\s*Connection error\b/i.test(text)) {
     return "upstream_connection_error";
   }
+  // An idle cloud sandbox can be reclaimed between turns. A later follow-up
+  // reaches the old ACP transport before the host resumes a replacement run.
+  if (/^ACP connection closed$/i.test(text)) {
+    return "upstream_connection_error";
+  }
   if (/API Error:.*\b(?:timed out|timeout)\b/i.test(text)) {
     return "upstream_timeout";
   }

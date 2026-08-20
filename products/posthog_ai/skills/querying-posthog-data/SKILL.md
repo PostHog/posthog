@@ -30,7 +30,7 @@ When the user wants analytics data (trends, funnels, retention, paths, sessions,
 
 When the user asks for a governed business number (MRR, activation rate, active users, ...), check the data catalog's semantic layer before deriving it from raw data — the project may have a canonical, human-approved definition to reuse instead of guessing.
 
-1. Look for a canonical metric with `posthog:execute-sql` (there is no list tool). The table is usually empty; an empty result just means no governed definition exists, so derive the number normally.
+1. Look for a canonical metric with `posthog:execute-sql` (there is no list tool). Do this before the first `query-*` or `execute-sql` call that would produce the number. An empty result means no governed definition exists, and an unknown-table error means this project has no data catalog at all; either way, derive the number yourself and label it noncanonical.
 
    ```sql
    SELECT name, description, status, is_drifted, definition_kind, unit
@@ -56,7 +56,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Batch exports](./references/models-batch-exports.md)
 - [Early Access Features](./references/models-early-access-features.md)
 - [Cohorts & Persons](./references/models-cohorts.md)
-- [Customer analytics accounts, relationships (CSM, account owner) & custom properties (`system.accounts`, `system.account_relationships`)](./references/models-customer-analytics.md)
+- [Customer analytics accounts, relationships, custom properties & feature requests (`system.accounts`, `system.feature_requests`)](./references/models-customer-analytics.md)
 - [Dashboards, Tiles & Insights](./references/models-dashboards-insights.md)
 - [Data Warehouse](./references/models-data-warehouse.md)
 - [Data Modeling Endpoints](./references/models-endpoints.md)

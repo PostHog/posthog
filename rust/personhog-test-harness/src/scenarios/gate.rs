@@ -10,7 +10,7 @@ use sqlx::postgres::PgPool;
 
 use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 
-use crate::cli::GateArgs;
+use crate::cli::{GateArgs, DEFAULT_KEYS_PER_PERSON};
 use crate::client::{HarnessClient, IdentityClient};
 use crate::report::print_report;
 use crate::scenarios::{blast, consistency};
@@ -279,7 +279,11 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 duration,
                 concurrency,
                 None,
-                "harness_gate_",
+                &blast::PropertyPlan::new(
+                    "harness_gate_".to_string(),
+                    DEFAULT_KEYS_PER_PERSON,
+                    concurrency,
+                ),
                 &collector,
                 &state,
                 Arc::new(AtomicBool::new(false)),
