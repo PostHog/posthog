@@ -79,7 +79,7 @@ function PreferenceEditor({
                     }
                     options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}
                     placeholder={inheritLabel}
-                    disabledReason={restrictionReason ?? undefined}
+                    disabledReason={restrictionReason ?? (saving ? 'Saving…' : undefined)}
                     data-attr="task-agent-default-model"
                 />
             </LemonField.Pure>
@@ -92,7 +92,9 @@ function PreferenceEditor({
                         { value: null as string | null, label: 'Default effort' },
                         ...effortOptions.map(({ value, label }) => ({ value: value as string, label })),
                     ]}
-                    disabledReason={restrictionReason ?? (draft.model ? undefined : 'Pick a model first')}
+                    disabledReason={
+                        restrictionReason ?? (saving ? 'Saving…' : draft.model ? undefined : 'Pick a model first')
+                    }
                     data-attr="task-agent-default-effort"
                 />
             </LemonField.Pure>
@@ -108,6 +110,7 @@ function PreferenceEditor({
                 <LemonButton
                     type="secondary"
                     onClick={onReset}
+                    loading={saving}
                     disabledReason={canReset ? undefined : 'Already using the project default'}
                 >
                     Reset to project default
