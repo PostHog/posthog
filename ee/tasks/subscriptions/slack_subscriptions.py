@@ -18,8 +18,10 @@ from products.exports.backend.models.subscription import Subscription
 
 from ee.tasks.subscriptions.subscription_utils import (
     ASSET_GENERATION_FAILED_MESSAGE,
+    DEBUG_PLACEHOLDER_IMAGE_URL,
     UTM_TAGS_BASE,
     _has_asset_failed,
+    next_delivery_date_display,
     subscription_asset_error_message,
 )
 
@@ -48,11 +50,6 @@ _RETRYABLE_SLACK_ERRORS = frozenset(
         "rate_limited",
     }
 )
-
-
-def _next_delivery_date_display(subscription: Subscription) -> str:
-    next_delivery_date = subscription.next_delivery_date
-    return next_delivery_date.strftime("%A %B %d, %Y") if next_delivery_date is not None else "an upcoming date"
 
 
 @dataclass
@@ -112,7 +109,7 @@ def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
         alt_text = asset.insight.name or asset.insight.derived_name
 
     if settings.DEBUG:
-        image_url = "https://source.unsplash.com/random"
+        image_url = DEBUG_PLACEHOLDER_IMAGE_URL
 
     return {"type": "image", "image_url": image_url, "alt_text": alt_text}
 
@@ -167,7 +164,7 @@ def _prepare_slack_message(
         title = f"This channel has been subscribed to {display_name} on PostHog! 🎉"
         title += (
             f"\nThis subscription is {subscription.summary}. "
-            f"The next one will be sent on {_next_delivery_date_display(subscription)}"
+            f"The next one will be sent on {next_delivery_date_display(subscription)}"
         )
     else:
         title = f"Your subscription to {display_name} is ready! 🎉"

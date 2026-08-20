@@ -13,15 +13,11 @@ from ee.tasks.subscriptions.subscription_utils import (
     ASSET_GENERATION_FAILED_MESSAGE,
     UTM_TAGS_BASE,
     _has_asset_failed,
+    next_delivery_date_display,
     subscription_asset_error_message,
 )
 
 logger = structlog.get_logger(__name__)
-
-
-def _next_delivery_date_display(subscription: Subscription) -> str:
-    next_delivery_date = subscription.next_delivery_date
-    return next_delivery_date.strftime("%A %B %d, %Y") if next_delivery_date is not None else "an upcoming date"
 
 
 def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
@@ -86,7 +82,7 @@ def send_email_subscription_report(
     if is_invite:
         invite_summary = (
             f"This subscription is {subscription.summary}. "
-            f"The next subscription will be sent on {_next_delivery_date_display(subscription)}"
+            f"The next subscription will be sent on {next_delivery_date_display(subscription)}"
         )
         if self_invite:
             subject = f"You have been subscribed to a PostHog {resource_info.kind}"

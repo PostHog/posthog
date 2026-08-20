@@ -21,6 +21,9 @@ UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 # Keep in sync with MAX_INSIGHTS in products/subscriptions/frontend/components/Subscriptions/insightSelectorLogic.ts.
 MAX_INSIGHTS = 10
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
+# Locally rendered assets live on a localhost URL that Slack and Microsoft cannot fetch, so the
+# message links a public placeholder instead of an image that would render broken.
+DEBUG_PLACEHOLDER_IMAGE_URL = "https://source.unsplash.com/random"
 # Prometheus metrics for Temporal workers (web/worker pods)
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "subscription_asset_generation_duration_seconds",
@@ -32,6 +35,11 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
 
 def _has_asset_failed(asset: ExportedAsset) -> bool:
     return (not asset.content and not asset.content_location) or asset.exception is not None
+
+
+def next_delivery_date_display(subscription: Subscription) -> str:
+    next_delivery_date = subscription.next_delivery_date
+    return next_delivery_date.strftime("%A %B %d, %Y") if next_delivery_date is not None else "an upcoming date"
 
 
 _OOM_MESSAGE_MARKER = "ran out of memory"
