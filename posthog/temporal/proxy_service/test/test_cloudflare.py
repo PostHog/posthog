@@ -118,6 +118,7 @@ class TestParseCloudflareErrorCode(SimpleTestCase):
     @parameterized.expand(
         [
             ("html_error_page", "<h1>Error 1014</h1> Ray ID: abc", 1014),
+            ("plain_text_body", "error code: 1014", 1014),
             ("lowercase", "error 1014", 1014),
             ("colon_separator", "Error: 1014", 1014),
             ("other_code", "Error 1000 Access denied", 1000),
