@@ -14,6 +14,7 @@ import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
@@ -23,7 +24,11 @@ import { HogFlowBatchJob } from './hogflows/types'
 import { PushMetricsSummary } from './PushMetricsSummary'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
-import { type EmailMetric, buildEmailMetricInvocationSearchParams } from './workflowMetricsSummaryLogic'
+import {
+    type EmailMetric,
+    buildEmailMetricInvocationSearchParams,
+    getEmailActionProvider,
+} from './workflowMetricsSummaryLogic'
 
 const HedgehogGreek = pngHoggie(greekPng)
 
@@ -67,12 +72,15 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     })
 
     const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
+    const { integrations } = useValues(integrationsLogic)
 
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params, getDateRangeAbsolute } =
         useValues(logic)
     const { setParams } = useActions(logic)
 
     const selectedAction = workflow.actions.find((action) => action.id === params.instanceId)
+    const selectedActionUsesSmtp =
+        selectedAction?.type === 'function_email' && getEmailActionProvider(selectedAction, integrations) === 'smtp'
 
     const modifiedAppMetricsTrends = useMemo(
         () =>
@@ -159,7 +167,11 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                     onMetricClick={onEmailMetricClick}
                 />
             ) : selectedAction?.type === 'function_email' ? (
-                <EmailMetricsSummary logicKey={logicKey} onMetricClick={onEmailMetricClick} />
+                <EmailMetricsSummary
+                    logicKey={logicKey}
+                    onMetricClick={onEmailMetricClick}
+                    smtpProvider={selectedActionUsesSmtp}
+                />
             ) : selectedAction?.type === 'function_push' ? (
                 <PushMetricsSummary logicKey={logicKey} />
             ) : (

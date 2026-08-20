@@ -1,8 +1,12 @@
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 
+import type { IntegrationType } from '~/types'
+
 import {
     type EmailMetric,
     buildEmailMetricInvocationSearchParams,
+    buildEmailMetricRows,
+    getEmailActionProvider,
     subtractSeries,
     withDisplayName,
 } from './workflowMetricsSummaryLogic'
@@ -109,4 +113,84 @@ describe('buildEmailMetricInvocationSearchParams', () => {
             expect(buildEmailMetricInvocationSearchParams(metricKey, dateFrom, dateTo)).toBeNull()
         }
     )
+})
+
+const emailAction = (integrationId?: number): { config: { inputs: Record<string, { value?: any }> } } => ({
+    config: { inputs: { email: { value: integrationId != null ? { from: { integrationId } } : {} } } },
+})
+
+const integration = (id: number, provider?: string): IntegrationType =>
+    ({ id, kind: 'email', config: provider ? { provider } : {} }) as IntegrationType
+
+describe('getEmailActionProvider', () => {
+    it.each([
+        {
+            name: 'resolves an SMTP sender',
+            action: emailAction(1),
+            integrations: [integration(1, 'smtp')],
+            expected: 'smtp',
+        },
+        {
+            name: 'defaults senders created before the provider field to ses',
+            action: emailAction(1),
+            integrations: [integration(1)],
+            expected: 'ses',
+        },
+        {
+            name: 'returns null when the sender integration no longer exists',
+            action: emailAction(99),
+            integrations: [integration(1, 'smtp')],
+            expected: null,
+        },
+        {
+            name: 'returns null while integrations are still loading',
+            action: emailAction(1),
+            integrations: null,
+            expected: null,
+        },
+        {
+            name: 'returns null when no sender is picked',
+            action: emailAction(),
+            integrations: [integration(1, 'smtp')],
+            expected: null,
+        },
+    ])('$name', ({ action, integrations, expected }) => {
+        expect(getEmailActionProvider(action, integrations)).toEqual(expected)
+    })
+})
+
+describe('buildEmailMetricRows', () => {
+    const actions = [{ id: 'a1', name: 'Welcome email' }]
+
+    // The delivered fallback (sent - bounced - blocked) must never run for SMTP senders: with no
+    // delivery feedback it would report every relay-accepted send as delivered.
+    it.each([
+        {
+            name: 'SMTP: no fabricated delivered count, delivery feedback flagged unsupported',
+            totals: { a1: { email_sent: 100, email_opened: 4 } },
+            providers: { a1: 'smtp' },
+            expected: { delivered: 0, deliveryFeedbackSupported: false },
+        },
+        {
+            name: 'SES: delivered fallback applies when the metric is absent',
+            totals: { a1: { email_sent: 100, email_bounced: 5, email_blocked: 3 } },
+            providers: { a1: 'ses' },
+            expected: { delivered: 92, deliveryFeedbackSupported: true },
+        },
+        {
+            name: 'SES: an explicit delivered total wins over the fallback',
+            totals: { a1: { email_sent: 100, email_delivered: 42 } },
+            providers: { a1: 'ses' },
+            expected: { delivered: 42, deliveryFeedbackSupported: true },
+        },
+        {
+            name: 'unresolved provider fails open to the SES behavior',
+            totals: { a1: { email_sent: 10 } },
+            providers: { a1: null },
+            expected: { delivered: 10, deliveryFeedbackSupported: true },
+        },
+    ])('$name', ({ totals, providers, expected }) => {
+        const [row] = buildEmailMetricRows(actions, totals, providers)
+        expect(row).toMatchObject({ id: 'a1', email: 'Welcome email', sent: totals.a1.email_sent, ...expected })
+    })
 })

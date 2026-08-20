@@ -11,12 +11,13 @@ import {
     type AppMetricsTotalsResponse,
 } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { buildHogInvocationsSearchParams } from 'scenes/hog-functions/invocations/hogInvocationsLogic'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { ActivityTab, LogEntryLevel, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityTab, type IntegrationType, LogEntryLevel, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { AppMetricsCommonParams } from '../../../../frontend/src/lib/components/AppMetrics/appMetricsLogic'
 import type { Dayjs } from '../../../../frontend/src/lib/dayjs'
@@ -67,6 +68,67 @@ export type EmailMetricRow = {
     bounced: number
     bouncePrevented: number
     blocked: number
+    // False for custom SMTP senders: the relay reports acceptance only, so delivered/bounced/blocked
+    // are unknowable and must render as "not supported" rather than zero.
+    deliveryFeedbackSupported: boolean
+}
+
+// Metrics that arrive via the SES delivery webhook — a custom SMTP relay has no equivalent feedback
+// channel, so these are unknowable (not zero) for SMTP senders.
+export const DELIVERY_FEEDBACK_METRICS: EmailMetric[] = [
+    'email_delivered',
+    'email_bounced',
+    'email_blocked',
+    'email_spam',
+]
+
+// Resolve which provider an email action sends through, from its picked sender integration.
+// Returns null when unresolvable (integrations not loaded yet, or no sender picked) — callers
+// should fail open and treat null like the SES default.
+export function getEmailActionProvider(
+    action: { config: { inputs?: Record<string, { value?: any } | undefined> } },
+    integrations: IntegrationType[] | null
+): string | null {
+    const integrationId = action.config.inputs?.email?.value?.from?.integrationId
+    if (integrationId == null || !integrations) {
+        return null
+    }
+    const integration = integrations.find((candidate) => candidate.id === integrationId)
+    if (!integration) {
+        return null
+    }
+    // Senders created before the provider field existed are SES
+    return integration.config?.provider ?? 'ses'
+}
+
+export function buildEmailMetricRows(
+    emailActions: { id: string; name: string }[],
+    emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>,
+    emailProviderByActionId: Record<string, string | null>
+): EmailMetricRow[] {
+    return emailActions.map((action) => {
+        const totals = emailTotalsByActionId[action.id] || {}
+        const sent = totals.email_sent ?? 0
+        const bounced = totals.email_bounced ?? 0
+        const blocked = totals.email_blocked ?? 0
+        const deliveryFeedbackSupported = emailProviderByActionId[action.id] !== 'smtp'
+        return {
+            id: action.id,
+            email: action.name,
+            // Fallback to calculating delivered as sent - bounced - blocked if email_delivered metric is
+            // not available, since we were not always collecting this metric. Never for SMTP senders:
+            // with no delivery feedback the fallback would claim every accepted send landed.
+            delivered:
+                totals.email_delivered ?? (deliveryFeedbackSupported ? Math.max(0, sent - bounced - blocked) : 0),
+            sent,
+            opened: totals.email_opened ?? 0,
+            linkClicked: totals.email_link_clicked ?? 0,
+            bounced,
+            bouncePrevented: totals.email_bounce_prevented ?? 0,
+            blocked,
+            deliveryFeedbackSupported,
+        }
+    })
 }
 
 export const WORKFLOW_SUMMARY_METRICS: Record<
@@ -337,11 +399,13 @@ export interface workflowMetricsSummaryLogicValues {
         updated_at?: number | undefined
     } & Record<string, unknown>)[]
     emailMetricsRows: EmailMetricRow[]
+    emailProviderByActionId: Record<string, string | null>
     emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>
     emailTotalsByActionIdLoading: boolean
     hasConversionGoal: boolean
     inProgressTotal: number
     inProgressTotalLoading: boolean
+    integrations: IntegrationType[] | null // integrationsLogic
     loading: boolean
     metricNameBySummaryMetric: Record<WorkflowSummaryMetric, string>
     pushActions: ({
@@ -608,56 +672,14 @@ export interface workflowMetricsSummaryLogicMeta {
                 previousPeriod?: boolean
             ) => AppMetricsTimeSeriesResponse | null
         ) => AppMetricsTimeSeriesResponse | null
+        emailProviderByActionId: (
+            emailActions: { id: string; config: { inputs?: Record<string, { value?: any } | undefined> } }[],
+            integrations: IntegrationType[] | null
+        ) => Record<string, string | null>
         emailMetricsRows: (
-            emailActions: ({
-                config: {
-                    inputs: Record<
-                        string,
-                        {
-                            bytecode?: any
-                            order?: number | undefined
-                            secret?: boolean | undefined
-                            templating?: 'hog' | 'liquid' | undefined
-                            value: any
-                        }
-                    >
-                    message_category_id?: string | undefined
-                    message_category_type?: 'marketing' | 'transactional' | undefined
-                    template_id: 'template-email'
-                    template_uuid?: string | undefined
-                }
-                created_at?: number | undefined
-                description: string
-                filters?:
-                    | {
-                          actions?: any[] | undefined
-                          events?: any[] | undefined
-                          properties?: any[] | undefined
-                      }
-                    | null
-                    | undefined
-                id: string
-                name: string
-                on_error?: 'abort' | 'continue' | null | undefined
-                output_variable?:
-                    | {
-                          key: string
-                          label?: string | null | undefined
-                          result_path?: string | null | undefined
-                          spread?: boolean | null | undefined
-                      }
-                    | {
-                          key: string
-                          label?: string | null | undefined
-                          result_path?: string | null | undefined
-                          spread?: boolean | null | undefined
-                      }[]
-                    | null
-                    | undefined
-                type: 'function_email'
-                updated_at?: number | undefined
-            } & Record<string, unknown>)[],
-            emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>
+            emailActions: { id: string; name: string }[],
+            emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>,
+            emailProviderByActionId: Record<string, string | null>
         ) => EmailMetricRow[]
         pushMetricsRows: (
             pushActions: ({
@@ -728,6 +750,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         values: [
             workflowLogic,
             ['workflow'],
+            integrationsLogic,
+            ['integrations'],
             appMetricsLogic({ logicKey: props.logicKey }),
             [
                 'appMetricsTrendsLoading',
@@ -960,6 +984,17 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
 
     // Separate block so these selectors can reference emailActions and metricNameBySummaryMetric via `s`
     selectors({
+        emailProviderByActionId: [
+            (s) => [s.emailActions, s.integrations],
+            (
+                emailActions: { id: string; config: { inputs?: Record<string, { value?: any } | undefined> } }[],
+                integrations: IntegrationType[] | null
+            ): Record<string, string | null> =>
+                Object.fromEntries(
+                    emailActions.map((action) => [action.id, getEmailActionProvider(action, integrations)])
+                ),
+        ],
+
         workflowSummaryTrends: [
             (s) => [
                 s.appMetricsTrends,
@@ -1010,76 +1045,12 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         ],
 
         emailMetricsRows: [
-            (s) => [s.emailActions, s.emailTotalsByActionId],
+            (s) => [s.emailActions, s.emailTotalsByActionId, s.emailProviderByActionId],
             (
-                emailActions: ({
-                    config: {
-                        inputs: Record<
-                            string,
-                            {
-                                bytecode?: any
-                                order?: number | undefined
-                                secret?: boolean | undefined
-                                templating?: 'hog' | 'liquid' | undefined
-                                value: any
-                            }
-                        >
-                        message_category_id?: string | undefined
-                        message_category_type?: 'marketing' | 'transactional' | undefined
-                        template_id: 'template-email'
-                        template_uuid?: string | undefined
-                    }
-                    created_at?: number | undefined
-                    description: string
-                    filters?:
-                        | {
-                              actions?: any[] | undefined
-                              events?: any[] | undefined
-                              properties?: any[] | undefined
-                          }
-                        | null
-                        | undefined
-                    id: string
-                    name: string
-                    on_error?: 'abort' | 'continue' | null | undefined
-                    output_variable?:
-                        | {
-                              key: string
-                              label?: string | null | undefined
-                              result_path?: string | null | undefined
-                              spread?: boolean | null | undefined
-                          }
-                        | {
-                              key: string
-                              label?: string | null | undefined
-                              result_path?: string | null | undefined
-                              spread?: boolean | null | undefined
-                          }[]
-                        | null
-                        | undefined
-                    type: 'function_email'
-                    updated_at?: number | undefined
-                } & Record<string, unknown>)[],
-                emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>
-            ): EmailMetricRow[] =>
-                emailActions.map((action: { id: string; name: string }) => {
-                    const totals = emailTotalsByActionId[action.id] || {}
-                    const sent = totals.email_sent ?? 0
-                    const bounced = totals.email_bounced ?? 0
-                    const blocked = totals.email_blocked ?? 0
-                    return {
-                        id: action.id,
-                        email: action.name,
-                        // Fallback to calculating delivered as sent - bounced - blocked if email_delivered metric is not available, since we were not always collecting this metric
-                        delivered: totals.email_delivered ?? Math.max(0, sent - bounced - blocked),
-                        sent: totals.email_sent ?? 0,
-                        opened: totals.email_opened ?? 0,
-                        linkClicked: totals.email_link_clicked ?? 0,
-                        bounced,
-                        bouncePrevented: totals.email_bounce_prevented ?? 0,
-                        blocked,
-                    }
-                }),
+                emailActions: { id: string; name: string }[],
+                emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>,
+                emailProviderByActionId: Record<string, string | null>
+            ): EmailMetricRow[] => buildEmailMetricRows(emailActions, emailTotalsByActionId, emailProviderByActionId),
         ],
 
         pushMetricsRows: [

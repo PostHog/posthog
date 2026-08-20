@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonLabel, LemonTable, LemonTableColumns, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonLabel, LemonTable, LemonTableColumns, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
@@ -17,6 +17,14 @@ import {
     workflowMetricsSummaryLogic,
     type WorkflowMetricsSummaryLogicProps,
 } from './workflowMetricsSummaryLogic'
+
+// Rendered in place of delivery-feedback numbers for custom SMTP senders, where the relay reports
+// acceptance only — showing 0 would read as "nothing bounced" when we simply cannot know.
+const deliveryFeedbackNotSupported = (
+    <Tooltip title="This sender uses a custom SMTP relay, which only reports whether it accepted each email. Delivery feedback (delivered, bounced, blocked) is not available for this provider.">
+        <span className="text-muted">Not supported</span>
+    </Tooltip>
+)
 
 interface WorkflowMetricsSummaryProps extends WorkflowMetricsSummaryLogicProps {
     onSelectAction?: (actionId: string) => void
@@ -76,7 +84,8 @@ export function WorkflowMetricsSummary({
                 dataIndex: 'delivered',
                 key: 'delivered',
                 align: 'right',
-                render: (_, row) => row.delivered.toLocaleString(),
+                render: (_, row) =>
+                    row.deliveryFeedbackSupported ? row.delivered.toLocaleString() : deliveryFeedbackNotSupported,
             },
             {
                 title: 'Bounced',
@@ -84,7 +93,9 @@ export function WorkflowMetricsSummary({
                 key: 'bounced',
                 align: 'right',
                 render: (_, row) =>
-                    onMetricClick && row.bounced > 0 ? (
+                    !row.deliveryFeedbackSupported ? (
+                        deliveryFeedbackNotSupported
+                    ) : onMetricClick && row.bounced > 0 ? (
                         <span className="cursor-pointer text-link" onClick={() => onMetricClick('email_bounced')}>
                             {row.bounced.toLocaleString()}
                         </span>
@@ -115,7 +126,9 @@ export function WorkflowMetricsSummary({
                 key: 'blocked',
                 align: 'right',
                 render: (_, row) =>
-                    onMetricClick && row.blocked > 0 ? (
+                    !row.deliveryFeedbackSupported ? (
+                        deliveryFeedbackNotSupported
+                    ) : onMetricClick && row.blocked > 0 ? (
                         <span className="cursor-pointer text-link" onClick={() => onMetricClick('email_blocked')}>
                             {row.blocked.toLocaleString()}
                         </span>

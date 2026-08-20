@@ -36,8 +36,10 @@ export interface EmailSenderFormType {
     provider: 'ses' | 'smtp' | 'maildev'
     mail_from_subdomain?: string
     host?: string
-    port?: number
-    encryption?: 'starttls' | 'ssl' | 'none'
+    // Nullable rather than optional: kea-forms' DeepPartialMap only accepts a string validation
+    // error for fields whose type is in its NonAny set, which includes null but not undefined.
+    port: number | null
+    encryption: 'starttls' | 'ssl' | 'none' | null
     username?: string
     password?: string
 }
@@ -65,8 +67,8 @@ const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSende
         provider: integration.config.provider,
         mail_from_subdomain: integration.config.mail_from_subdomain,
         host: integration.config.host,
-        port: integration.config.port,
-        encryption: integration.config.encryption,
+        port: integration.config.port ?? null,
+        encryption: integration.config.encryption ?? null,
         // Username and password are both redacted by the API (for SMTP the username can be the
         // secret); leaving them blank on edit means "keep the existing value"
         username: '',
@@ -206,6 +208,8 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 email: '',
                 name: '',
                 mail_from_subdomain: 'feedback',
+                port: null,
+                encryption: null,
             } as EmailSenderFormType,
             errors: ({ email, name, provider, mail_from_subdomain, host, port, encryption, username, password }) => {
                 let emailError = undefined

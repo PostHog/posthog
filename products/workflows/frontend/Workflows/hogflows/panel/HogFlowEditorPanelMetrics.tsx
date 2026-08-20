@@ -9,12 +9,19 @@ import {
     AppMetricsSeriesOverride,
     AppMetricsTimeSeriesChart,
 } from 'lib/components/AppMetrics/AppMetricsTimeSeriesChart'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { EXIT_NODE_ID, TRIGGER_NODE_ID } from '../../workflowLogic'
 import { WORKFLOW_METRICS_INFO } from '../../WorkflowMetrics'
-import { WORKFLOW_EMAIL_METRICS, WORKFLOW_PUSH_METRICS } from '../../workflowMetricsSummaryLogic'
+import {
+    DELIVERY_FEEDBACK_METRICS,
+    type EmailMetric,
+    WORKFLOW_EMAIL_METRICS,
+    WORKFLOW_PUSH_METRICS,
+    getEmailActionProvider,
+} from '../../workflowMetricsSummaryLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
@@ -33,17 +40,25 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const isEmailAction = selectedAction?.type === 'function_email'
     const isPushAction = selectedAction?.type === 'function_push'
 
+    const { integrations } = useValues(integrationsLogic)
+    // Custom SMTP relays report acceptance only — charting the delivery-feedback series would show
+    // permanently flat lines, implying they are being measured for this sender.
+    const usesSmtp =
+        !!selectedAction && isEmailAction && getEmailActionProvider(selectedAction, integrations) === 'smtp'
+
     const metricName = useMemo(() => {
         return actionId === TRIGGER_NODE_ID
             ? ['triggered', 'rate_limited']
             : actionId === EXIT_NODE_ID
               ? ['succeeded', 'failed']
               : isEmailAction
-                ? (Object.keys(WORKFLOW_EMAIL_METRICS) as string[])
+                ? (Object.keys(WORKFLOW_EMAIL_METRICS) as string[]).filter(
+                      (key) => !usesSmtp || !DELIVERY_FEEDBACK_METRICS.includes(key as EmailMetric)
+                  )
                 : isPushAction
                   ? (Object.keys(WORKFLOW_PUSH_METRICS) as string[])
                   : undefined
-    }, [actionId, isEmailAction, isPushAction])
+    }, [actionId, isEmailAction, isPushAction, usesSmtp])
 
     const logic = appMetricsLogic({
         logicKey,
