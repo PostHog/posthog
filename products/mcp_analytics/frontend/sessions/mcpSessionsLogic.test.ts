@@ -70,4 +70,16 @@ describe('mcpSessionsLogic', () => {
         expect(logic.values.selectedSessionToolCalls.loading).toBe(true)
         expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).not.toContain('a2')
     })
+
+    it('clears the loading skeleton when the first-page fetch fails', async () => {
+        // A failed first page must leave the loading state so the panel shows its empty state and
+        // the toast, not a permanent skeleton.
+        toolCallsMock.mockRejectedValueOnce(new Error('boom'))
+        await expectLogic(logic, () => {
+            logic.actions.selectSession('A')
+        }).toDispatchActions(['loadToolCallsSuccess'])
+
+        expect(logic.values.selectedSessionToolCalls.loading).toBe(false)
+        expect(logic.values.selectedSessionToolCalls.calls).toEqual([])
+    })
 })
