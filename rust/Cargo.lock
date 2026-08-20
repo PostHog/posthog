@@ -3380,6 +3380,7 @@ dependencies = [
  "proguard",
  "rand 0.8.5",
  "rdkafka",
+ "redis",
  "regex",
  "reqwest 0.12.28",
  "rustls 0.23.37",
@@ -6055,6 +6056,15 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "ingestion-worker-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "tonic 0.12.3",
+ "tonic-build 0.12.3",
 ]
 
 [[package]]

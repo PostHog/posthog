@@ -9654,6 +9654,7 @@ export enum ProductIntentContext {
     EXPERIMENT_ANALYZED = 'experiment analyzed',
     EXPERIMENT_VIEW_RECORDINGS = 'experiment view recordings',
     EXPERIMENT_REPLAY_VISION_SCANNER_CREATED = 'experiment replay vision scanner created',
+    EXPERIMENT_CREATE_SCANNER = 'experiment create scanner',
 
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',

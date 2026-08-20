@@ -172,6 +172,7 @@ __all__ = [
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
+    "apply_task_run_model_config",
     "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
@@ -3944,6 +3945,76 @@ def signal_task_run_peer_message(
         detail="Message accepted for delivery. It will reach the target as a queued turn; delivery is not confirmed synchronously.",
         message_id=str(message.id),
     )
+
+
+def apply_task_run_model_config(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    actor_user_id: int | None = None,
+) -> bool:
+    """Switch a live run's model and/or reasoning effort on its agent server.
+
+    The runtime adapter is not switchable — it is the harness process the sandbox was
+    started with — so the model has to belong to the adapter the run is already on; the
+    agent-server rejects anything else outright. Returns whether every requested change
+    landed, and writes the ones that did back to ``state`` so readers of the run agree
+    with what the sandbox is actually running.
+
+    Model first, then effort: which efforts exist depends on the model, and the
+    agent-server rebuilds its effort options the moment the model changes.
+    """
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        send_set_config_option,
+    )
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        create_sandbox_connection_token,
+    )
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        get_actor_distinct_id,
+    )
+
+    # (agent-server option id, value, run-state key), in the order they must be sent.
+    requested = [
+        (config_id, value, state_key)
+        for config_id, value, state_key in (("model", model, "model"), ("effort", reasoning_effort, "reasoning_effort"))
+        if value
+    ]
+    if not requested:
+        return False
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return False
+
+    actor = User.objects.filter(id=actor_user_id).first() if actor_user_id else None
+    distinct_id = get_actor_distinct_id(actor) if actor else None
+    if model and get_model_access_error(model, distinct_id=distinct_id) is not None:
+        # The entitlement check the run-create path applies, so a follow-up can't reach a
+        # gated model the caller could not have started the run on.
+        logger.warning("Model access denied switching task run %s to %s", run.id, model)
+        return False
+
+    auth_token = (
+        create_sandbox_connection_token(run, user_id=actor.id, distinct_id=distinct_id)
+        if actor and actor.id and distinct_id
+        else None
+    )
+
+    applied: dict[str, Any] = {}
+    for config_id, value, state_key in requested:
+        result = send_set_config_option(run, config_id, value, auth_token=auth_token)
+        if not result.success:
+            logger.warning("Failed to set %s=%s on task run %s: %s", config_id, value, run.id, result.error)
+            break
+        applied[state_key] = value
+
+    if applied:
+        TaskRun.update_state_atomic(run.id, updates=applied)
+    return len(applied) == len(requested)
 
 
 def get_task_run_sandbox_connection(

@@ -17523,6 +17523,16 @@ export namespace Schemas {
       readonly last_error_message: string | null;
       /** @nullable */
       readonly count: number | null;
+      /**
+         * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+         * @nullable
+         */
+      readonly last_import_total_count: number | null;
+      /**
+         * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+         * @nullable
+         */
+      readonly last_import_unmatched_count: number | null;
       is_static?: boolean;
       /** Type of cohort based on filter complexity
        *
@@ -19917,6 +19927,20 @@ export namespace Schemas {
       Wide: 'wide',
     } as const;
 
+    /**
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable
+     */
+    export type LayoutCompactionEnum = typeof LayoutCompactionEnum[keyof typeof LayoutCompactionEnum];
+
+
+    export const LayoutCompactionEnum = {
+      Vertical: 'vertical',
+      Horizontal: 'horizontal',
+      Stable: 'stable',
+    } as const;
+
     export interface DashboardCustomization {
       /** Named tile density preset.
        *
@@ -19926,6 +19950,12 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       tile_spacing?: TileSpacingEnum;
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `stable` - stable */
+      layout_compaction?: LayoutCompactionEnum;
     }
 
     /**
@@ -20006,6 +20036,12 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       grid_spacing?: TileSpacingEnum;
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `stable` - stable */
+      layout_compaction?: LayoutCompactionEnum;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -20916,7 +20952,7 @@ export namespace Schemas {
       /** running, completed, failed, or empty (nothing matched the trigger). */
       readonly status: string;
       /**
-         * 'table' or 'view' when the run targets exactly one subject; null for a check-scoped or multi-subject run.
+         * 'table' or 'view' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
          * @nullable
          */
       readonly subject_type: string | null;
@@ -21556,6 +21592,8 @@ export namespace Schemas {
       readonly latest_error: string | null;
       /** @nullable */
       readonly is_materialized: boolean | null;
+      /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
+      readonly is_incremental: boolean;
       /** Where this SavedQuery is created.
        *
        * * `data_warehouse` - Data Warehouse
@@ -39931,6 +39969,7 @@ export namespace Schemas {
      * * `events` - events
      * * `person-updates` - person-updates
      * * `data-warehouse-table` - data-warehouse-table
+     * * `data-warehouse-view` - data-warehouse-view
      */
     export type HogFunctionFiltersSourceEnum = typeof HogFunctionFiltersSourceEnum[keyof typeof HogFunctionFiltersSourceEnum];
 
@@ -39939,6 +39978,7 @@ export namespace Schemas {
       Events: 'events',
       PersonUpdates: 'person-updates',
       DataWarehouseTable: 'data-warehouse-table',
+      DataWarehouseView: 'data-warehouse-view',
     } as const;
 
     export type HogFunctionFiltersActionsItem = { [key: string]: unknown };
@@ -57309,6 +57349,16 @@ export namespace Schemas {
       readonly last_error_message?: string | null;
       /** @nullable */
       readonly count?: number | null;
+      /**
+         * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+         * @nullable
+         */
+      readonly last_import_total_count?: number | null;
+      /**
+         * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+         * @nullable
+         */
+      readonly last_import_unmatched_count?: number | null;
       is_static?: boolean;
       /** Type of cohort based on filter complexity
        *
@@ -61067,6 +61117,12 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       grid_spacing?: TileSpacingEnum;
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `stable` - stable */
+      layout_compaction?: LayoutCompactionEnum;
       /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */

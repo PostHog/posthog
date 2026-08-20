@@ -1853,6 +1853,10 @@ export interface CohortType {
     errors_calculating?: number
     last_calculation?: string
     last_error_message?: string | null
+    /** Number of IDs supplied by the most recent static cohort import. */
+    last_import_total_count?: number | null
+    /** How many of those IDs matched no person, and so were left out of the cohort. */
+    last_import_unmatched_count?: number | null
     is_static?: boolean
     name?: string
     csv?: File
@@ -2705,6 +2709,7 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     quick_filter_ids?: string[] | null
     customization?: {
         tile_spacing?: DashboardTileSpacing
+        layout_compaction?: 'vertical' | 'horizontal' | 'stable'
     }
 }
 
