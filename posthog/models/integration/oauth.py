@@ -255,6 +255,7 @@ class OauthIntegration:
         "stripe",
         "resend",
         "youtube-analytics",
+        "dropbox",
     ]
     integration: model.Integration
 
@@ -717,6 +718,28 @@ class OauthIntegration:
                 id_path="stripe_user_id",
                 name_path="account_name",
             )
+        elif kind == "dropbox":
+            if not settings.DROPBOX_APP_CLIENT_ID or not settings.DROPBOX_APP_CLIENT_SECRET:
+                raise NotImplementedError("Dropbox app not configured")
+
+            # Only individual (User API) scopes are requested. Dropbox associates a token that
+            # carries any Business API team scope with the team rather than the authorizing user,
+            # and only a team admin can grant those — so asking for one would lock every ordinary
+            # Dropbox account out of connecting.
+            return OauthConfig(
+                authorize_url="https://www.dropbox.com/oauth2/authorize",
+                token_url="https://api.dropboxapi.com/oauth2/token",
+                client_id=settings.DROPBOX_APP_CLIENT_ID,
+                client_secret=settings.DROPBOX_APP_CLIENT_SECRET,
+                scope="account_info.read files.metadata.read sharing.read",
+                # Dropbox only returns a refresh token when the authorize request asks for offline
+                # access. Without it the access token expires after ~4 hours with no way to renew.
+                additional_authorize_params={"token_access_type": "offline"},
+                # `account_id` comes back on the token response; the display name does not, so it is
+                # fetched below (see the dropbox branch in integration_from_oauth_response).
+                id_path="account_id",
+                name_path="dropbox_account_name",
+            )
         elif kind == "resend":
             if not settings.RESEND_APP_CLIENT_ID or not settings.RESEND_APP_CLIENT_SECRET:
                 raise NotImplementedError("Resend app not configured")
@@ -1112,6 +1135,32 @@ class OauthIntegration:
             except Exception:
                 logger.exception("Failed to fetch Stripe account name")
                 config["account_name"] = str(integration_id)
+
+        # Dropbox's token response identifies the account but carries no human-readable name, so
+        # fetch one. `users/get_current_account` is a POST-RPC with a null body, which the generic
+        # `token_info_url` path (a GET) cannot express. Best-effort: the account id is a usable
+        # label on its own, so a failed lookup must not fail the whole connection.
+        if kind == "dropbox" and integration_id:
+            config["dropbox_account_name"] = str(integration_id)
+            try:
+                account_res = requests.post(
+                    "https://api.dropboxapi.com/2/users/get_current_account",
+                    headers={"Authorization": f"Bearer {config['access_token']}"},
+                    timeout=10,
+                    allow_redirects=False,
+                )
+                if account_res.status_code == 200:
+                    account = account_res.json()
+                    name = common.dot_get(account, "name.display_name") or account.get("email")
+                    if name:
+                        config["dropbox_account_name"] = name
+                else:
+                    logger.warning(
+                        "Failed to fetch Dropbox account name",
+                        status_code=account_res.status_code,
+                    )
+            except Exception:
+                logger.exception("Failed to fetch Dropbox account name")
 
         # Persist the target region and namespace the dedup key by it, so the same PostHog account
         # connected in two different cells yields two distinct integrations instead of colliding on

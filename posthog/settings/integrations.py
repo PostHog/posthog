@@ -21,6 +21,12 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
 
+# Registered in the Dropbox App Console (https://www.dropbox.com/developers/apps) as a scoped app
+# with the individual read scopes the warehouse source needs. Empty defaults keep the app importable
+# and the Dropbox source unconnectable until the client is provisioned.
+DROPBOX_APP_CLIENT_ID = get_from_env("DROPBOX_APP_CLIENT_ID", "")
+DROPBOX_APP_CLIENT_SECRET = get_from_env("DROPBOX_APP_CLIENT_SECRET", "")
+
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 

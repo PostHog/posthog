@@ -29588,7 +29588,8 @@
                 "aws-s3",
                 "s3-compatible",
                 "snowflake",
-                "youtube-analytics"
+                "youtube-analytics",
+                "dropbox"
             ],
             "type": "string"
         },

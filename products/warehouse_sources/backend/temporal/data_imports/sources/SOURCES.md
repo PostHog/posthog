@@ -246,6 +246,7 @@ the row lists both.
 | doppler                          | HTTP                        | requests                                                        | ✅                          |
 | dovetail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | drata                            | HTTP                        | requests                                                        | ✅                          |
+| dropbox                          | HTTP                        | requests                                                        | ✅                          |
 | dropbox_sign                     | HTTP                        | requests                                                        | ✅                          |
 | drip                             | HTTP                        | requests                                                        | ✅                          |
 | dub                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -985,7 +986,6 @@ doesn't conflict with concurrent PRs.
 - drata
 - drchrono
 - dremio
-- dropbox
 - dubsado
 - ducklake
 - dwolla
