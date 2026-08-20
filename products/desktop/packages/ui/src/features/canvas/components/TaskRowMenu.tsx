@@ -1,6 +1,7 @@
 import {
   ArchiveIcon,
   CaretRightIcon,
+  DotsThreeIcon,
   FolderSimpleIcon,
   PencilSimpleIcon,
   PushPinIcon,
@@ -18,6 +19,10 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
   DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
@@ -30,7 +35,7 @@ import {
   MenuSubFlyout,
   SearchableMenuFlyout,
 } from "@posthog/ui/primitives/SearchableMenuFlyout";
-import { type ComponentType, type ReactNode, useMemo } from "react";
+import { type ComponentType, type ReactNode, useMemo, useState } from "react";
 
 /**
  * What a row's menu can do. The row owns the handlers because they're the same
@@ -78,6 +83,12 @@ const CONTEXT_PARTS: MenuParts = {
   Item: ContextMenuItem,
   Sub: ContextMenuSub,
   SubTrigger: ContextMenuSubTrigger,
+};
+
+const DROPDOWN_PARTS: MenuParts = {
+  Item: DropdownMenuItem,
+  Sub: DropdownMenuSub,
+  SubTrigger: DropdownMenuSubTrigger,
 };
 
 /**
@@ -254,6 +265,33 @@ function TaskRowBulkMenuItems({
  * `onSubmenuOpenChange` reports the one thing that *is* a popup ("File to…"), so
  * a hover surface can stay open while the pointer is inside it.
  */
+export function TaskRowDropdownMenu({ menu }: { menu: TaskRowMenuProps }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label={`Options for ${menu.title || "task"}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setOpen(true);
+            }}
+          />
+        }
+      >
+        <DotsThreeIcon size={14} weight="bold" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <TaskRowMenuItems parts={DROPDOWN_PARTS} menu={menu} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function TaskRowMenuList({
   menu,
   onAction,

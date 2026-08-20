@@ -1,6 +1,6 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -29,8 +29,45 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskData", () => ({
 vi.mock("@posthog/ui/features/sidebar/useTaskPrStatus", () => ({
   useTaskPrStatus: () => ({ prState: null }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskThread", () => ({
+  useTaskThread: () => ({ messages: [] }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead", () => ({
+  useMarkTaskActivityRead: () => ({ mutate: vi.fn() }),
+}));
+vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
+  usePinnedTasks: () => ({ togglePin: vi.fn() }),
+}));
+vi.mock("@posthog/ui/features/archive/useArchiveTask", () => ({
+  useArchiveTask: () => ({ archiveTask: vi.fn() }),
+}));
+vi.mock("@posthog/ui/features/tasks/useTaskMutations", () => ({
+  useRenameTask: () => ({ renameTask: vi.fn() }),
+}));
+vi.mock("@posthog/ui/features/command-center/commandCenterStore", () => ({
+  useCommandCenterStore: (
+    selector: (state: { cells: (string | null)[] }) => unknown,
+  ) => selector({ cells: [null] }),
+}));
+vi.mock("@posthog/ui/features/command-center/placeTaskInCommandCenter", () => ({
+  placeTaskInCommandCenter: vi.fn(),
+}));
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => true,
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
+  useChannels: () => ({
+    channels: [{ id: "channel-1", name: "Personal space", starred: false }],
+  }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
+  useFileTaskToChannel: () => vi.fn(),
+}));
 vi.mock("@posthog/ui/features/browser-tabs/TaskTabIcon", () => ({
   TaskTabIcon: () => <span />,
+}));
+vi.mock("@posthog/ui/primitives/hooks/useInView", () => ({
+  useInView: () => [vi.fn(), true],
 }));
 
 import { ChannelFeedView, ExpandablePrompt, TaskCard } from "./ChannelFeedView";
@@ -96,6 +133,45 @@ describe("ChannelFeedView", () => {
 
     expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Loading tasks");
+  });
+
+  it.each([
+    {
+      name: "options menu",
+      open: async (user: ReturnType<typeof userEvent.setup>) =>
+        user.click(screen.getByLabelText(`Options for ${task.title}`)),
+    },
+    {
+      name: "context menu",
+      open: async () => {
+        fireEvent.contextMenu(screen.getByText(task.title));
+      },
+    },
+  ])("offers every task action from the $name", async ({ open }) => {
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    await open(user);
+
+    for (const label of [
+      "Pin",
+      "Rename",
+      "Add to Command Center",
+      "File to…",
+      "Archive",
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
   });
 
   it("reports when its task is opened", async () => {
