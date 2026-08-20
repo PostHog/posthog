@@ -66,6 +66,21 @@ Tracked when `Task.soft_delete()` is called. Additional properties:
 | ------------------ | ------- | --------------------------- |
 | `duration_seconds` | `float` | Seconds since task creation |
 
+## Facade events
+
+Source: `products/tasks/backend/facade/api.py`
+
+### `task_handed_off`
+
+Tracked when a task controller hands the task off to a colleague (ownership moves
+to the recipient). Captured under the handoff actor's identity rather than the
+recipient's, even though the task's `created_by` has moved by then. Additional properties:
+
+| Property       | Type   | Description                          |
+| -------------- | ------ | ------------------------------------ |
+| `from_user_id` | `int?` | User ID of the previous owner        |
+| `to_user_id`   | `int`  | User ID of the recipient (new owner) |
+
 ## TaskRun Model Events
 
 Source: `products/tasks/backend/models.py`
