@@ -6,7 +6,14 @@ import {
 } from "@posthog/core/inbox/dailyReportLimit";
 import { CaretRight } from "phosphor-react-native";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  TextInput,
+  View,
+} from "react-native";
 import { SheetContainer } from "@/components/SheetContainer";
 import {
   useSignalTeamConfig,
@@ -126,56 +133,60 @@ function DailyReportLimitSheet({
 
   return (
     <SheetContainer open={open} onClose={onClose}>
-      <View className="gap-3 px-4 pt-2 pb-2">
-        <Text className="font-semibold text-[16px] text-gray-12">
-          Daily report limit
-        </Text>
-        <Text className="text-[13px] text-gray-10 leading-snug">
-          Cap how many new reports reach the inbox each day. Leave the field
-          empty for no limit.
-        </Text>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View className="gap-3 px-4 pt-2 pb-2">
+          <Text className="font-semibold text-[16px] text-gray-12">
+            Daily report limit
+          </Text>
+          <Text className="text-[13px] text-gray-10 leading-snug">
+            Cap how many new reports reach the inbox each day. Leave the field
+            empty for no limit.
+          </Text>
 
-        <TextInput
-          value={draft}
-          onChangeText={onChangeDraft}
-          keyboardType="number-pad"
-          placeholder="No limit"
-          placeholderTextColor={themeColors.gray[9]}
-          editable={!isSaving}
-          className="rounded-lg border border-gray-6 bg-gray-2 px-3 py-2.5 text-[15px] text-gray-12"
-        />
+          <TextInput
+            value={draft}
+            onChangeText={onChangeDraft}
+            keyboardType="number-pad"
+            placeholder="No limit"
+            placeholderTextColor={themeColors.gray[9]}
+            editable={!isSaving}
+            className="rounded-lg border border-gray-6 bg-gray-2 px-3 py-2.5 text-[15px] text-gray-12"
+          />
 
-        {error ? (
-          <Text className="text-[12.5px] text-status-error">{error}</Text>
-        ) : null}
-
-        <View className="flex-row gap-2">
-          <Pressable
-            onPress={onSave}
-            disabled={isSaving}
-            className={`flex-1 flex-row items-center justify-center rounded-lg bg-accent-9 py-3 ${isSaving ? "opacity-60" : "active:opacity-80"}`}
-          >
-            {isSaving ? (
-              <ActivityIndicator size="small" color={themeColors.gray[1]} />
-            ) : (
-              <Text className="font-semibold text-[15px] text-gray-1">
-                Save
-              </Text>
-            )}
-          </Pressable>
-          {hasSavedValue ? (
-            <Pressable
-              onPress={onClear}
-              disabled={isSaving}
-              className={`flex-row items-center justify-center rounded-lg border border-gray-6 px-4 py-3 ${isSaving ? "opacity-60" : "active:bg-gray-2"}`}
-            >
-              <Text className="font-semibold text-[15px] text-gray-12">
-                Clear
-              </Text>
-            </Pressable>
+          {error ? (
+            <Text className="text-[12.5px] text-status-error">{error}</Text>
           ) : null}
+
+          <View className="flex-row gap-2">
+            <Pressable
+              onPress={onSave}
+              disabled={isSaving}
+              className={`flex-1 flex-row items-center justify-center rounded-lg bg-accent-9 py-3 ${isSaving ? "opacity-60" : "active:opacity-80"}`}
+            >
+              {isSaving ? (
+                <ActivityIndicator size="small" color={themeColors.gray[1]} />
+              ) : (
+                <Text className="font-semibold text-[15px] text-gray-1">
+                  Save
+                </Text>
+              )}
+            </Pressable>
+            {hasSavedValue ? (
+              <Pressable
+                onPress={onClear}
+                disabled={isSaving}
+                className={`flex-row items-center justify-center rounded-lg border border-gray-6 px-4 py-3 ${isSaving ? "opacity-60" : "active:bg-gray-2"}`}
+              >
+                <Text className="font-semibold text-[15px] text-gray-12">
+                  Clear
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </SheetContainer>
   );
 }
