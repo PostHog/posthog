@@ -913,6 +913,7 @@ from .podbean.source import PodbeanSource
 from .podium.source import PodiumSource
 from .polar.source import PolarSource
 from .polygon.source import PolygonSource
+from .polymarket.source import PolymarketSource
 from .poplar.source import PoplarSource
 from .postgres.source import PostgresSource
 from .postmark.source import PostmarkSource

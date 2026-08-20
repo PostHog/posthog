@@ -1364,6 +1364,7 @@ class ExternalDataSourceType(models.TextChoices):
     MICROSOFTEXCEL = "MicrosoftExcel", "MicrosoftExcel"
     PROFOUND = "Profound", "Profound"
     AIRWALLEX = "Airwallex", "Airwallex"
+    POLYMARKET = "Polymarket", "Polymarket"
     KALSHI = "Kalshi", "Kalshi"
 
 

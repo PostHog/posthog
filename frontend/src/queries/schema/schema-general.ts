@@ -9047,6 +9047,7 @@ export const externalDataSources = [
     'MicrosoftExcel',
     'Profound',
     'Airwallex',
+    'Polymarket',
     'Kalshi',
 ] as const
 
