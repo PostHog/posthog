@@ -5303,51 +5303,54 @@ def update_task(
     task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
 ) -> contracts.TaskDetailDTO | None:
     """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/controllable."""
-    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
-        return None
-
     validated_data = dict(validated_data)
     # origin_product controls visibility and signal_report is set once.
     validated_data.pop("signal_report", None)
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
     validated_data.pop("branch", None)
-    # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
-    if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
-        validated_data.pop("repository", None)
-        validated_data.pop("repositories", None)
-        validated_data.pop("github_integration", None)
-        validated_data.pop("github_user_integration", None)
-    if "repositories" in validated_data:
-        repositories = validated_data["repositories"]
-        validated_data["repository"] = repositories[0] if repositories else None
-    elif "repository" in validated_data:
-        if len(task.repositories) <= 1:
-            validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
-        else:
-            validated_data.pop("repository")
-    if "title" in validated_data and "title_manually_set" not in validated_data:
-        validated_data["title_manually_set"] = True
-    if "archived" in validated_data and validated_data["archived"] != task.archived:
-        validated_data["archived_at"] = django_timezone.now() if validated_data["archived"] else None
 
-    logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
-    for key, value in validated_data.items():
-        setattr(task, key, value)
-    task.save()
-    logger.info("Task %s updated successfully", task.id)
+    with transaction.atomic():
+        task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
+        if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
+            return None
+
+        # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
+        if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+            validated_data.pop("repository", None)
+            validated_data.pop("repositories", None)
+            validated_data.pop("github_integration", None)
+            validated_data.pop("github_user_integration", None)
+        if "repositories" in validated_data:
+            repositories = validated_data["repositories"]
+            validated_data["repository"] = repositories[0] if repositories else None
+        elif "repository" in validated_data:
+            if len(task.repositories) <= 1:
+                validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
+            else:
+                validated_data.pop("repository")
+        if "title" in validated_data and "title_manually_set" not in validated_data:
+            validated_data["title_manually_set"] = True
+        if "archived" in validated_data and validated_data["archived"] != task.archived:
+            validated_data["archived_at"] = django_timezone.now() if validated_data["archived"] else None
+
+        logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
+        for key, value in validated_data.items():
+            setattr(task, key, value)
+        task.save()
+        logger.info("Task %s updated successfully", task.id)
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
 
 def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
     """Soft-delete a task. Returns whether a task was found/controllable and deleted."""
-    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
-        return False
-    logger.info("Soft deleting task %s", task.id)
-    task.soft_delete()
+    with transaction.atomic():
+        task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
+        if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
+            return False
+        logger.info("Soft deleting task %s", task.id)
+        task.soft_delete()
     return True
 
 
@@ -5408,6 +5411,8 @@ def handoff_task(
         locked = Task.objects.select_for_update().get(pk=task.pk)
         # Under the lock: two concurrent handoffs settle last-writer-loses
         # instead of double-announcing and rerouting mid-flight.
+        if locked.deleted:
+            return None
         if locked.created_by_id != previous_owner_id:
             raise TaskHandoffError("Someone else has already handed this task off. Refresh and try again.")
         if (
