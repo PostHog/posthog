@@ -18,7 +18,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -1083,16 +1083,15 @@ class IntegrationViewSet(
         return super().handle_exception(exc)
 
     def _render_authorize_denied(self) -> HttpResponse:
-        try:
-            project_name = self.team.name
-        except NotFound:
-            project_name = "this project"
+        # The denial path never confirms project membership, so it must not name the project.
+        # self.team is an unscoped lookup and this page is reachable unauthenticated, so naming it
+        # would disclose project names across tenants. Keep the copy project-agnostic.
         return render_template(
             "toolbar_oauth_error.html",
             self.request,
             context={
                 "error_title": "You don't have access to this project",
-                "error_message": f"Your account can't connect integrations for {project_name}.",
+                "error_message": "Your account can't connect integrations for this project.",
                 "error_detail": (
                     "Ask a project admin to add you, then go back and start the setup again. "
                     "If you manage more than one project, check that you picked the right one."

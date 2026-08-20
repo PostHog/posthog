@@ -2259,21 +2259,33 @@ class TestGitHubIntegrationStateValidation:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "next must be a relative path" in response.json()["detail"]
 
-    def test_authorize_permission_denied_renders_html_page(self, client: HttpClient):
-        # authorize is a full-page browser redirect, so a denial must render an HTML page that names
-        # the project, not a raw JSON body the setup wizard can't recover from.
+    def test_authorize_denied_renders_generic_html_page(self, client: HttpClient):
+        # authorize is a full-page browser redirect, so a denial must render an HTML page with a way
+        # back, not a raw JSON body the setup wizard can't recover from. The denial path never
+        # confirms membership and is reachable unauthenticated, so the page must not name the
+        # project: naming it would disclose project names across tenants.
         other_org = Organization.objects.create(name="Other Org")
         outsider = User.objects.create_and_join(other_org, "outsider@posthog.com", "pw")
         client.force_login(outsider)
-
-        response = client.get(
+        denied = client.get(
             f"/api/environments/{self.team.pk}/integrations/authorize/",
             {"kind": "github"},
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response["Content-Type"].startswith("text/html")
-        assert self.team.name in response.content.decode()
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+        assert denied["Content-Type"].startswith("text/html")
+        assert self.team.name not in denied.content.decode()
+
+        # An anonymous caller reaches the same handler. Its page must be byte-identical, so no
+        # project-specific difference leaks whether a project id exists.
+        client.logout()
+        anonymous = client.get(
+            f"/api/environments/{self.team.pk}/integrations/authorize/",
+            {"kind": "github"},
+        )
+
+        assert anonymous.status_code == status.HTTP_403_FORBIDDEN
+        assert anonymous.content == denied.content
 
     @override_settings(TIKTOK_ADS_CLIENT_ID="tiktok-app-id", TIKTOK_ADS_CLIENT_SECRET="tiktok-secret")
     @patch("posthog.api.integration.report_user_action")
