@@ -32,12 +32,16 @@ def apply_experiment_targeting(query: "RecordingsQuery", targeting: dict | None)
 
     if not targeting or targeting.get("experiment_id") is None:
         return query
-    query = query.model_copy(deep=True)
-    query.experiment_exposure = RecordingsQueryExperimentExposureFilter(
-        experiment_id=targeting["experiment_id"],
-        variant=targeting.get("variant") or None,
+    # Shallow copy replacing only the one field: the caller's query is left untouched, and the
+    # unrelated nested filters are shared by reference rather than deep-copied since nothing mutates them.
+    return query.model_copy(
+        update={
+            "experiment_exposure": RecordingsQueryExperimentExposureFilter(
+                experiment_id=targeting["experiment_id"],
+                variant=targeting.get("variant") or None,
+            )
+        }
     )
-    return query
 
 
 class ScannerType(models.TextChoices):

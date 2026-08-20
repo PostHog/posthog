@@ -115,6 +115,17 @@ from products.signals.backend.facade.api import get_outcomes_for_signal_source_s
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
+
+def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
+    # Exposure is derived from experiment_targeting at scan time, never persisted in the query blob:
+    # writable exposure there would bypass experiment_targeting's access check and let an editor run
+    # the exposure filter under the creator's access.
+    if query.get("experiment_exposure") is not None:
+        raise serializers.ValidationError(
+            "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."
+        )
+
+
 # Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
 _MAX_DESCRIPTION_LENGTH = 1_000
 _MAX_QUERY_BYTES = 50_000
@@ -548,16 +559,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # The field already validated the blob's shape; this adds the access check, which needs the
         # request context the field lacks. Filtered by the caller's experiment access (not just the
         # team) so a scanner-editor can't confirm an experiment they can't view exists — a denied or
-        # cross-team id reads as not-found. Falls back to team scoping when there's no request context.
+        # cross-team id reads as not-found.
         if value is None:
             return None
-        team_experiments = Experiment.objects.filter(team=self.context["get_team"]())
-        accessible = (
-            self.user_access_control.filter_queryset_by_access_level(team_experiments)
-            if self.user_access_control
-            else team_experiments
-        )
-        if not accessible.filter(id=value["experiment_id"]).exists():
+        if not self._can_view_targeted_experiment(value):
             raise serializers.ValidationError("Experiment not found in this project.")
         return value
 
@@ -603,13 +608,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             RecordingsQuery.model_validate(attrs["query"])
         except PydanticValidationError:
             raise serializers.ValidationError({"query": "Recording filter is invalid."})
-        # Experiment exposure is derived from experiment_targeting at scan time, never persisted
-        # here: writable exposure inside the query blob would bypass experiment_targeting's
-        # access check and let an editor run the exposure filter under the creator's access.
-        if attrs["query"].get("experiment_exposure") is not None:
-            raise serializers.ValidationError(
-                {"query": "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."}
-            )
+        _reject_direct_experiment_exposure(attrs["query"])
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
         if len(json.dumps(attrs["query"], separators=(",", ":")).encode()) > _MAX_QUERY_BYTES:
@@ -1121,11 +1120,7 @@ class EstimateRequestSerializer(serializers.Serializer):
             RecordingsQuery.model_validate(value)
         except PydanticValidationError:
             raise serializers.ValidationError("Recording filter is invalid.")
-        # Mirrors the scanner write path: exposure only enters through experiment_targeting.
-        if value.get("experiment_exposure") is not None:
-            raise serializers.ValidationError(
-                "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."
-            )
+        _reject_direct_experiment_exposure(value)
         return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
 
 

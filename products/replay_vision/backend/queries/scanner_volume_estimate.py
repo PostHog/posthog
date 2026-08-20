@@ -1,6 +1,5 @@
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any
 
 from django.utils import timezone
 
@@ -307,17 +306,16 @@ def refresh_scanner_estimate(
     estimated_at = timezone.now()
     # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.
     # JSONField quirk: `field=None` filters for JSON null, not SQL NULL, so the no-targeting case needs isnull.
-    targeting_guard: dict[str, Any] = (
-        {"experiment_targeting__isnull": True}
-        if scanner.experiment_targeting is None
-        else {"experiment_targeting": scanner.experiment_targeting}
-    )
     updated = ReplayScanner.objects.filter(
         pk=scanner.pk,
         query=scanner.query,
         sampling_rate=scanner.sampling_rate,
         sampling_mode=scanner.sampling_mode,
-        **targeting_guard,
+        **(
+            {"experiment_targeting__isnull": True}
+            if scanner.experiment_targeting is None
+            else {"experiment_targeting": scanner.experiment_targeting}
+        ),
     ).update(estimated_monthly_observations=projection, estimated_at=estimated_at)
     if updated:
         scanner.estimated_monthly_observations = projection
