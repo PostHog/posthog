@@ -19,23 +19,27 @@ export function DemoBarStrip({
     className?: string
 }): JSX.Element {
     const viewWidth = values.length * (barWidth + gap)
+    const maxValue = Math.max(...values, 1)
     return (
         <svg
             viewBox={`0 0 ${viewWidth} ${height + 2}`}
             className={`block w-full h-auto ${className ?? ''}`}
             aria-hidden
         >
-            {values.map((value, index) => (
-                <rect
-                    key={index}
-                    x={index * (barWidth + gap)}
-                    y={height - value}
-                    width={barWidth}
-                    height={value}
-                    rx={1}
-                    fill={index < alarmFromIndex ? 'var(--color-border-primary)' : 'var(--danger-lighter)'}
-                />
-            ))}
+            {values.map((value, index) => {
+                const barHeight = Math.max(1, (value / maxValue) * height)
+                return (
+                    <rect
+                        key={index}
+                        x={index * (barWidth + gap)}
+                        y={height - barHeight}
+                        width={barWidth}
+                        height={barHeight}
+                        rx={1}
+                        fill={index < alarmFromIndex ? 'var(--color-border-primary)' : 'var(--danger-lighter)'}
+                    />
+                )
+            })}
         </svg>
     )
 }

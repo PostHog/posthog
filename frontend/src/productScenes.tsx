@@ -129,15 +129,11 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ReplayVisionActionRun: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionRunScene'),
     CodeReview: () => import('../../products/review_hog/frontend/CodeReviewScene'),
     Inbox: () => import('../../products/signals/frontend/inbox/InboxScene'),
-    InvestigationsDemo: () => import('../../products/signals/frontend/investigations-demo/InvestigationsInboxScene'),
-    InvestigationsDemoFocus: () =>
-        import('../../products/signals/frontend/investigations-demo/InvestigationsFocusScene'),
-    InvestigationsDemoReport: () =>
-        import('../../products/signals/frontend/investigations-demo/InvestigationsReportScene'),
-    InvestigationsDemoResolved: () =>
-        import('../../products/signals/frontend/investigations-demo/InvestigationsResolvedScene'),
-    InvestigationsDemoMonitor: () =>
-        import('../../products/signals/frontend/investigations-demo/InvestigationsMonitorScene'),
+    V2Inbox: () => import('../../products/signals/frontend/v2/V2InboxScene'),
+    V2Focus: () => import('../../products/signals/frontend/v2/V2FocusScene'),
+    V2Report: () => import('../../products/signals/frontend/v2/V2ReportScene'),
+    V2Resolved: () => import('../../products/signals/frontend/v2/V2ResolvedScene'),
+    V2Monitor: () => import('../../products/signals/frontend/v2/V2MonitorScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     CommunitySkills: () => import('../../products/skills/frontend/CommunitySkillsScene'),

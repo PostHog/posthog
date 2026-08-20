@@ -1,3 +1,5 @@
+import './CreatePrModal.scss'
+
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
@@ -43,14 +45,15 @@ export function CreatePrModal({
             isOpen={isOpen}
             onClose={onClose}
             width={860}
+            overlayClassName="CreatePrModal__overlay"
             title="Create the fix PR"
             description="PostHog AI's coding agent writes the code, runs the test suite, reviews the change, and opens a pull request."
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={onClose} data-attr="investigations-demo-create-pr-cancel">
+                    <LemonButton type="secondary" onClick={onClose} data-attr="v2-create-pr-cancel">
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={onConfirm} data-attr="investigations-demo-create-pr-confirm">
+                    <LemonButton type="primary" onClick={onConfirm} data-attr="v2-create-pr-confirm">
                         Create PR
                     </LemonButton>
                 </>
@@ -98,7 +101,7 @@ export function CreatePrModal({
                             options={['Opus 4.5', 'Sonnet 4.5', 'Haiku 4.5'].map((value) => ({ value, label: value }))}
                             size="small"
                             fullWidth
-                            data-attr="investigations-demo-create-pr-model"
+                            data-attr="v2-create-pr-model"
                         />
                     </AdvancedField>
                     <AdvancedField label="Effort level">
@@ -111,7 +114,7 @@ export function CreatePrModal({
                             }))}
                             size="small"
                             fullWidth
-                            data-attr="investigations-demo-create-pr-effort"
+                            data-attr="v2-create-pr-effort"
                         />
                     </AdvancedField>
                     <LemonDivider className="my-0" />

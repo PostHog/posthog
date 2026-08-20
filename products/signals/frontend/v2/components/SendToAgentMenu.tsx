@@ -18,7 +18,7 @@ export interface SendToAgentMenuProps {
 }
 
 /**
- * "Send to my agent" menu for the demo pages: hand an investigation off to an
+ * "Send to my agent" menu for the demo pages: hand an report off to an
  * external coding agent with full context, or copy an equivalent prompt.
  */
 export function SendToAgentMenu({
@@ -45,7 +45,7 @@ export function SendToAgentMenu({
                             </span>
                         ),
                         onClick: () => onSelectAgent(agent.name),
-                        'data-attr': `investigations-demo-send-to-${agent.name.toLowerCase().replace(/\s+/g, '-')}`,
+                        'data-attr': `v2-send-to-${agent.name.toLowerCase().replace(/\s+/g, '-')}`,
                     })),
                 },
                 {
@@ -61,7 +61,7 @@ export function SendToAgentMenu({
                                 navigator.clipboard?.writeText(promptText).catch(() => {})
                                 lemonToast.success('Prompt copied to clipboard')
                             },
-                            'data-attr': 'investigations-demo-copy-agent-prompt',
+                            'data-attr': 'v2-copy-agent-prompt',
                         },
                     ],
                 },

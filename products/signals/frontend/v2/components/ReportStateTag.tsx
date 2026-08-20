@@ -2,9 +2,9 @@ import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { InvestigationState } from '../types'
+import { ReportState } from '../types'
 
-const STATE_TO_TAG: Record<InvestigationState, { type: LemonTagType; label: string }> = {
+const STATE_TO_TAG: Record<ReportState, { type: LemonTagType; label: string }> = {
     worsening: { type: 'danger', label: 'Worsening' },
     recovering: { type: 'success', label: 'Recovering' },
     holding: { type: 'caution', label: 'Holding' },
@@ -14,13 +14,13 @@ const STATE_TO_TAG: Record<InvestigationState, { type: LemonTagType; label: stri
     dismissed: { type: 'muted', label: 'Dismissed' },
 }
 
-/** State chip for an investigation. Pulses while the engine is still measuring live. */
-export function InvestigationStateTag({
+/** State chip for an report. Pulses while the engine is still measuring live. */
+export function ReportStateTag({
     state,
     live,
     className,
 }: {
-    state: InvestigationState
+    state: ReportState
     live?: boolean
     className?: string
 }): JSX.Element {

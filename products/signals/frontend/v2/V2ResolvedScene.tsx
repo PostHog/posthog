@@ -4,40 +4,66 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { AnnotatedLineChart } from './components/AnnotatedLineChart'
-import { DEMO_REPORT_ID } from './mockData'
+import { getDemoReport } from './mockData'
+import { DemoChartData, ReportTimelineColor, ReportTimelineEntry } from './types'
 
-const RECOVERY_POINTS =
-    '0,111 20,110 34,70 60,45 90,32 120,26 150,24 176,23 190,60 210,66 224,96 250,106 280,110 310,111 340,111 360,111'
+/** The scenario this page is written around; other ids reuse the same demo epilogue. */
+const RESOLVED_DEMO_REPORT_ID = 'RPT-1019'
+const FALLBACK_AREA = 'FEATURE FLAGS'
 
-type ResolvedRowColor = 'danger' | 'muted' | 'success'
+/** Jul 28 through Aug 18, one point per day. */
+const DAY_LABELS = [
+    ...[28, 29, 30, 31].map((day) => `Jul ${day}`),
+    ...Array.from({ length: 18 }, (_, index) => `Aug ${index + 1}`),
+]
 
-const DOT_COLOR: Record<ResolvedRowColor, string> = {
+const WRONG_VARIANT_CHART: DemoChartData = {
+    series: [
+        {
+            name: 'Wrong variant evaluations per day',
+            color: 'accent',
+            points: [8, 7, 96, 214, 258, 271, 266, 274, 269, 276, 272, 275, 270, 273, 118, 0, 0, 0, 0, 0, 0, 0],
+        },
+    ],
+    pointLabels: DAY_LABELS,
+    xLabels: ['Jul 28', 'Aug 7', 'Aug 18'],
+    unit: 'per day',
+    annotations: [
+        { index: 2, label: 'cause ships', color: 'danger' },
+        { index: 14, label: 'fix ships', color: 'success' },
+    ],
+}
+
+const DOT_COLOR: Record<ReportTimelineColor, string> = {
     danger: 'bg-danger',
     muted: 'bg-[var(--color-text-tertiary)]',
     success: 'bg-success',
 }
 
-const CHIP_TEXT_COLOR: Record<ResolvedRowColor, string> = {
+const CHIP_TEXT_COLOR: Record<ReportTimelineColor, string> = {
     danger: 'text-danger',
     muted: 'text-secondary',
     success: 'text-success',
 }
 
-const TIMELINE: { label: string; time: string; chip: string; color: ResolvedRowColor }[] = [
-    { label: 'Deploy ships strict validation', time: 'Aug 14', chip: 'a3f9c21', color: 'danger' },
-    { label: 'Anomaly detected, report published', time: 'Aug 16', chip: 'v1', color: 'muted' },
-    { label: 'Fix launched behind flag at 10%', time: 'Aug 18', chip: '#4821', color: 'success' },
-    { label: 'Ramped to 100%, guardrails clean', time: 'Aug 21', chip: '100%', color: 'success' },
-    { label: 'All criteria held 7 days', time: 'Aug 25', chip: '3/3', color: 'success' },
-    { label: 'Report updated · resolved', time: 'Aug 25', chip: 'v2', color: 'success' },
+const TIMELINE: ReportTimelineEntry[] = [
+    {
+        label: 'GeoIP enrichment reordered ahead of caller properties',
+        time: 'Jul 30 09:02',
+        chip: 'b2d47e1',
+        color: 'danger',
+    },
+    { label: 'First wrong variant served', time: 'Jul 30 09:11', chip: '+9 min', color: 'muted' },
+    { label: 'Detected, case opened', time: 'Aug 9 06:20', chip: 'auto', color: 'muted' },
+    { label: 'Report published', time: 'Aug 9 06:47', chip: '27 min', color: 'muted' },
+    { label: 'Fix shipped', time: 'Aug 11', chip: 'merged', color: 'success' },
+    { label: 'Verified for 7 days, resolved', time: 'Aug 18', chip: 'auto', color: 'success' },
 ]
 
 const DELTAS: { label: string; was: string; now: string; recovered: boolean }[] = [
-    { label: 'TOKEN_EXPIRED error rate', was: '42/hr', now: '1.9/hr', recovered: true },
-    { label: 'Returning-user conversion', was: '72%', now: '83.7%', recovered: true },
-    { label: 'Users hitting the failure', was: '+600/wk', now: '0 since Aug 21', recovered: true },
-    { label: 'Matching support tickets', was: '6', now: '0 new', recovered: true },
-    { label: 'Affected users who returned', was: 'n/a', now: '635 of 1,847', recovered: false },
+    { label: 'Wrong variant evaluations per day', was: '276', now: '0', recovered: true },
+    { label: 'Server SDK calls affected', was: '4.1%', now: '0%', recovered: true },
+    { label: 'Flag-related support tickets per week', was: '5', now: '1', recovered: false },
 ]
 
 function Microlabel({ children }: { children: React.ReactNode }): JSX.Element {
@@ -48,7 +74,14 @@ function Mono({ children }: { children: React.ReactNode }): JSX.Element {
     return <span className="font-mono text-[0.9em]">{children}</span>
 }
 
-export function InvestigationsResolvedScene(): JSX.Element {
+export interface V2ResolvedSceneProps {
+    id?: string
+}
+
+export function V2ResolvedScene({ id = RESOLVED_DEMO_REPORT_ID }: V2ResolvedSceneProps): JSX.Element {
+    const report = getDemoReport(id)
+    const area = report?.area ?? FALLBACK_AREA
+
     const copyPageLink = (): void => {
         navigator.clipboard?.writeText(window.location.href).catch(() => {})
         lemonToast.success('Link copied to clipboard')
@@ -57,30 +90,25 @@ export function InvestigationsResolvedScene(): JSX.Element {
     return (
         <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4 p-4 lg:p-7">
             <div className="flex flex-wrap items-center gap-3.5">
-                <Link
-                    to={urls.investigationsDemo()}
-                    className="text-xs text-secondary"
-                    data-attr="investigations-demo-resolved-back"
-                >
-                    ← Investigations
+                <Link to={urls.v2Inbox()} className="text-xs text-secondary" data-attr="v2-resolved-back">
+                    ← Inbox
                 </Link>
-                <span className="text-[15px] font-bold">INV-0247 · Checkout</span>
+                <span className="text-[15px] font-bold">{id}</span>
+                <span className="font-mono text-[11px] font-semibold tracking-wider text-secondary uppercase">
+                    {area}
+                </span>
                 <LemonTag type="success">Resolved</LemonTag>
                 <span className="text-xs text-tertiary">
-                    v2 · updated Aug 25 ·{' '}
-                    <Link
-                        to={urls.investigationsDemoReport(DEMO_REPORT_ID)}
-                        className="text-secondary"
-                        data-attr="investigations-demo-resolved-view-v1"
-                    >
-                        view v1
+                    resolved Aug 18 ·{' '}
+                    <Link to={urls.v2Report(id)} className="text-secondary" data-attr="v2-resolved-view-original">
+                        view the original report
                     </Link>
                 </span>
                 <span className="flex-1" />
                 <span className="text-xs text-tertiary">
                     Report → Launch → Monitor → <strong className="text-primary">Resolve</strong>
                 </span>
-                <LemonButton type="secondary" onClick={copyPageLink} data-attr="investigations-demo-resolved-share">
+                <LemonButton type="secondary" onClick={copyPageLink} data-attr="v2-resolved-share">
                     Share
                 </LemonButton>
             </div>
@@ -91,31 +119,20 @@ export function InvestigationsResolvedScene(): JSX.Element {
                         <Microlabel>Observation</Microlabel>
                         <div className="mt-1 flex items-center gap-2 text-xs text-secondary">
                             <span className="h-1.5 w-1.5 flex-none rounded-full bg-success" />
-                            <span>TOKEN_EXPIRED errors per hour</span>
+                            <span>Wrong variant evaluations per day</span>
                         </div>
                         <div className="flex items-baseline gap-2.5">
-                            <span className="font-mono text-2xl font-semibold">1.9/hr</span>
+                            <span className="font-mono text-2xl font-semibold">0/day</span>
                             <LemonTag type="success" className="font-mono">
-                                at baseline · 7 days
+                                was 276/day at peak
                             </LemonTag>
                         </div>
                     </div>
 
                     <div className="flex flex-col gap-0.5">
-                        <AnnotatedLineChart
-                            viewWidth={360}
-                            viewHeight={130}
-                            series={[{ points: RECOVERY_POINTS, color: 'accent' }]}
-                            annotations={[
-                                { x: 34, label: 'deploy a3f9c21', color: 'danger' },
-                                { x: 190, label: 'fix 10%', color: 'success' },
-                                { x: 250, label: '100%', color: 'success' },
-                            ]}
-                            baselineY={112}
-                            xLabels={['Aug 14', 'Aug 17', 'Aug 20', 'Aug 23', 'Aug 25']}
-                        />
+                        <AnnotatedLineChart data={WRONG_VARIANT_CHART} height={130} />
                         <div className="mt-1.5 text-[11px] text-secondary">
-                            Full incident arc: regression, detection, ramped fix, recovery.
+                            Full arc: the cause deploy, the wrong variants it served, the fix, and a flat floor since.
                         </div>
                     </div>
 
@@ -150,23 +167,24 @@ export function InvestigationsResolvedScene(): JSX.Element {
                         <span className="text-sm font-semibold">Report summary</span>
                         <LemonTag type="success">reopened with results</LemonTag>
                         <span className="flex-1" />
-                        <span className="text-xs text-tertiary">✦ Updated Aug 25, 09:14 UTC</span>
+                        <span className="text-xs text-tertiary">✦ Updated Aug 18, 07:05 UTC</span>
                     </div>
 
                     <div className="flex flex-col gap-11">
                         <section className="flex flex-col gap-3.5">
                             <h1 className="m-0 text-2xl leading-tight font-bold">
-                                Fixed. Checkout works again for returning users with expired saved cards.
+                                Fixed: server-side flags respect the properties you send
                             </h1>
                             <p className="m-0 text-base leading-relaxed text-secondary">
-                                PR <Mono>#4821</Mono> restored the token-refresh fallback behind flag{' '}
-                                <Mono>checkout_token_refresh_fallback</Mono>, ramped 10% → 100% over 3 days. All three
-                                success criteria have now held for 7 days.
+                                Enrichment now only fills person properties the caller did not send. Wrong variant
+                                evaluations hit 0 on Aug 11 and stayed there through the 7-day verification window.{' '}
+                                <strong className="text-primary">1,930 users recovered</strong> the variant they should
+                                have had all along.
                             </p>
                         </section>
 
                         <section className="flex flex-col gap-3.5">
-                            <h2 className="m-0 text-lg font-semibold">What's changed since Aug 16</h2>
+                            <h2 className="m-0 text-lg font-semibold">What's changed since Aug 9</h2>
                             <div className="flex flex-col">
                                 {DELTAS.map((delta) => (
                                     <div
@@ -189,9 +207,8 @@ export function InvestigationsResolvedScene(): JSX.Element {
                                 ))}
                             </div>
                             <p className="m-0 text-[13px] leading-relaxed text-secondary">
-                                Verified by the 50/50 experiment during rollout (fallback cohort 1.8/hr, control
-                                41.2/hr, above 99.9% confidence) and by 187 survey responses from affected users, 92% of
-                                whom confirmed that payment now works.
+                                Verified against 7 days of server-side flag calls after the fix shipped: every
+                                evaluation matched the person properties the caller sent with the request.
                             </p>
                         </section>
 
@@ -199,23 +216,24 @@ export function InvestigationsResolvedScene(): JSX.Element {
                             <h2 className="m-0 text-lg font-semibold">One thing didn't recover</h2>
                             <p className="m-0 text-[15px] leading-relaxed text-secondary">
                                 <strong className="text-primary">
-                                    1,212 of the 1,847 affected users haven't attempted checkout since.
+                                    Support tickets have not gone back to zero yet.
                                 </strong>{' '}
-                                They hit the silent failure, left, and never came back. The fix cannot reach users who
-                                stopped trying. Their historical purchase cadence suggests about $21K a month of
-                                run-rate at risk of quietly churning.
+                                About one a week still comes from someone whose client cached the wrong variant before
+                                the fix. Those clear on their own as sessions expire, and this report stays linked from
+                                each ticket so support can answer in one click.
                             </p>
                             <div className="flex flex-wrap items-center gap-3.5 rounded border border-primary bg-surface-secondary p-4">
                                 <LemonTag type="highlight">New opportunity</LemonTag>
                                 <span className="flex-1 text-[13px] leading-normal text-secondary">
-                                    Winback: apology email plus a one-tap re-checkout link to the 1,212 lapsed users,
-                                    sent as a holdout experiment to measure recovered revenue.
+                                    Add a regression test that pins caller-supplied person properties over server-side
+                                    enrichment, and run it for every server SDK, so this class of bug cannot ship
+                                    silently again.
                                 </span>
                                 <LemonButton
                                     type="primary"
                                     size="small"
                                     onClick={() => lemonToast.info('Not part of this demo')}
-                                    data-attr="investigations-demo-resolved-open-suggestion"
+                                    data-attr="v2-resolved-open-suggestion"
                                 >
                                     Open suggestion
                                 </LemonButton>
@@ -224,41 +242,45 @@ export function InvestigationsResolvedScene(): JSX.Element {
 
                         <section className="flex flex-col gap-3.5">
                             <div className="flex items-center gap-3">
-                                <h2 className="m-0 text-lg font-semibold text-secondary">Original report · Aug 16</h2>
+                                <h2 className="m-0 text-lg font-semibold text-secondary">Original report · Aug 9</h2>
                                 <span className="h-px flex-1 bg-[var(--color-border-primary)]" />
                             </div>
                             <LemonCollapse
                                 panels={[
                                     {
-                                        key: 'v1',
-                                        dataAttr: 'investigations-demo-resolved-original-report',
+                                        key: 'original',
+                                        dataAttr: 'v2-resolved-original-report',
                                         header: (
                                             <span className="text-[13px] font-normal text-tertiary">
-                                                Silent checkout failure for expired saved-card tokens, introduced by
-                                                deploy a3f9c21 · 1,847 users · −12% conversion · $38–52K/wk at risk.
+                                                Server-side flag calls that passed person properties could evaluate the
+                                                wrong variant, because GeoIP enrichment overwrote them · 1,930 users ·
+                                                10 days.
                                             </span>
                                         ),
                                         content: (
                                             <div className="flex flex-col gap-2.5 py-2">
                                                 <h3 className="m-0 text-base font-bold">
-                                                    Checkout silently fails for returning users with expired saved
-                                                    cards.
+                                                    GeoIP overwrote person properties sent by server SDKs.
                                                 </h3>
                                                 <p className="m-0 text-sm leading-relaxed text-secondary">
-                                                    <strong className="text-primary">1,847 users</strong> hit a Pay
-                                                    button that does nothing in 72 hours. Deploy <Mono>a3f9c21</Mono>{' '}
-                                                    introduced strict token validation and removed the refresh fallback,
-                                                    and the client swallowed the resulting 402 with no UI change.
-                                                    Failures were isolated to expired saved-card tokens (99.8% against
-                                                    0.2%), returning-user conversion fell 12 points, and $38–52K a week
-                                                    of GMV was at risk.
+                                                    Flag calls from server SDKs can pass their own person properties
+                                                    with the request. Deploy <Mono>b2d47e1</Mono> moved GeoIP enrichment
+                                                    ahead of those properties, so enrichment overwrote what the caller
+                                                    sent and a flag targeted on a caller-supplied property matched the
+                                                    wrong rule. <strong className="text-primary">1,930 users</strong>{' '}
+                                                    saw a wrong variant over 10 days.
+                                                </p>
+                                                <p className="m-0 text-sm leading-relaxed text-secondary">
+                                                    The fix reorders enrichment so it only fills properties the caller
+                                                    did not send. Caller-supplied values win, and the evaluation matches
+                                                    what the SDK asked for.
                                                 </p>
                                                 <Link
-                                                    to={urls.investigationsDemoReport(DEMO_REPORT_ID)}
+                                                    to={urls.v2Report(id)}
                                                     className="text-[13px]"
-                                                    data-attr="investigations-demo-resolved-read-v1"
+                                                    data-attr="v2-resolved-read-original"
                                                 >
-                                                    Read the full v1 report →
+                                                    Read the full original report →
                                                 </Link>
                                             </div>
                                         ),
@@ -273,6 +295,9 @@ export function InvestigationsResolvedScene(): JSX.Element {
     )
 }
 
-export const scene: SceneExport = { component: InvestigationsResolvedScene }
+export const scene: SceneExport<V2ResolvedSceneProps> = {
+    component: V2ResolvedScene,
+    paramsToProps: ({ params: { id } }) => ({ id: id ?? RESOLVED_DEMO_REPORT_ID }),
+}
 
-export default InvestigationsResolvedScene
+export default V2ResolvedScene

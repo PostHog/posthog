@@ -12,13 +12,13 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CreatePrModal } from './components/CreatePrModal'
-import { InvestigationRow } from './components/InvestigationRow'
-import { investigationsInboxLogic } from './investigationsInboxLogic'
+import { ReportRow } from './components/ReportRow'
 import { InboxDemoFilter, InboxDemoSort } from './types'
+import { v2InboxLogic } from './v2InboxLogic'
 
 export const scene: SceneExport = {
-    component: InvestigationsInboxScene,
-    logic: investigationsInboxLogic,
+    component: V2InboxScene,
+    logic: v2InboxLogic,
 }
 
 const FILTER_OPTIONS: { value: InboxDemoFilter; label: string }[] = [
@@ -34,30 +34,30 @@ const SORT_OPTIONS: { value: InboxDemoSort; label: string }[] = [
     { value: 'recency', label: 'Recency' },
 ]
 
-export function InvestigationsInboxScene(): JSX.Element {
-    const { filter, sort, filteredInvestigations, prModalFlagKey } = useValues(investigationsInboxLogic)
-    const { setFilter, setSort, closePrModal, confirmPrModal } = useActions(investigationsInboxLogic)
+export function V2InboxScene(): JSX.Element {
+    const { filter, sort, filteredReports, prModalTarget } = useValues(v2InboxLogic)
+    const { setFilter, setSort, closePrModal, confirmPrModal } = useActions(v2InboxLogic)
 
     useKeyboardHotkeys(
         {
             // The modal's selects and buttons aren't inputs, so the shortcut would fire behind it
             f: {
-                action: () => router.actions.push(urls.investigationsDemoFocus()),
-                disabled: prModalFlagKey !== null,
+                action: () => router.actions.push(urls.v2Focus()),
+                disabled: prModalTarget !== null,
             },
         },
-        [prModalFlagKey]
+        [prModalTarget]
     )
 
     return (
         <SceneContent>
             <SceneTitleSection
                 name="Inbox"
-                description="Investigations redesign preview with sample data"
+                description="Redesign preview with sample data"
                 resourceType={{ type: 'inbox' }}
             />
 
-            <div className="flex w-full max-w-4xl flex-col gap-4">
+            <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                     <div className="flex flex-wrap items-center gap-1">
                         {FILTER_OPTIONS.map((option) => (
@@ -67,7 +67,7 @@ export function InvestigationsInboxScene(): JSX.Element {
                                 type="secondary"
                                 active={filter === option.value}
                                 onClick={() => setFilter(option.value)}
-                                data-attr={`investigations-demo-filter-${option.value}`}
+                                data-attr={`v2-filter-${option.value}`}
                             >
                                 {option.label}
                             </LemonButton>
@@ -77,9 +77,9 @@ export function InvestigationsInboxScene(): JSX.Element {
                     <LemonButton
                         type="primary"
                         size="small"
-                        to={urls.investigationsDemoFocus()}
+                        to={urls.v2Focus()}
                         sideIcon={<KeyboardShortcut f />}
-                        data-attr="investigations-demo-focus-mode"
+                        data-attr="v2-focus-mode"
                     >
                         Focus mode
                     </LemonButton>
@@ -90,27 +90,25 @@ export function InvestigationsInboxScene(): JSX.Element {
                         onChange={setSort}
                         options={SORT_OPTIONS.map((option) => ({
                             ...option,
-                            'data-attr': `investigations-demo-sort-${option.value}`,
+                            'data-attr': `v2-sort-${option.value}`,
                         }))}
                     />
                 </div>
 
                 <div className="flex flex-col gap-2">
-                    {filteredInvestigations.length === 0 ? (
+                    {filteredReports.length === 0 ? (
                         <div className="rounded border border-primary bg-surface-primary px-4 py-6 text-center text-sm text-secondary">
-                            No investigations match this filter. Pick another filter to see more.
+                            No reports match this filter. Pick another filter to see more.
                         </div>
                     ) : (
-                        filteredInvestigations.map((investigation) => (
-                            <InvestigationRow key={investigation.id} investigation={investigation} />
-                        ))
+                        filteredReports.map((report) => <ReportRow key={report.id} report={report} />)
                     )}
                 </div>
             </div>
 
             <CreatePrModal
-                isOpen={prModalFlagKey !== null}
-                flagKey={prModalFlagKey ?? ''}
+                isOpen={prModalTarget !== null}
+                flagKey={prModalTarget?.flagKey ?? ''}
                 onClose={closePrModal}
                 onConfirm={confirmPrModal}
             />
@@ -118,4 +116,4 @@ export function InvestigationsInboxScene(): JSX.Element {
     )
 }
 
-export default InvestigationsInboxScene
+export default V2InboxScene

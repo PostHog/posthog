@@ -13,15 +13,15 @@ import { urls } from 'scenes/urls'
 import { CreatePrModal } from './components/CreatePrModal'
 import { DemoDiffBlock, diffLinesFromSnippet } from './components/DemoDiffBlock'
 import { SendToAgentMenu } from './components/SendToAgentMenu'
-import { investigationsFocusLogic } from './investigationsFocusLogic'
-import { DemoInvestigation, FocusActedStatus, InvestigationStatus, InvestigationTrend } from './types'
+import { DemoReport, FocusActedStatus, ReportStatus, ReportTrend } from './types'
+import { v2FocusLogic } from './v2FocusLogic'
 
 export const scene: SceneExport = {
-    component: InvestigationsFocusScene,
-    logic: investigationsFocusLogic,
+    component: V2FocusScene,
+    logic: v2FocusLogic,
 }
 
-const STATUS_TAG_TYPE: Record<InvestigationStatus | FocusActedStatus, LemonTagType> = {
+const STATUS_TAG_TYPE: Record<ReportStatus | FocusActedStatus, LemonTagType> = {
     New: 'primary',
     Investigating: 'highlight',
     Assigned: 'option',
@@ -41,7 +41,7 @@ const ACTED_DOT_CLASS: Record<FocusActedStatus, string> = {
     Dismissed: 'bg-border-secondary',
 }
 
-const TREND_CLASS: Record<InvestigationTrend, string> = {
+const TREND_CLASS: Record<ReportTrend, string> = {
     up: 'text-danger',
     down: 'text-success',
     flat: 'text-tertiary',
@@ -85,7 +85,7 @@ const SHORTCUT_HELP: { id: string; keys: JSX.Element; description: string }[] = 
     { id: 'send-to-agent', keys: <KeyboardShortcut s />, description: 'Send to agent' },
 ]
 
-function TrendAnnotation({ trend, label }: { trend: InvestigationTrend; label: string }): JSX.Element {
+function TrendAnnotation({ trend, label }: { trend: ReportTrend; label: string }): JSX.Element {
     const Icon = trend === 'up' ? IconTrending : trend === 'down' ? IconTrendingDown : IconTrendingFlat
     return (
         <span className={cn('flex items-center gap-1 font-mono text-xs', TREND_CLASS[trend])}>
@@ -101,7 +101,7 @@ function PeekStrip({
     onClick,
     dataAttr,
 }: {
-    report: DemoInvestigation
+    report: DemoReport
     shortcut: JSX.Element
     onClick: () => void
     dataAttr: string
@@ -128,7 +128,7 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
     )
 }
 
-export function InvestigationsFocusScene(): JSX.Element {
+export function V2FocusScene(): JSX.Element {
     const {
         reports,
         currentIndex,
@@ -139,7 +139,7 @@ export function InvestigationsFocusScene(): JSX.Element {
         agentMenuOpen,
         helpOpen,
         prModalOpen,
-    } = useValues(investigationsFocusLogic)
+    } = useValues(v2FocusLogic)
     const {
         navigate,
         jumpTo,
@@ -153,7 +153,7 @@ export function InvestigationsFocusScene(): JSX.Element {
         setAgentMenuOpen,
         setHelpOpen,
         setPrModalOpen,
-    } = useActions(investigationsFocusLogic)
+    } = useActions(v2FocusLogic)
 
     const modalOpen = prModalOpen || helpOpen
     // While the agent menu is open it owns the keyboard, so only escape stays live.
@@ -193,20 +193,16 @@ export function InvestigationsFocusScene(): JSX.Element {
         [triageDisabled, modalOpen]
     )
 
-    const investigation = currentReport
-    const focus = investigation?.focus
+    const report = currentReport
+    const focus = report?.focus
     const previousReport = currentIndex > 0 ? reports[currentIndex - 1] : null
     const nextReport = currentIndex < reports.length - 1 ? reports[currentIndex + 1] : null
 
     return (
         <div className="flex h-full flex-col overflow-hidden">
             <header className="flex flex-none items-center gap-3 border-b border-primary px-4 py-2">
-                <Link
-                    to={urls.investigationsDemo()}
-                    className="text-xs text-secondary"
-                    data-attr="investigations-demo-focus-back"
-                >
-                    ← Investigations
+                <Link to={urls.v2Inbox()} className="text-xs text-secondary" data-attr="v2-focus-back">
+                    ← Inbox
                 </Link>
                 <span className="font-mono text-xxs tracking-widest text-tertiary uppercase">Focus</span>
                 <div className="flex-1" />
@@ -221,7 +217,7 @@ export function InvestigationsFocusScene(): JSX.Element {
                                 onClick={() => jumpTo(index)}
                                 aria-label={`Go to report ${index + 1}, ${report.headline}`}
                                 aria-current={isCurrent ? 'true' : undefined}
-                                data-attr="investigations-demo-focus-progress-dot"
+                                data-attr="v2-focus-progress-dot"
                                 className={cn(
                                     'rounded-full',
                                     isCurrent
@@ -238,7 +234,7 @@ export function InvestigationsFocusScene(): JSX.Element {
                     size="xsmall"
                     onClick={() => setHelpOpen(true)}
                     aria-label="Keyboard shortcuts"
-                    data-attr="investigations-demo-focus-help"
+                    data-attr="v2-focus-help"
                 >
                     ?
                 </LemonButton>
@@ -250,26 +246,24 @@ export function InvestigationsFocusScene(): JSX.Element {
                         report={previousReport}
                         shortcut={<KeyboardShortcut k />}
                         onClick={() => navigate(-1)}
-                        dataAttr="investigations-demo-focus-peek-previous"
+                        dataAttr="v2-focus-peek-previous"
                     />
                 ) : null}
 
-                {investigation && focus ? (
+                {report && focus ? (
                     <article
-                        key={investigation.id}
+                        key={report.id}
                         className="flex max-h-full w-full max-w-3xl min-h-0 flex-col overflow-hidden rounded-lg border border-primary bg-surface-primary shadow-sm transition-[opacity,transform] duration-200 starting:translate-y-2 starting:opacity-0 motion-reduce:transition-none"
                     >
                         <div className="flex flex-none flex-wrap items-center gap-3 px-6 pt-4">
-                            <span className="font-mono text-xxs tracking-widest text-tertiary">
-                                {investigation.area}
-                            </span>
+                            <span className="font-mono text-xxs tracking-widest text-tertiary">{report.area}</span>
                             <div className="flex-1" />
                             <LemonTag
-                                type={STATUS_TAG_TYPE[actedStatuses[investigation.id] ?? investigation.status]}
+                                type={STATUS_TAG_TYPE[actedStatuses[report.id] ?? report.status]}
                                 size="small"
                                 className="font-mono uppercase"
                             >
-                                {actedStatuses[investigation.id] ?? investigation.status}
+                                {actedStatuses[report.id] ?? report.status}
                             </LemonTag>
                         </div>
 
@@ -279,26 +273,24 @@ export function InvestigationsFocusScene(): JSX.Element {
                                 expanded ? 'text-base' : 'text-2xl'
                             )}
                         >
-                            {investigation.headline}
+                            {report.headline}
                         </h1>
 
                         {!expanded ? (
                             <>
                                 <div className="flex flex-none flex-wrap items-baseline gap-3 px-6 pt-4">
-                                    <span className="font-mono text-2xl font-semibold">{investigation.impact}</span>
-                                    <TrendAnnotation trend={investigation.trend} label={focus.trendLabel} />
+                                    <span className="font-mono text-2xl font-semibold">{report.impact}</span>
+                                    <TrendAnnotation trend={report.trend} label={focus.trendLabel} />
                                     <div className="flex-1" />
                                     <span className="text-xs text-tertiary">{focus.age}</span>
                                 </div>
-                                <p className="m-0 flex-none px-6 pt-3 text-sm leading-relaxed">
-                                    {investigation.verdict}
-                                </p>
+                                <p className="m-0 flex-none px-6 pt-3 text-sm leading-relaxed">{report.verdict}</p>
                                 <div className="flex-none px-6 pt-2 pb-4 font-mono text-xs text-secondary">
-                                    {investigation.proof}
+                                    {report.proof}
                                 </div>
                             </>
                         ) : (
-                            <div className="mt-3 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto border-t border-primary bg-surface-secondary p-6">
+                            <div className="mt-3 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto border-t border-primary p-6">
                                 {focus.story.map((section) => (
                                     <div key={section.label} className="flex flex-col gap-2">
                                         <div className="font-mono text-xxs font-semibold tracking-widest text-tertiary uppercase">
@@ -310,11 +302,11 @@ export function InvestigationsFocusScene(): JSX.Element {
                                         ) : null}
                                     </div>
                                 ))}
-                                {investigation.hasReport ? (
+                                {report.content ? (
                                     <Link
-                                        to={urls.investigationsDemoReport(investigation.id)}
+                                        to={urls.v2Report(report.id)}
                                         className="text-xs"
-                                        data-attr="investigations-demo-focus-full-report"
+                                        data-attr="v2-focus-full-report"
                                     >
                                         Full report →
                                     </Link>
@@ -328,7 +320,7 @@ export function InvestigationsFocusScene(): JSX.Element {
                                 size="small"
                                 onClick={acknowledge}
                                 sideIcon={<KeyboardShortcut a />}
-                                data-attr="investigations-demo-focus-acknowledge"
+                                data-attr="v2-focus-acknowledge"
                             >
                                 Acknowledge
                             </LemonButton>
@@ -337,7 +329,7 @@ export function InvestigationsFocusScene(): JSX.Element {
                                 size="small"
                                 onClick={runPrimaryAction}
                                 sideIcon={<KeyboardShortcut i />}
-                                data-attr="investigations-demo-focus-primary-action"
+                                data-attr="v2-focus-primary-action"
                             >
                                 {focus.actionLabel}
                             </LemonButton>
@@ -346,7 +338,7 @@ export function InvestigationsFocusScene(): JSX.Element {
                                 size="small"
                                 onClick={dismiss}
                                 sideIcon={<KeyboardShortcut d />}
-                                data-attr="investigations-demo-focus-dismiss"
+                                data-attr="v2-focus-dismiss"
                             >
                                 Dismiss
                             </LemonButton>
@@ -354,14 +346,14 @@ export function InvestigationsFocusScene(): JSX.Element {
                                 visible={agentMenuOpen}
                                 onVisibilityChange={setAgentMenuOpen}
                                 placement="top-end"
-                                promptText={`Fix ${investigation.id}: ${investigation.headline}. Pull the full investigation with the PostHog MCP: posthog issue ${investigation.id}.`}
+                                promptText={`Fix ${report.id}: ${report.headline}. Pull the full report with the PostHog MCP: posthog issue ${report.id}.`}
                                 onSelectAgent={sendToAgent}
                             >
                                 <LemonButton
                                     type="secondary"
                                     size="small"
                                     sideIcon={<KeyboardShortcut s />}
-                                    data-attr="investigations-demo-focus-send-to-agent"
+                                    data-attr="v2-focus-send-to-agent"
                                 >
                                     Send to agent
                                 </LemonButton>
@@ -372,7 +364,7 @@ export function InvestigationsFocusScene(): JSX.Element {
                                 size="small"
                                 onClick={toggleExpanded}
                                 sideIcon={<KeyboardShortcut enter />}
-                                data-attr="investigations-demo-focus-toggle-report"
+                                data-attr="v2-focus-toggle-report"
                             >
                                 {expanded ? 'Collapse' : 'Show report'}
                             </LemonButton>
@@ -387,7 +379,7 @@ export function InvestigationsFocusScene(): JSX.Element {
                         report={nextReport}
                         shortcut={<KeyboardShortcut j />}
                         onClick={() => navigate(1)}
-                        dataAttr="investigations-demo-focus-peek-next"
+                        dataAttr="v2-focus-peek-next"
                     />
                 ) : null}
             </main>
@@ -415,7 +407,7 @@ export function InvestigationsFocusScene(): JSX.Element {
                 onClose={() => setHelpOpen(false)}
                 title="Keyboard shortcuts"
                 width={360}
-                data-attr="investigations-demo-focus-shortcuts"
+                data-attr="v2-focus-shortcuts"
             >
                 <div className="flex flex-col gap-2">
                     {SHORTCUT_HELP.map((shortcut) => (
@@ -430,4 +422,4 @@ export function InvestigationsFocusScene(): JSX.Element {
     )
 }
 
-export default InvestigationsFocusScene
+export default V2FocusScene

@@ -21,11 +21,11 @@ export const manifest: ProductManifest = {
         // Cross-fleet findings browse/search surface, reached from the scout-findings callout.
         inboxFindings: (): string => '/inbox/scouts/findings',
         // Mock-data-only redesign preview of the inbox (URL-only, no sidebar entry).
-        investigationsDemo: (): string => '/investigations-demo',
-        investigationsDemoFocus: (): string => '/investigations-demo/focus',
-        investigationsDemoReport: (id: string | ':id'): string => `/investigations-demo/report/${id}`,
-        investigationsDemoResolved: (id: string | ':id'): string => `/investigations-demo/report/${id}/resolved`,
-        investigationsDemoMonitor: (): string => '/investigations-demo/monitor',
+        v2Inbox: (): string => '/v2/inbox',
+        v2Focus: (): string => '/v2/inbox/focus',
+        v2Report: (id: string | ':id'): string => `/v2/report/${id}`,
+        v2Resolved: (id: string | ':id'): string => `/v2/report/${id}/resolved`,
+        v2Monitor: (id: string | ':id'): string => `/v2/report/${id}/monitor`,
     },
     scenes: {
         Inbox: {
@@ -34,31 +34,31 @@ export const manifest: ProductManifest = {
             projectBased: true,
             description: 'Actionable reports automatically generated from user session analysis and other signals.',
         },
-        InvestigationsDemo: {
-            name: 'Investigations demo',
-            import: () => import('./frontend/investigations-demo/InvestigationsInboxScene'),
+        V2Inbox: {
+            name: 'Inbox v2',
+            import: () => import('./frontend/v2/V2InboxScene'),
             projectBased: true,
-            description: 'Mock-data preview of the investigations inbox redesign.',
+            description: 'Mock-data preview of the inbox redesign.',
         },
-        InvestigationsDemoFocus: {
-            name: 'Focus mode demo',
-            import: () => import('./frontend/investigations-demo/InvestigationsFocusScene'),
+        V2Focus: {
+            name: 'Focus mode',
+            import: () => import('./frontend/v2/V2FocusScene'),
             projectBased: true,
             layout: 'app-full-scene-height',
         },
-        InvestigationsDemoReport: {
-            name: 'Investigation report demo',
-            import: () => import('./frontend/investigations-demo/InvestigationsReportScene'),
+        V2Report: {
+            name: 'Report v2',
+            import: () => import('./frontend/v2/V2ReportScene'),
             projectBased: true,
         },
-        InvestigationsDemoResolved: {
-            name: 'Resolved report demo',
-            import: () => import('./frontend/investigations-demo/InvestigationsResolvedScene'),
+        V2Resolved: {
+            name: 'Resolved report v2',
+            import: () => import('./frontend/v2/V2ResolvedScene'),
             projectBased: true,
         },
-        InvestigationsDemoMonitor: {
-            name: 'Fix monitor demo',
-            import: () => import('./frontend/investigations-demo/InvestigationsMonitorScene'),
+        V2Monitor: {
+            name: 'Fix monitor v2',
+            import: () => import('./frontend/v2/V2MonitorScene'),
             projectBased: true,
         },
     },
@@ -73,11 +73,11 @@ export const manifest: ProductManifest = {
         // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.
         '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
         '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
-        '/investigations-demo': ['InvestigationsDemo', 'investigationsDemo'],
-        '/investigations-demo/focus': ['InvestigationsDemoFocus', 'investigationsDemoFocus'],
-        '/investigations-demo/monitor': ['InvestigationsDemoMonitor', 'investigationsDemoMonitor'],
-        '/investigations-demo/report/:id': ['InvestigationsDemoReport', 'investigationsDemoReport'],
-        '/investigations-demo/report/:id/resolved': ['InvestigationsDemoResolved', 'investigationsDemoResolved'],
+        '/v2/inbox': ['V2Inbox', 'v2Inbox'],
+        '/v2/inbox/focus': ['V2Focus', 'v2Focus'],
+        '/v2/report/:id': ['V2Report', 'v2Report'],
+        '/v2/report/:id/resolved': ['V2Resolved', 'v2Resolved'],
+        '/v2/report/:id/monitor': ['V2Monitor', 'v2Monitor'],
     },
     fileSystemTypes: {},
     treeItemsNew: [],

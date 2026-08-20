@@ -1,0 +1,4 @@
+// Compound selector so this reliably outranks the default top-aligned overlay rule.
+.CreatePrModal__overlay.LemonModal__overlay {
+    align-items: center;
+}

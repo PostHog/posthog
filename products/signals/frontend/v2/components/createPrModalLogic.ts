@@ -35,7 +35,7 @@ export type createPrModalLogicType = MakeLogicType<createPrModalLogicValues, cre
  * inbox, focus mode, and report surfaces so the chosen settings carry over.
  */
 export const createPrModalLogic = kea<createPrModalLogicType>([
-    path(['products', 'signals', 'frontend', 'investigations-demo', 'createPrModalLogic']),
+    path(['products', 'signals', 'frontend', 'v2', 'createPrModalLogic']),
     actions({
         setModel: (model: string) => ({ model }),
         setEffort: (effort: string) => ({ effort }),
