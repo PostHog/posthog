@@ -132,6 +132,7 @@ Same-weekday matters: most PostHog meters have a hard weekday/weekend shape, and
 - **Volume floor.** Skip a meter only when **both** its baseline median and its latest value are under **100 units/day**. Flooring on the baseline alone would discard the cold-start instrumentation loop this scout most wants to catch — a meter going from a handful of units to a large paid spike has a tiny baseline and a real invoice impact. Small numbers on both sides produce meaningless percentages: 1 → 3 units is not a billing event.
 - **Concentration tolerance.** The move is concentrated when every _other_ meter **family** with a non-zero baseline stayed within **±20%** of its own median. Two or more families outside that is a traffic story.
 - **Materiality floor.** The move's projected impact on this period's invoice must clear **the greater of $20 and 2% of the last complete period's invoice** — so a small org still hears about small dollars and a large one is not paged over rounding.
+  The last period's invoice comes from summing `billing-spend-get` over the previous `billing_period` window, or from a cached `pattern:billing:period-actual`. When neither is available yet, use the $20 floor alone and say so in the memory entry.
 
 **Group alias meters into families before testing concentration.** Several usage types are views or subsets of the same underlying usage, so counting them independently lets one real move put two series outside the tolerance and misread a localized billing change as a broad traffic story. Collapse each family to its primary meter and score the family once:
 
@@ -149,6 +150,7 @@ Apply the gates cheapest-first; most candidates die on the second:
 
 1. **Concentrated?** Other meter families held? If they all moved, stop.
 2. **Material?** Price the delta as `price(period-to-date usage with it) − price(period-to-date usage without it)` across the tier schedule, then apply the discount and the spending cap — never as `delta × marginal rate`. A delta that crosses a tier boundary, sits behind a full discount, or is already cut off by a limit adds far less to the invoice than the raw multiplication suggests, and can be $0. The tiers and limit live under the meter's **product** key rather than its usage type, so map it through the vocabulary table in [`references/usage-types.md`](references/usage-types.md) first — the same table governs reading a `billing-spend-get` `type` breakdown, which is also keyed by product.
+   When you cannot price it — the overview was truncated, the product has no `tiers`, or the usage type is not in the vocabulary table — fall back in order: the meter's own `billing-spend-get` series within the current period; then `free_allocation` / `usage_limit` as the threshold; then volume-only mode for that meter, with the report saying the dollar impact is unknown rather than estimating one.
 3. **Explained?** Search memory for the meter. A recorded migration, launch, or backfill closes it.
 
 A step that clears all three gets one more read before you write: **is this a machine or a person?**
@@ -165,6 +167,9 @@ Report-worthy shapes:
 - Projected period spend materially above the last complete period's actual, with no single meter explaining it.
 - A product tracking to cross a `custom_limits_usd` spending limit before the period ends. The customer set that limit deliberately, so say what it may cost them — but state it as a possibility, not a certainty.
 - A trial ending soon where the post-trial run rate is a step up nobody has seen yet. Check **both** trial representations: the newer `trial` object and the legacy `free_trial_until` timestamp, which is still supported and is checked first elsewhere in the product.
+
+Every field this lane reads is optional in practice — plans, add-ons, and the billing service's response shape vary across organizations and change over time.
+Read each field defensively: a missing projection, `tiers`, or `custom_limits_usd` entry means "skip that check", never "zero". Record what was missing as `pattern:billing:overview-shape` so the next run does not rediscover it, and keep running the checks whose inputs are present.
 
 Store last period's actual as `pattern:billing:period-actual`, **with the `billing_period` boundaries it came from**.
 On each run, compare those stored boundaries against the overview's current `billing_period`: if the period has advanced, the entry is now two periods old, so re-derive it before comparing or you will invent a trajectory finding out of stale history.
@@ -185,6 +190,9 @@ Domain label is `billing`. Worked entries:
 - `reviewer:billing:owner` — the bare lowercase GitHub login that owns the bill, once one is confirmed.
 
 By run five the scratchpad knows this project's meter mix, each meter's tier position, the lag, and the band — so a real step lands with its dollar impact already attached.
+
+**The first runs on a project are calibration.** Prefer memory over reports until the scratchpad holds a baseline and a tier entry for the meters that carry the bill; file early only for the unambiguous shapes (a machine-like step on a priced meter, a meter falling to zero).
+When the tools return a shape this skill does not describe — a new `breakdown_type`, a usage type outside the vocabulary table, a projection field with a different name — handle it as best you can, record it in memory, and send `agent-feedback` with `feedback_type: "scout"` describing the shape in general terms. That feedback is how this skill gets corrected.
 
 ### Decide
 
