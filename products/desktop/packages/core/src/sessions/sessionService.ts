@@ -1676,18 +1676,27 @@ function readSteering(result: unknown): string | undefined {
   return (result as { steering?: string } | undefined)?.steering;
 }
 
-function readTurnAgentText(msg: AcpMessage["message"]): string {
+// Live streaming emits agent_message_chunk; SessionLogWriter coalesces a chunk
+// run into a single agent_message, so hydration and cloud replay read the same
+// text back as that final. Both forms carry { type: "text", text }, so both
+// must count toward a turn's agent text (see agentMessageUpdateKind).
+export function readTurnAgentText(msg: AcpMessage["message"]): string {
   if (!("method" in msg) || msg.method !== "session/update") return "";
   const update = (msg as { params?: { update?: Record<string, unknown> } })
     .params?.update;
-  if (update?.sessionUpdate !== "agent_message_chunk") return "";
+  if (
+    update?.sessionUpdate !== "agent_message_chunk" &&
+    update?.sessionUpdate !== "agent_message"
+  ) {
+    return "";
+  }
   const content = update.content as
     | { type?: string; text?: string }
     | undefined;
   return content?.type === "text" ? (content.text ?? "") : "";
 }
 
-function classifyTurnEventKind(
+export function classifyTurnEventKind(
   msg: AcpMessage["message"],
 ): "text" | "output" | "other" {
   if (!("method" in msg) || msg.method !== "session/update") return "other";
@@ -1695,7 +1704,10 @@ function classifyTurnEventKind(
     .params?.update;
   if (!update) return "other";
   const sessionUpdate = update.sessionUpdate;
-  if (sessionUpdate === "agent_message_chunk") {
+  if (
+    sessionUpdate === "agent_message_chunk" ||
+    sessionUpdate === "agent_message"
+  ) {
     const content = update.content as { type?: string } | undefined;
     return content?.type === "text" ? "text" : "output";
   }
