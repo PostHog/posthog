@@ -620,7 +620,10 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         query = "select * from "
         results = self._select(query=query, start=14, end=14)
 
-        assert "some_view" in [x.label for x in results.suggestions]
+        details_by_label = {x.label: x.detail for x in results.suggestions}
+        # A saved query is a view, so it must read "View" like the schema sidebar shows, not "Table".
+        assert details_by_label["some_view"] == "View"
+        assert details_by_label["events"] == "Table"
 
     def test_autocomplete_deleted_warehouse_view(self):
         DataWarehouseSavedQuery.objects.create(

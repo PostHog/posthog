@@ -29,6 +29,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     LazyJoin,
     LazyTable,
+    SavedQuery,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -285,6 +286,28 @@ def _display_runtime_type(runtime_type: RuntimeType) -> str:
     return runtime_type.display()
 
 
+def table_detail_label(table: Table, view_names: set[str]) -> str:
+    """Label a table the way the schema sidebar does: 'Table', 'View', or 'Materialized view'.
+
+    A saved query resolves to a SavedQuery table, while a materialized one resolves to its backing
+    warehouse table, so the class plus view-name membership tell the three apart.
+    """
+    if isinstance(table, SavedQuery):
+        return "View"
+    if table.name in view_names:
+        return "Materialized view"
+    return "Table"
+
+
+def table_name_detail_label(database: Database, table_name: str, view_names: set[str]) -> str:
+    if table_name not in view_names:
+        return "Table"
+    try:
+        return table_detail_label(database.get_table(table_name), view_names)
+    except Exception:
+        return "View"
+
+
 def convert_field_or_table_to_type_string(
     field_or_table: FieldOrTable, parent_table: str, context: HogQLContext
 ) -> str | None:
@@ -308,7 +331,10 @@ def convert_field_or_table_to_type_string(
             capture_exception(tracking_error)
 
             return UNKNOWN_TYPE_LABEL
-    if isinstance(field_or_table, ast.Table | ast.LazyJoin):
+    if isinstance(field_or_table, ast.Table):
+        view_names = set(context.database.get_view_names()) if context.database is not None else set()
+        return table_detail_label(field_or_table, view_names)
+    if isinstance(field_or_table, ast.LazyJoin):
         return "Table"
     if isinstance(field_or_table, ast.DatabaseField):
         try:
@@ -731,12 +757,16 @@ def get_hogql_autocomplete(
                     for index, chain_part in enumerate(node.chain):
                         # Return just the table alias
                         if table_has_alias and index == 0 and chain_len == 1:
-                            table_aliases = list(get_tables_aliases(nearest_select, context).keys())
+                            aliased_tables = get_tables_aliases(nearest_select, context)
+                            view_names = set(database.get_view_names())
+                            table_aliases = list(aliased_tables.keys())
                             extend_responses(
                                 keys=table_aliases,
                                 suggestions=response.suggestions,
                                 kind=AutocompleteCompletionItemKind.FOLDER,
-                                details=["Table"] * len(table_aliases),
+                                details=[
+                                    table_detail_label(aliased_tables[alias], view_names) for alias in table_aliases
+                                ],
                             )
                             break
 
@@ -857,13 +887,14 @@ def get_hogql_autocomplete(
                     posthog_table_names = [
                         name for name in database.get_posthog_table_names() if database.has_table(name)
                     ]
+                    view_names = set(database.get_view_names())
 
                     if len(node.chain) == 1:
                         extend_responses(
                             keys=table_names,
                             suggestions=response.suggestions,
                             kind=AutocompleteCompletionItemKind.FOLDER,
-                            details=["Table"] * len(table_names),
+                            details=[table_name_detail_label(database, name, view_names) for name in table_names],
                         )
                         table_function_names = get_direct_table_function_names(context)
                         if table_function_names:
@@ -879,13 +910,16 @@ def get_hogql_autocomplete(
                     else:
                         node_chain_arr = [str(x) for x in node.chain if x != MATCH_ANY_CHARACTER]
                         node_chain = ".".join(node_chain_arr)
-                        filtered_table_names = [x.replace(f"{node_chain}.", "") for x in table_names if node_chain in x]
+                        matching_table_names = [x for x in table_names if node_chain in x]
+                        filtered_table_names = [x.replace(f"{node_chain}.", "") for x in matching_table_names]
 
                         extend_responses(
                             keys=filtered_table_names,
                             suggestions=response.suggestions,
                             kind=AutocompleteCompletionItemKind.FOLDER,
-                            details=["Table"] * len(filtered_table_names),
+                            details=[
+                                table_name_detail_label(database, name, view_names) for name in matching_table_names
+                            ],
                         )
             elif isinstance(node, ast.Field) and isinstance(parent_node, ast.Placeholder):
                 if node.chain[0] == MATCH_ANY_CHARACTER or (
