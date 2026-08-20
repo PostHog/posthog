@@ -25,6 +25,7 @@ import IconIntercom from 'public/services/intercom.png'
 import IconJira from 'public/services/jira.svg'
 import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
+import IconLinkedInPages from 'public/services/linkedin_pages.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
 import IconPardot from 'public/services/pardot.png'
@@ -81,6 +82,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     stripe: IconStripe,
     intercom: IconIntercom,
     'linkedin-ads': IconLinkedIn,
+    'linkedin-pages': IconLinkedInPages,
     email: IconMailjet,
     linear: IconLinear,
     github: IconGitHub,
@@ -132,6 +134,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Google Cloud service account'
         case 'linkedin-ads':
             return 'LinkedIn Ads'
+        case 'linkedin-pages':
+            return 'LinkedIn Pages'
         case 'reddit-ads':
             return 'Reddit Ads'
         case 'tiktok-ads':
