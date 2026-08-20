@@ -6398,7 +6398,22 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["type"], "skill_bundle")
         self.assertEqual(artifact["metadata"], metadata)
 
-    def test_upload_artifacts_rejects_skill_bundle_without_metadata(self):
+    @parameterized.expand(
+        [
+            ("without_metadata", None),
+            (
+                "with_reference_metadata",
+                {
+                    "reference_type": "posthog_object",
+                    "object_kind": "insight",
+                    "object_id": "9pQx3",
+                    "source_message_ids": ["turn-1"],
+                    "occurrence_count": 1,
+                },
+            ),
+        ]
+    )
+    def test_upload_artifacts_rejects_skill_bundle(self, _name, metadata):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -6413,6 +6428,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         "content": "c2tpbGw=",
                         "content_encoding": "base64",
                         "content_type": "application/zip",
+                        **({"metadata": metadata} if metadata else {}),
                     }
                 ]
             },

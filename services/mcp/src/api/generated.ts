@@ -54427,6 +54427,35 @@ export namespace Schemas {
       Ultracode: 'ultracode',
     } as const;
 
+    export interface TaskRunSkillBundleMetadata {
+      /**
+         * Name of the local skill included in a skill_bundle artifact.
+         * @maxLength 255
+         */
+      skill_name: string;
+      /** Local source for the uploaded skill bundle, such as user or repo.
+       *
+       * * `user` - user
+       * * `repo` - repo
+       * * `marketplace` - marketplace
+       * * `codex` - codex */
+      skill_source: SkillSourceEnum;
+      /**
+         * SHA-256 hex digest of the uploaded skill bundle bytes.
+         * @pattern ^[a-f0-9]{64}$
+         */
+      content_sha256: string;
+      /** Archive format used for the local skill bundle.
+       *
+       * * `zip` - zip */
+      bundle_format: BundleFormatEnum;
+      /**
+         * Version of the local skill bundle metadata schema.
+         * @minimum 1
+         */
+      schema_version: number;
+    }
+
     /**
      * * `posthog_object` - posthog_object
      */
@@ -54437,37 +54466,11 @@ export namespace Schemas {
       PosthogObject: 'posthog_object',
     } as const;
 
-    export interface TaskRunArtifactMetadata {
-      /**
-         * Name of the local skill included in a skill_bundle artifact.
-         * @maxLength 255
-         */
-      skill_name?: string;
-      /** Local source for the uploaded skill bundle, such as user or repo.
-       *
-       * * `user` - user
-       * * `repo` - repo
-       * * `marketplace` - marketplace
-       * * `codex` - codex */
-      skill_source?: SkillSourceEnum;
-      /**
-         * SHA-256 hex digest of the uploaded skill bundle bytes.
-         * @pattern ^[a-f0-9]{64}$
-         */
-      content_sha256?: string;
-      /** Archive format used for the local skill bundle.
-       *
-       * * `zip` - zip */
-      bundle_format?: BundleFormatEnum;
-      /**
-         * Version of the local skill bundle metadata schema.
-         * @minimum 1
-         */
-      schema_version?: number;
+    export interface TaskRunPostHogReferenceMetadata {
       /** Reference metadata type. posthog_object identifies a live PostHog object.
        *
        * * `posthog_object` - posthog_object */
-      reference_type?: ReferenceTypeEnum;
+      reference_type: ReferenceTypeEnum;
       /** PostHog object kind used to resolve the reference.
        *
        * * `insight` - insight
@@ -54485,24 +54488,26 @@ export namespace Schemas {
        * * `cohort` - cohort
        * * `action` - action
        * * `person` - person */
-      object_kind?: ObjectKindEnum;
+      object_kind: ObjectKindEnum;
       /**
          * Exact PostHog object identifier, flag key, event name, or SQL query.
          * @maxLength 16384
          */
-      object_id?: string;
+      object_id: string;
       /**
          * Completed assistant message identifiers that referenced the object.
          * @maxItems 100
          * @items.maxLength 255
          */
-      source_message_ids?: string[];
+      source_message_ids: string[];
       /**
          * Number of distinct completed assistant messages that referenced the object.
          * @minimum 1
          */
-      occurrence_count?: number;
+      occurrence_count: number;
     }
+
+    export type TaskRunArtifactMetadata = TaskRunSkillBundleMetadata | TaskRunPostHogReferenceMetadata;
 
     /**
      * * `agent` - agent
@@ -54529,7 +54534,7 @@ export namespace Schemas {
       size?: number;
       /** Optional MIME type */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      /** Structured metadata for a skill bundle or a PostHog object reference. */
       metadata?: TaskRunArtifactMetadata;
       /** S3 object key for file artifacts. Reference artifacts do not have one. */
       storage_path?: string;
@@ -79322,8 +79327,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskRunArtifactPrepareUpload {
@@ -79359,8 +79364,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskRunArtifactPrepareUploadResponse {
@@ -79376,8 +79381,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
       /** S3 object key reserved for the artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */
@@ -79435,8 +79440,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskRunArtifactsDismissRequest {
@@ -80263,8 +80268,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUpload {
@@ -80300,8 +80305,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUploadResponse {
@@ -80317,8 +80322,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
       /** S3 object key reserved for the staged artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */

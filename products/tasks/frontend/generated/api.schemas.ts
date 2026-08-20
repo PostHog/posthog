@@ -1316,6 +1316,35 @@ export const TaskRunReasoningEffortEnumApi = {
     Ultracode: 'ultracode',
 } as const
 
+export interface TaskRunSkillBundleMetadataApi {
+    /**
+     * Name of the local skill included in a skill_bundle artifact.
+     * @maxLength 255
+     */
+    skill_name: string
+    /** Local source for the uploaded skill bundle, such as user or repo.
+     *
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex */
+    skill_source: SkillSourceEnumApi
+    /**
+     * SHA-256 hex digest of the uploaded skill bundle bytes.
+     * @pattern ^[a-f0-9]{64}$
+     */
+    content_sha256: string
+    /** Archive format used for the local skill bundle.
+     *
+     * * `zip` - zip */
+    bundle_format: BundleFormatEnumApi
+    /**
+     * Version of the local skill bundle metadata schema.
+     * @minimum 1
+     */
+    schema_version: number
+}
+
 /**
  * * `posthog_object` - posthog_object
  */
@@ -1362,37 +1391,11 @@ export const ObjectKindEnumApi = {
     Person: 'person',
 } as const
 
-export interface TaskRunArtifactMetadataApi {
-    /**
-     * Name of the local skill included in a skill_bundle artifact.
-     * @maxLength 255
-     */
-    skill_name?: string
-    /** Local source for the uploaded skill bundle, such as user or repo.
-     *
-     * * `user` - user
-     * * `repo` - repo
-     * * `marketplace` - marketplace
-     * * `codex` - codex */
-    skill_source?: SkillSourceEnumApi
-    /**
-     * SHA-256 hex digest of the uploaded skill bundle bytes.
-     * @pattern ^[a-f0-9]{64}$
-     */
-    content_sha256?: string
-    /** Archive format used for the local skill bundle.
-     *
-     * * `zip` - zip */
-    bundle_format?: BundleFormatEnumApi
-    /**
-     * Version of the local skill bundle metadata schema.
-     * @minimum 1
-     */
-    schema_version?: number
+export interface TaskRunPostHogReferenceMetadataApi {
     /** Reference metadata type. posthog_object identifies a live PostHog object.
      *
      * * `posthog_object` - posthog_object */
-    reference_type?: ReferenceTypeEnumApi
+    reference_type: ReferenceTypeEnumApi
     /** PostHog object kind used to resolve the reference.
      *
      * * `insight` - insight
@@ -1410,24 +1413,26 @@ export interface TaskRunArtifactMetadataApi {
      * * `cohort` - cohort
      * * `action` - action
      * * `person` - person */
-    object_kind?: ObjectKindEnumApi
+    object_kind: ObjectKindEnumApi
     /**
      * Exact PostHog object identifier, flag key, event name, or SQL query.
      * @maxLength 16384
      */
-    object_id?: string
+    object_id: string
     /**
      * Completed assistant message identifiers that referenced the object.
      * @maxItems 100
      * @items.maxLength 255
      */
-    source_message_ids?: string[]
+    source_message_ids: string[]
     /**
      * Number of distinct completed assistant messages that referenced the object.
      * @minimum 1
      */
-    occurrence_count?: number
+    occurrence_count: number
 }
+
+export type TaskRunArtifactMetadataApi = TaskRunSkillBundleMetadataApi | TaskRunPostHogReferenceMetadataApi
 
 /**
  * * `agent` - agent
@@ -1453,7 +1458,7 @@ export interface TaskRunArtifactResponseApi {
     size?: number
     /** Optional MIME type */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    /** Structured metadata for a skill bundle or a PostHog object reference. */
     metadata?: TaskRunArtifactMetadataApi
     /** S3 object key for file artifacts. Reference artifacts do not have one. */
     storage_path?: string
@@ -2653,8 +2658,8 @@ export interface TaskStagedArtifactFinalizeUploadApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
 }
 
 export interface TaskStagedArtifactsFinalizeUploadRequestApi {
@@ -2700,8 +2705,8 @@ export interface TaskStagedArtifactPrepareUploadApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
 }
 
 export interface TaskStagedArtifactsPrepareUploadRequestApi {
@@ -2734,8 +2739,8 @@ export interface TaskStagedArtifactPrepareUploadResponseApi {
     size: number
     /** Optional MIME type */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
     /** S3 object key reserved for the staged artifact */
     storage_path: string
     /** Presigned POST expiry in seconds */
@@ -3017,8 +3022,8 @@ export interface TaskRunArtifactUploadApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
 }
 
 export interface TaskRunArtifactsUploadRequestApi {
@@ -3089,8 +3094,8 @@ export interface TaskRunArtifactFinalizeUploadApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
 }
 
 export interface TaskRunArtifactsFinalizeUploadRequestApi {
@@ -3136,8 +3141,8 @@ export interface TaskRunArtifactPrepareUploadApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
 }
 
 export interface TaskRunArtifactsPrepareUploadRequestApi {
@@ -3158,8 +3163,8 @@ export interface TaskRunArtifactPrepareUploadResponseApi {
     size: number
     /** Optional MIME type */
     content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
+    /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+    metadata?: TaskRunSkillBundleMetadataApi
     /** S3 object key reserved for the artifact */
     storage_path: string
     /** Presigned POST expiry in seconds */
