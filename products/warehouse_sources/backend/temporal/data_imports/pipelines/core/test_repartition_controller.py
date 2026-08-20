@@ -797,6 +797,26 @@ class TestRepartitionActivity:
 
         assert schema.repartition_pending is None
 
+    def test_an_overlapping_attempt_charge_survives_another_attempts_refund(self, team):
+        # Overlapping attempts must not erase each other's charge, or the cap never counts up and the
+        # retry loop this change exists to stop comes back.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 2,
+            }
+        )
+        # This attempt charged 0 -> 1; a concurrent one then charged 1 -> 2. Refunding to 0 here would
+        # erase that second charge.
+        repartition_table._refund_attempt(schema, 0, logger)
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending["attempts"] == 2
+
     def test_a_staged_swap_is_never_abandoned_by_the_attempt_cap(self, team):
         # An interrupted swap may already have deleted live, leaving temp the only intact copy. Giving
         # up clears the marker that points at it, so the next sync would bootstrap an empty table.

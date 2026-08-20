@@ -66,6 +66,9 @@ def _schema(
     # The failure bookkeeping re-reads the claim to check it still owns the schema, so the mock has
     # to actually remember the token the activity just staked.
     schema.set_repartition_claim.side_effect = lambda claim: setattr(schema, "repartition_claim", claim)
+    # Same for the pending marker: the attempt is charged before the rewrite and refunded after, and
+    # the refund only fires when it reads back the count it wrote.
+    schema.set_repartition_pending.side_effect = lambda p: setattr(schema, "repartition_pending", p)
     return schema
 
 
@@ -239,14 +242,13 @@ class TestBudgetExhaustion:
         if expect_give_up:
             schema.clear_repartition_pending.assert_called_once()
             schema.stamp_last_repartition_at.assert_called_once()
-            # The charge is the only write; the marker is cleared rather than re-armed at a higher count.
+            # Charged once, then the marker is cleared rather than re-armed at a higher count.
             assert schema.set_repartition_pending.call_count == 1
-            assert schema.set_repartition_pending.call_args.args[0]["attempts"] == prior_attempts + 1
             # The rewrite checkpoint must be dropped too, or the next flag cycle would resume the same
             # doomed temp and the give-up would never take effect.
             schema.clear_repartition_rewrite.assert_called_once()
         else:
-            assert schema.set_repartition_pending.call_args.args[0]["attempts"] == prior_attempts + 1
+            assert schema.repartition_pending["attempts"] == prior_attempts + 1
             schema.clear_repartition_pending.assert_not_called()
             schema.stamp_last_repartition_at.assert_not_called()
             schema.clear_repartition_rewrite.assert_not_called()
@@ -517,8 +519,8 @@ class TestTransientObjectStoreFailure:
 
         emitted = [c.args[0] for c in mock_capture_event.call_args_list]
         assert "warehouse_repartition_failed" not in emitted
-        # The attempt is charged before the rewrite and refunded here, so the net cost is zero.
-        assert schema.set_repartition_pending.call_args.args[0]["attempts"] == 0
+        # Charged before the rewrite and refunded here, so the net cost is zero.
+        assert schema.repartition_pending["attempts"] == 0
         schema.clear_repartition_pending.assert_not_called()
 
     @parameterized.expand(

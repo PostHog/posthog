@@ -663,6 +663,12 @@ def _give_up(
         f"record an outcome schema_id={inputs.schema_id}",
         schema_id=inputs.schema_id,
     )
+    # Stake a fresh claim before clearing anything. This runs before the activity mints its own, so a
+    # timed-out predecessor may still be running and still hold the old token; leaving it valid would
+    # let it pass `ensure_claim` and go on mutating live after we declared the rewrite abandoned.
+    schema.set_repartition_claim(
+        {"token": str(uuid.uuid4()), "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
+    )
     schema.clear_repartition_pending()
     schema.clear_repartition_swap()
     schema.clear_repartition_rewrite()
@@ -704,15 +710,16 @@ def _refund_attempt(schema: ExternalDataSchema, prior: int | None, logger: Filte
     """Undo `_charge_attempt` for a stand-down that must not count against the retry cap.
 
     Supersession, transient infra and a checkpoint that advanced are noise or progress, not evidence
-    the rewrite is doomed. A newer attempt that charged in the meantime has its charge written back
-    here, which only makes the cap count slower — the safe direction, since the cost of counting slow
-    is another attempt and the cost of counting fast is abandoning a table that could still finish.
+    the rewrite is doomed. Refunds only when the persisted count is still the one this attempt wrote:
+    overlapping attempts otherwise let each refund erase the other's charge, and a cap that never
+    counts up is the loop this whole change exists to stop.
     """
     if prior is None:
         return
     try:
+        schema.refresh_from_db(fields=["sync_type_config"])
         pending = schema.repartition_pending
-        if pending is not None:
+        if pending is not None and int(pending.get("attempts", 0)) == prior + 1:
             schema.set_repartition_pending({**pending, "attempts": prior})
     except Exception:
         logger.warning("repartition: could not refund attempt", exc_info=True)
