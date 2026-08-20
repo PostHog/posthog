@@ -25,6 +25,7 @@ from temporalio.client import (
 )
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
@@ -60,6 +61,18 @@ def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, i
     return (int(jitter_seconds // 3600), int((jitter_seconds % 3600) // 60))
 
 
+# Jitter windows a schema's anchor is drawn from, smallest first; the first one its sync
+# frequency fits inside wins.
+JITTER_BUCKETS = (
+    timedelta(minutes=5),
+    timedelta(minutes=30),
+    timedelta(hours=1),
+    timedelta(hours=6),
+    timedelta(hours=12),
+    timedelta(days=1),
+)
+
+
 # Cap on how long after its parent's anchor a fan-out child fires. Parent list syncs
 # complete in ~1min at p50 fleet-wide, so the margin absorbs task-queue delay, not sync
 # work; hour-scale queue backlogs exceed any offset smaller than the interval, and those
@@ -70,36 +83,39 @@ FANOUT_ALIGN_DELAY_CAP = timedelta(minutes=30)
 FANOUT_SIBLING_STAGGER_WINDOW = timedelta(minutes=15)
 
 
-def _sync_anchor(external_data_schema: ExternalDataSchema) -> tuple[int, int]:
-    """Hour and minute the schema's schedule fires at, before any parent alignment."""
+@frozen
+class ScheduleAnchor:
+    """Time of day a schema's schedule fires at, as hour and minute past that hour."""
+
+    hour: int
+    minute: int
+
+    @property
+    def time_of_day(self) -> timedelta:
+        return timedelta(hours=self.hour, minutes=self.minute)
+
+
+def _sync_anchor(external_data_schema: ExternalDataSchema) -> ScheduleAnchor:
+    """Where the schema's schedule fires, before any parent alignment."""
     sync_time_of_day: time | str | None = external_data_schema.sync_time_of_day
     # format 15:00:00 --> 3:00 PM UTC | default to midnight UTC
     if sync_time_of_day is not None:
         t = datetime.strptime(str(sync_time_of_day), "%H:%M:%S").time()
-        return t.hour, t.minute
+        return ScheduleAnchor(hour=t.hour, minute=t.minute)
 
     # Apply a one-time jitter based on the sync frequency to avoid all jobs syncing at the same time
     interval: timedelta | None = external_data_schema.sync_frequency_interval
     if interval is not None:
         rng = random.Random(str(external_data_schema.id))
+        for bucket in JITTER_BUCKETS:
+            if interval <= bucket:
+                hour, minute = _jitter_timedelta(bucket, rng)
+                return ScheduleAnchor(hour=hour, minute=minute)
 
-        if interval <= timedelta(minutes=5):
-            return _jitter_timedelta(timedelta(minutes=5), rng)
-        elif interval <= timedelta(minutes=30):
-            return _jitter_timedelta(timedelta(minutes=30), rng)
-        elif interval <= timedelta(hours=1):
-            return _jitter_timedelta(timedelta(hours=1), rng)
-        elif interval <= timedelta(hours=6):
-            return _jitter_timedelta(timedelta(hours=6), rng)
-        elif interval <= timedelta(hours=12):
-            return _jitter_timedelta(timedelta(hours=12), rng)
-        elif interval <= timedelta(days=1):
-            return _jitter_timedelta(timedelta(days=1), rng)
-
-    return 0, 0
+    return ScheduleAnchor(hour=0, minute=0)
 
 
-def _fanout_aligned_anchor(external_data_schema: ExternalDataSchema) -> tuple[int, int] | None:
+def _fanout_aligned_anchor(external_data_schema: ExternalDataSchema) -> ScheduleAnchor | None:
     """Anchor for a fan-out child: shortly after its warehouse parent's anchor, or None.
 
     A child that reads its parent from the synced Delta table fans out over that table's
@@ -151,15 +167,14 @@ def _fanout_aligned_anchor(external_data_schema: ExternalDataSchema) -> tuple[in
     if parent_interval is None or parent_interval > child_interval or child_interval % parent_interval != timedelta(0):
         return None
 
-    parent_hour, parent_minute = _sync_anchor(parent)
-    parent_offset = timedelta(hours=parent_hour, minutes=parent_minute) % parent_interval
+    parent_offset = _sync_anchor(parent).time_of_day % parent_interval
     align_delay = min(FANOUT_ALIGN_DELAY_CAP, child_interval / 4)
     stagger_hour, stagger_minute = _jitter_timedelta(
         FANOUT_SIBLING_STAGGER_WINDOW, random.Random(str(external_data_schema.id))
     )
     total = parent_offset + align_delay + timedelta(hours=stagger_hour, minutes=stagger_minute)
     total_minutes = int(total.total_seconds()) // 60
-    return total_minutes // 60, total_minutes % 60
+    return ScheduleAnchor(hour=total_minutes // 60, minute=total_minutes % 60)
 
 
 def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: bool = True):
@@ -169,16 +184,13 @@ def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: boo
         external_data_source_id=external_data_schema.source_id,
     )
 
-    anchor = _fanout_aligned_anchor(external_data_schema)
-    if anchor is None:
-        anchor = _sync_anchor(external_data_schema)
-    hour, minute = anchor
+    anchor = _fanout_aligned_anchor(external_data_schema) or _sync_anchor(external_data_schema)
 
     return to_temporal_schedule(
         external_data_schema,
         inputs,
-        hour_of_day=hour,
-        minute_of_hour=minute,
+        hour_of_day=anchor.hour,
+        minute_of_hour=anchor.minute,
         sync_frequency=external_data_schema.sync_frequency_interval,
         should_sync=should_sync,
     )

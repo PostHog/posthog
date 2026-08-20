@@ -552,26 +552,35 @@ def _schedule_offset(schema: ExternalDataSchema) -> dt.timedelta:
 
 
 def _unaligned_offset(schema: ExternalDataSchema) -> dt.timedelta:
-    hour, minute = _sync_anchor(schema)
     assert schema.sync_frequency_interval is not None
-    return dt.timedelta(hours=hour, minutes=minute) % schema.sync_frequency_interval
+    return _sync_anchor(schema).time_of_day % schema.sync_frequency_interval
 
 
 class TestFanoutAlignedChildSchedules:
-    @pytest.mark.parametrize("child_name", ["issue_hashes", "issue_events", "issue_tag_values"])
-    def test_child_fires_inside_the_align_window_after_its_parent(self, sync_team, child_name):
+    def test_child_fires_inside_the_align_window_after_its_parent(self, sync_team):
         source = _create_source(sync_team, "Sentry")
         parent = _create_schema(sync_team, source, "issues")
-        child = _create_schema(sync_team, source, child_name)
+        child = _create_schema(sync_team, source, "issue_tag_values")
 
         gap = (_schedule_offset(child) - _schedule_offset(parent)) % dt.timedelta(hours=6)
 
         assert dt.timedelta(minutes=30) <= gap < dt.timedelta(minutes=45)
 
+    @pytest.mark.parametrize("child_name", ["issue_hashes", "issue_events"])
+    def test_child_reading_its_parent_from_the_api_keeps_its_own_anchor(self, sync_team, child_name):
+        # Alignment buys fresher parent rows in the warehouse snapshot. A child that re-fetches
+        # the parent endpoint already gets them fresh, so tying it to the parent's clock would
+        # cost a fan-out cluster against the vendor's rate limit for nothing.
+        source = _create_source(sync_team, "Sentry")
+        _create_schema(sync_team, source, "issues")
+        child = _create_schema(sync_team, source, child_name)
+
+        assert _schedule_offset(child) == _unaligned_offset(child)
+
     def test_child_with_pinned_sync_time_keeps_it(self, sync_team):
         source = _create_source(sync_team, "Sentry")
         _create_schema(sync_team, source, "issues")
-        child = _create_schema(sync_team, source, "issue_hashes", sync_time_of_day="07:11:00")
+        child = _create_schema(sync_team, source, "issue_tag_values", sync_time_of_day="07:11:00")
 
         assert _schedule_offset(child) == dt.timedelta(hours=7, minutes=11) % dt.timedelta(hours=6)
 
@@ -589,7 +598,7 @@ class TestFanoutAlignedChildSchedules:
         source = _create_source(sync_team, "Sentry")
         if parent_interval is not None:
             _create_schema(sync_team, source, "issues", interval=parent_interval)
-        child = _create_schema(sync_team, source, "issue_hashes", interval=child_interval)
+        child = _create_schema(sync_team, source, "issue_tag_values", interval=child_interval)
 
         assert _schedule_offset(child) == _unaligned_offset(child)
 
@@ -605,8 +614,9 @@ class TestFanoutAlignedChildSchedules:
     @pytest.mark.parametrize(
         "source_type,schema_name,expected",
         [
-            ("Sentry", "issue_hashes", ["issues"]),
             ("Sentry", "issue_tag_values", ["issues"]),
+            ("Sentry", "issue_hashes", []),
+            ("Sentry", "issue_events", []),
             ("Sentry", "issues", []),
             ("UnknownVendor", "anything", []),
         ],
