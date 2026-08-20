@@ -48,7 +48,7 @@ FEATURE_FLAG_KEY = "posthog-code-mobile-push"
 # they should only fire once per run lifetime — anything more is a retry.
 # Interactive turn-end can legitimately fire again after the user replies,
 # so a short cooldown is enough to absorb rapid duplicate triggers.
-PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed", "thread_message"]
+PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed", "thread_message", "handoff"]
 _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "completed": 600,
     "failed": 600,
@@ -56,6 +56,7 @@ _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "awaiting": 30,
     "turn_completed": 30,
     "thread_message": 600,
+    "handoff": 600,
 }
 
 
@@ -84,6 +85,30 @@ def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
 def notify_task_run_turn_completed(task_run: TaskRun) -> None:
     _project_completed_activity(task_run)
     _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
+
+
+def notify_task_handoff(task: Task, *, recipient: User, actor: User | None) -> None:
+    """Fire a push notification when a task is handed off to ``recipient``."""
+    try:
+        actor_name = ((actor.first_name.strip() or actor.email) if actor else None) or "A colleague"
+        task_title = (task.title or "").strip() or "Untitled task"
+        _enqueue_user(
+            recipient,
+            task=task,
+            kind="handoff",
+            cooldown_subject=f"task_handoff:{task.id}:{recipient.id}",
+            body=f'{actor_name} handed you "{task_title}"',
+            data={"taskId": str(task.id)},
+        )
+    except Exception as exc:
+        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind="handoff", reason=_failure_reason(exc)).inc()
+        logger.warning(
+            "push_dispatcher.enqueue_failed",
+            task_id=str(task.id),
+            user_id=recipient.id,
+            kind="handoff",
+            exc_info=True,
+        )
 
 
 def notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: Collection[int]) -> None:

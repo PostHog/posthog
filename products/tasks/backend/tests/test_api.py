@@ -29,6 +29,7 @@ from rest_framework.test import APIClient
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
@@ -9240,6 +9241,177 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
                 status.HTTP_403_FORBIDDEN,
                 f"Expected 403 but got {response.status_code} for {scope} on {method} {url}",
             )
+
+
+class TestTaskHandoffAPI(BaseTaskAPITest):
+    def _handoff_url(self, task: Task) -> str:
+        return f"/api/projects/@current/tasks/{task.id}/handoff/"
+
+    def test_handoff_transfers_ownership_and_posts_thread_announcement(self):
+        recipient = self.create_organization_user("recipient")
+        integration = _grant_user_github_access(self.user)
+        task = self.create_task(created_by=self.user)
+        task.github_user_integration = integration
+        task.save()
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["created_by"]["id"], recipient.id)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, recipient.id)
+        self.assertIsNone(task.github_user_integration_id)
+        with team_scope(self.team.id):
+            announcement = task.thread_messages.get(event="task_handed_off")
+        self.assertEqual(announcement.author_kind, "system")
+        self.assertEqual(announcement.author_id, self.user.id)
+        self.assertEqual(
+            announcement.payload,
+            {
+                "from_user_id": self.user.id,
+                "to_user_id": recipient.id,
+                "from_display_name": "Test",
+                "to_display_name": "Other",
+            },
+        )
+
+    def test_handoff_rejects_nonterminal_runs(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Finish or cancel active runs before handing off this task.",
+                "attr": "user",
+            },
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_moves_private_space_task_into_recipient_space(self):
+        recipient = self.create_organization_user("recipient")
+        with team_scope(self.team.id):
+            personal = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=self.user
+            )
+        task = self.create_task(created_by=self.user)
+        task.channel = personal
+        task.save()
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        with team_scope(self.team.id):
+            self.assertIsNotNone(task.channel)
+            self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
+            self.assertEqual(task.channel.created_by_id, recipient.id)
+        # The previous owner loses sight of a private-space task; the recipient can see and drive it.
+        self.assertEqual(
+            self.client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_404_NOT_FOUND
+        )
+        recipient_client = APIClient()
+        recipient_client.force_authenticate(recipient)
+        self.assertEqual(
+            recipient_client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_200_OK
+        )
+        self.assertEqual(
+            recipient_client.patch(
+                f"/api/projects/@current/tasks/{task.id}/", {"title": "Taken over"}, format="json"
+            ).status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/", {"title": "Still mine"}, format="json"
+            ).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_handoff_keeps_task_in_shared_space(self):
+        recipient = self.create_organization_user("recipient")
+        with team_scope(self.team.id):
+            shared = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+        task = self.create_task(created_by=self.user)
+        task.channel = shared
+        task.save()
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.channel_id, shared.id)
+        recipient_client = APIClient()
+        recipient_client.force_authenticate(recipient)
+        for client in (self.client, recipient_client):
+            self.assertEqual(client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_200_OK)
+
+    def test_handoff_requires_control_of_the_task(self):
+        colleague = self.create_organization_user("colleague")
+        with team_scope(self.team.id):
+            shared = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+        task = self.create_task(created_by=self.user)
+        task.channel = shared
+        task.save()
+        colleague_client = APIClient()
+        colleague_client.force_authenticate(colleague)
+
+        response = colleague_client.post(self._handoff_url(task), {"user": colleague.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    @parameterized.expand(
+        [
+            ("unknown_user", 999999, status.HTTP_400_BAD_REQUEST),
+            ("self_handoff", None, status.HTTP_400_BAD_REQUEST),
+            ("missing_user", "missing", status.HTTP_400_BAD_REQUEST),
+            ("non_int_user", "not-a-number", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_handoff_target_validation(self, _name, user_arg, expected_status):
+        task = self.create_task(created_by=self.user)
+        payload = {} if user_arg == "missing" else {"user": self.user.id if user_arg is None else user_arg}
+
+        response = self.client.post(self._handoff_url(task), payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_rejects_user_outside_the_organization(self):
+        outsider = User.objects.create_user(
+            email=f"outsider-{uuid.uuid4()}@example.com", first_name="Out", password="password"
+        )
+        task = self.create_task(created_by=self.user)
+
+        response = self.client.post(self._handoff_url(task), {"user": outsider.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_strips_borrowed_mcp_credential_owner(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+        task.state = {"mcp_builtin_agent": "signals_scout", "mcp_credential_owner_id": self.user.id, "other": 1}
+        task.save()
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertNotIn("mcp_credential_owner_id", task.state or {})
+        self.assertEqual((task.state or {}).get("other"), 1)
 
 
 class TestLivingArtifactChartRequestValidation(SimpleTestCase):
