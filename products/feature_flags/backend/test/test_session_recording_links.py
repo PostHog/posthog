@@ -1,9 +1,34 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
+
+from parameterized import parameterized
 
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.session_recording_links import relink_teams, update_linked_flag_key
+from products.feature_flags.backend.session_recording_links import (
+    jsonb_number_counts_as_flag_id,
+    relink_teams,
+    update_linked_flag_key,
+)
+
+
+class TestJsonbNumberCountsAsFlagId:
+    @parameterized.expand(
+        [
+            ("int", 5, {5}, True),
+            ("float_matching", 5.0, {5}, True),
+            ("numeric_string", "5", {5}, False),
+            ("string", "abc", {5}, False),
+            ("none", None, {5}, False),
+            ("different_number", 6, {5}, False),
+            ("bool_true", True, {1}, False),
+            ("bool_false", False, {0}, False),
+        ]
+    )
+    def test_membership_semantics(self, _name: str, stored: Any, flag_ids: set[int], expected: bool) -> None:
+        assert jsonb_number_counts_as_flag_id(stored, flag_ids) is expected
 
 
 class TestUpdateLinkedFlagKey(BaseTest):

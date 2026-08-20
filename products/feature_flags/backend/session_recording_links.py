@@ -37,23 +37,40 @@ def teams_linking_flag(feature_flag: FeatureFlag) -> QuerySet[Team]:
     )
 
 
+def jsonb_number_counts_as_flag_id(stored: Any, flag_ids: Collection[int]) -> bool:
+    """Whether a stored `session_recording_linked_flag.id` jsonb value equals one of the flag ids.
+
+    Python stand-in for the jsonb equality `teams_linking_flag`'s containment filter applies:
+    numbers match only numbers, so a bool or a numeric string never counts. The bool check must
+    come first — Python's `True == 1` would otherwise let a stored `true` collide with flag id 1.
+    """
+    if isinstance(stored, bool):
+        return False
+    if isinstance(stored, (int, float)):
+        return stored in flag_ids
+    return False
+
+
 def replay_linked_flag_ids(project_id: int, flag_ids: Collection[int]) -> set[int]:
     """Which of the given flags a team in this project gates session recording on.
 
-    The batch equivalent of `teams_linking_flag`, in one query. Matching ids inside jsonb keeps
-    that check's comparison semantics, so the single-flag and bulk delete guards agree on what
-    counts as linked; a malformed value like `{"id": true}` matches no flag, because jsonb never
-    equates booleans with numbers.
+    The batch equivalent of `teams_linking_flag`, in one query. Filtering in python rather than
+    in jsonb reproduces that check's comparison semantics (see `jsonb_number_counts_as_flag_id`),
+    so the single-flag and bulk delete guards agree on what counts as linked. Fetching every
+    linked id in the project keeps the statement's bind-parameter count constant however many
+    flags the caller passes, so a large `ids` list can't exceed Postgres's parameter limit.
     """
     if not flag_ids:
         return set()
+    # Callers pass a list; a set turns the membership check in jsonb_number_counts_as_flag_id O(1).
+    flag_id_set = set(flag_ids)
     stored_ids = Team.objects.filter(
         project_id=project_id,
-        session_recording_linked_flag__id__in=flag_ids,
+        session_recording_linked_flag__id__isnull=False,
     ).values_list("session_recording_linked_flag__id", flat=True)
     # jsonb also equates numbers regardless of representation, so a stored float id can match an
     # int flag id; normalize for the int membership checks callers do.
-    return {int(stored_id) for stored_id in stored_ids}
+    return {int(stored_id) for stored_id in stored_ids if jsonb_number_counts_as_flag_id(stored_id, flag_id_set)}
 
 
 def update_linked_flag_key(team: Team, expected_flag_id: int, new_key: str) -> None:

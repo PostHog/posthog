@@ -58,6 +58,7 @@ from products.feature_flags.backend.api.feature_flag import (
     FLAG_FILTERS_VIOLATION_COUNTER,
     FLAG_FILTERS_WRITE_COUNTER,
     FeatureFlagSerializer,
+    find_dependent_flags_batch,
     parse_created_by_ids,
 )
 from products.feature_flags.backend.encrypted_flag_payloads import (
@@ -12989,6 +12990,43 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         # Verify flag is not deleted
         base_flag.refresh_from_db()
         assert base_flag.deleted is False
+
+    def test_find_dependent_flags_batch_matches_any_of_several_flag_ids(self):
+        # Two base flags distinguish the array bind (`params=[[...]]`) from a flattened scalar
+        # (`params=[...]`): with one flag both forms coincide and the test would be blind.
+        base_a = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="base_a")
+        base_b = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="base_b")
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="depends_on_a",
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [{"key": str(base_a.id), "type": "flag", "value": "true"}],
+                    }
+                ]
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="depends_on_b",
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [{"key": str(base_b.id), "type": "flag", "value": "true"}],
+                    }
+                ]
+            },
+        )
+
+        result = find_dependent_flags_batch([base_a, base_b])
+
+        result_by_key = {flag_id: {f.key for f in flags} for flag_id, flags in result.items()}
+        assert result_by_key == {base_a.id: {"depends_on_a"}, base_b.id: {"depends_on_b"}}
 
     def test_bulk_delete_renames_key_with_soft_deleted_experiment(self):
         """Test that deleting a flag with a soft-deleted experiment renames the key."""

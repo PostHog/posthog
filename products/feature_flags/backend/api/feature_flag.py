@@ -508,26 +508,24 @@ def find_dependent_flags_batch(
     team = flags_to_check[0].team
     flag_ids = [f.id for f in flags_to_check]
 
-    # Build OR conditions for each flag ID we're checking
-    # We need to find any flag that depends on ANY of these flags
-    or_conditions = " OR ".join(["prop->>'key' = %s" for _ in flag_ids])
-
+    # One array parameter, not one per flag ID: an OR of per-ID parameters would hit Postgres's
+    # ~65,535 parameter cap once a caller passes a large explicit ids list.
     dependent_flags = list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         FeatureFlag.objects.filter(team=team, active=True)
         .exclude(id__in=flag_ids)
         .extra(
             where=[
-                f"""
+                """
                     EXISTS (
                         SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
                         CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
                         WHERE prop->>'type' = 'flag'
-                        AND ({or_conditions})
+                        AND prop->>'key' = ANY(%s)
                     )
                     """
             ],
-            params=[str(fid) for fid in flag_ids],
+            params=[[str(fid) for fid in flag_ids]],
         )
         .order_by("key")
     )
