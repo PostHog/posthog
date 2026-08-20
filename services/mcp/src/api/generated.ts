@@ -16494,6 +16494,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `personal` - Personal
+     * * `general` - General
+     */
+    export type SystemRoleEnum = typeof SystemRoleEnum[keyof typeof SystemRoleEnum];
+
+
+    export const SystemRoleEnum = {
+      Personal: 'personal',
+      General: 'general',
+    } as const;
+
+    /**
      * Response shape for a task channel, read from a frozen ``ChannelDTO``.
      */
     export interface ChannelDTO {
@@ -16506,6 +16518,11 @@ export namespace Schemas {
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
       starred?: boolean;
+      /** Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.
+       *
+       * * `personal` - Personal
+       * * `general` - General */
+      readonly system_role: SystemRoleEnum | null;
     }
 
     export interface ChannelDeleteConflict {
@@ -66710,6 +66727,18 @@ export namespace Schemas {
     }
 
     /**
+     * The requester's default channels, plus whether this call is what created them.
+     */
+    export interface ProvisionedChannels {
+      /** The full channel list after provisioning, same shape as the list endpoint. */
+      channels: ChannelDTO[];
+      /** Whether this call created the requester's personal #me channel. */
+      personal_created: boolean;
+      /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
+      general_created: boolean;
+    }
+
+    /**
      * * `waiting` - Waiting
      * * `issuing` - Issuing
      * * `valid` - Valid
@@ -72926,7 +72955,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_changed_at: string | null;
-      /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
+      /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
       readonly auto_pause_exempt: boolean;
       /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
       tags?: string[];
@@ -79335,6 +79364,17 @@ export namespace Schemas {
       runtime?: RuntimeEnum;
     }
 
+    /**
+     * Request body for handing a task off to a colleague: they become its owner.
+     */
+    export interface TaskHandoffRequest {
+      /**
+         * ID of the user taking over the task. Must have access to this project and not be the task's current owner.
+         * @minimum 1
+         */
+      user: number;
+    }
+
     export interface TaskPinRequest {
       /** Whether the task should be pinned for the requester. */
       pinned: boolean;
@@ -85078,6 +85118,7 @@ export namespace Schemas {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -85174,6 +85215,7 @@ export namespace Schemas {
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
+      SignalTeamConfig: 'SignalTeamConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
@@ -85256,6 +85298,7 @@ export namespace Schemas {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -85340,6 +85383,7 @@ export namespace Schemas {
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
+      SignalTeamConfig: 'SignalTeamConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
