@@ -37545,6 +37545,62 @@ export namespace Schemas {
       readonly name: string;
     }
 
+    export interface FeatureRequestEvidence {
+      /** Stable evidence ID. */
+      readonly id: string;
+      /** Internal summary of this account's request evidence. */
+      readonly summary: string;
+      /** Customer quote kept with this evidence item. */
+      readonly customer_quote: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      readonly evidence_source: string;
+      /** HTTP or HTTPS link to the source, or an empty string. */
+      readonly source_url: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      readonly requested_on: string | null;
+      /**
+         * ID of the user who added the evidence.
+         * @nullable
+         */
+      readonly created_by: number | null;
+      /**
+         * ID of the last user to update the evidence.
+         * @nullable
+         */
+      readonly updated_by: number | null;
+      /** When the evidence was added. */
+      readonly created_at: string;
+      /** When the evidence was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface FeatureRequestAccountLink {
+      /** Stable link ID between the request and account. */
+      readonly id: string;
+      /** Affected Customer Analytics account. */
+      readonly account: FeatureRequestAccount;
+      /** Evidence recorded for this account and request. List responses omit these items. */
+      readonly evidence: readonly FeatureRequestEvidence[];
+      /**
+         * Total evidence items recorded for this account and request.
+         * @minimum 0
+         */
+      readonly evidence_count: number;
+      /** When the account was first linked. */
+      readonly created_at: string;
+      /**
+         * When the account link was last changed.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
     export interface FeatureRequestProductArea {
       /** Stable product area ID. */
       readonly id: string;
@@ -37604,8 +37660,12 @@ export namespace Schemas {
          * @minimum 1
          */
       readonly version: number;
-      /** Affected account in the first release. */
+      /** Whether the caller can update this request and all its active account links. */
+      readonly can_update: boolean;
+      /** First visible account retained for client compatibility. Use account_links for the complete list. */
       readonly account: FeatureRequestAccount;
+      /** Active account links visible to the caller, with account-specific evidence. */
+      readonly account_links: readonly FeatureRequestAccountLink[];
       /** Product areas affected by this request. */
       readonly product_areas: readonly FeatureRequestProductArea[];
       /**
@@ -37624,6 +37684,40 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface FeatureRequestEvidencePayload {
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+    }
+
+    export interface FeatureRequestAddAccount {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Accessible account to link to this feature request. */
+      account_id: string;
+      /** Optional first evidence item to create for the account in the same change. */
+      evidence?: FeatureRequestEvidencePayload | null;
+    }
+
     export interface FeatureRequestCreate {
       /**
          * Required customer-facing request title.
@@ -37640,10 +37734,80 @@ export namespace Schemas {
       idempotency_key: string;
     }
 
+    export interface FeatureRequestEvidenceCreate {
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Active account link that owns this evidence. */
+      account_link_id: string;
+    }
+
+    export interface FeatureRequestEvidenceDelete {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Evidence item to delete. */
+      evidence_id: string;
+    }
+
+    export interface FeatureRequestEvidenceUpdate {
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /**
+         * Free-form name of the source where this evidence was recorded.
+         * @maxLength 200
+         */
+      evidence_source: string;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Evidence item to replace. */
+      evidence_id: string;
+    }
+
     /**
      * * `status` - Status
      * * `priority` - Priority
      * * `account` - Account
+     * * `accounts` - Accounts
+     * * `evidence` - Evidence
      * * `product_areas` - Product areas
      */
     export type FieldEnum = typeof FieldEnum[keyof typeof FieldEnum];
@@ -37653,6 +37817,8 @@ export namespace Schemas {
       Status: 'status',
       Priority: 'priority',
       Account: 'account',
+      Accounts: 'accounts',
+      Evidence: 'evidence',
       ProductAreas: 'product_areas',
     } as const;
 
@@ -37666,7 +37832,19 @@ export namespace Schemas {
     } | {
       id: string;
       name: string;
-    }[] | null;
+    }[] | {
+      id: string;
+      account: {
+      id: string;
+      name: string;
+    };
+      summary: string;
+      customer_quote: string;
+      source: string;
+      source_url: string;
+      /** @nullable */
+      requested_on: string | null;
+    } | null;
 
     /**
      * Value after the update, including relation snapshots.
@@ -37678,7 +37856,19 @@ export namespace Schemas {
     } | {
       id: string;
       name: string;
-    }[] | null;
+    }[] | {
+      id: string;
+      account: {
+      id: string;
+      name: string;
+    };
+      summary: string;
+      customer_quote: string;
+      source: string;
+      source_url: string;
+      /** @nullable */
+      requested_on: string | null;
+    } | null;
 
     export interface FeatureRequestHistoryChange {
       /** Request field represented by this change.
@@ -37686,6 +37876,8 @@ export namespace Schemas {
        * * `status` - Status
        * * `priority` - Priority
        * * `account` - Account
+       * * `accounts` - Accounts
+       * * `evidence` - Evidence
        * * `product_areas` - Product areas */
       readonly field: FieldEnum;
       /** Value before the update, including relation snapshots. */
@@ -37769,8 +37961,10 @@ export namespace Schemas {
       title?: string;
       /** Updated optional customer-facing request description in Markdown. */
       description?: string;
-      /** Updated affected Customer Analytics account ID. */
+      /** Deprecated single affected account ID. Use account_ids. */
       account_id?: string;
+      /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+      account_ids?: string[];
       /** One or more product area IDs. Existing inactive areas can remain linked. */
       product_area_ids?: string[];
       /** Updated customer-facing lifecycle status.
@@ -39673,7 +39867,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -39732,7 +39926,7 @@ export namespace Schemas {
        * * `random_cohort_branch` - random_cohort_branch
        * * `exit` - exit */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -58850,8 +59044,10 @@ export namespace Schemas {
       title?: string;
       /** Updated optional customer-facing request description in Markdown. */
       description?: string;
-      /** Updated affected Customer Analytics account ID. */
+      /** Deprecated single affected account ID. Use account_ids. */
       account_id?: string;
+      /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+      account_ids?: string[];
       /** One or more product area IDs. Existing inactive areas can remain linked. */
       product_area_ids?: string[];
       /** Updated customer-facing lifecycle status.
@@ -70547,6 +70743,20 @@ export namespace Schemas {
       Stopped: 'stopped',
     } as const;
 
+    /**
+     * * `accepted` - accepted
+     * * `target_finished` - target_finished
+     * * `rejected` - rejected
+     */
+    export type ResultEnum = typeof ResultEnum[keyof typeof ResultEnum];
+
+
+    export const ResultEnum = {
+      Accepted: 'accepted',
+      TargetFinished: 'target_finished',
+      Rejected: 'rejected',
+    } as const;
+
     export type RetrieveBasicOutputStatus = typeof RetrieveBasicOutputStatus[keyof typeof RetrieveBasicOutputStatus];
 
 
@@ -72716,7 +72926,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_changed_at: string | null;
-      /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
+      /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
       readonly auto_pause_exempt: boolean;
       /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
       tags?: string[];
@@ -79895,6 +80105,84 @@ export namespace Schemas {
       artifacts: TaskRunLivingArtifactResponse[];
     }
 
+    /**
+     * One peer agent run visible to the requesting run (agent peer messaging).
+     */
+    export interface TaskRunPeer {
+      /** The peer run's id — the address send_agent_message targets. */
+      run_id: string;
+      /** Id of the peer run's parent task. */
+      task_id: string;
+      /** Title of the peer run's parent task. */
+      task_title: string;
+      /**
+         * Email of the user whose task the peer run belongs to.
+         * @nullable
+         */
+      created_by_email: string | null;
+      /** Agent runtime of the peer run's task (e.g. 'pi'). */
+      runtime: string;
+      /**
+         * Model the peer run was started with, when recorded.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * Repository the peer run works on, or null for repo-less (channel-mode) runs.
+         * @nullable
+         */
+      repository: string | null;
+      /**
+         * Current stage of the peer run (e.g. 'build').
+         * @nullable
+         */
+      stage: string | null;
+      /** Run status: 'in_progress' or 'queued' (only these are listed). */
+      status: string;
+      /** Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is listed but its workflow may not exist yet. Never infer sendability from status labels. */
+      sendable: boolean;
+      /**
+         * ISO-8601 timestamp of the peer run's last update.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    export interface TaskRunPeerMessageRequest {
+      /**
+         * Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.
+         * @maxLength 16000
+         */
+      content: string;
+      /**
+         * Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot.
+         * @maxItems 10
+         * @items.maxLength 128
+         */
+      artifact_ids?: string[];
+    }
+
+    export interface TaskRunPeerMessageResponse {
+      /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
+       *
+       * * `accepted` - accepted
+       * * `target_finished` - target_finished
+       * * `rejected` - rejected */
+      result: ResultEnum;
+      /** Human-readable explanation of the result. */
+      detail: string;
+      /**
+         * Id of the recorded peer message, when one was created for this send.
+         * @nullable
+         */
+      message_id?: string | null;
+    }
+
+    export interface TaskRunPeersResponse {
+      /** Active agent runs the requesting run may message, most recently updated first. */
+      peers: TaskRunPeer[];
+    }
+
     export interface TaskRunRelayMessageRequest {
       /**
          * Joined message body. Used when text_parts is absent.
@@ -84790,6 +85078,7 @@ export namespace Schemas {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -84886,6 +85175,7 @@ export namespace Schemas {
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
+      SignalTeamConfig: 'SignalTeamConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
@@ -84968,6 +85258,7 @@ export namespace Schemas {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -85052,6 +85343,7 @@ export namespace Schemas {
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
+      SignalTeamConfig: 'SignalTeamConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
