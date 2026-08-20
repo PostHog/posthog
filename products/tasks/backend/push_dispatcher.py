@@ -92,10 +92,7 @@ def notify_task_run_turn_completed(task_run: TaskRun) -> None:
 def notify_task_handoff(task: Task, *, recipient: User, actor: User | None, message_id: UUID) -> None:
     """Fire a push notification when a task is handed off to ``recipient``.
 
-    ``message_id`` is the handoff announcement's thread-message id. Keying the
-    cooldown on it (not on task+recipient) lets a genuinely new handoff to the
-    same person fire — e.g. handing a task back and forth — while still
-    collapsing a retry of the same handoff.
+    The announcement ID separates new handoffs from retries for cooldown purposes.
     """
     try:
         actor_name = ((actor.first_name.strip() or actor.email) if actor else None) or "A colleague"
