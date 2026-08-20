@@ -68,8 +68,8 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_key,
 )
 from products.tasks.backend.models import (
-    AgentPeerMessage,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    AgentPeerMessage,
     Channel,
     CodeInvite,
     CodeInviteRedemption,
