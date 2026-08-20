@@ -43,13 +43,8 @@ impl AppContext {
     }
 }
 
-/// Builds the definition-write pool.
-///
-/// Every connection here is used for writes, so the pool must not hand out a connection to a
-/// demoted Aurora reader after a failover. sqlx's own health check cannot catch that — its
-/// Postgres `ping` is a bare `Sync` message, which a reader answers perfectly — so the writer
-/// guard runs libpq's `SHOW transaction_read_only` check and discards any connection that
-/// answers `on`. See `common_database::writer_guard`.
+/// Builds the definition-write pool. Every connection here writes, so the writer guard keeps
+/// the pool off a demoted Aurora reader, which sqlx's ping cannot detect.
 async fn build_write_pool(config: &Config) -> Result<PgPool, sqlx::Error> {
     let guard = WriterGuard::new(WriterGuardConfig {
         heartbeat: Duration::from_secs(config.pg_writer_probe_interval_secs),
@@ -66,11 +61,8 @@ async fn build_write_pool(config: &Config) -> Result<PgPool, sqlx::Error> {
         .await
 }
 
-/// Spreads connection expiry across pods. sqlx compares connection age against `max_lifetime`
-/// exactly, so without this every pod's connections — opened together at startup — would
-/// expire on the same schedule and reconnect in lockstep. Jitter is drawn once per process, so
-/// a single pod's handful of connections still turn over together, which is cheap; what
-/// matters is that sixteen pods do not.
+/// Spreads connection expiry across pods. sqlx compares age against `max_lifetime` exactly, so
+/// without jitter every pod reconnects in lockstep. Drawn once per process.
 fn jittered_max_lifetime(base_secs: u64) -> Duration {
     let spread = base_secs / 5;
     let jitter = if spread == 0 {
@@ -98,8 +90,7 @@ mod tests {
 
     #[test]
     fn tiny_lifetimes_do_not_panic_on_an_empty_jitter_range() {
-        // spread == 0, so gen_range(0..=0) would be the only legal draw; guard against a
-        // future refactor reintroducing an exclusive range here.
+        // spread == 0, which an exclusive range would panic on.
         assert_eq!(jittered_max_lifetime(4), Duration::from_secs(4));
         assert_eq!(jittered_max_lifetime(0), Duration::from_secs(0));
     }

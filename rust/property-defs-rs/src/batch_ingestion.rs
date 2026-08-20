@@ -472,13 +472,9 @@ pub async fn process_batch(
             Ok(batch_result) => match batch_result {
                 Ok(_) => continue,
                 // fanned-out write attempts are instrumented locally w/more detail, so we
-                // only publish the global error metric here.
-                //
-                // `class` says which kind of failure it was, which is what separates a
-                // failover (`read_only`) from the deadlocks and timeouts this service sees
-                // routinely. It is a coarse class rather than the raw SQLSTATE to keep the
-                // label bounded. `reason` is left as-is: hand-managed Grafana panels select
-                // on `reason="failed"`, and they are not in this repo to update in lockstep.
+                // only publish the global error metric here. `class` separates a failover
+                // (`read_only`) from routine deadlocks and timeouts; `reason` stays as-is
+                // because hand-managed Grafana panels select on `reason="failed"`.
                 Err(e) => {
                     metrics::counter!(
                         ISSUE_FAILED,

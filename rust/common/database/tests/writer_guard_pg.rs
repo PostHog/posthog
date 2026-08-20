@@ -1,9 +1,6 @@
-//! Proves the writer guard does the one thing it exists for: get a pool off a connection
-//! whose server stopped accepting writes, without restarting the process.
-//!
-//! `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` reproduces what a demoted Aurora
-//! reader looks like to a pooled connection — the socket stays healthy and answers sqlx's
-//! ping, but `transaction_read_only` reads `on` and writes are refused with SQLSTATE 25006.
+//! Proves the guard gets a pool off a connection whose server stopped accepting writes,
+//! without restarting the process. `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`
+//! stands in for a demoted Aurora reader: ping passes, writes fail with SQLSTATE 25006.
 
 use std::time::Duration;
 
@@ -21,8 +18,7 @@ fn always_probing_guard() -> WriterGuard {
     })
 }
 
-/// A single-connection pool, so the connection handed back on the second acquire is
-/// deterministically the same one the first acquire poisoned.
+/// One connection, so the second acquire deterministically gets the poisoned one back.
 fn single_connection_pool(pool_opts: PgPoolOptions) -> PgPoolOptions {
     pool_opts.min_connections(0).max_connections(1)
 }
@@ -42,8 +38,7 @@ async fn transaction_read_only(pool: &PgPool) -> String {
         .expect("read-only setting query failed")
 }
 
-/// Turns the pool's one connection into a stand-in for a demoted writer, and returns the
-/// backend PID it is running on.
+/// Makes the pool's one connection read-only and returns its backend PID.
 async fn poison_the_pooled_connection(pool: &PgPool) -> i32 {
     let mut conn = pool.acquire().await.expect("acquire failed");
     let pid: i32 = sqlx::query("SELECT pg_backend_pid()")
@@ -72,8 +67,7 @@ async fn discards_a_read_only_connection_and_reopens_against_the_writer(
 
     let poisoned_pid = poison_the_pooled_connection(&pool).await;
 
-    // The pool is capped at one connection, so this either reuses the poisoned one or the
-    // guard replaced it.
+    // Capped at one connection, so this is either the poisoned one or its replacement.
     assert_ne!(
         backend_pid(&pool).await,
         poisoned_pid,
@@ -121,10 +115,8 @@ async fn writes_succeed_again_without_restarting_the_pool(
     pool.close().await;
 }
 
-/// The control. Without the guard, sqlx keeps the poisoned connection — its ping succeeds, so
-/// `test_before_acquire` sees nothing wrong — and writes stay broken. This is what the
-/// production incident looked like, and it is what makes the two tests above meaningful
-/// rather than a tautology about a healthy database.
+/// The control: without the guard the poisoned connection survives, because its ping passes.
+/// Without this the tests above would only prove a healthy database accepts writes.
 #[sqlx::test]
 async fn without_the_guard_the_poisoned_connection_survives_and_writes_fail(
     pool_opts: PgPoolOptions,
