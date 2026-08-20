@@ -77,11 +77,7 @@ import {
   isPostHogExecDescriptor,
   matchesPostHogExecPermission,
 } from "../posthog-exec-permission";
-import {
-  findPrUrls,
-  wasCreatedByLogin,
-  wasCreatedRecently,
-} from "../pr-url-detector";
+import { findPrUrls, wasCreatedByThisRun } from "../pr-url-detector";
 import {
   formatConversationForResume,
   type ResumeState,
@@ -440,6 +436,12 @@ export function codexAuthFromGatewayEnv(env: GatewayEnv): {
   apiKey: string;
 } {
   return { apiBaseUrl: env.openaiBaseUrl, apiKey: env.openaiApiKey };
+}
+
+interface PrAttribution {
+  createdAt: string | null;
+  author: string | null;
+  headRefName: string | null;
 }
 
 export class AgentServer {
@@ -4786,12 +4788,14 @@ ${commonInstructions}
     // Already the attributed PR (e.g. seeded from a Slack notification, or re-detected).
     if (prUrl === this.detectedPrUrl) return;
 
-    let attribution: { createdAt: string | null; author: string | null };
+    let attribution: PrAttribution;
     let ghLogin: string | null;
+    let currentBranch: string | null;
     try {
-      [attribution, ghLogin] = await Promise.all([
+      [attribution, ghLogin, currentBranch] = await Promise.all([
         this.fetchPrAttribution(prUrl),
         this.fetchGhLogin(),
+        this.getCurrentGitBranch(),
       ]);
     } catch (err) {
       this.logger.debug("PR attribution lookup failed", {
@@ -4802,13 +4806,29 @@ ${commonInstructions}
       return;
     }
 
-    // Only attribute PRs created during this run — not ones the agent merely
-    // viewed. GitHub App installation tokens (all cloud runs) can't read
-    // `gh api user`, so ghLogin is null there; enforce the author match only when
-    // we resolved our own identity, otherwise the recency gate alone scopes
-    // attribution to PRs created during this run.
-    if (!wasCreatedRecently(attribution.createdAt, Date.now())) return;
-    if (ghLogin && !wasCreatedByLogin(attribution.author, ghLogin)) return;
+    // GitHub App installation tokens (all cloud runs) can't read `gh api user`, so
+    // ghLogin is null there and the head-branch match is what proves ownership.
+    const owned = wasCreatedByThisRun({
+      createdAt: attribution.createdAt,
+      nowMs: Date.now(),
+      author: attribution.author,
+      ghLogin,
+      headRefName: attribution.headRefName,
+      currentBranch,
+      baseBranch: this.config.baseBranch ?? null,
+    });
+    if (!owned) {
+      this.logger.debug(
+        "PR seen in output is not this run's, skipping attribution",
+        {
+          runId: payload.run_id,
+          prUrl,
+          headRefName: attribution.headRefName,
+          currentBranch,
+        },
+      );
+      return;
+    }
 
     this.detectedPrUrl = prUrl;
 
@@ -4845,29 +4865,34 @@ ${commonInstructions}
     return token === undefined ? undefined : ghTokenEnv(token);
   }
 
-  private async fetchPrAttribution(
-    prUrl: string,
-  ): Promise<{ createdAt: string | null; author: string | null }> {
+  private async fetchPrAttribution(prUrl: string): Promise<PrAttribution> {
+    const unknown: PrAttribution = {
+      createdAt: null,
+      author: null,
+      headRefName: null,
+    };
     const res = await execGh(
-      ["pr", "view", prUrl, "--json", "createdAt,author"],
+      ["pr", "view", prUrl, "--json", "createdAt,author,headRefName"],
       {
         cwd: this.config.repositoryPath,
         timeoutMs: 10_000,
         env: this.ghActorEnv(),
       },
     );
-    if (res.exitCode !== 0) return { createdAt: null, author: null };
+    if (res.exitCode !== 0) return unknown;
     try {
       const data = JSON.parse(res.stdout) as {
         createdAt?: string;
         author?: { login?: string };
+        headRefName?: string;
       };
       return {
         createdAt: data.createdAt ?? null,
         author: data.author?.login ?? null,
+        headRefName: data.headRefName ?? null,
       };
     } catch {
-      return { createdAt: null, author: null };
+      return unknown;
     }
   }
 

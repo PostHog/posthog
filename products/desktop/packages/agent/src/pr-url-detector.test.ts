@@ -3,6 +3,7 @@ import {
   findPrUrl,
   findPrUrls,
   wasCreatedByLogin,
+  wasCreatedByThisRun,
   wasCreatedRecently,
 } from "./pr-url-detector";
 
@@ -95,5 +96,81 @@ describe("wasCreatedRecently", () => {
 
   it("fails closed on an unparseable createdAt", () => {
     expect(wasCreatedRecently("not-a-date", now, maxAge)).toBe(false);
+  });
+});
+
+describe("wasCreatedByThisRun", () => {
+  const nowMs = new Date("2026-06-18T17:00:00Z").getTime();
+  const fresh = "2026-06-18T16:59:00Z";
+  const stale = "2026-06-18T12:00:00Z";
+  const base = {
+    nowMs,
+    author: "app/posthog",
+    ghLogin: null,
+    baseBranch: "master",
+  };
+
+  it.each([
+    [
+      "fresh PR on the run's branch",
+      {
+        createdAt: fresh,
+        headRefName: "run/branch",
+        currentBranch: "run/branch",
+      },
+      true,
+    ],
+    [
+      "fresh PR on another branch, run on master",
+      {
+        createdAt: fresh,
+        headRefName: "their/branch",
+        currentBranch: "master",
+      },
+      false,
+    ],
+    [
+      "fresh PR whose head is the base branch",
+      { createdAt: fresh, headRefName: "master", currentBranch: "master" },
+      false,
+    ],
+    [
+      "stale PR on the run's branch",
+      {
+        createdAt: stale,
+        headRefName: "run/branch",
+        currentBranch: "run/branch",
+      },
+      false,
+    ],
+    [
+      "fresh PR, branch unknown, author matches login",
+      {
+        createdAt: fresh,
+        headRefName: null,
+        currentBranch: null,
+        ghLogin: "me",
+        author: "me",
+      },
+      true,
+    ],
+    [
+      "fresh PR, branch unknown, author unknown",
+      { createdAt: fresh, headRefName: null, currentBranch: null },
+      false,
+    ],
+    [
+      "fresh PR, branch known but run branch unknown, author matches",
+      {
+        createdAt: fresh,
+        headRefName: "run/branch",
+        currentBranch: null,
+        ghLogin: "me",
+        author: "me",
+      },
+      true,
+    ],
+  ] as const)("%s -> %s", (_name, overrides, expected) => {
+    expect(wasCreatedByThisRun({ ...base, ...overrides })).toBe(expected);
   });
 });

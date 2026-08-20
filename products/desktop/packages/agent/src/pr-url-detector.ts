@@ -32,3 +32,30 @@ export function wasCreatedRecently(
   if (Number.isNaN(createdAt.getTime())) return false;
   return createdAt.getTime() >= nowMs - maxAgeMs;
 }
+
+export interface PrOwnershipEvidence {
+  createdAt: string | null | undefined;
+  nowMs: number;
+  author: string | null | undefined;
+  ghLogin: string | null | undefined;
+  headRefName: string | null | undefined;
+  currentBranch: string | null | undefined;
+  baseBranch?: string | null;
+}
+
+// Whether a PR URL seen in the agent's output is a PR this run opened, rather than
+// one it read while checking GitHub for in-flight work. Recency is necessary but
+// never sufficient on its own: a research run listing open PRs sees every PR the
+// repo opened in the last few minutes. Ownership needs one positive signal on top,
+// either the PR's head branch is the branch this run has checked out, or the PR
+// author is the identity this run pushes as. A run sitting on the base branch
+// cannot own a same-repo PR, so a head ref equal to the base is rejected outright.
+export function wasCreatedByThisRun(evidence: PrOwnershipEvidence): boolean {
+  if (!wasCreatedRecently(evidence.createdAt, evidence.nowMs)) return false;
+  const { headRefName, currentBranch, baseBranch } = evidence;
+  if (headRefName && baseBranch && headRefName === baseBranch) return false;
+  if (headRefName && currentBranch) {
+    return headRefName === currentBranch;
+  }
+  return wasCreatedByLogin(evidence.author, evidence.ghLogin);
+}
