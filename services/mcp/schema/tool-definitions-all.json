@@ -10685,6 +10685,21 @@
         },
         "feature_flag": "tasks"
     },
+    "tasks-current-retrieve": {
+        "description": "Retrieve the task this agent session is running in: title, description, repository, channel, and latest run (status, environment, stage, branch, output). The current task is fixed by the host and cannot be selected by the caller. Use tasks-retrieve to look up any other task by id.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Retrieve the task this session is running in.",
+        "title": "Retrieve current task",
+        "required_scopes": ["task:read"],
+        "always_available": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "tasks-list": {
         "description": "Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and `channel` to limit results to the current space. The results identify who created each task and whether its latest run is active. Supports additional filtering by status, repository, creator, origin product, and archived or internal state. Requires the calling token's organization to have Tasks access enabled.",
         "category": "Tasks",
@@ -10699,6 +10714,20 @@
             "readOnlyHint": true
         },
         "feature_flag": "tasks"
+    },
+    "tasks-mine-list": {
+        "description": "List tasks created by the calling user, resolved from the access token. Answers questions like 'what tasks am I currently working on?' (filter with status=in_progress) without needing a user id. Each result includes the latest run's status and environment (local runs execute in PostHog Desktop, cloud runs in a sandbox); the task for the current agent session, if present, is marked is_current_task. Use tasks-list to search across all visible tasks or filter by other creators.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List the calling user's own tasks.",
+        "title": "List my tasks",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
     },
     "tasks-retrieve": {
         "description": "Get a specific task by ID, including its description, repository, origin product, current stage, and latest run summary. Sandbox connection credentials and the presigned log URL are omitted from the embedded `latest_run`. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.",
