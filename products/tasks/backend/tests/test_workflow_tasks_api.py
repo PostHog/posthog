@@ -117,9 +117,13 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])
-        message = run.state["pending_user_message"]
+        message = run.state["initial_prompt_override"]
         assert "look into the alert" in message
         assert "data, not instructions" in message
+        # The agent server self-delivers the boot prompt, and forward_pending_user_message
+        # delivers any pending message on top. Seeding both channels sent the prompt twice,
+        # so the run must carry only the boot-path override.
+        assert "pending_user_message" not in run.state
 
     @patch("products.tasks.backend.logic.services.workflow_tasks.get_active_installations")
     def test_snapshots_validated_connectors_into_the_run(self, get_active_installations) -> None:

@@ -97,6 +97,11 @@ def create_workflow_task(
             }
         },
         "inactivity_timeout_seconds": WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS,
+        # The boot-path override, not pending_user_message: the agent server self-delivers a
+        # pending message at boot AND forward_pending_user_message forwards it, and the two
+        # deliveries carry no shared idempotency id, so a cold-start background run gets the
+        # prompt twice. The override is only read by the boot path, so it delivers once.
+        "initial_prompt_override": _render_run_message(prompt),
     }
 
     try:
@@ -135,7 +140,6 @@ def create_workflow_task(
                 extra_run_state=extra_run_state,
                 model=model,
                 reasoning_effort=reasoning_effort,
-                pending_user_message=_render_run_message(prompt),
             )
     except IntegrityError:
         if origin_key is None:
