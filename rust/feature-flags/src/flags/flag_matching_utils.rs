@@ -48,8 +48,9 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 /// Enough to size a rate nobody has measured, small enough that the extra primary load is noise.
 const REPLICA_STALENESS_SAMPLE_RATE: f64 = 0.01;
 
-/// The check runs on the request path, so a slow primary must not lengthen the sampled request.
-/// Covers connection acquisition as well as the query.
+/// Bounds how long a detached check can occupy the writer pool. Covers connection acquisition as
+/// well as the query, so a saturated pool kills the task here rather than at its 10s acquire
+/// timeout.
 const REPLICA_STALENESS_CHECK_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Precomputed mapping from property name to its $initial_ equivalent.
@@ -863,9 +864,7 @@ async fn try_get_feature_flag_hash_key_overrides(
     let rows = fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
     let query_duration = query_start.elapsed();
 
-    // Release the reader connection now that the query is done. The sampled primary check below
-    // awaits on the writer pool, and holding this connection across that await would couple writer
-    // latency to reader pool occupancy.
+    // Nothing below needs the reader connection, and this function is on the hottest path.
     drop(conn);
 
     // The join keeps a person row even when it has no override, so no rows at all means this pool
@@ -944,13 +943,15 @@ async fn try_get_feature_flag_hash_key_overrides(
         && feature_flag_hash_key_overrides.is_empty()
         && rand::thread_rng().gen_bool(REPLICA_STALENESS_SAMPLE_RATE)
     {
-        check_primary_for_stale_empty(
-            persons_writer,
-            team_id,
-            distinct_id_and_hash_key_override,
-            person_found,
-        )
-        .await;
+        // Detached, so a sampled request never waits on the primary. The cost is that the check
+        // runs slightly after the served read, so an override that replicates in that gap counts
+        // as a disagreement. That inflates the rate rather than hiding lag.
+        let persons_writer = persons_writer.clone();
+        let distinct_ids = distinct_id_and_hash_key_override.to_vec();
+        tokio::spawn(async move {
+            check_primary_for_stale_empty(&persons_writer, team_id, &distinct_ids, person_found)
+                .await;
+        });
     }
 
     Ok(feature_flag_hash_key_overrides)
