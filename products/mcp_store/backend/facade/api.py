@@ -235,16 +235,22 @@ def _agent_installation_infos(
     return infos
 
 
-def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallation]:
-    """Return active, ready-to-use personal MCP installations for a user.
+def get_active_installations(team_id: int, user_id: int, *, include_shared: bool = False) -> list[ActiveInstallation]:
+    """Return active, ready-to-use MCP installations a user can mount.
 
-    Filters out disabled installations and OAuth installations that
-    need reauthorization or are still pending token exchange.
+    Personal installations owned by the user by default; ``include_shared`` adds the
+    team's shared-scope installations, mirroring what ``get_installations_for_sandbox``
+    resolves for an unmapped run. Filters out disabled installations and OAuth
+    installations that need reauthorization or are still pending token exchange.
     """
+    scope_filter = Q(scope="personal", user_id=user_id)
+    if include_shared:
+        scope_filter |= Q(scope="shared")
     try:
         # list() evaluates the lazy queryset here so DB errors hit this handler.
         installations = list(
-            MCPServerInstallation.objects.filter(team_id=team_id, user_id=user_id, is_enabled=True, scope="personal")
+            MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
+            .filter(scope_filter)
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user_id=user_id)
             .select_related("template")

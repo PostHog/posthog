@@ -173,7 +173,7 @@ def _find_replayed_task(
 def _validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[str] | None) -> None:
     if not mcp_installation_ids:
         return
-    valid_ids = {installation.id for installation in get_active_installations(team_id, owner_id)}
+    valid_ids = {installation.id for installation in get_active_installations(team_id, owner_id, include_shared=True)}
     invalid = sorted(set(mcp_installation_ids) - valid_ids)
     if invalid:
         raise WorkflowTaskConnectorsInvalid(invalid)

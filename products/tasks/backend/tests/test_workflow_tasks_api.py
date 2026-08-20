@@ -125,6 +125,26 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # so the run must carry only the boot-path override.
         assert "pending_user_message" not in run.state
 
+    def test_accepts_a_team_shared_connector(self) -> None:
+        from products.mcp_store.backend.models import MCPServerInstallation
+
+        other_user = self._create_user("teammate@posthog.com")
+        shared = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=other_user,
+            display_name="Linear",
+            url="https://mcp.linear.app/mcp",
+            auth_type="api_key",
+            is_enabled=True,
+            scope="shared",
+        )
+
+        response = self._post({"connectors": [str(shared.id)]})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["config_snapshot"]["connectors"]["mcp_installation_ids"] == [str(shared.id)]
+
     @patch("products.tasks.backend.logic.services.workflow_tasks.get_active_installations")
     def test_snapshots_validated_connectors_into_the_run(self, get_active_installations) -> None:
         get_active_installations.return_value = [SimpleNamespace(id="inst-1"), SimpleNamespace(id="inst-2")]
