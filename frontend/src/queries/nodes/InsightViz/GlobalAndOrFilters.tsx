@@ -14,10 +14,11 @@ import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilter
 import { getAllEventNames } from './utils'
 
 export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Element {
-    const { actions: allActions } = useValues(actionsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { querySource, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+
+    const { actions: allActions } = useValues(actionsModel({ skipLoad: true }))
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 

@@ -194,7 +194,7 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                 p.criteria,
                 p.fieldKey,
                 cohortsModel.selectors.allCohortsLoading,
-                actionsModel.selectors.actionsLoading,
+                actionsModel({ skipLoad: true }).selectors.actionsLoading,
             ],
             (
                 value: import('~/types').AnyPropertyFilter[] | import('~/types').PropertyFilterValue | undefined,
@@ -221,7 +221,7 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                 p.criteria,
                 p.fieldKey,
                 cohortsModel.selectors.allCohortsLoading,
-                actionsModel.selectors.actionsLoading,
+                actionsModel({ skipLoad: true }).selectors.actionsLoading,
             ],
             (
                 value: import('~/types').AnyPropertyFilter[] | import('~/types').PropertyFilterValue | undefined,
@@ -246,7 +246,7 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                         if (actionsModelLoading) {
                             return 'Loading...'
                         }
-                        return actionsModel.findMounted()?.values?.actionsById?.[value]?.name ?? `Action ${value}`
+                        return actionsModel({ skipLoad: true }).values.actionsById[value]?.name ?? `Action ${value}`
                     }
                     return value
                 },

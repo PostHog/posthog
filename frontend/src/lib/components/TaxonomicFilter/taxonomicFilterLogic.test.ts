@@ -107,8 +107,14 @@ describe('taxonomicFilterLogic', () => {
         ).toBeFalsy()
     })
 
-    it('loads actions when a taxonomic filter mounts', async () => {
-        await expectLogic(actionsModel).toDispatchActions(['loadActionsSuccess'])
+    it('loads actions after the Actions category opens', async () => {
+        expect(actionRequestCount).toBe(0)
+
+        logic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+
+        await expectLogic(actionsModel({ skipLoad: true }))
+            .delay(1)
+            .toMatchValues({ actionsLoaded: true })
         expect(actionRequestCount).toBe(1)
     })
 

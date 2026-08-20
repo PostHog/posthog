@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
@@ -10,6 +10,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { actionsModel } from '~/models/actionsModel'
 import {
     FunnelsQuery,
     LifecycleQuery,
@@ -113,9 +114,16 @@ function setupAndRender(
 }
 
 describe('EditorFilters', () => {
+    let actionRequestCount: number
+
     beforeEach(() => {
+        actionRequestCount = 0
         useMocks({
             get: {
+                '/api/projects/:team/actions/': () => {
+                    actionRequestCount++
+                    return [200, { results: [], count: 0 }]
+                },
                 '/api/environments/:team_id/insights/trend': [],
                 '/api/environments/:team_id/insights/': { results: [{}] },
                 '/api/users/@me': {},
@@ -127,6 +135,18 @@ describe('EditorFilters', () => {
 
     afterEach(() => {
         cleanup()
+    })
+
+    it('loads actions only when an insight editor already contains an action series', async () => {
+        setupAndRender(makeTrendsQuery())
+        expect(actionRequestCount).toBe(0)
+
+        actionsModel({ skipLoad: true }).unmount()
+        setupAndRender({
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.ActionsNode, id: 1, name: 'Signup', math: BaseMathType.TotalCount }],
+        })
+        await waitFor(() => expect(actionRequestCount).toBe(1))
     })
 
     it.each([

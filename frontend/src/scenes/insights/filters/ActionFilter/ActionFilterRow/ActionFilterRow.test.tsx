@@ -103,9 +103,12 @@ function renderRow(
 }
 
 describe('ActionFilterRow', () => {
+    let actionRequestCount: number
+
     afterEach(cleanup)
 
     beforeEach(() => {
+        actionRequestCount = 0
         initKeaTests()
 
         // setupInsightMocks provides realistic event/property definitions with search
@@ -123,7 +126,10 @@ describe('ActionFilterRow', () => {
                         results: [{ id: 1, short_id: new URL(request.url).searchParams.get('short_id'), query: null }],
                     },
                 ],
-                '/api/projects/:team/actions/': { results: filtersJson.actions },
+                '/api/projects/:team/actions/': () => {
+                    actionRequestCount++
+                    return [200, { results: filtersJson.actions }]
+                },
                 '/api/environments/:team/groups_types/': MOCK_GROUP_TYPES,
                 '/api/projects/:team/warehouse_tables/': { results: [] },
                 '/api/projects/:team/warehouse_saved_queries/': { results: [] },
@@ -156,6 +162,16 @@ describe('ActionFilterRow', () => {
     })
 
     describe('rendering', () => {
+        it('does not load actions for an event row', () => {
+            actionsModel.unmount()
+            actionRequestCount = 0
+
+            const { logic } = setup()
+            renderRow(logic)
+
+            expect(actionRequestCount).toBe(0)
+        })
+
         it('renders the filter element with event name', () => {
             const { logic } = setup()
             renderRow(logic)

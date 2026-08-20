@@ -21,7 +21,8 @@
  *     and `taxonomicFilterPinnedPropertiesLogic`; the orchestrator only reads
  *     them via the bridge, doesn't write)
  */
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useActions, useMountedLogic } from 'kea'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     hasRecentContext,
@@ -47,6 +48,7 @@ import { isContainsShortcutItem } from 'lib/components/TaxonomicFilter/utils/col
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { actionsModel } from '~/models/actionsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
 
 import { UseGroupListInput, UseGroupListResult } from './useGroupList'
@@ -322,13 +324,6 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         [taxonomicGroupTypes, allGroupTypes, eventNames]
     )
 
-    const getLocalOverride = useTaxonomicLocalOverrides({
-        taxonomicGroupTypes: groupTypes,
-        excludedOperators,
-        selectingKeyOnly,
-        excludedProperties,
-    })
-
     const groups = useMemo(() => {
         const byType = new Map(allGroups.map((g) => [g.type, g]))
         return groupTypes.map((t) => byType.get(t)!).filter(Boolean)
@@ -346,20 +341,6 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         const substantive = groupTypes.filter((t) => !META_GROUP_TYPES.has(t))
         return substantive.length === 1 ? substantive[0] : null
     }, [groupTypes])
-
-    // Recent/pinned items the sole substantive group floats to the top of its own list.
-    // Memoised so getGroupListInput hands useGroupList a stable array reference: getLocalOverride
-    // builds a fresh array on every call (filterRecentsForContext maps/filters), which would
-    // otherwise churn useGroupList's `items` memo every render and drive Combobox's Fetcher
-    // items effect into a setState loop (Maximum update depth exceeded).
-    const soleGroupPromoteRecent = useMemo<TaxonomicDefinitionTypes[] | undefined>(
-        () => (soleSubstantiveGroupType ? getLocalOverride(TaxonomicFilterGroupType.RecentFilters) : undefined),
-        [soleSubstantiveGroupType, getLocalOverride]
-    )
-    const soleGroupPromotePinned = useMemo<TaxonomicDefinitionTypes[] | undefined>(
-        () => (soleSubstantiveGroupType ? getLocalOverride(TaxonomicFilterGroupType.PinnedFilters) : undefined),
-        [soleSubstantiveGroupType, getLocalOverride]
-    )
 
     // ---- search query (controlled / uncontrolled) ---------------------------
     const [internalSearchQuery, setInternalSearchQuery] = useState(initialSearchQuery ?? '')
@@ -422,6 +403,36 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
     }, [groupTypes, activeGroupType])
 
     const activeGroup = useMemo(() => groups.find((g) => g.type === activeGroupType), [groups, activeGroupType])
+
+    const lazyActionsModel = useMountedLogic(actionsModel({ skipLoad: true }))
+    const { loadActions } = useActions(lazyActionsModel)
+
+    const getLocalOverride = useTaxonomicLocalOverrides({
+        taxonomicGroupTypes: groupTypes,
+        excludedOperators,
+        selectingKeyOnly,
+        excludedProperties,
+    })
+
+    useEffect(() => {
+        if (activeGroupType === TaxonomicFilterGroupType.Actions) {
+            loadActions()
+        }
+    }, [activeGroupType, loadActions])
+
+    // Recent/pinned items the sole substantive group floats to the top of its own list.
+    // Memoised so getGroupListInput hands useGroupList a stable array reference: getLocalOverride
+    // builds a fresh array on every call (filterRecentsForContext maps/filters), which would
+    // otherwise churn useGroupList's `items` memo every render and drive Combobox's Fetcher
+    // items effect into a setState loop (Maximum update depth exceeded).
+    const soleGroupPromoteRecent = useMemo<TaxonomicDefinitionTypes[] | undefined>(
+        () => (soleSubstantiveGroupType ? getLocalOverride(TaxonomicFilterGroupType.RecentFilters) : undefined),
+        [soleSubstantiveGroupType, getLocalOverride]
+    )
+    const soleGroupPromotePinned = useMemo<TaxonomicDefinitionTypes[] | undefined>(
+        () => (soleSubstantiveGroupType ? getLocalOverride(TaxonomicFilterGroupType.PinnedFilters) : undefined),
+        [soleSubstantiveGroupType, getLocalOverride]
+    )
 
     // ---- search placeholder -------------------------------------------------
     // Skip META groups (Recent/Pinned/Suggested/HogQL/etc.) — they exist

@@ -14,7 +14,7 @@ import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventD
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { actionsModel } from '~/models/actionsModel'
+import { refreshMountedActions } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 
@@ -315,7 +315,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 }
 
                 actions.loadEventDefinitions()
-                actionsModel.findMounted()?.actions.loadActions(true)
+                refreshMountedActions()
                 actions.loadTags() // reload tags in case new tags are being saved
                 return action
             },
@@ -402,7 +402,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     actions.resetAction()
                     deleteFromTree('action', String(actionId))
                     router.actions.push(urls.actions())
-                    actionsModel.findMounted()?.actions.loadActions(true)
+                    refreshMountedActions()
                 }
             })
         },

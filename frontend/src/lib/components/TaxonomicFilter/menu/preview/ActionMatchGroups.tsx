@@ -16,7 +16,7 @@ import { ActionStepType, ActionType } from '~/types'
 import { TaxonomicDefinitionTypes } from '../../types'
 
 export function ActionMatchGroups({ item }: { item: TaxonomicDefinitionTypes }): JSX.Element | null {
-    const { actionsById } = useValues(actionsModel)
+    const { actionsById } = useValues(actionsModel({ skipLoad: true }))
     // The highlighted entry can be a lightweight `{ id, name }` shim — e.g. the
     // committed selection on the "All" surface, when the full action isn't among
     // the rows currently shown — which carries no `steps`. Hydrate it from

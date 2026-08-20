@@ -13,7 +13,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { actionsModel } from '~/models/actionsModel'
+import { updateMountedAction } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
@@ -225,7 +225,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                                 `api/projects/${values.currentProjectId}/actions/${_action.id}`,
                                 _action
                             )
-                            actionsModel.findMounted()?.actions.updateAction(definition as ActionType)
+                            updateMountedAction(definition as ActionType)
                         } else if (values.isEvent) {
                             // Event Definitions
                             const _event = definition as EventDefinition
