@@ -2,8 +2,14 @@
 
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import * as yaml from "yaml";
+
+// Anchor to apps/code so the relative paths below (and dotenv, and the pnpm binary lookup)
+// resolve the same way no matter which directory the script is invoked from.
+process.chdir(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
 
 config();
 
