@@ -1,44 +1,43 @@
-//! Lifecycle fence state: which persons are frozen by a live lifecycle
-//! operation, and how a leader rebuilds that knowledge across ownership
+//! Lifecycle fence state: which persons a live lifecycle operation
+//! freezes, and how a leader rebuilds that knowledge across ownership
 //! changes.
 //!
-//! The fence's source of truth is not this map — it is the saga's mark row
-//! (`lifecycle_op_person` in `marked`/`sealed`), committed on the persons
-//! primary before `FencePerson` is ever called. The map is the leader's
-//! in-process copy, and on the write path it is authoritative: a fenced
-//! write is rejected from memory alone, never a database read.
+//! The saga's mark row (`lifecycle_op_person` in `marked`/`sealed`,
+//! committed on the persons primary before `FencePerson` is called) is
+//! the source of truth. This map is the leader's in-process copy. On the
+//! write path the map is authoritative: a fenced write is rejected from
+//! memory alone, never from a database read.
 //!
-//! Postgres is read in exactly one place — the takeover scan, once per
-//! partition acquisition, before the partition accepts writes. That plus
-//! the `FencePerson` RPC are the only two ways an entry gets in, and
-//! together they cover every mark. Entries leave in exactly two ways: a
-//! `ReleaseFence`, or dropping the whole partition.
+//! Entries enter in exactly two ways: the takeover scan (the one
+//! Postgres read, once per partition acquisition, before the partition
+//! accepts writes) and the `FencePerson` RPC. Together they cover every
+//! mark. Entries leave in exactly two ways: `ReleaseFence`, or dropping
+//! the whole partition.
 //!
-//! The leader never reclaims a fence on its own, and deliberately so.
-//! personhog-identity owns lifecycle correctness: every op is driven to a
-//! terminal state (lease steal, sweeper resumption), so a `ReleaseFence`
-//! always eventually arrives, with one exception: an op whose committed
-//! release this leader definitively refused (a semantic refusal) is
-//! parked by the saga engine and stops retrying, so its fences hold
-//! until an operator re-drives it. The person stays frozen rather than
-//! half-destroyed. An entry that outlives a crashed saga is not stale —
-//! the mark is still live, the op really is unfinished, and the person
-//! really should stay frozen. For that guarantee to hold, a
-//! release must never *vacuously* succeed: both fence RPCs verify this
-//! pod serves the partition, so a misrouted call fails and identity's
-//! retry reaches the pod whose map actually gates the writes.
+//! The leader never reclaims a fence on its own, deliberately.
+//! personhog-identity owns lifecycle correctness and drives every op to
+//! a terminal state (lease steal, sweeper resumption), so a
+//! `ReleaseFence` always eventually arrives. One exception: when this
+//! leader definitively refuses an op's committed release (a semantic
+//! refusal), the saga engine parks the op, and its fences hold until an
+//! operator re-drives it. The person stays frozen rather than
+//! half-destroyed. An entry that outlives a crashed saga is not stale:
+//! the mark is still live, the op is unfinished, and the person must
+//! stay frozen. For that guarantee, a release must never vacuously
+//! succeed: both fence RPCs verify this pod serves the partition, so a
+//! misrouted call fails and identity's retry reaches the pod whose map
+//! gates the writes.
 //!
-//! The map is NOT a cache: it has no capacity limit and no eviction path
-//! — losing an entry while continuing to serve would violate consistency,
-//! not degrade it.
+//! The map is NOT a cache: no capacity limit, no eviction. Losing an
+//! entry while continuing to serve would violate consistency, not
+//! degrade it.
 //!
-//! One known window: a takeover that runs between a release being acked
-//! and the saga settling its mark row installs a fence for an op that is
-//! already done — a ghost no `ReleaseFence` will ever clear. The
-//! [`FenceHealer`] closes it lazily: a write rejected by a fence triggers
-//! a non-blocking mark-row read, and a fence whose op has settled is
-//! dropped, so the next write goes through instead of waiting for the
-//! partition to change hands.
+//! One known window: a takeover between a release ack and the saga
+//! settling its mark row installs a fence for a finished op, a ghost no
+//! `ReleaseFence` will ever clear. The [`FenceHealer`] closes it lazily:
+//! a write rejected by a fence triggers a non-blocking mark-row read,
+//! and a fence whose op has settled is dropped, so the next write goes
+//! through instead of waiting for the partition to change hands.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -71,12 +70,11 @@ pub const FENCED_METADATA_KEY: &str = "x-person-fenced";
 /// Metadata key carrying the fencing operation's id on rejections.
 pub const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
 
-/// A definitive FAILED_PRECONDITION the router passes through to the
-/// caller instead of bouncing. Bare FAILED_PRECONDITION classifies as a
-/// routing-race bounce and exhausts into retriable UNAVAILABLE, which
-/// would turn a fail-closed verification refusal into an infinite saga
-/// retry loop; the marker (see
-/// `personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY`) makes the
+/// A definitive FAILED_PRECONDITION the router passes through instead of
+/// bouncing. Bare FAILED_PRECONDITION classifies as a routing-race
+/// bounce and exhausts into retriable UNAVAILABLE, which turns a
+/// fail-closed refusal into an infinite saga retry loop. The marker
+/// (`personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY`) makes the
 /// refusal survive the trip.
 pub use personhog_common::grpc::semantic_refusal;
 
@@ -105,29 +103,27 @@ pub fn fenced_status(state: &FenceState) -> Status {
     status
 }
 
-/// How long the takeover scan may run before the handoff gives up. The
-/// scan gates a partition's return to service, and it reads a set whose
-/// size depends on another service's liveness (marks stay live while
-/// their op does), so it is bounded here rather than trusted to be
-/// small. Expiry fails the handoff — a partition whose fences cannot be
-/// known must not serve writes.
+/// Bound on the takeover scan. The scan gates a partition's return to
+/// service and reads a set whose size depends on another service's
+/// liveness (marks stay live while their op does), so it is bounded
+/// rather than trusted to be small. Expiry fails the handoff: a
+/// partition whose fences cannot be known must not serve writes.
 const SCAN_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The takeover scan: load every live mark belonging to `partition` and
-/// install it in the fence map, before the partition accepts writes.
+/// The takeover scan: load every live mark for `partition` into the
+/// fence map before the partition accepts writes.
 ///
-/// The scan cannot target a partition (the partition is a murmur2 hash
-/// Postgres cannot compute), so it reads the whole live-mark set — the
-/// partial mark index contains nothing but live marks — and filters
-/// in-process with the same partition function request validation uses.
-/// The join to `lifecycle_op` for the op type costs a lookup per row, so
-/// this is not an index-only read; it stays cheap because the live-mark
-/// set is small while ops complete. Merge targets are claimed but never
-/// fenced, so they are excluded.
+/// The partition is a murmur2 hash Postgres cannot compute, so the scan
+/// reads the whole live-mark set (the partial mark index holds only live
+/// marks) and filters in-process with the partition function request
+/// validation uses. The join to `lifecycle_op` for the op type costs a
+/// lookup per row, so this is not an index-only read; it stays cheap
+/// because the live-mark set stays small while ops complete. Merge
+/// targets are claimed but never fenced, so they are excluded.
 ///
-/// The partition's existing entries are dropped first, so a re-warm
-/// (a handoff cancelled after warming, then re-acquired) converges
-/// instead of accumulating. Returns how many fences were installed.
+/// The partition's existing entries are dropped first, so a re-warm (a
+/// handoff cancelled after warming, then re-acquired) converges instead
+/// of accumulating. Returns how many fences were installed.
 pub async fn rebuild_partition_fences(
     pool: &PgPool,
     fences: &FenceMap,
@@ -155,15 +151,14 @@ pub async fn rebuild_partition_fences(
     };
     histogram!("personhog_leader_fence_scan_duration_seconds")
         .record(start.elapsed().as_secs_f64());
-    // Read next to installed is the scan's amplification: it reads the
-    // whole live-mark set (the partition is a hash Postgres cannot
-    // compute) and keeps ~1/num_partitions of it. This ratio growing is
-    // the signal that the scan-the-world design needs revisiting.
+    // Rows read versus installed is the scan's amplification: it reads
+    // the whole live-mark set and keeps ~1/num_partitions of it. Growth
+    // in this ratio is the signal to revisit the scan-the-world design.
     counter!("personhog_leader_fence_scan_rows_read_total").increment(rows.len() as u64);
 
-    // Converge rather than accumulate: this partition's fences are
-    // exactly what the marks say, not that plus whatever a previous warm
-    // left behind.
+    // Converge rather than accumulate: the partition's fences are
+    // exactly what the marks say, not that plus a previous warm's
+    // leftovers.
     drop_partition_fences(fences, partition, num_partitions);
 
     let mut installed = 0usize;
@@ -192,11 +187,10 @@ pub async fn rebuild_partition_fences(
     Ok(installed)
 }
 
-/// Drop every fence belonging to `partition` — the counterpart of
-/// [`rebuild_partition_fences`] for partition release. The new owner
-/// rebuilds its own; stale entries here would only pin memory for persons
-/// this pod no longer serves (misrouted requests are already rejected by
-/// partition validation).
+/// Drop every fence for `partition` on release, the counterpart of
+/// [`rebuild_partition_fences`]. The new owner rebuilds its own; stale
+/// entries here would only pin memory for persons this pod no longer
+/// serves (partition validation already rejects misrouted requests).
 pub fn drop_partition_fences(fences: &FenceMap, partition: u32, num_partitions: u32) -> usize {
     let before = fences.len();
     fences.retain(|key, _| {
@@ -206,27 +200,26 @@ pub fn drop_partition_fences(fences: &FenceMap, partition: u32, num_partitions: 
     before - fences.len()
 }
 
-/// How long a person's heal verdict stands before a rejected write may
-/// trigger another mark-row read. Bounds the PG read rate for a person
-/// that is legitimately fenced and still receiving writes: at most one
-/// point read per person per cooldown, however hot the write storm.
+/// How long a heal verdict stands before a rejected write may trigger
+/// another mark-row read. Caps the PG read rate for a legitimately
+/// fenced person at one point read per cooldown, however hot the write
+/// storm.
 const HEAL_COOLDOWN: Duration = Duration::from_secs(5);
 
 /// Above this many tracked persons, expired cooldown stamps are pruned on
 /// the next trigger. Keeps the tracker bounded without a sweeper task.
 const HEAL_TRACKER_PRUNE_THRESHOLD: usize = 10_000;
 
-/// Lazily removes ghost fences — entries whose op has already settled its
-/// mark row, so no `ReleaseFence` will ever arrive for them (see the
-/// module docs for how the takeover scan creates these).
+/// Lazily removes ghost fences: entries whose op already settled its
+/// mark row, so no `ReleaseFence` will ever arrive for them (the module
+/// docs cover how the takeover scan creates these).
 ///
 /// Triggered from the write path when a fence rejects a write, but never
 /// on it: the check runs on a spawned task, the write fails as fenced
-/// either way, and the caller's retry finds the fence gone. Fail-closed
-/// by construction — the fence is only dropped when Postgres, the source
-/// of truth, says the mark is no longer live, and only if the entry still
-/// belongs to the op that was checked (a newer op's fence is never
-/// touched).
+/// either way, and the caller's retry finds the fence gone. Fail-closed:
+/// the fence is dropped only when Postgres says the mark is no longer
+/// live, and only if the entry still belongs to the checked op (a newer
+/// op's fence is never touched).
 pub struct FenceHealer {
     pool: PgPool,
     fences: FenceMap,
@@ -285,9 +278,9 @@ impl FenceHealer {
                 return;
             }
         };
-        // Live is what the takeover scan installs from; anything else —
-        // a terminal status or no row at all — means the op has settled
-        // and its release already happened somewhere.
+        // Live is what the takeover scan installs from. Anything else (a
+        // terminal status or no row) means the op settled and its
+        // release already happened somewhere.
         if matches!(status.as_deref(), Some("marked") | Some("sealed")) {
             counter!("personhog_leader_fence_heals_total", "outcome" => "still_live").increment(1);
             return;
@@ -312,11 +305,11 @@ impl FenceHealer {
     }
 }
 
-/// The committed-release check: the status of the op's mark row for this
-/// person, straight from the source of truth. `None` when the op never
-/// claimed the person (or claimed it only as a merge target — targets are
-/// never destroyed). A committed release must find a live mark here before
-/// it may produce a death document: the request alone must never be enough
+/// The committed-release check: the op's mark-row status for this
+/// person, from the source of truth. `None` when the op never claimed
+/// the person, or claimed it only as a merge target (targets are never
+/// destroyed). A committed release must find a live mark here before it
+/// may produce a death document: the request alone must never be enough
 /// to destroy a person.
 pub async fn mark_status(
     pool: &PgPool,
@@ -335,15 +328,15 @@ pub async fn mark_status(
     .await
 }
 
-/// The fold's check: the status of the op's mark row claiming this person
-/// as its merge target. `None` when the op never claimed the person as
-/// target — including when it holds the person under another role, which
-/// would make a fold into it a saga bug. A fold must find a live mark here
-/// before it may write. The check is read-time only: a fold already past
-/// it when the op settles can still land (the window spans the fold
-/// computation and the produce), so it closes late re-drives, not the
-/// full race — the same at-least-once residual the op_id proto comment
-/// states.
+/// The fold's check: the status of the op's mark row claiming this
+/// person as its merge target. `None` when the op never claimed the
+/// person as target, including when it holds the person under another
+/// role (a fold into that would be a saga bug). A fold must find a live
+/// mark here before it may write. The check is read-time only: a fold
+/// already past it when the op settles can still land, because the
+/// window spans the fold computation and the produce. It closes late
+/// re-drives, not the full race; the op_id proto comment states the same
+/// at-least-once residual.
 pub async fn target_mark_status(
     pool: &PgPool,
     op_id: Uuid,

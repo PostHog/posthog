@@ -31,8 +31,8 @@ pub struct WarmingRetryPolicy {
 ///
 /// The consume loop is not retried and does not need to be: it rides
 /// out non-fatal consumer errors in place while librdkafka handles them,
-/// bounded by `recv_timeout`. A fatal client state — and a genuine
-/// stall — ends it.
+/// bounded by `recv_timeout`. A fatal client state or a genuine stall
+/// ends it.
 async fn with_warm_retry<T, F, Fut>(
     stage: &str,
     partition: u32,
@@ -112,12 +112,13 @@ pub struct WarmingConfig {
     pub retry: WarmingRetryPolicy,
 }
 
-/// Build a consumer used by warming. Auto-commit and auto-offset-store are
-/// disabled so this is safe to instantiate with any group id — including
-/// the writer's, where mutating stored offsets would corrupt the writer's
-/// durable-progress marker. Two callers reuse it: the warming consume loop
-/// (which seeks explicitly per partition) and a short-lived OffsetFetch
-/// query against the writer's group (which never subscribes or consumes).
+/// Build a consumer used by warming. Auto-commit and auto-offset-store
+/// are disabled, so this is safe to instantiate with any group id,
+/// including the writer's, where mutating stored offsets would corrupt
+/// the writer's durable-progress marker. Two callers reuse it: the
+/// warming consume loop (which seeks explicitly per partition) and a
+/// short-lived OffsetFetch query against the writer's group (which never
+/// subscribes or consumes).
 pub(crate) fn make_consumer(
     kafka: &KafkaConfig,
     group_id: &str,
@@ -143,9 +144,10 @@ pub(crate) fn make_consumer(
 }
 
 /// A checkout stack of assign-only Kafka clients sharing one group id.
-/// Clients are checked out for the duration of one operation, returned on
-/// success, and dropped when the operation fails — a client whose
-/// operation just failed is never reused, so error hygiene is structural.
+/// Clients are checked out for the duration of one operation, returned
+/// on success, and dropped when the operation fails: a client whose
+/// operation just failed is never reused, so error hygiene is
+/// structural.
 /// A non-fatal error the operation rode out does not count as failure:
 /// the client handled it and completed, and both the consume loop and
 /// the give-back verify the client-level fatal state. None of these
@@ -196,15 +198,15 @@ impl ConsumerPool {
     /// Return a client after a successful operation. The assignment is
     /// cleared so the next checkout starts from a clean slate; clearing
     /// an unassigned client is a harmless no-op. A client whose
-    /// assignment cannot be cleared is dropped instead of pooled — the
-    /// pool's contract is that doubtful clients are never reused — with
+    /// assignment cannot be cleared is dropped instead of pooled (the
+    /// pool's contract is that doubtful clients are never reused), with
     /// the failure logged so a systematic cleanup problem surfaces as a
     /// visible signal rather than silent churn.
     pub fn give_back(&self, consumer: StreamConsumer) {
-        // The unassign gate below cannot catch a fatal client —
-        // librdkafka treats ops on one as successful unassigns — so the
-        // contract that a dead client is never pooled is enforced here
-        // by construction rather than left to the accident that
+        // The unassign gate below cannot catch a fatal client
+        // (librdkafka treats ops on one as successful unassigns), so
+        // the contract that a dead client is never pooled is enforced
+        // here by construction rather than left to the accident that
         // consumer fatals only arise from group paths these clients
         // never join.
         if let Some((code, reason)) = consumer.client().fatal_error() {
@@ -227,7 +229,7 @@ impl ConsumerPool {
         self.stack.lock().unwrap().push(consumer);
     }
 
-    /// Total clients ever created — flat across operations when reuse
+    /// Total clients ever created: flat across operations when reuse
     /// works; grows per operation when it does not.
     pub fn created_count(&self) -> u64 {
         self.created.load(Ordering::Relaxed)
@@ -239,12 +241,12 @@ impl ConsumerPool {
     /// only means the first operations pay the setup they would have
     /// paid anyway.
     pub async fn warm_up(&self, n: usize) {
-        // Create every client before connecting any: returning them as we
-        // go would make the next checkout pop the client we just returned,
-        // connecting one client n times and leaving the other n-1 slots to
-        // be built cold on the hot path. The connects then run
-        // concurrently — a deploy burst needs the pool populated in one
-        // connect's time, not n of them in sequence.
+        // Create every client before connecting any: returning them as
+        // we go would make the next checkout pop the client we just
+        // returned, connecting one client n times and leaving the other
+        // n-1 slots to be built cold on the hot path. The connects then
+        // run concurrently: a deploy burst needs the pool populated in
+        // one connect's time, not n of them in sequence.
         let mut clients = Vec::with_capacity(n);
         for _ in 0..n {
             let Ok(consumer) = self.checkout() else {
@@ -310,7 +312,7 @@ async fn fetch_writer_committed_offset(
 /// in one OffsetFetch round-trip, with one short-lived consumer for the
 /// whole batch. Partitions without a commit are absent from the result.
 /// The batch shape suits the dirty-index prune loop, which polls every
-/// owned partition on a cadence — per-partition consumers would be
+/// owned partition on a cadence; per-partition consumers would be
 /// constant churn.
 ///
 /// The OffsetFetch RPC inside `committed_offsets` is synchronous in rdkafka
@@ -361,10 +363,10 @@ pub async fn fetch_writer_committed_offsets(
 /// Decide where to start consuming for a partition.
 ///
 /// The writer's committed offset is the authoritative "everything up to
-/// here is durable in PG" marker. Messages at or after it need to be warmed
-/// into the leader's cache — otherwise a cache miss for a key in that
-/// range would fall through to PG and return a stale value (PG hasn't seen
-/// the update yet).
+/// here is durable in PG" marker. Messages at or after it need to be
+/// warmed into the leader's cache; otherwise a cache miss for a key in
+/// that range would fall through to PG and return a stale value (PG has
+/// not seen the update yet).
 ///
 /// We rewind an extra `lookback` offsets as a safety margin against races
 /// between the writer's commit and our read of it, and clamp to the
@@ -387,7 +389,7 @@ fn record_warm_span(span: &'static str, start: Instant) {
 
 /// Cancellation-safe cleanup for a warm in flight. The coordination loop
 /// drops warms on lease loss and shutdown, and a dropped future never
-/// reaches code after its await points — so the abort of the unpublished
+/// reaches code after its await points, so the abort of the unpublished
 /// build and the clearing of this partition's seeded dirty marks live in
 /// `Drop`, which runs on every exit: error, panic, and cancellation.
 /// Disarmed immediately before the publish, when the state stops being
@@ -446,9 +448,9 @@ pub async fn warm_from_kafka(
     let consumer = Arc::new(pools.warming.checkout()?);
     record_warm_span("checkout", span_start);
 
-    // The two offset queries are independent — the writer's committed
+    // The two offset queries are independent (the writer's committed
     // position comes from the offsets pool, the watermarks from this
-    // consumer — so they run concurrently; each keeps its own retry
+    // consumer), so they run concurrently; each keeps its own retry
     // policy. The committed query uses a separate, short-lived client to
     // keep the long-lived warming consumer isolated from the writer's
     // consumer group. `fetch_watermarks` is synchronous in rdkafka and
@@ -514,7 +516,7 @@ pub async fn warm_from_kafka(
     );
 
     if hwm <= start_offset {
-        // Empty range — install an empty partition cache. Use the
+        // Empty range: install an empty partition cache. Use the
         // atomic install path so this matches the populated path's
         // publication semantics (the partition becomes observable in
         // a single dashmap insert). The consumer never got assigned, so
@@ -541,13 +543,13 @@ pub async fn warm_from_kafka(
     // cache, so the warm's peak memory is bounded no matter how large
     // the range is. Each record writes its dirty mark BEFORE its insert,
     // so at every instant an evicted unapplied person is already
-    // recoverable from the changelog — the same miss path a serving
+    // recoverable from the changelog, the same miss path a serving
     // partition relies on. Nothing is observable until the publish at
     // the end.
     cache.begin_warm_partition(partition);
-    // Every non-published exit — an error, a panic, or the coordination
-    // loop dropping this future on lease loss or shutdown (the
-    // cancellation `HandoffHandler::warm_partition`'s contract names) —
+    // Every non-published exit (an error, a panic, or the coordination
+    // loop dropping this future on lease loss or shutdown, the
+    // cancellation `HandoffHandler::warm_partition`'s contract names)
     // must leave no trace: the guard aborts the build and clears the
     // partition's seeded marks on drop. A stale mark surviving into a
     // later acquisition would redirect a miss to a superseded changelog
@@ -578,28 +580,28 @@ pub async fn warm_from_kafka(
         loop {
         let msg = match timeout(poll_slice, consumer.recv()).await {
             Ok(Ok(m)) => m,
-            // A non-fatal consumer error means librdkafka is handling it:
-            // a connection blip resolves by reconnecting with the fetch
-            // position intact, and the stream never terminates, so the
-            // answer is to keep polling — as the fleet's streaming
-            // consumers do. The per-event fatal split is not the whole
-            // fatality story, so the client-level fatal state (an
-            // unrecoverable idempotence or authentication failure) is
-            // checked first: it survives even when the event that set it
-            // was consumed, and a dead client must not be re-polled while
-            // reporting progress.
+            // A non-fatal consumer error means librdkafka is handling
+            // it: a connection blip resolves by reconnecting with the
+            // fetch position intact, and the stream never terminates,
+            // so the answer is to keep polling, as the fleet's
+            // streaming consumers do. The per-event fatal split is not
+            // the whole fatality story, so the client-level fatal state
+            // (an unrecoverable idempotence or authentication failure)
+            // is checked first: it survives even when the event that
+            // set it was consumed, and a dead client must not be
+            // re-polled while reporting progress.
             //
-            // The accepted trade, stated for the record: librdkafka also
-            // reports record-skipping through this same non-fatal channel
-            // — an unreadable message set is discarded and the fetch
-            // position advances past it — and riding one out publishes a
-            // cache missing the skipped records. Today that requires
+            // The accepted trade: librdkafka also reports
+            // record-skipping through this same non-fatal channel (an
+            // unreadable message set is discarded and the fetch
+            // position advances past it), and riding one out publishes
+            // a cache missing the skipped records. That requires
             // broker-side corruption of bytes no consumer could read
-            // anyway, or a record format newer than this client, which
-            // does not exist. Stop-class errors (an ACL revocation, a
-            // deleted topic) also ride, costing the stall budget and a
-            // generic stall error instead of an immediate named one; the
-            // code survives in the counter label and the warn line.
+            // anyway, or a record format newer than this client.
+            // Stop-class errors (an ACL revocation, a deleted topic)
+            // also ride, costing the stall budget and a generic stall
+            // error instead of an immediate named one; the code
+            // survives in the counter label and the warn line.
             Ok(Err(KafkaError::MessageConsumption(code))) => {
                 if let Some((fatal_code, reason)) = consumer.client().fatal_error() {
                     return Err(CoordError::invalid_state(format!(
@@ -689,12 +691,12 @@ pub async fn warm_from_kafka(
             }
             cache.warm_put(partition, key, cached);
         } else {
-            // The writer never produces null-payload (tombstone) records
-            // to `personhog_updates` today. If one ever appears it would
-            // semantically represent a deletion, but the warming pipeline
-            // has no concept of evictions — so we silently skip and
-            // surface the occurrence via metrics + logs so an operator
-            // notices if this assumption ever stops holding.
+            // The writer never produces null-payload (tombstone)
+            // records to `personhog_updates`. One would semantically
+            // mean a deletion, but the warming pipeline has no concept
+            // of evictions, so skip it and surface the occurrence via
+            // metrics and logs so an operator notices if the assumption
+            // stops holding.
             counter!("personhog_leader_warm_tombstones_skipped_total").increment(1);
             tracing::warn!(
                 partition,
@@ -703,7 +705,7 @@ pub async fn warm_from_kafka(
             );
         }
 
-        // HWM is exclusive — it's one past the last offset present.
+        // HWM is exclusive: one past the last offset present.
         if offset + 1 >= hwm {
             break;
         }
@@ -716,13 +718,12 @@ pub async fn warm_from_kafka(
     record_warm_span("consume", span_start);
 
     // Atomic publish: one `DashMap` insert flips the fully-built cache
-    // from invisible to observable. The previous pattern
-    // (`create_partition` + per-record `put` loop) created a window
-    // where readers could observe `has_partition == true` while the
-    // cache was still being populated, and then fall through to PG —
-    // potentially returning stale values for records the writer hasn't
-    // yet persisted. Publishing at the end removes the dependency on the
-    // protocol invariant ("no reads during Warming") for correctness.
+    // from invisible to observable. Publishing per record would let
+    // readers observe `has_partition == true` while the cache is still
+    // filling, then fall through to PG and return stale values for
+    // records the writer has not yet persisted. Publishing at the end
+    // keeps correctness independent of the protocol invariant that no
+    // reads arrive during Warming.
     let resident_bytes = cache.warm_usage_bytes(partition) as u64;
     // Disarm before the publish: from here the marks and the cache are
     // the partition's serving state, not warm residue. No await sits
@@ -747,7 +748,7 @@ pub async fn warm_from_kafka(
     counter!("personhog_leader_warmed_messages_total").increment(consumed);
 
     // Every error path above dropped the consumer instead of returning
-    // it — a client that just failed is not pool material. Failing to
+    // it; a client that just failed is not pool material. Failing to
     // unwrap the Arc would only mean the same disposition.
     if let Ok(consumer) = Arc::try_unwrap(consumer) {
         pools.warming.give_back(consumer);
@@ -784,7 +785,7 @@ mod tests {
     }
 
     /// The coordination loop cancels a warm by dropping its future, which
-    /// never reaches code after an await point — so the cleanup lives in
+    /// never reaches code after an await point, so the cleanup lives in
     /// `WarmCleanup::drop`, and this pins that it runs. A surviving build
     /// pins memory for a partition this pod never serves; a surviving mark
     /// outlives re-acquisition, because the next warm only overwrites

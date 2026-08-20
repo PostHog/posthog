@@ -19,31 +19,31 @@ const LEADER_ADMISSION: WarningSource = WarningSource {
     pipeline_step: "personhog_admission",
 };
 
-/// An in-product ingestion warning about a person's property size —
+/// An in-product ingestion warning about a person's property size,
 /// emitted when admission trims an update to fit the Postgres constraint
 /// or rejects one that cannot fit. Carries no property values, only
 /// identifiers and sizes.
 pub struct SizeViolationWarning {
     pub team_id: i64,
-    /// The person's UUID — the pipeline convention for `personId` in
+    /// The person's UUID: the pipeline convention for `personId` in
     /// warning details (row ids stay internal).
     pub person_uuid: String,
     pub message: String,
 }
 
 /// Produces ingestion warnings to Kafka so users see property size
-/// violations in-product, with the payload built by the shared
-/// ingestion-warnings crate so type and classification come from the
-/// pipeline registry. Shares the leader's changelog producer (rdkafka
-/// producers are topic-agnostic), so buffered warnings flush with it on
-/// shutdown; emission is fire-and-forget and never blocks or fails the
-/// update that triggered it.
+/// violations in-product. The shared ingestion-warnings crate builds the
+/// payload, so type and classification come from the pipeline registry.
+/// Shares the leader's changelog producer (rdkafka producers are
+/// topic-agnostic), so buffered warnings flush with it on shutdown.
+/// Emission is fire-and-forget and never blocks or fails the update that
+/// triggered it.
 ///
 /// Emission is throttled per `(team, type)` with the pipeline's default
-/// budget (one per hour), matching the Node consumers' warning limiter:
-/// one oversized person being hammered with updates yields one warning an
-/// hour, not one per update. Cloning shares the throttle, so every handle
-/// draws from the same budget.
+/// budget (one per hour), matching the Node consumers' limiter: one
+/// oversized person hammered with updates yields one warning an hour,
+/// not one per update. Clones share the throttle, so every handle draws
+/// from the same budget.
 #[derive(Clone)]
 pub struct WarningsProducer {
     producer: FutureProducer<KafkaContext>,
@@ -56,7 +56,7 @@ impl WarningsProducer {
         Self::with_throttle(producer, topic, WarningThrottle::default())
     }
 
-    /// Construct with an explicit throttle — tests use a larger burst so
+    /// Construct with an explicit throttle. Tests use a larger burst so
     /// consecutive enforcement actions for one team all surface.
     pub fn with_throttle(
         producer: FutureProducer<KafkaContext>,

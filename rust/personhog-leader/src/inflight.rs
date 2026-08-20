@@ -4,25 +4,25 @@ use std::time::Duration;
 
 use dashmap::{DashMap, DashSet};
 
-/// Per-partition write-admission state used by the handoff protocol to
-/// prove that all writes this pod ever acked are durably in Kafka.
+/// Per-partition write-admission state. The handoff protocol uses it to
+/// prove that every write this pod acked is durably in Kafka.
 ///
 /// Two pieces work together:
 ///
-/// * An inflight counter. Because `produce_person_changelog` awaits the
-///   Kafka delivery future before the handler returns success, "no
-///   inflight handlers for partition p" implies "every write for p that
-///   this pod ever acknowledged is in Kafka."
-/// * A write fence. Once a partition drains for handoff, no further write
-///   may be admitted: every router acked the freeze before the drain
-///   began, so a late write can only come from a router serving with a
-///   stale view — accepting it would advance the Kafka HWM past the point
+/// * An inflight counter. `produce_person_changelog` awaits the Kafka
+///   delivery future before the handler returns success, so "no inflight
+///   handlers for partition p" implies "every acked write for p is in
+///   Kafka."
+/// * A write fence. Once a partition drains for handoff, no further
+///   write may be admitted: every router acked the freeze before the
+///   drain began, so a late write can only come from a router with a
+///   stale view. Accepting it would advance the Kafka HWM past the point
 ///   warming snapshots, silently losing the write from the new owner.
 ///
 /// Callers obtain a guard via `begin(partition)` and drop it when the
-/// handler completes; the handoff protocol fences the partition, then
-/// calls `wait_until_empty(partition)` to block until all inflight
-/// handlers have returned.
+/// handler completes. The handoff fences the partition, then calls
+/// `wait_until_empty(partition)` to block until all inflight handlers
+/// return.
 #[derive(Default)]
 pub struct InflightTracker {
     partitions: DashMap<u32, Arc<AtomicUsize>>,
@@ -44,15 +44,14 @@ impl InflightTracker {
         InflightGuard { counter }
     }
 
-    /// Admit a write for the partition unless it is fenced. The increment
-    /// happens *before* the fence check: at every interleaving with the
-    /// drain path (which fences, then waits for the count to reach zero),
-    /// either this write's increment is visible to the drain's wait, or
-    /// this write observes the fence and is refused. Checking the fence
-    /// before incrementing would leave a window where a write passes the
-    /// check, the drain fences and observes a zero count, and the write
-    /// then increments — producing past the HWM the new owner's warming
-    /// snapshots.
+    /// Admit a write for the partition unless it is fenced. The
+    /// increment happens before the fence check: at every interleaving
+    /// with the drain (which fences, then waits for a zero count),
+    /// either the drain's wait sees this increment, or this write sees
+    /// the fence and is refused. Checking the fence first would leave a
+    /// window where the write passes the check, the drain fences and
+    /// sees zero, and the write then increments, producing past the HWM
+    /// the new owner's warming snapshots.
     pub fn try_begin(self: &Arc<Self>, partition: u32) -> Option<InflightGuard> {
         let guard = self.begin(partition);
         if self.is_fenced(partition) {
@@ -94,7 +93,6 @@ impl InflightTracker {
         self.fenced.remove(&partition);
     }
 
-    /// Whether writes for the partition are currently rejected.
     pub fn is_fenced(&self, partition: u32) -> bool {
         self.fenced.contains(&partition)
     }
@@ -208,7 +206,7 @@ mod tests {
         wait.await.unwrap();
     }
 
-    /// Fences are per-partition, idempotent, and reversible — the exact
+    /// Fences are per-partition, idempotent, and reversible: the
     /// lifecycle the handoff handler drives (fence on drain, unfence on
     /// release/cancel/re-warm).
     #[test]

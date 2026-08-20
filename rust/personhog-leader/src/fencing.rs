@@ -5,7 +5,7 @@
 //! derived from the partition alone. Taking ownership initializes
 //! transactions for that id, which bumps the broker-side producer epoch
 //! and fences every predecessor: a zombie old owner that missed its own
-//! drain can no longer append to the changelog — its next produce or
+//! drain can no longer append to the changelog. Its next produce or
 //! commit fails with a fenced error at the broker, loudly, instead of
 //! silently corrupting the partition's history.
 //!
@@ -64,21 +64,21 @@ fn transactional_id(topic: &str, partition: u32) -> String {
 
 #[derive(Debug)]
 pub enum FencedProduceError {
-    /// This pod holds no fenced producer for the partition — ownership
+    /// This pod holds no fenced producer for the partition: ownership
     /// was never taken or was released.
     NotAcquired,
     /// The broker fenced this producer: a newer owner has initialized
     /// the partition's transactional id. This pod's claim is stale, and
     /// the records demonstrably never became visible.
     Fenced,
-    /// Fenced, but the window's own outcome was never settled — so the
-    /// partition has moved *and* whether these records landed is unknown.
+    /// Fenced, but the window's own outcome was never settled, so the
+    /// partition has moved AND whether these records landed is unknown.
     ///
     /// The two are independent facts and the caller needs both: the
     /// router still wants the ownership answer, while the version must
     /// stay spent because a commit that was re-issued may have succeeded
-    /// on an earlier attempt. Collapsing this into `Fenced` is what let a
-    /// committed record's version be handed back for reuse.
+    /// on an earlier attempt. Collapsing this into `Fenced` would hand a
+    /// committed record's version back for reuse.
     FencedUncertain(String),
     /// Send or commit failed for an ordinary, retryable reason; the
     /// window was aborted and no record became visible.
@@ -89,9 +89,9 @@ pub enum FencedProduceError {
     /// This is not the same as failure and must not be reported as one.
     /// A caller told "aborted" retries against a cache still holding the
     /// pre-write version, and produces a second record carrying the same
-    /// version as the one that may already have committed — which the
-    /// writer's strict version guard resolves in favour of whichever
-    /// arrived first, discarding the acked one.
+    /// version as the one that may already have committed. The writer's
+    /// strict version guard then keeps whichever arrived first,
+    /// discarding the acked one.
     Indeterminate(String),
 }
 
@@ -127,7 +127,7 @@ struct Gate {
     /// The committer is between closing the window and finishing the
     /// commit. Once it drains `in_flight` and takes `waiters`, the other
     /// fields read as idle even though `commit_transaction` is still
-    /// running — this flag keeps the next window from beginning until
+    /// running; this flag keeps the next window from beginning until
     /// the producer is actually free.
     committing: bool,
     /// Commit-outcome subscribers for the open window.
@@ -158,7 +158,7 @@ impl Gate {
 
 /// Initialize a connected producer on the blocking pool, claiming the
 /// partition's transactional id. On failure the connection is discarded
-/// there too — librdkafka teardown blocks — and only the error comes
+/// there too (librdkafka teardown blocks) and only the error comes
 /// back.
 async fn init_producer(
     connected: ConnectedTransactionalProducer,
@@ -176,10 +176,10 @@ async fn init_producer(
 
 /// Send a fence to the blocking pool to die. Dropping the last
 /// reference runs librdkafka's destroy, which blocks while the client
-/// tears down — up to hundreds of milliseconds — and both removal sites
+/// tears down (up to hundreds of milliseconds), and both removal sites
 /// run on async workers. Best-effort: a caller (an in-flight write, the
-/// settle wait) still holding the Arc pays the destroy wherever it drops
-/// last, which is rarer than the common case this moves.
+/// settle wait) still holding the Arc pays the destroy wherever it
+/// drops last, which is rarer than the common case this moves.
 fn drop_fence_off_worker(fence: Arc<PartitionFence>) {
     tokio::task::spawn_blocking(move || drop(fence));
 }
@@ -201,14 +201,14 @@ struct PartitionFence {
     /// writers open the next one.
     window_closed: Notify,
     /// Set when the producer is left in a transaction state no later
-    /// `begin_transaction` can recover from — an abort that did not land,
+    /// `begin_transaction` can recover from: an abort that did not land,
     /// or a commit whose outcome stayed unknown.
     ///
     /// Such a producer is still installed, so presence alone cannot tell
     /// a working fence from a dead one. This flag is what makes the
     /// distinction visible: a condemned partition answers as unowned, so
     /// the router bounces instead of retrying a dead producer, and
-    /// `holds()` reports the fence missing — which is what lets
+    /// `holds()` reports the fence missing, which is what lets
     /// `heal_fence`, on the next convergence to Serving, re-take the
     /// epoch once the pod's claim is confirmed.
     unusable: AtomicBool,
@@ -232,12 +232,12 @@ impl PartitionFence {
                 partition,
                 reason, "changelog producer left unusable; awaiting re-acquisition"
             );
-            // The only way back is a heal on a convergence to Serving, and
-            // the reconcile tick that would otherwise carry it is seconds
-            // away — writes bounce for that whole gap. The nudge lets the
-            // coordination loop run its repair pass now; Notify stores
-            // the permit, so a nudge landing before the loop listens is
-            // not lost.
+            // The only way back is a heal on a convergence to Serving,
+            // and the reconcile tick that would otherwise carry it is
+            // seconds away; writes bounce for that whole gap. The nudge
+            // lets the coordination loop run its repair pass now; Notify
+            // stores the permit, so a nudge landing before the loop
+            // listens is not lost.
             if let Some(nudge) = &self.repair_nudge {
                 nudge.notify_one();
             }
@@ -251,8 +251,8 @@ impl PartitionFence {
 
 /// One seat in the open window, released on drop.
 ///
-/// A request can vanish at any await — tonic drops the handler future
-/// when the client's deadline expires or its stream resets — and the
+/// A request can vanish at any await (tonic drops the handler future
+/// when the client's deadline expires or its stream resets), and the
 /// seat has to come back even then, or the committer waits on an
 /// in-flight count that never reaches zero and every later write on the
 /// partition parks forever behind it.
@@ -336,7 +336,7 @@ impl Drop for WindowSlot {
 /// Marks a window as committing, and clears the mark on drop.
 ///
 /// Between closing a window and finishing its commit the gate reads as
-/// idle — `in_flight` is zero and the waiters have been taken — so only
+/// idle (`in_flight` is zero and the waiters have been taken), so only
 /// this mark keeps the next writer from beginning a transaction the
 /// producer is not free for. If the committer unwinds while it is set,
 /// nothing else ever clears it: every later write parks on
@@ -377,12 +377,13 @@ impl Drop for CommittingMark {
                 mem::take(&mut gate.waiters)
             }
         };
-        // On the ordinary path the committer took the waiters before this
-        // drops, so the list is empty. Waiters still here mean the
-        // committer unwound between taking the mark and answering anyone
-        // — their outcomes are unobservable, and leaving them queued
-        // would park every later write forever: nothing can open a window
-        // while waiters remain, and nothing would notify again. Dropping
+        // On the ordinary path the committer took the waiters before
+        // this drops, so the list is empty. Waiters still here mean the
+        // committer unwound between taking the mark and answering
+        // anyone; their outcomes are unobservable, and leaving them
+        // queued would park every later write forever: nothing can open
+        // a window while waiters remain, and nothing would notify
+        // again. Dropping
         // their senders answers each with the doubt it earned (a closed
         // channel reads as an unobserved commit), and condemning routes
         // the partition into the same bounce-and-recover story as every
@@ -398,7 +399,7 @@ impl Drop for CommittingMark {
 /// Holds a freshly acquired fence until the work that justified taking
 /// it succeeds, and gives it back otherwise.
 ///
-/// A warm can end without returning — its future is dropped when the
+/// A warm can end without returning: its future is dropped when the
 /// pod's coordination attempt is torn down, which is exactly what a lost
 /// lease does. The pod records a partition as held only once the warm
 /// returns, so a fence taken by a warm that never finishes belongs to no
@@ -411,7 +412,7 @@ pub struct FenceGuard {
     /// The fence this guard is answerable for. Releasing by partition
     /// alone would drop whatever happens to be installed at drop time,
     /// which after a release and a re-acquire is somebody else's
-    /// producer — the same hazard `forget_fence` checks for.
+    /// producer: the same hazard `forget_fence` checks for.
     taken: Option<Arc<PartitionFence>>,
     /// Names the work the fence was taken for, so an abandon names the
     /// path that dropped mid-flight.
@@ -471,7 +472,7 @@ enum Prepared {
     /// The token identifies the owning dial. A dial resolves only its
     /// own claim: a stale dial whose claim was removed mid-flight (by
     /// an acquire, a release, or the sweep) must neither usurp a
-    /// replacement dial's claim on success nor release it on failure —
+    /// replacement dial's claim on success nor release it on failure;
     /// either would let convergence start extra dials, which is the
     /// churn the claim exists to prevent.
     Connecting { token: u64, since: Instant },
@@ -513,7 +514,7 @@ pub struct FencedChangelogProducers {
     /// parked by `preconnect` for a later `acquire` to claim. Connection
     /// setup is the slow half of acquisition and touches no broker
     /// transactional state, so it can run ahead of the authority
-    /// transition; `init_transactions` — the fencing action — still
+    /// transition; `init_transactions`, the fencing action, still
     /// happens only inside `acquire`.
     prepared: DashMap<u32, Prepared>,
     /// Distinguishes dials, so each resolves only its own claim.
@@ -528,8 +529,8 @@ pub struct FencedChangelogProducers {
     /// Outcomes a test stages for the next produce on a partition.
     ///
     /// The uncertain outcomes need a broker fault landing inside a
-    /// transaction, which no test can stage against a healthy cluster —
-    /// but what the caller *does* with them is the reason they are
+    /// transaction, which no test can stage against a healthy cluster,
+    /// but what the caller does with them is the reason they are
     /// distinguished at all, so the answers have to be reachable.
     #[cfg(any(test, feature = "test-support"))]
     staged_failures: DashMap<u32, FencedProduceError>,
@@ -537,9 +538,9 @@ pub struct FencedChangelogProducers {
 
 /// Construction parameters for [`FencedChangelogProducers`], named
 /// because five of them are `Duration`s: a transposed pair at a call
-/// site compiles, and `main`'s wiring is executed by no test — a swapped
-/// window and settle budget would ship as a 2s admission window on
-/// every fenced write.
+/// site compiles, and `main`'s wiring is executed by no test, so a
+/// swapped window and settle budget would ship as a 2s admission window
+/// on every fenced write.
 pub struct FencedProducerConfig {
     pub kafka: KafkaConfig,
     pub topic: String,
@@ -594,8 +595,8 @@ impl FencedChangelogProducers {
 
     /// Take the partition's fence: create the transactional producer and
     /// initialize transactions, which fences every previous owner of the
-    /// partition's transactional id. Runs on the blocking pool — init is
-    /// a synchronous broker round trip.
+    /// partition's transactional id. Runs on the blocking pool, because
+    /// init is a synchronous broker round trip.
     async fn acquire_installed(&self, partition: u32) -> Result<Arc<PartitionFence>, String> {
         let timeout = self.init_timeout;
         let mut start = Instant::now();
@@ -672,7 +673,7 @@ impl FencedChangelogProducers {
         if let Some(replaced) = self.partitions.insert(partition, Arc::clone(&installed)) {
             // The heal path installs over a still-present condemned
             // fence, and by then the commit task has usually dropped its
-            // clones — making this insert the last reference and its
+            // clones, making this insert the last reference and its
             // drop a blocking librdkafka destroy. Send it to the
             // blocking pool like every other eviction site.
             drop_fence_off_worker(replaced);
@@ -738,7 +739,7 @@ impl FencedChangelogProducers {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "error")
                     .increment(1);
                 warn!(partition, error = %e, "fence preconnect failed; acquisition will connect cold");
-                // Release the claim so a later preconnect can retry —
+                // Release the claim so a later preconnect can retry,
                 // but only this dial's own claim. A replacement dial's
                 // claim, or a parked connection, stays.
                 self.prepared.remove_if(
@@ -752,7 +753,7 @@ impl FencedChangelogProducers {
     /// Park a finished dial, unless its claim is gone (a release, a
     /// sweep, or an acquire that went cold discarded it): a discarded
     /// partition must not resurrect, so the late connection is dropped
-    /// instead. The token check makes ownership exact — a stale dial
+    /// instead. The token check makes ownership exact: a stale dial
     /// finding a replacement dial's claim here must not usurp it, or
     /// the replacement's own park would discard the newer connection
     /// while later convergence passes see whatever raced in.
@@ -795,7 +796,7 @@ impl FencedChangelogProducers {
         .map_err(|e| format!("fence connect: {e}"))
     }
 
-    /// Drop a parked connection on the blocking pool — librdkafka's
+    /// Drop a parked connection on the blocking pool; librdkafka's
     /// client teardown blocks, same as a full fence's. A Connecting
     /// claim is removed without a drop: its dial discards on
     /// completion once the claim is gone.
@@ -808,7 +809,7 @@ impl FencedChangelogProducers {
     /// Discard every parked connection. A connection is normally
     /// consumed within its drain window, seconds after parking; one
     /// still here at the periodic sweep belongs to an acquire that went
-    /// cold first or to a cancelled inbound handoff — and a cancelled
+    /// cold first or to a cancelled inbound handoff, and a cancelled
     /// inbound handoff leaves no convergence behind to notice it, so
     /// the sweep is the only owner its lifetime has. A drain window
     /// that happens to straddle the sweep tick loses its head start and
@@ -892,9 +893,8 @@ impl FencedChangelogProducers {
     ///
     /// Deliberately not mere presence. A condemned producer is still
     /// installed, and answering "yes" for one would tell the repair pass
-    /// that a partition it must re-acquire needs nothing — which is
-    /// exactly how such a partition stayed unwritable until a handoff
-    /// moved it.
+    /// that a partition it must re-acquire needs nothing, leaving the
+    /// partition unwritable until a handoff moved it.
     pub fn holds(&self, partition: u32) -> bool {
         self.partitions
             .get(&partition)
@@ -903,41 +903,39 @@ impl FencedChangelogProducers {
 
     /// Commit the partition's open window before its owner gives it up.
     ///
-    /// A request cancelled mid-produce takes its handler — and the
-    /// drain's in-flight count — with it, leaving the record it enqueued
+    /// A request cancelled mid-produce takes its handler (and the
+    /// drain's in-flight count) with it, leaving the record it enqueued
     /// in a window nobody is waiting on. Left alone, that window's fate
     /// falls to whichever acts first: this pod's own committer, or the
-    /// successor's `init_transactions` aborting it at the broker. Waiting
-    /// here settles it in the successor's favour, so a cancelled client's
-    /// changes land instead of being discarded by a race.
+    /// successor's `init_transactions` aborting it at the broker.
+    /// Waiting here lets this pod's committer settle it, so a cancelled
+    /// client's changes land instead of being discarded by a race.
     ///
     /// Deliberately best-effort. Refusing to hand over a partition whose
     /// window did not settle would buy nothing: a producer that cannot
     /// report its outcome is a producer the broker will not accept
-    /// another record from, so the records cannot grow after this point
-    /// whatever we do — and the successor's init aborts what is left,
-    /// exactly as it did before this wait existed. What refusing *does*
+    /// another record from, so the records cannot grow after this point,
+    /// and the successor's init aborts what is left. What refusing does
     /// cost is the partition: the drain has already fenced writes, and
     /// there is no branch that un-fences one whose handoff never
     /// completed.
     pub async fn settle(&self, partition: u32) {
         let Some(fence) = self.installed(partition) else {
             // A write that met a condemned producer already gave the
-            // fence up, which is the ordinary shape after a condemnation
-            // — recorded rather than silent, or the series has no
+            // fence up, the ordinary shape after a condemnation.
+            // Recorded rather than silent, or the series has no
             // denominator.
             counter!("personhog_leader_fence_settle_total", "outcome" => "absent").increment(1);
             return;
         };
         // Bounded well under the broker's own patience for the window.
         // The wait exists to catch a committer that is about to fire
-        // anyway — it sleeps for the window, five milliseconds by
-        // default, then commits — so seconds of budget only help when
-        // the commit is retrying, which is the case where the
-        // successor's abort is the right answer regardless. The cap
-        // matters because the pre-revoke self-fence allows three seconds
-        // for a whole drain: a budget derived from the lease alone
-        // reaches about 6s at the production TTL, so every shutdown with an
+        // anyway (it sleeps for the window, then commits), so seconds
+        // of budget only help when the commit is retrying, which is the
+        // case where the successor's abort is the right answer
+        // regardless. The cap matters because the pre-revoke self-fence
+        // allows three seconds for a whole drain: a budget derived from
+        // the lease alone would overrun it, so every shutdown with an
         // open window would truncate here and report a failed drain.
         let budget = self.settle_budget;
         let waited = timeout(budget, async {
@@ -979,20 +977,13 @@ impl FencedChangelogProducers {
         }
     }
 
-    /// Put the partition's producer into the state a failed abort or an
-    /// unknown commit leaves it in.
-    ///
-    /// Reaching that state for real takes a broker fault landing inside a
-    /// transaction, which no test can stage against a healthy cluster —
-    /// but what happens *afterwards* is the entire reason the state is
-    /// tracked, so the aftermath has to be reachable.
     /// Hold the partition's gate in the state a commit in flight leaves
     /// it, so a writer arriving now parks instead of opening a window.
     ///
     /// The wake path is otherwise unreachable from a test: parking
     /// requires arriving inside the commit's own round trip, which is
-    /// milliseconds wide and not something a test can aim at. Staging the
-    /// gate directly is what makes the interleaving deterministic rather
+    /// milliseconds wide and not something a test can aim at. Staging
+    /// the gate directly makes the interleaving deterministic rather
     /// than statistical.
     #[cfg(any(test, feature = "test-support"))]
     pub fn begin_committing_for_test(&self, partition: u32) {
@@ -1018,7 +1009,7 @@ impl FencedChangelogProducers {
     ///
     /// A real poisoning needs a produce to fail mid-window against a
     /// broker that is otherwise healthy enough to have opened one, which
-    /// is not stageable — but what the commit path does with a poisoned
+    /// is not stageable, but what the commit path does with a poisoned
     /// window is the whole reason the flag exists.
     #[cfg(any(test, feature = "test-support"))]
     pub fn poison_window_for_test(&self, partition: u32) {
@@ -1028,7 +1019,7 @@ impl FencedChangelogProducers {
     }
 
     /// Stage a committer that unwound between taking the mark and
-    /// answering its subscribers — the shape a runtime teardown or a
+    /// answering its subscribers: the shape a runtime teardown or a
     /// panic in the settle wait leaves behind. Real unwinds are not
     /// stageable deterministically; what matters is the mark's cleanup.
     #[cfg(any(test, feature = "test-support"))]
@@ -1069,6 +1060,12 @@ impl FencedChangelogProducers {
         self.staged_failures.insert(partition, outcome);
     }
 
+    /// Put the partition's producer into the state a failed abort or an
+    /// unknown commit leaves it in. Reaching that state for real takes a
+    /// broker fault landing inside a transaction, which no test can
+    /// stage against a healthy cluster, but what happens afterwards is
+    /// the entire reason the state is tracked, so the aftermath has to
+    /// be reachable.
     #[cfg(any(test, feature = "test-support"))]
     pub fn condemn_for_test(&self, partition: u32) {
         if let Some(fence) = self.partitions.get(&partition) {
@@ -1103,12 +1100,12 @@ impl FencedChangelogProducers {
         let opened = loop {
             // Checked every iteration, not only on the way in. A
             // condemned producer cannot begin another transaction, and
-            // the commit that condemns it is the same one whose end wakes
-            // whoever is parked below — so a check placed after the park
-            // is skipped by exactly the writer it exists for, which then
-            // opens a window on a dead producer and answers with a
-            // retryable failure instead of the ownership bounce that gets
-            // the partition re-acquired.
+            // the commit that condemns it is the same one whose end
+            // wakes whoever is parked below, so a check placed after
+            // the park is skipped by exactly the writer it exists for,
+            // which then opens a window on a dead producer and answers
+            // with a retryable failure instead of the ownership bounce
+            // that gets the partition re-acquired.
             if !fence.is_usable() {
                 self.forget_fence(partition, &fence);
                 counter!("personhog_leader_kafka_produce_errors_total").increment(1);
@@ -1157,10 +1154,10 @@ impl FencedChangelogProducers {
             }
             closed.await;
         };
-        // Near-zero when a window was open or the producer idle; the tail
-        // is time parked behind a draining or committing window — the
-        // queueing term of the fencing tax, and the first thing to grow
-        // if commits slow down.
+        // Near-zero when a window was open or the producer idle; the
+        // tail is time parked behind a draining or committing window,
+        // the queueing term of the fencing tax and the first thing to
+        // grow if commits slow down.
         // From here the window counts this write as in flight; the slot
         // returns the seat on every exit, including cancellation.
         let slot = WindowSlot::held(Arc::clone(&fence));
@@ -1221,7 +1218,7 @@ impl FencedChangelogProducers {
         };
 
         // A failed send poisons the window (the committer aborts it) and
-        // returns immediately with its own classified error — a fenced
+        // returns immediately with its own classified error: a fenced
         // rejection must surface as `Fenced`, not as the window's
         // generic abort.
         if let Err(send_err) = offset {
@@ -1271,7 +1268,7 @@ impl FencedChangelogProducers {
                 Err(e)
             }
             // The committer dropped its senders without answering, so
-            // nobody observed whether the commit landed — and
+            // nobody observed whether the commit landed, and
             // `spawn_blocking` work is not cancelled when its handle is
             // dropped, so it may well have. Reporting a definite abort
             // here frees a version whose record may exist.
@@ -1286,8 +1283,8 @@ impl FencedChangelogProducers {
 
     /// Classify a transaction error, removing the fence on a broker
     /// fence rejection so subsequent writes fail fast as stale. The
-    /// fenced signal often hides behind a local symptom — librdkafka
-    /// purges queued messages once the producer turns fatal — so the
+    /// fenced signal often hides behind a local symptom (librdkafka
+    /// purges queued messages once the producer turns fatal), so the
     /// producer's fatal error is consulted alongside the surface error.
     fn classify(
         &self,
@@ -1324,7 +1321,7 @@ impl FencedChangelogProducers {
         if let Some((_, evicted)) = removed {
             drop_fence_off_worker(evicted);
             // The escalation signal for a partition giving up its fence
-            // outside the orderly release path — the series exists so a
+            // outside the orderly release path; the series exists so a
             // deploy-window burst of these is visible.
             counter!(
                 "personhog_leader_fenced_partition_drops_total",
@@ -1368,7 +1365,7 @@ enum WindowVerdict {
     /// A newer owner holds the partition; the records never landed.
     Fenced,
     /// A newer owner holds the partition and the records' fate is
-    /// unknown — both facts, because they answer different questions.
+    /// unknown: both facts, because they answer different questions.
     FencedUncertain,
     /// The window aborted for an ordinary reason; safe to retry.
     Aborted,
@@ -1376,16 +1373,6 @@ enum WindowVerdict {
     Indeterminate,
 }
 
-/// Whether the partition moved and whether the records landed are
-/// independent, so the verdict carries both.
-///
-/// A commit can time out, be re-issued by librdkafka itself, and only
-/// then report the fence — by which point an earlier attempt may already
-/// have succeeded. Reporting that as a plain fence tells the caller the
-/// record does not exist, which frees its version and puts a second
-/// record at the same number behind one that may be committed. Reporting
-/// it as merely indeterminate throws away the ownership answer the router
-/// bounces on. `FencedUncertain` is both.
 /// Every reason production code passes to `condemn`, in one place so the
 /// preregistration below cannot drift from the call sites: a reason
 /// missing here first appears as a brand-new series mid-incident instead
@@ -1407,18 +1394,19 @@ const CONDEMN_REASONS: [&str; 6] = [
 /// and it is the only path in production that ever sets the flag.
 ///
 /// A dead producer carries two very different stories, split by
-/// `fenced`: a producer fenced by a newer owner's init lost the epoch (a
-/// handoff, a heal, a zombie being cut off — coordination working), while
-/// an abort that failed on a producer nobody fenced means the broker
-/// could not be reached in time (an infrastructure excursion). The panel
-/// reading this label has to tell those apart without the logs.
+/// `fenced`: a producer fenced by a newer owner's init lost the epoch,
+/// which is coordination working (a handoff, a heal, a zombie being cut
+/// off), while an abort that failed on a producer nobody fenced means
+/// the broker could not be reached in time (an infrastructure
+/// excursion). The panel reading this label has to tell those apart
+/// without the logs.
 fn condemn_reason(outcome: CommitOutcome, fenced: bool) -> Option<&'static str> {
     match outcome {
         CommitOutcome::Aborted => None,
         CommitOutcome::AbortedProducerDead if fenced => Some("abort_fenced"),
         CommitOutcome::AbortedProducerDead => Some("abort_failed"),
         // A commit killed by a newer owner's init reports librdkafka's
-        // fatal class and lands here, not in AbortedProducerDead — the
+        // fatal class and lands here, not in AbortedProducerDead; the
         // fenced split must cover this arm or every deploy-shaped
         // condemnation reads as a broker excursion.
         CommitOutcome::Unknown if fenced => Some("commit_fenced"),
@@ -1426,6 +1414,16 @@ fn condemn_reason(outcome: CommitOutcome, fenced: bool) -> Option<&'static str> 
     }
 }
 
+/// Whether the partition moved and whether the records landed are
+/// independent, so the verdict carries both.
+///
+/// A commit can time out, be re-issued by librdkafka itself, and only
+/// then report the fence, by which point an earlier attempt may already
+/// have succeeded. Reporting that as a plain fence tells the caller the
+/// record does not exist, which frees its version and puts a second
+/// record at the same number behind one that may be committed.
+/// Reporting it as merely indeterminate throws away the ownership
+/// answer the router bounces on. `FencedUncertain` is both.
 fn window_verdict(outcome: CommitOutcome, fenced: bool) -> WindowVerdict {
     match (outcome.is_aborted(), fenced) {
         (true, true) => WindowVerdict::Fenced,
@@ -1469,10 +1467,9 @@ fn producer_fenced<C: ClientContext>(producer: &FutureProducer<C>) -> bool {
 /// Abort the window, up to the number of attempts the lease runway was
 /// sized for.
 ///
-/// Derived from the constant rather than written out, so that raising the
-/// budget raises the attempts and vice versa. The two drifted apart once
-/// already: the loop spent four transaction timeouts while the bound that
-/// had to contain them counted one.
+/// Derived from the constant rather than written out, so that raising
+/// the budget raises the attempts and vice versa; a hand-written count
+/// can silently drift from the bound that must contain it.
 fn abort_window<C: ClientContext>(
     producer: &FutureProducer<C>,
     timeout: Duration,
@@ -1512,7 +1509,7 @@ async fn commit_window_after(
     }
 
     // Stop admitting joiners, then wait for outstanding sends. The mark
-    // holds until this function returns — by any path — so no writer can
+    // holds until this function returns, by any path, so no writer can
     // begin the next transaction while this one is still resolving, and
     // none is stranded if it unwinds.
     let _committing = CommittingMark::take(Arc::clone(&fence), partition);
@@ -1553,16 +1550,16 @@ async fn commit_window_after(
         if poisoned {
             // One attempt. A producer left in its abortable state fails
             // every later `begin_transaction`, so a failed abort costs
-            // the producer itself rather than just this window — and the
+            // the producer itself rather than just this window, and the
             // recovery for that is re-acquisition, whose init aborts the
             // pending transaction at the broker anyway.
             match abort_window(&producer, timeout) {
                 Ok(()) => Err((KafkaError::Canceled, CommitOutcome::Aborted)),
-                // The records are still definitely not visible — an abort
-                // that did not land leaves the transaction open, and open
-                // is not committed. What is lost is the producer: it stays
-                // in its abortable state, where every later
-                // `begin_transaction` fails.
+                // The records are still definitely not visible: an
+                // abort that did not land leaves the transaction open,
+                // and open is not committed. What is lost is the
+                // producer: it stays in its abortable state, where
+                // every later `begin_transaction` fails.
                 Err(e) => {
                     counter!("personhog_leader_fence_abort_failed_total").increment(1);
                     Err((e, CommitOutcome::AbortedProducerDead))
@@ -1571,7 +1568,7 @@ async fn commit_window_after(
         } else {
             // A commit that fails is not the same as a commit that did
             // not happen. librdkafka distinguishes three cases and the
-            // caller's correct behaviour differs for each: a retriable
+            // caller's correct behavior differs for each: a retriable
             // failure leaves the outcome unknown and must be re-attempted
             // (commit is idempotent within the transaction); an
             // abort-requiring failure is a definite abort once the abort
@@ -1689,7 +1686,7 @@ async fn commit_window_after(
             }
         }
         // The commit task itself vanished, so nothing observed the
-        // transaction's fate — which leaves the transaction open and this
+        // transaction's fate, which leaves the transaction open and this
         // producer unable to begin another. Condemning it is what stops
         // the partition counting as fenced; without it every later write
         // retries a producer that cannot serve one, for the life of the
@@ -1711,7 +1708,7 @@ async fn commit_window_after(
 
 /// Materialize every fencing series at startup so deploy-window bursts
 /// land in an already-scraped series instead of being swallowed by
-/// first-increment lazy registration — fence acquisition in particular
+/// first-increment lazy registration; fence acquisition in particular
 /// fires exactly during deploys. A touched histogram renders with zero
 /// count until its first sample.
 pub fn preregister_fencing_metrics(partitions: u32) {
@@ -1719,7 +1716,7 @@ pub fn preregister_fencing_metrics(partitions: u32) {
         counter!("personhog_leader_fence_init_total", "outcome" => outcome).increment(0);
     }
     // Settling fires only during handoffs, so every one of its samples
-    // lands in a deploy window — the case this preregistration exists
+    // lands in a deploy window, the case this preregistration exists
     // for.
     for outcome in ["settled", "timeout", "unusable", "absent"] {
         counter!("personhog_leader_fence_settle_total", "outcome" => outcome).increment(0);
@@ -1800,26 +1797,9 @@ fn clone_outcome(outcome: &Result<(), FencedProduceError>) -> Result<(), FencedP
     }
 }
 
-/// Re-take the partition's fence if this pod is serving it without one.
-///
-/// A fence can go missing under a pod that legitimately owns its
-/// partition: a broker rejection evicted it, an abort exhausted its
-/// retries and left the producer unusable, or a stale pod took the epoch
-/// and stepped back. Nothing in the handoff protocol repairs that —
-/// convergence sees the partition warmed and unfenced and does nothing —
-/// so without this the partition stays unwritable until a handoff moves
-/// it.
-///
-/// Re-acquisition is safe only because of where this is called from and
-/// what it checks. The caller is the convergence to `Serving`, so the
-/// durable assignment says this pod owns the partition; the claim must
-/// still be valid, because taking a fence moves the broker's epoch away
-/// from whoever holds it; and a partition being locally fenced is
-/// disqualifying, since that means a handoff is moving it and the
-/// incoming owner's fence is the one that should stand.
 /// What the healing pass did, for the caller to act on: a healed
-/// partition is freshly fenced — the epoch just moved, and the same
-/// convergence must not move it again — and a failure is the caller's
+/// partition is freshly fenced (the epoch just moved, and the same
+/// convergence must not move it again), and a failure is the caller's
 /// to surface, because a partition that cannot regain its fence has no
 /// other repair path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1829,11 +1809,28 @@ pub enum HealOutcome {
     Intact,
     /// A fence was re-taken and is serving.
     Healed,
-    /// A fence was taken but given back — standing lapsed or a handoff
+    /// A fence was taken but given back: standing lapsed or a handoff
     /// began during the broker round trip.
     Abandoned,
 }
 
+/// Re-take the partition's fence if this pod is serving it without one.
+///
+/// A fence can go missing under a pod that legitimately owns its
+/// partition: a broker rejection evicted it, an abort exhausted its
+/// retries and left the producer unusable, or a stale pod took the
+/// epoch and stepped back. Nothing in the handoff protocol repairs that
+/// (convergence sees the partition warmed and unfenced and does
+/// nothing), so without this the partition stays unwritable until a
+/// handoff moves it.
+///
+/// Re-acquisition is safe only because of where this is called from and
+/// what it checks. The caller is the convergence to `Serving`, so the
+/// durable assignment says this pod owns the partition; the claim must
+/// still be valid, because taking a fence moves the broker's epoch away
+/// from whoever holds it; and a partition being locally fenced is
+/// disqualifying, since that means a handoff is moving it and the
+/// incoming owner's fence is the one that should stand.
 pub async fn heal_fence(
     fenced: &Arc<FencedChangelogProducers>,
     inflight: &InflightTracker,
@@ -1861,19 +1858,19 @@ pub async fn heal_fence(
         }
     };
     // Answerable for the installed fence from here until a deliberate
-    // branch takes over. A drop *during* the acquire needs no guard —
-    // the producer is discarded before it is installed, `holds()` stays
-    // false, and the next convergence heals again. What the guard covers
-    // is the stretch after installation: the checks below await nothing
-    // today, so its teeth are a panic between them and any await a
+    // branch takes over. A drop during the acquire needs no guard: the
+    // producer is discarded before it is installed, `holds()` stays
+    // false, and the next convergence heals again. What the guard
+    // covers is the stretch after installation: the checks below await
+    // nothing, so its teeth are a panic between them and any await a
     // future change adds. Same shape as the warm path.
     let guard = FenceGuard::new(Arc::clone(fenced), partition, "heal");
-    // The round trip is long enough for the ground to move: the claim can
-    // lapse, or a handoff can start draining the partition. Holding a
-    // fence taken without standing is not passive — the write path trusts
-    // the broker epoch rather than re-checking the claim, so a request
-    // landing here would ack a mutation with an epoch taken from the
-    // partition's real owner.
+    // The round trip is long enough for the ground to move: the claim
+    // can lapse, or a handoff can start draining the partition. Holding
+    // a fence taken without standing is not passive: the write path
+    // trusts the broker epoch rather than re-checking the claim, so a
+    // request landing here would ack a mutation with an epoch taken
+    // from the partition's real owner.
     let lost_standing = authority.is_some_and(|a| !a.is_valid());
     if lost_standing || inflight.is_fenced(partition) {
         guard.keep();
@@ -1901,17 +1898,7 @@ pub async fn heal_fence(
 mod tests {
     use super::*;
 
-    /// The verdict the caller acts on, as a truth table over the two
-    /// independent facts it combines.
-    ///
-    /// The cell that matters is (unknown, fenced). A commit that timed
-    /// out, was re-issued — by librdkafka itself, not just by this loop —
-    /// and only then discovered the fence may already have landed. Its
-    /// own verdict keeps both facts: the router still gets the ownership
-    /// answer it bounces on, and the version stays spent. Collapsing it
-    /// into `Fenced` frees a version whose record may be committed, and
-    /// collapsing it into `Indeterminate` throws away the bounce.
-    /// The arrow *into* the condemned state. A producer left in a
+    /// The arrow into the condemned state. A producer left in a
     /// transaction it cannot leave must be given up, or the partition
     /// keeps counting as fenced and every later write retries a producer
     /// that cannot serve one, for the life of the process.
@@ -1928,10 +1915,10 @@ mod tests {
             condemn_reason(CommitOutcome::Unknown, false),
             Some("commit_indeterminate")
         );
-        // The same dead producer, split by what killed it: an epoch lost
-        // to a newer owner is coordination working, an abort nobody
-        // fenced failing is the broker unreachable — the operator's first
-        // question, answered from the series alone.
+        // The same dead producer, split by what killed it: an epoch
+        // lost to a newer owner is coordination working, an abort
+        // nobody fenced failing is the broker unreachable; the
+        // operator's first question, answered from the series alone.
         assert_eq!(
             condemn_reason(CommitOutcome::AbortedProducerDead, true),
             Some("abort_fenced")
@@ -1968,6 +1955,13 @@ mod tests {
         }
     }
 
+    /// The verdict the caller acts on, as a truth table over the two
+    /// independent facts it combines. The cell that matters is
+    /// (unknown, fenced): a commit that timed out, was re-issued (by
+    /// librdkafka itself, not just this loop), and only then discovered
+    /// the fence may already have landed. Its verdict keeps both facts:
+    /// the router still gets the ownership answer it bounces on, and
+    /// the version stays spent.
     #[test]
     fn a_fence_only_settles_the_records_when_the_window_also_aborted() {
         for (outcome, fenced, expected) in [

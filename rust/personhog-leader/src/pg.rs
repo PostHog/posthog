@@ -24,9 +24,8 @@ pub fn validate_table_name(table: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Reads a person from the configured fallback table — the table the
-/// writer maintains. Used as a fallback when the leader's cache doesn't
-/// have the person.
+/// Reads a person from the configured fallback table (the table the
+/// writer maintains) when the leader's cache does not have the person.
 pub async fn load_person_from_pg(
     pool: &PgPool,
     table: &str,
@@ -37,13 +36,13 @@ pub async fn load_person_from_pg(
     let team_id_i32 = i32::try_from(key.team_id)
         .map_err(|_| sqlx::Error::Protocol(format!("team_id {} exceeds i32 range", key.team_id)))?;
 
-    // properties comes back as text and is parsed here rather than through
-    // sqlx's jsonb decode: rows written by other services can hold numerics
-    // whose PG-expanded rendering serde_json rejects, and the leniency
-    // lives in our parse step (see below). The cost is identical — sqlx's
-    // jsonb decode parses the same text under the hood.
-    // A tombstoned person must not be re-served on a cache miss; not-found
-    // is the truthful answer for a deleted person.
+    // properties comes back as text and is parsed here rather than
+    // through sqlx's jsonb decode: rows written by other services can
+    // hold numerics whose PG-expanded rendering serde_json rejects, and
+    // the leniency lives in our parse step (see below). The cost is
+    // identical; sqlx's jsonb decode parses the same text.
+    // A tombstoned person must not be re-served on a cache miss;
+    // not-found is the truthful answer for a deleted person.
     let row = sqlx::query(&format!(
         "SELECT id, team_id, uuid::text, properties::text AS properties, created_at, version, \
          is_identified, last_seen_at
@@ -66,8 +65,7 @@ pub async fn load_person_from_pg(
     let id: i64 = row.get("id");
     let team_id: i32 = row.get("team_id");
     let uuid: String = row.get("uuid");
-    // Borrowed from the row buffer — no copy; parse cost matches what
-    // sqlx's own jsonb decode would spend on the same bytes.
+    // Borrowed from the row buffer, no copy.
     let properties_text: &str = row.get("properties");
     let created_at: chrono::DateTime<chrono::Utc> = row.get("created_at");
     let version: Option<i64> = row.get("version");

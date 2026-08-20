@@ -16,11 +16,12 @@ pub struct PropertyUpdates {
     pub has_changes: bool,
 }
 
-/// Compute property changes from event data without modifying the existing person properties.
+/// Compute property changes from event data without modifying the
+/// existing person properties.
 ///
-/// This mirrors the TypeScript `computeEventPropertyUpdates` in `person-update.ts`,
-/// but simplified for the PoC by omitting the property filtering logic
-/// (FILTERED_PERSON_UPDATE_PROPERTIES).
+/// Mirrors the TypeScript `computeEventPropertyUpdates` in
+/// `person-update.ts`, minus the `FILTERED_PERSON_UPDATE_PROPERTIES`
+/// filtering.
 pub fn compute_event_property_updates(
     event_name: &str,
     set_properties: &Value,
@@ -42,7 +43,7 @@ pub fn compute_event_property_updates(
     let mut to_set = HashMap::new();
     let mut to_unset = Vec::new();
 
-    // Process $set_once: only set if the property doesn't already exist
+    // $set_once applies only when the property does not already exist.
     if let Some(set_once_map) = set_once_properties.as_object() {
         for (key, value) in set_once_map {
             let existing = person_props.and_then(|p| p.get(key));
@@ -53,7 +54,6 @@ pub fn compute_event_property_updates(
         }
     }
 
-    // Process $set: apply all changed properties
     if let Some(set_map) = set_properties.as_object() {
         for (key, value) in set_map {
             let existing = person_props.and_then(|p| p.get(key));
@@ -64,7 +64,6 @@ pub fn compute_event_property_updates(
         }
     }
 
-    // Process $unset: remove properties that exist
     for key in unset_properties {
         let exists = person_props.is_some_and(|p| p.contains_key(key));
         if exists {
@@ -81,7 +80,7 @@ pub fn compute_event_property_updates(
 }
 
 /// Apply computed property updates to a person's properties map.
-/// Returns the new properties value and whether any changes were actually made.
+/// Returns the new properties value and whether any changes were made.
 pub fn apply_property_updates(
     updates: &PropertyUpdates,
     person_properties: &Value,
@@ -92,7 +91,6 @@ pub fn apply_property_updates(
     };
     let mut updated = false;
 
-    // Apply $set and $set_once
     for (key, value) in &updates.to_set {
         if props.get(key) != Some(value) {
             updated = true;
@@ -100,7 +98,6 @@ pub fn apply_property_updates(
         props.insert(key.clone(), value.clone());
     }
 
-    // Apply $unset
     for key in &updates.to_unset {
         if props.remove(key).is_some() {
             updated = true;
@@ -170,7 +167,6 @@ mod tests {
         assert!(result.has_changes);
         assert_eq!(result.to_set.len(), 1);
         assert_eq!(result.to_set["initial_referrer"], json!("google.com"));
-        // Should NOT overwrite existing email
         assert!(!result.to_set.contains_key("email"));
     }
 

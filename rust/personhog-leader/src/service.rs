@@ -46,7 +46,7 @@ use personhog_common::properties::{
 const DEFAULT_FENCE_MAP_MAX_ENTRIES: usize = 250_000;
 
 /// Admission-time property size limits, in `pg_column_size` (JSONB
-/// binary) terms — the same units as the `check_properties_size`
+/// binary) terms: the same units as the `check_properties_size`
 /// constraint they exist to enforce.
 #[derive(Clone, Copy)]
 pub struct PropertySizeLimits {
@@ -103,8 +103,8 @@ pub struct PersonHogLeaderService {
     /// Mutated only under the per-key lock.
     fences: FenceMap,
     /// Ghost-fence recovery, derived from the fallback pool at
-    /// construction. Absent without one (dev fixtures) — ghost fences
-    /// then last until the partition changes hands, as before.
+    /// construction. Absent without one (dev fixtures); ghost fences
+    /// then last until the partition changes hands.
     fence_healer: Option<Arc<FenceHealer>>,
     /// Memory fuse for the fence map (see `fence_map_max_entries` in the
     /// config for the full policy): at this many live fences, FencePerson
@@ -130,7 +130,7 @@ impl PersonHogLeaderService {
     /// process that is stopped, starved, or wedged stops renewing and
     /// stops noticing together, then keeps serving state the new owner
     /// is already changing. Reading the published stamp here makes the
-    /// lapse self-enforcing — nothing has to be alive to apply it.
+    /// lapse self-enforcing; nothing has to be alive to apply it.
     ///
     /// Refusal starts at the keepalive's renewal margin, strictly before
     /// the coordinator could treat the lease as expired, so requests are
@@ -248,7 +248,7 @@ impl PersonHogLeaderService {
     /// The fence RPCs must never succeed on a pod that does not serve the
     /// partition. A misrouted release that removed nothing and returned
     /// OK would leave the real owner's fence in place while the saga
-    /// believes it released — a person frozen with no retry coming. The
+    /// believes it released: a person frozen with no retry coming. The
     /// handoff guard is not enough on its own: `release_partition`
     /// unfences, so a pod that has already handed the partition off looks
     /// unfenced. Rejecting sends the saga's retry to the current owner.
@@ -271,22 +271,23 @@ impl PersonHogLeaderService {
     }
 
     /// Recover a cache miss from the right source. A person in the dirty
-    /// index has acked state the writer may not have applied to PG yet, so
-    /// the PG row cannot be trusted — recover the full latest state from
-    /// the changelog record at the marked offset instead. If that fetch
-    /// fails, the only honest answer is a retryable error: falling back to
-    /// PG would serve exactly the staleness this index exists to prevent.
-    /// Unmarked persons' PG rows are known current — but only while this
-    /// pod owns the partition, so the no-mark path re-checks ownership
-    /// before trusting PG. Assumes the caller holds the per-key lock.
+    /// index has acked state the writer may not have applied to PG yet,
+    /// so the PG row cannot be trusted; recover the full latest state
+    /// from the changelog record at the marked offset instead. If that
+    /// fetch fails, the only honest answer is a retryable error: falling
+    /// back to PG would serve exactly the staleness this index exists to
+    /// prevent. Unmarked persons' PG rows are known current, but only
+    /// while this pod owns the partition, so the no-mark path re-checks
+    /// ownership before trusting PG. Assumes the caller holds the
+    /// per-key lock.
     async fn recover_or_load(
         &self,
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<Arc<CachedPerson>, Status> {
         let Some(mark) = self.dirty_index.get(key) else {
-            // "No mark" means PG is current — but only while this pod owns
-            // the partition. Handoffs drain writes, not reads, so a read
+            // "No mark" means PG is current, but only while this pod
+            // owns the partition. Handoffs drain writes, not reads, so a read
             // admitted before the freeze can still be executing here when
             // `release_partition` clears the partition's marks (the new
             // owner rebuilds its own), and to that reader a still-dirty
@@ -457,7 +458,7 @@ impl PersonHogLeaderService {
     }
 
     /// The shared tail of every document write: refuse unapplyable records,
-    /// produce to Kafka first, then dirty-mark and update the cache — so
+    /// produce to Kafka first, then dirty-mark and update the cache, so
     /// readers only ever see durably committed state. The mark precedes the
     /// cache insert: a reader that misses the cache in the gap sees the
     /// mark and recovers this exact record from the changelog. Assumes the
@@ -468,8 +469,8 @@ impl PersonHogLeaderService {
         cache_key: &PersonCacheKey,
         person: CachedPerson,
     ) -> Result<Person, Status> {
-        // A record the writer cannot bind must never reach the changelog —
-        // no consumer downstream can apply or repair it.
+        // A record the writer cannot bind must never reach the
+        // changelog; no consumer downstream can apply or repair it.
         if let Err(reason) = assert_writeable(&person) {
             counter!("personhog_leader_unwriteable_state_total").increment(1);
             tracing::error!(
@@ -489,16 +490,16 @@ impl PersonHogLeaderService {
         // re-checks before answering: admission proves nothing about the
         // moment the record lands. Between the check at entry and here a
         // write can wait on the per-key lock behind another produce, and
-        // on a changelog recovery — long enough for a starved keepalive's
+        // on a changelog recovery: long enough for a starved keepalive's
         // stamp to age out, for the lease to expire at etcd, and for the
         // coordinator to warm a successor past the point this record
         // would land.
         self.check_authority(partition)?;
 
         // From here the record may reach the changelog whatever happens
-        // to this request — including the request simply ceasing to exist
-        // when the client's deadline expires. The guard is what makes the
-        // version un-reusable in that case.
+        // to this request, including the request simply ceasing to exist
+        // when the client's deadline expires. The guard is what makes
+        // the version un-reusable in that case.
         let mut emitted = EmittedVersionGuard::new(
             Arc::clone(&self.emitted_versions),
             partition,
@@ -514,7 +515,7 @@ impl PersonHogLeaderService {
                 Ok(offset) => offset,
                 // The broker fenced this pod: a newer owner holds the
                 // partition, so this claim is stale. FailedPrecondition
-                // is the admission fence's own vocabulary — the router
+                // is the admission fence's own vocabulary; the router
                 // classifies it as a bounce and re-resolves toward the
                 // real owner.
                 Err(e @ FencedProduceError::Fenced) => {
@@ -537,7 +538,7 @@ impl PersonHogLeaderService {
                     // more; `heal_fence`, on the next convergence to
                     // Serving, re-takes the epoch once the authority
                     // stamp confirms this pod's standing. Reads stay
-                    // served meanwhile under the same stamp — the
+                    // served meanwhile under the same stamp; the
                     // `check_authority` calls at admission and before
                     // answering are what refuse them once the claim
                     // lapses.
@@ -545,11 +546,7 @@ impl PersonHogLeaderService {
                         "partition ownership fenced: {e}"
                     )));
                 }
-                // This pod holds no producer for the partition — an
-                // ownership statement, in the same vocabulary the
-                // admission fence uses, so the router bounces and
-                // re-resolves instead of surfacing a hard error.
-                // The partition moved *and* this window's outcome was
+                // The partition moved AND this window's outcome was
                 // never settled. The router still needs the ownership
                 // answer, but the version cannot be handed back: the
                 // commit may have succeeded on an attempt librdkafka
@@ -575,6 +572,10 @@ impl PersonHogLeaderService {
                         "partition ownership fenced: {e}"
                     )));
                 }
+                // This pod holds no producer for the partition: an
+                // ownership statement, in the same vocabulary the
+                // admission fence uses, so the router bounces and
+                // re-resolves instead of surfacing a hard error.
                 Err(e @ FencedProduceError::NotAcquired) => {
                     emitted.discarded();
                     tracing::warn!(
@@ -593,8 +594,8 @@ impl PersonHogLeaderService {
                 // version would produce a second record at the same
                 // version as the one that may already have committed,
                 // and the writer's strict guard keeps whichever arrived
-                // first — which the floor prevents by holding the
-                // version spent.
+                // first. The floor prevents that by holding the version
+                // spent.
                 Err(e @ FencedProduceError::Indeterminate(_)) => {
                     // Deliberately not settled: whether the record exists
                     // is exactly what is unknown, so the version stays
@@ -643,11 +644,12 @@ impl PersonHogLeaderService {
                     // enqueue that never left the client with a delivery
                     // that timed out after the broker may already have
                     // appended it, and idempotence is off by default, so
-                    // the record's fate is genuinely unknown. Freeing the
-                    // version here let a retry derive the same number and
-                    // put a second record behind one that may be in the
-                    // log — the writer's strict guard then keeps whichever
-                    // arrived first and discards the acked one.
+                    // the record's fate is genuinely unknown. Freeing
+                    // the version here would let a retry derive the same
+                    // number and put a second record behind one that may
+                    // be in the log; the writer's strict guard then
+                    // keeps whichever arrived first and discards the
+                    // acked one.
                     //
                     // The floor alone carries that: the next write
                     // derives past it whether or not the cache still
@@ -655,9 +657,9 @@ impl PersonHogLeaderService {
                     // reads may answer with a version older than the
                     // changelog until a later write for this person
                     // settles one. Evicting instead would resolve
-                    // nothing — recovery reads the last *marked* offset,
-                    // which is the previous write that did succeed — and
-                    // would answer NOT_FOUND outright once that mark is
+                    // nothing (recovery reads the last marked offset,
+                    // the previous write that did succeed) and would
+                    // answer NOT_FOUND outright once that mark is
                     // pruned and no fallback pool is configured.
                     tracing::error!(
                         team_id = cache_key.team_id,
@@ -691,12 +693,13 @@ impl PersonHogLeaderService {
         Ok(proto)
     }
 
-    /// The write path's fence conditional: an in-memory lookup and nothing
-    /// else. The map is authoritative here — a fence that outlives its op
-    /// is not the leader's to detect, because the op being unfinished is
-    /// exactly what a live mark means (see the fence module's ownership
-    /// model). Returns the fence to reject with, or None when the person
-    /// is writable. Assumes the caller holds the per-key lock.
+    /// The write path's fence conditional: an in-memory lookup and
+    /// nothing else. The map is authoritative here: a fence that
+    /// outlives its op is not the leader's to detect, because the op
+    /// being unfinished is exactly what a live mark means (see the fence
+    /// module's ownership model). Returns the fence to reject with, or
+    /// None when the person is writable. Assumes the caller holds the
+    /// per-key lock.
     fn check_fence(&self, cache_key: &PersonCacheKey) -> Option<FenceState> {
         self.fences.get(cache_key).map(|entry| *entry.value())
     }
@@ -712,10 +715,10 @@ const MAX_EPOCH_MS_YEAR_9999: i64 = 253_402_300_799_999;
 /// hourly truncation so both write paths produce identical stored values.
 const MS_PER_HOUR: i64 = 3_600_000;
 
-/// The changelog contract: every produced record must be applyable by the
-/// writer's upsert verbatim. Properties are guaranteed by admission
+/// The changelog contract: every produced record must be applyable by
+/// the writer's upsert verbatim. Properties are guaranteed by admission
 /// (NUL sanitization plus the exact size measure); this checks the
-/// remaining writer-bound fields against the writer's bind conversions —
+/// remaining writer-bound fields against the writer's bind conversions:
 /// uuid must parse, team_id must fit the column's `integer`, and the
 /// timestamps must sit inside a sanity range ([1970, 9999]) any
 /// legitimate value satisfies. The legacy jsonb columns have no cache
@@ -795,8 +798,8 @@ struct SealedSnapshot {
 /// Admit the fold request's sealed snapshots: validate, parse, and
 /// sanitize each, returning them in ordinal order plus what sanitization
 /// rewrote. Every refusal is a deterministic `InvalidArgument`: each
-/// snapshot must be a plausible living source of the target — same team,
-/// a different person, not a death document — and ordinals must be
+/// snapshot must be a plausible living source of the target (same team,
+/// a different person, not a death document), and ordinals must be
 /// unique, or precedence would be ambiguous. A mismatch can only be a
 /// saga bug, and folding it silently would launder it into the target.
 // See `partition_from_metadata` for why `result_large_err` is allowed.
@@ -890,9 +893,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         };
 
         let person = self.lookup_or_load(partition, &cache_key).await?;
-        // Re-check before answering. The load can wait — on the per-key
+        // Re-check before answering. The load can wait (on the per-key
         // lock behind another request's produce, or on a changelog
-        // recovery — for long enough that a claim valid at admission has
+        // recovery) for long enough that a claim valid at admission has
         // lapsed by the time there is something to return, and it is the
         // answer, not the arrival, that has to be backed by ownership.
         self.check_authority(partition)?;
@@ -916,30 +919,31 @@ impl PersonHogLeader for PersonHogLeaderService {
         let req = request.into_inner();
         self.validate_partition(partition, req.team_id, req.person_id)?;
         // A write is serving too. Broker-enforced fencing covers this
-        // path when it is on, but it cannot be turned on first — startup
-        // refuses fencing without the gate — so every fleet passes
+        // path when it is on, but it cannot be turned on first (startup
+        // refuses fencing without the gate), so every fleet passes
         // through a window where the gate is the only thing standing
         // between a pod that stopped renewing and a write the successor
         // will never see. The lease-loss path surrenders before it
-        // drains, deliberately, and until this check existed only reads
-        // honoured that: writes stayed admitted until the local fence
-        // landed, behind a watch teardown and a task join.
+        // drains, deliberately; without this check writes would stay
+        // admitted until the local fence lands, behind a watch teardown
+        // and a task join.
         self.check_authority(partition)?;
 
         // Admit the write as inflight, unless the partition is fenced. A
-        // fenced partition has drained for handoff: every router acked the
-        // freeze, so this write can only come from a router with a stale
-        // view — accepting it would produce past the Kafka HWM that the new
-        // owner's warming snapshots, silently losing the write. Admission
-        // and the fence check are one atomic operation (`try_begin`): the
-        // inflight increment precedes the check, so the drain either waits
-        // for this write or this write sees the fence. Reads are unaffected
-        // — the frozen state stays the latest until cutover. The handoff
-        // protocol waits for the per-partition inflight count to drop to
-        // zero before advancing; combined with sync-acked produces, a zero
-        // count implies every acked write is durable in Kafka. Using a
-        // non-`_` prefixed binding so the RAII guard is held for the full
-        // handler lifetime (see the `let_underscore_drop` lint).
+        // fenced partition has drained for handoff: every router acked
+        // the freeze, so this write can only come from a router with a
+        // stale view, and accepting it would produce past the Kafka HWM
+        // that the new owner's warming snapshots, silently losing the
+        // write. Admission and the fence check are one atomic operation
+        // (`try_begin`): the inflight increment precedes the check, so
+        // the drain either waits for this write or this write sees the
+        // fence. Reads are unaffected; the frozen state stays the latest
+        // until cutover. The handoff protocol waits for the
+        // per-partition inflight count to drop to zero before advancing;
+        // combined with sync-acked produces, a zero count implies every
+        // acked write is durable in Kafka. Using a non-`_` prefixed
+        // binding so the RAII guard is held for the full handler
+        // lifetime (see the `let_underscore_drop` lint).
         let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
             return Err(Status::failed_precondition(format!(
                 "partition {partition} is fenced for handoff; writes are rejected"
@@ -998,12 +1002,12 @@ impl PersonHogLeader for PersonHogLeaderService {
             .map(|k| k.replace('\u{0000}', "\u{FFFD}"))
             .collect();
 
-        // Per-key lock serializes concurrent updates for the same person.
-        // The wait is measured because it is the queueing component of
-        // handler latency: with every acked write holding the lock
-        // through its acks=all produce, per-person throughput is capped
-        // near 1/produce-latency, and contending updates spend their
-        // time here — invisible in the produce histogram.
+        // Per-key lock serializes concurrent updates for the same
+        // person. The wait is measured because it is the queueing
+        // component of handler latency: with every acked write holding
+        // the lock through its acks=all produce, per-person throughput
+        // is capped near 1/produce-latency, and contending updates spend
+        // their time here, invisible in the produce histogram.
         let mutex = self
             .locks
             .entry(cache_key.clone())
@@ -1016,10 +1020,10 @@ impl PersonHogLeader for PersonHogLeaderService {
             .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
 
         // Admission check before any work: if the dirty index is at
-        // capacity and this person is not already marked, acking the write
-        // would leave it durable but unmarked — reopening the
-        // stale-fallback hole on eviction. Shed instead; the index drains
-        // (and admission resumes) as the writer catches up.
+        // capacity and this person is not already marked, acking the
+        // write would leave it durable but unmarked, reopening the
+        // stale-fallback hole on eviction. Shed instead; the index
+        // drains (and admission resumes) as the writer catches up.
         if !self.dirty_index.can_admit(&cache_key) {
             counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
                 .increment(1);
@@ -1045,8 +1049,9 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let person = self.lookup_or_load_locked(partition, &cache_key).await?;
 
-        // A destroyed person answers not-found — the caller re-resolves;
-        // post-death the distinct id may have been reborn as a new person.
+        // A destroyed person answers not-found and the caller
+        // re-resolves; post-death the distinct id may have been reborn
+        // as a new person.
         if person.is_deleted {
             return Err(Status::not_found("person is destroyed"));
         }
@@ -1057,7 +1062,6 @@ impl PersonHogLeader for PersonHogLeaderService {
             .parse_properties()
             .map_err(|e| Status::internal(format!("cached properties unparseable: {e}")))?;
 
-        // Compute property updates
         let updates = compute_event_property_updates(
             &req.event_name,
             &set_properties,
@@ -1068,18 +1072,18 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         // OR-merge: identification never reverts through this RPC, so
         // only a true that finds false is a change. It counts as one on
-        // its own — an $identify with no property diffs must still
+        // its own: an $identify with no property diffs must still
         // produce a record.
         let identified_now = person.is_identified || req.is_identified == Some(true);
         let identity_changed = identified_now != person.is_identified;
 
         // last_seen_at is request-borne and best-effort: an out-of-range
         // value is discarded rather than failing the update, so the
-        // acked ⇒ writeable invariant never hinges on it. In-range values
-        // are floored to the hour — Node's startOf('hour') on its
-        // UTC-normalized timestamps, expressed in epoch terms — so record
-        // volume is bounded at one per person-hour by construction, not
-        // by trusting callers to coarsen.
+        // acked ⇒ writeable invariant never hinges on it. In-range
+        // values are floored to the hour (Node's startOf('hour') on its
+        // UTC-normalized timestamps, expressed in epoch terms), so
+        // record volume is bounded at one per person-hour by
+        // construction, not by trusting callers to coarsen.
         let requested_last_seen = req
             .last_seen_at
             .filter(|t| (0..=MAX_EPOCH_MS_YEAR_9999).contains(t));
@@ -1088,7 +1092,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
         let requested_last_seen = requested_last_seen.map(|t| t - t % MS_PER_HOUR);
         // Max-merge: the stored value only ever advances, and an advance
-        // is a change in its own right — ingestion's direct write path
+        // is a change in its own right; ingestion's direct write path
         // persists a last-seen-only advance, so this path must too.
         let merged_last_seen = person.last_seen_at.max(requested_last_seen);
         let last_seen_changed = merged_last_seen != person.last_seen_at;
@@ -1115,19 +1119,20 @@ impl PersonHogLeader for PersonHogLeaderService {
             }));
         }
 
-        // Admission-time size enforcement, hoisted from the writer: every
-        // acked record must be applyable by the writer verbatim, or the
-        // cache and changelog would carry state Postgres never gets (the
-        // stale-serve hole the dirty index exists to close). The measure
-        // is the constraint's own — pg_column_size of the JSONB encoding
-        // — so admitted rows cannot violate it at apply time.
+        // Admission-time size enforcement, hoisted from the writer:
+        // every acked record must be applyable by the writer verbatim,
+        // or the cache and changelog would carry state Postgres never
+        // gets (the stale-serve hole the dirty index exists to close).
+        // The measure is the constraint's own, pg_column_size of the
+        // JSONB encoding, so admitted rows cannot violate it at apply
+        // time.
         let mut new_properties = new_properties;
 
-        // Rewrite the merged state into jsonb-safe form before measuring:
-        // NUL sanitization (Node-pipeline parity — Postgres refuses it)
-        // and extreme-float clamping (Postgres's expanded numeric
-        // rendering would otherwise be unparseable on the way back). The
-        // measured size is then the stored size.
+        // Rewrite the merged state into jsonb-safe form before
+        // measuring: NUL sanitization (Node-pipeline parity; Postgres
+        // refuses it) and extreme-float clamping (Postgres's expanded
+        // numeric rendering would otherwise be unparseable on the way
+        // back). The measured size is then the stored size.
         let sanitize_stats = sanitize_for_jsonb(&mut new_properties);
         if sanitize_stats.nul_strings > 0 {
             counter!("personhog_leader_properties_nul_sanitized_total")
@@ -1143,7 +1148,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             // Policy mirror of the Node pipeline's
             // `handleOversizedPersonProperties`: trimming is remediation
             // for rows already oversized in storage (they predate the
-            // constraint, or another writer produced them) — the stored
+            // constraint, or another writer produced them). The stored
             // properties are trimmed to the target and the triggering
             // update's property changes are discarded, exactly as Node
             // retries with trimmed existing state. An update that would
@@ -1167,10 +1172,11 @@ impl PersonHogLeader for PersonHogLeaderService {
                         });
                         new_properties = trimmed;
                     }
-                    // Reachable only when trim_target == threshold and the
-                    // stored size sits exactly on it: nothing to trim, but
-                    // the update still cannot apply — keep the stored
-                    // state, discarding the update like the arm above.
+                    // Reachable only when trim_target == threshold and
+                    // the stored size sits exactly on it: nothing to
+                    // trim, but the update still cannot apply, so keep
+                    // the stored state, discarding the update like the
+                    // arm above.
                     TrimResult::Fits => {
                         new_properties = person_properties.clone();
                     }
@@ -1331,12 +1337,12 @@ impl PersonHogLeader for PersonHogLeaderService {
             return Err(Status::not_found("person is destroyed"));
         }
 
-        // The mark row — the fence's source of truth — must vouch for the
-        // op holding this person as its live merge target before the fold
-        // may write. The fence check above proves nothing here (the target
-        // is marked, never fenced), and without this a superseded or
-        // settled saga runner's late fold would still land. Mirrors
-        // ReleaseFence: unverifiable requests are refused — fail closed.
+        // The mark row (the fence's source of truth) must vouch for the
+        // op holding this person as its live merge target before the
+        // fold may write. The fence check above proves nothing here (the
+        // target is marked, never fenced), and without this a superseded
+        // or settled saga runner's late fold would still land. Mirrors
+        // ReleaseFence: unverifiable requests are refused, fail closed.
         let Some(fallback) = &self.fallback else {
             return Err(semantic_refusal(
                 "no lifecycle database configured; refusing to fold",
@@ -1418,7 +1424,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         // Unlike a property update, a fold cannot be rejected for size:
         // the saga would re-drive it forever, so trimming is the only
         // completing behavior. Trim candidates are the fold's own
-        // contribution — keys the target did not already hold — so a
+        // contribution (keys the target did not already hold), so a
         // within-limit target never loses a key it had to a fold. The
         // target's own keys join the candidates only when its stored
         // document already exceeded the limit (the remediation the update
@@ -1483,16 +1489,17 @@ impl PersonHogLeader for PersonHogLeaderService {
                     });
                     if target_oversized {
                         // No applyable document exists: the stored one
-                        // itself violates the size constraint (protected
-                        // keys alone exceed the ceiling). Producing it
-                        // anyway would halt the writer — admission
-                        // promises every acked record applies verbatim,
-                        // and the writer fail-stops on a violation rather
-                        // than skip — and rejecting would wedge the
-                        // saga's re-drive loop. The fold completes
-                        // without producing: this person's fold effects
-                        // (properties and scalars) are skipped. Accepted
-                        // residual — README, "Admission".
+                        // itself violates the size constraint
+                        // (protected keys alone exceed the ceiling).
+                        // Producing it anyway would halt the writer
+                        // (admission promises every acked record
+                        // applies verbatim, and the writer fail-stops
+                        // on a violation rather than skip), and
+                        // rejecting would wedge the saga's re-drive
+                        // loop. The fold completes without producing:
+                        // this person's fold effects (properties and
+                        // scalars) are skipped. Accepted residual; see
+                        // README, "Admission".
                         counter!("personhog_leader_folds_total", "outcome" => "unapplyable")
                             .increment(1);
                         tracing::error!(
@@ -1515,10 +1522,11 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         // Scalars: created_at is the min over the target and every
         // snapshot (ignoring non-positive values a malformed snapshot
-        // could carry); is_identified is unconditionally true — a merge
-        // is an identify; last_seen_at max-merges like the update path —
-        // the merged person was last seen whenever any constituent was
-        // (snapshot values were already hour-floored when stored).
+        // could carry); is_identified is unconditionally true (a merge
+        // is an identify); last_seen_at max-merges like the update
+        // path, because the merged person was last seen whenever any
+        // constituent was (snapshot values were already hour-floored
+        // when stored).
         let created_at = snapshots
             .iter()
             .map(|snapshot| snapshot.created_at)
@@ -1535,9 +1543,10 @@ impl PersonHogLeader for PersonHogLeaderService {
         // The version is a max-merge over the target's floor and every
         // sealed version, plus one: at or above every source's death
         // document, which derives from the same sealed + 1 (equal when
-        // the highest sealed version dominates — harmless, the streams
-        // are per-person), and re-applying the fold only bumps it again
-        // — convergent under at-least-once delivery.
+        // the highest sealed version dominates, which is harmless
+        // because the streams are per-person). Re-applying the fold
+        // only bumps it again, so it converges under at-least-once
+        // delivery.
         let base_version = self
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);
@@ -1592,7 +1601,7 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         // A fence installed anywhere but the current owner protects
         // nothing: the map that gates writes is the owner's. Both guards
-        // are needed — ownership covers a pod that already handed the
+        // are needed: ownership covers a pod that already handed the
         // partition off (release unfences), the handoff guard covers the
         // drain window before that. Refusing is what makes "a mark
         // committed after the takeover scan arrives as a FencePerson call
@@ -1637,9 +1646,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         };
 
         // The memory fuse: the map has no eviction, so a surge of ops is
-        // bounded here, by shedding new fences. Re-seals are exempt — the
-        // person is already fenced, refusing frees nothing — and so is
-        // the takeover scan, whose marks are already live. The saga's
+        // bounded here, by shedding new fences. Re-seals are exempt (the
+        // person is already fenced, so refusing frees nothing), and so
+        // is the takeover scan, whose marks are already live. The saga's
         // retry absorbs the backpressure.
         if !refence && self.fences.len() >= self.fence_map_max_entries {
             counter!("personhog_leader_fences_total", "action" => "shed_capacity").increment(1);
@@ -1649,16 +1658,17 @@ impl PersonHogLeader for PersonHogLeaderService {
             )));
         }
 
-        // The seal: the newest cached state, captured under the same lock
-        // that admits writes — no gap for a write to sneak into. Fencing
-        // produces nothing and does not advance the version; the sealed
-        // version is the person's current one raised to the emitted
-        // floor, made final by the fence. The floor matters because a
-        // pre-fence write with an indeterminate outcome leaves a version
-        // spent above the cache's — sealing below it would derive the
-        // death document at a version that may already be live. A
-        // same-op re-fence takes this path too, re-sealing with fresh
-        // state (the saga's seal step is safe to repeat).
+        // The seal: the newest cached state, captured under the same
+        // lock that admits writes, so no gap exists for a write to
+        // sneak into. Fencing produces nothing and does not advance the
+        // version; the sealed version is the person's current one
+        // raised to the emitted floor, made final by the fence. The
+        // floor matters because a pre-fence write with an indeterminate
+        // outcome leaves a version spent above the cache's; sealing
+        // below it would derive the death document at a version that
+        // may already be live. A same-op re-fence takes this path too,
+        // re-sealing with fresh state (the saga's seal step is safe to
+        // repeat).
         let person = self.lookup_or_load_locked(partition, &cache_key).await?;
         if person.is_deleted {
             return Err(Status::not_found("person is destroyed"));
@@ -1690,7 +1700,7 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         // Both outcomes: a release that removed nothing and returned OK
         // would leave the real owner's fence standing while the saga
-        // believes it released — a person frozen with no retry coming.
+        // believes it released: a person frozen with no retry coming.
         self.validate_ownership(partition)?;
 
         let cache_key = PersonCacheKey {
@@ -1760,11 +1770,12 @@ impl PersonHogLeader for PersonHogLeaderService {
                     return Ok(Response::new(ReleaseFenceResponse {}));
                 }
 
-                // The death document's identity comes from the request (a
-                // cold leader has nothing else), so when the leader DOES
-                // hold the person, the request must agree with it — the
-                // writer upserts uuid verbatim, and a mismatched request
-                // would rewrite the row's identity on its way out.
+                // The death document's identity comes from the request
+                // (a cold leader has nothing else), so when the leader
+                // DOES hold the person, the request must agree with it:
+                // the writer upserts uuid verbatim, and a mismatched
+                // request would rewrite the row's identity on its way
+                // out.
                 if let Some(person) = &current {
                     if person.uuid != req.person_uuid {
                         return Err(semantic_refusal(
@@ -1774,13 +1785,13 @@ impl PersonHogLeader for PersonHogLeaderService {
                     }
                 }
 
-                // The mark row — the fence's source of truth — must vouch
-                // for the op before anything is destroyed. The in-memory
-                // fence is not enough: FencePerson never verified the op
-                // either, so the request (plus a fence it installed
-                // itself) must never be sufficient to produce a death
-                // document. Unverifiable requests are refused — fail
-                // closed.
+                // The mark row (the fence's source of truth) must vouch
+                // for the op before anything is destroyed. The
+                // in-memory fence is not enough: FencePerson never
+                // verified the op either, so the request (plus a fence
+                // it installed itself) must never be sufficient to
+                // produce a death document. Unverifiable requests are
+                // refused, fail closed.
                 let Some(fallback) = &self.fallback else {
                     return Err(semantic_refusal(
                         "no lifecycle database configured; refusing to produce a death document",
@@ -1822,16 +1833,16 @@ impl PersonHogLeader for PersonHogLeaderService {
                          cannot be tracked; retry later",
                     ));
                 }
-                // The death version: sealed + 1 per the RFC — the fence
-                // makes the sealed version final. The max over the current
-                // version and the emitted floor is defense in depth until
-                // broker producer fencing lands (a deposed leader's
-                // produce could otherwise still advance the version, and
-                // an indeterminate one leaves a version spent that the
-                // cache never learned of); a cold leader with no state
-                // falls back to the sealed version carried by the
-                // request, reproducing the death document
-                // deterministically.
+                // The death version: sealed + 1 per the RFC, because
+                // the fence makes the sealed version final. The max
+                // over the current version and the emitted floor is
+                // defense in depth until broker producer fencing lands
+                // (a deposed leader's produce could otherwise still
+                // advance the version, and an indeterminate one leaves
+                // a version spent that the cache never learned of); a
+                // cold leader with no state falls back to the sealed
+                // version carried by the request, reproducing the death
+                // document deterministically.
                 let base_version = self.emitted_versions.floor_for(
                     partition,
                     &cache_key,
@@ -1859,14 +1870,15 @@ impl PersonHogLeader for PersonHogLeaderService {
                     approx_bytes: approx_person_bytes(2),
                 };
                 self.commit_document(partition, &cache_key, death).await?;
-                // The death document stays in the cache (commit_document
-                // put it there): an is_deleted entry answers reads and
-                // writes with an authoritative not-found from memory, the
-                // same way a recovered death document does. Removing it
-                // would only re-derive it — the next attempt recovers the
-                // death record via the dirty mark and re-installs it — and
-                // once the mark is pruned every attempt would fall through
-                // to a PG read instead.
+                // The death document stays in the cache
+                // (commit_document put it there): an is_deleted entry
+                // answers reads and writes with an authoritative
+                // not-found from memory, the same way a recovered death
+                // document does. Removing it would only re-derive it
+                // (the next attempt recovers the death record via the
+                // dirty mark and re-installs it), and once the mark is
+                // pruned every attempt would fall through to a PG read
+                // instead.
                 self.fences.remove(&cache_key);
                 counter!("personhog_leader_fences_total", "action" => "released_committed")
                     .increment(1);
@@ -2030,8 +2042,9 @@ mod tests {
         assert_eq!(stats.clamped_numbers, 1);
     }
 
-    /// A service with no PG pool and a producer that never connects —
-    /// enough to exercise the miss path, where no test reaches Kafka or PG.
+    /// A service with no PG pool and a producer that never connects:
+    /// enough to exercise the miss path, where no test reaches Kafka or
+    /// PG.
     async fn make_test_service() -> PersonHogLeaderService {
         let kafka = KafkaConfig::init_from_hashmap(&HashMap::new()).unwrap();
         let liveness = HealthRegistry::new("test")
@@ -2075,7 +2088,7 @@ mod tests {
     /// wedged is exactly the case the lease machinery cannot cover.
     #[tokio::test]
     async fn a_pod_whose_renewals_stopped_refuses_to_serve() {
-        // A clock whose renewals stopped longer ago than the margin —
+        // A clock whose renewals stopped longer ago than the margin,
         // constructed stale rather than aged by sleeping, so no runner
         // pace can blur which side of the margin the test is on.
         let margin = Duration::from_secs(20);
@@ -2122,7 +2135,7 @@ mod tests {
     /// this drives `get_person` itself rather than the check in
     /// isolation.
     ///
-    /// It does not distinguish the two checks — a read that finds its
+    /// It does not distinguish the two checks: a read that finds its
     /// person in cache never waits, so either one refuses it, and both
     /// return the same status. `a_read_admitted_before_the_lapse_still_
     /// refuses_to_answer` is what pins the second.
@@ -2183,7 +2196,7 @@ mod tests {
     }
 
     /// A write is serving too, and the lease-loss path surrenders before
-    /// it drains — so between the surrender and the local fence landing,
+    /// it drains, so between the surrender and the local fence landing,
     /// this check is what stops a pod that no longer holds its lease from
     /// acking a mutation the successor will never see. Fencing covers the
     /// same ground when it is on, but it cannot be enabled first, so this
@@ -2264,8 +2277,8 @@ mod tests {
     ///
     /// The load is what makes it distinct. A read that finds the person
     /// in cache never waits, so the admission check is the only one it
-    /// can trip; a read that has to wait — on the per-key lock, or on a
-    /// changelog recovery — can be admitted under a claim that is gone by
+    /// can trip; a read that has to wait (on the per-key lock, or on a
+    /// changelog recovery) can be admitted under a claim that is gone by
     /// the time there is an answer, and it is the answer, not the
     /// arrival, that has to be backed by ownership.
     #[tokio::test]
@@ -2281,7 +2294,7 @@ mod tests {
         service.cache.create_partition(0);
 
         // Hold the per-key lock. The read misses the cache, reaches for
-        // this lock, and parks there — which is where a changelog
+        // this lock, and parks there, which is where a changelog
         // recovery would leave it.
         let mutex = service
             .locks
@@ -2338,11 +2351,11 @@ mod tests {
     /// apart. This one pins the second.
     ///
     /// A write admitted under a valid claim can wait on the per-key lock
-    /// behind another produce, and on a changelog recovery — long enough
+    /// behind another produce, and on a changelog recovery: long enough
     /// for a starved keepalive's stamp to age out, for the lease to
     /// expire, and for a successor to warm past the point this record
-    /// would land. Acking it then is acked-write loss that needs only one
-    /// wedged pod, not a double zombie.
+    /// would land. Acking it then is acked-write loss that needs only
+    /// one wedged pod, not a double zombie.
     #[tokio::test]
     async fn a_write_admitted_before_the_lapse_is_not_produced() {
         let clock = Arc::new(AuthorityClock::unclaimed());
@@ -2513,9 +2526,10 @@ mod tests {
         let err = service.recover_or_load(0, &key).await.unwrap_err();
         assert_eq!(err.code(), Code::NotFound);
 
-        // Released mid-miss (cache dropped, then marks cleared — release
-        // order): the same lookup must fail closed rather than trust a
-        // possibly-stale PG row the cleared mark no longer guards.
+        // Released mid-miss (cache dropped, then marks cleared, the
+        // release order): the same lookup must fail closed rather than
+        // trust a possibly-stale PG row the cleared mark no longer
+        // guards.
         service.cache.drop_partition(0);
         service.dirty_index.clear_partition(0);
         let err = service.recover_or_load(0, &key).await.unwrap_err();

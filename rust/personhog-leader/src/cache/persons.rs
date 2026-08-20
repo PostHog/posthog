@@ -50,8 +50,8 @@ pub struct CachedPerson {
     /// falling back to a PG row the writer may not have tombstoned yet.
     pub is_deleted: bool,
     /// Epoch milliseconds of the person's last observed activity, when
-    /// known (matching `created_at`'s unit). Max-merged on update — the
-    /// value only ever advances — and deliberately not a change by itself.
+    /// known (matching `created_at`'s unit). Max-merged on update, so
+    /// the value only advances, and deliberately not a change by itself.
     pub last_seen_at: Option<i64>,
     /// Byte weight charged against the cache capacity; see
     /// [`approx_person_bytes`].
@@ -71,9 +71,9 @@ impl CachedPerson {
     }
 }
 
-/// Decodes a changelog `Person` record into cache form. The only fallible
-/// step is validating the properties JSON — validated without building
-/// the tree, and stored as the record's own bytes.
+/// Decodes a changelog `Person` record into cache form. The only
+/// fallible step validates the properties JSON, without building the
+/// tree; the record's own bytes are stored.
 impl TryFrom<Person> for CachedPerson {
     type Error = serde_json::Error;
 
@@ -114,8 +114,8 @@ impl EventListener for CacheEventMetrics {
             Event::Remove => "remove",
             Event::Clear => "clear",
             // Every successful update overwrites its cache entry, so
-            // Replace fires once per write — pure hot-path noise that
-            // would drown the signal this metric exists for.
+            // Replace fires once per write: hot-path noise that would
+            // drown the signal this metric exists for.
             Event::Replace => return,
         };
         counter!("personhog_leader_cache_entries_left_total", "reason" => reason).increment(1);
@@ -136,7 +136,7 @@ pub struct PersonCache {
 
 impl PersonCache {
     /// `capacity_bytes` bounds the cache by the entries' byte weights
-    /// (see [`approx_person_bytes`]), not their count — person documents
+    /// (see [`approx_person_bytes`]), not their count: person documents
     /// vary by orders of magnitude and grow in place across writes, so
     /// an entry-count bound cannot bound memory.
     pub fn new(capacity_bytes: usize) -> Self {
@@ -168,7 +168,7 @@ impl PersonCache {
         self.inner.remove(key);
     }
 
-    /// Resident weight in bytes — the sum of entries' `approx_bytes` as
+    /// Resident weight in bytes: the sum of entries' `approx_bytes` as
     /// foyer accounts it against the capacity.
     pub fn usage_bytes(&self) -> usize {
         self.inner.usage()
@@ -180,11 +180,11 @@ mod tests {
     use super::*;
 
     /// Proto3 encodes an absent bytes field as empty, and every leader
-    /// write path serializes at least `{}` — so empty properties can
-    /// only arrive from records that predate this store, and rejecting
-    /// them would fail the warm over a document that is simply
-    /// property-less. This pins the lenient reading in both directions:
-    /// decode accepts, and parse yields the empty map.
+    /// write path serializes at least `{}`, so empty properties can only
+    /// arrive from records that predate this store. Rejecting them would
+    /// fail the warm over a document that is simply property-less. This
+    /// pins the lenient reading in both directions: decode accepts, and
+    /// parse yields the empty map.
     #[test]
     fn empty_properties_bytes_read_as_the_empty_map() {
         let record = Person {
@@ -218,13 +218,12 @@ mod tests {
 
     /// An entry-count capacity cannot bound memory: documents grow in
     /// place and vary by orders of magnitude. This pins the byte
-    /// denomination — sustained inserts whose combined weight far
-    /// exceeds the byte capacity must evict most, but not all, of them.
-    /// Foyer splits capacity across eight shards and evicts lazily on
-    /// later inserts to the same shard, so entries are sized well under
-    /// the per-shard budget (admission must succeed for eviction to be
-    /// what's under test) and the bound is asserted with per-shard
-    /// slack rather than exactly.
+    /// denomination: sustained inserts whose combined weight far exceeds
+    /// the byte capacity must evict most, but not all, of them. Foyer
+    /// splits capacity across eight shards and evicts lazily on later
+    /// inserts to the same shard, so entries are sized well under the
+    /// per-shard budget (admission must succeed for eviction to be under
+    /// test) and the bound is asserted with per-shard slack.
     #[test]
     fn byte_weights_evict_under_capacity_pressure() {
         // 64 KiB capacity → ~8 KiB per shard; ~2 KiB entries fit a

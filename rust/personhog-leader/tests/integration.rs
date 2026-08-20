@@ -112,7 +112,6 @@ async fn service_accepts_requests_after_coordination_warmup() {
     })
     .await;
 
-    // Seed a person into partition 0
     let person = test_cached_person();
     seed_person(&pod.cache, 0, person.clone());
 
@@ -150,7 +149,6 @@ async fn service_accepts_requests_after_coordination_warmup() {
     assert!(result.updated);
     assert_eq!(result.person.unwrap().version, 2);
 
-    // Read back should reflect the update
     let response = client
         .get_person(leader_get_request(1, 42, 0))
         .await
@@ -255,7 +253,7 @@ async fn unowned_partition_returns_failed_precondition() {
 /// The partition arrives only via `x-partition` metadata, stamped by the
 /// router. A request without it is misrouted or malformed and must be
 /// rejected with INVALID_ARGUMENT rather than served against a guessed
-/// partition — even when the person exists and its partition is warm.
+/// partition, even when the person exists and its partition is warm.
 #[tokio::test]
 async fn missing_partition_metadata_returns_invalid_argument() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
@@ -340,7 +338,7 @@ async fn missing_partition_metadata_returns_invalid_argument() {
 /// The leader validates the router's routing decision against the decoded
 /// body: `x-partition` must equal `partition_for_person(team_id,
 /// person_id)`. A mismatch means a client stamped wrong routing-key
-/// headers or the hash implementations diverged — serving it would read or
+/// headers or the hash implementations diverged; serving it would read or
 /// write through the wrong partition's cache, so it must be rejected even
 /// when the named partition is warm and the person exists there.
 #[tokio::test]
@@ -426,7 +424,7 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
 // ============================================================
 
 /// Once the old owner has drained a partition, every router has acked the
-/// freeze — so a later write can only come from a router serving with a
+/// freeze, so a later write can only come from a router serving with a
 /// stale table (an expired lease it hasn't noticed, a missed freeze).
 /// Accepting it would produce to Kafka past the HWM that warming
 /// snapshots, silently losing the write from the new owner's cache. After
@@ -558,7 +556,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
 }
 
 /// The fence must go up before the drain starts waiting on inflight
-/// handlers — fencing only after `wait_until_empty` returns would leave a
+/// handlers; fencing only after `wait_until_empty` returns would leave a
 /// window where a write lands between the inflight count hitting zero and
 /// the DrainedAck being written, advancing the Kafka HWM past what
 /// warming will read. With an inflight write held open, new writes must
@@ -694,7 +692,7 @@ async fn release_partition_stops_serving() {
     );
     let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
 
-    // Start pod 1 — gets all partitions
+    // Start pod 1; it gets all partitions.
     let pod1 = start_leader_pod(Arc::clone(&store), "leader-0", 1 << 20, cancel.clone()).await;
 
     let check_store = Arc::clone(&store);
@@ -718,10 +716,8 @@ async fn release_partition_stops_serving() {
     })
     .await;
 
-    // Seed a person into partition 0
     seed_person(&pod1.cache, 0, test_cached_person());
 
-    // Verify get_person works on pod 1
     let mut client1 = create_leader_client(pod1.leader_addr).await;
     let response = client1
         .get_person(leader_get_request(1, 42, 0))
@@ -729,7 +725,7 @@ async fn release_partition_stops_serving() {
         .unwrap();
     assert_eq!(response.into_inner().person.unwrap().id, 42);
 
-    // Start pod 2 — triggers rebalance
+    // Start pod 2; it triggers a rebalance.
     let pod2 = start_leader_pod(Arc::clone(&store), "leader-1", 1 << 20, cancel.clone()).await;
 
     // Wait for balanced assignment and handoffs to settle
@@ -884,7 +880,7 @@ async fn rewarm_after_pod_crash() {
 #[tokio::test]
 async fn update_produces_person_state_to_kafka() {
     // The changelog must land on the exact Kafka partition the request's
-    // `x-partition` named — warming rebuilds a routing partition's cache by
+    // `x-partition` named: warming rebuilds a routing partition's cache by
     // consuming the same-numbered Kafka partition, so key-hash placement
     // (whose partitioner config could diverge from the router's murmur2)
     // is not acceptable. The key (team 1, person 2) murmur2-hashes to
@@ -965,7 +961,7 @@ async fn update_produces_person_state_to_kafka() {
     assert!(result.updated);
     assert_eq!(result.person.unwrap().version, 2);
 
-    // Consume only the routing partition — finding the message here proves
+    // Consume only the routing partition; finding the message here proves
     // the explicit-partition produce, not just delivery.
     let consumer: BaseConsumer = ClientConfig::new()
         .set("bootstrap.servers", mock_cluster.bootstrap_servers())
@@ -987,11 +983,9 @@ async fn update_produces_person_state_to_kafka() {
         .expect("no message received on the routing partition")
         .expect("kafka error");
 
-    // Verify message key
     let key = std::str::from_utf8(msg.key().unwrap()).unwrap();
     assert_eq!(key, "1:2");
 
-    // Verify payload is a valid Person proto with updated state
     let person = Person::decode(msg.payload().unwrap()).unwrap();
     assert_eq!(person.id, PERSON_ID);
     assert_eq!(person.team_id, 1);
@@ -1121,7 +1115,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
     // Three, not two: the failed write's version is spent. The produce
     // path cannot tell an enqueue that never left the client from a
     // delivery that timed out after the broker appended it, and
-    // idempotence is off by default — so reusing that number would put a
+    // idempotence is off by default, so reusing that number would put a
     // second record behind one that may be in the log, and the writer's
     // strict guard keeps whichever arrived first. Burning a version on a
     // write that genuinely never landed is the cheap side of that trade:
@@ -1284,7 +1278,7 @@ async fn pg_fallback_loads_person_on_cache_miss() {
     .await
     .unwrap();
 
-    // Warm the key's own partition (the cache is empty — no persons seeded)
+    // Warm the key's own partition (the cache is empty, no persons seeded).
     let partition = partition_for_person(team_id as i64, person_id, NUM_PARTITIONS);
     cache.create_partition(partition);
 
@@ -1300,7 +1294,6 @@ async fn pg_fallback_loads_person_on_cache_miss() {
     assert_eq!(person.id, person_id);
     assert_eq!(person.team_id, team_id as i64);
 
-    // Verify person is now cached
     let key = PersonCacheKey {
         team_id: team_id as i64,
         person_id,
@@ -1320,9 +1313,10 @@ async fn pg_fallback_loads_person_on_cache_miss() {
 
 /// Rows written by other services can hold numerics whose PG-expanded
 /// rendering serde_json rejects even though JSON.parse reads them fine
-/// (JS `Number.MAX_VALUE` is the canonical case — a common "unlimited"
-/// sentinel). The fallback must load such rows the way JS would — rounding
-/// representable values, clamping beyond-f64 garbage — never panic or
+/// (JS `Number.MAX_VALUE` is the canonical case, a common "unlimited"
+/// sentinel). The fallback must load such rows the way JS would
+/// (rounding representable values, clamping beyond-f64 garbage), never
+/// panic or
 /// leave the person permanently unloadable.
 #[tokio::test]
 async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
@@ -1439,7 +1433,7 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
 
     let mut client = create_leader_client(addr).await;
 
-    // Update a person not in cache — should load from PG then apply
+    // Update a person not in cache: it loads from PG, then applies.
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
@@ -1585,7 +1579,7 @@ async fn evicted_dirty_person_recovers_from_changelog() {
 
 // ============================================================
 // Dirty-index recovery failure: when the changelog fetch cannot
-// complete, the person is unavailable — not silently stale
+// complete, the person is unavailable, not silently stale
 // ============================================================
 
 #[tokio::test]
@@ -1777,7 +1771,7 @@ async fn writes_shed_when_dirty_index_is_full() {
         .await
         .expect("first person's write is admitted");
 
-    // The same person stays admitted at capacity — updating its mark does
+    // The same person stays admitted at capacity; updating its mark does
     // not grow the index.
     client
         .update_person_properties(with_partition(update_for(person_a, "v2"), partition))
@@ -1872,7 +1866,7 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
         team_id: 1,
         person_id: PERSON_ID,
     };
-    // Corrupt the mark's version while keeping the true offset — `mark`
+    // Corrupt the mark's version while keeping the true offset; `mark`
     // only replaces newer offsets, so clear the partition and re-insert.
     // The seek now lands on the right record, but its version disagrees.
     let mark = dirty_index.get(&key).unwrap();
@@ -2018,7 +2012,7 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
     // first fetches at offset 0, the second repositions forward, and the
     // third repositions backward past a record the consumer already read.
     // A consumer that fails to reposition serves the wrong record (key
-    // mismatch) or times out — either fails the unwraps above.
+    // mismatch) or times out; either fails the unwraps above.
     evict(person_a);
     assert_eq!(recover(person_a).await, "a");
     evict(person_b);
@@ -2033,7 +2027,7 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
 /// point. Checkout is an RAII guard, so the cancelled fetch's consumer
 /// must come home: without Drop-based return, every cancellation leaked
 /// the consumer while freeing its permit, and pool_size cancellations
-/// left permits pointing at an empty pool — a panic under the pool mutex
+/// left permits pointing at an empty pool: a panic under the pool mutex
 /// that poisoned it and disabled recovery until restart.
 #[tokio::test]
 async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
@@ -2079,7 +2073,7 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
     }
 
     // The pool must still function end to end: produce the sought record
-    // and the next fetch — checkout included — succeeds.
+    // and the next fetch, checkout included, succeeds.
     let person = Person {
         id: 7,
         uuid: "00000000-0000-0000-0000-000000000007".to_string(),
@@ -2117,8 +2111,8 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
 // Admission-time property size enforcement, mirroring the Node
 // pipeline's policy: an update that would newly push a within-limit
 // row over the ceiling is rejected; a row already over it is
-// remediated (existing properties trimmed, the update discarded) —
-// so every acked record is applyable by the writer verbatim.
+// remediated (existing properties trimmed, the update discarded), so
+// every acked record is applyable by the writer verbatim.
 // ============================================================
 
 #[tokio::test]
@@ -2146,7 +2140,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         Arc::clone(&dirty_index),
         recovery,
         PropertySizeLimits::new(655360, 524288),
-        // Burst 2 so the trim and reject below — same team, same type —
+        // Burst 2 so the trim and reject below (same team, same type)
         // both clear the throttle; the third enforcement action then
         // exercises suppression.
         WarningsProducer::with_throttle(
@@ -2185,7 +2179,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     let mut client = create_leader_client(addr).await;
 
     // New violation: the seeded person is within limits and this update
-    // would push the merged state over the ceiling — rejected outright,
+    // would push the merged state over the ceiling: rejected outright,
     // nothing stored, matching the Node pipeline's
     // attempt_to_violate_limit path.
     let big = "x".repeat(400_000);
@@ -2253,7 +2247,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
 
     // Remediation: a row already over the ceiling (legacy rows, and rows
     // from the Node writer during dual-write) is healed on its next
-    // update — existing properties trimmed alphabetically to the target
+    // update: existing properties are trimmed alphabetically to the target
     // and the triggering update's changes discarded, matching the Node
     // pipeline's existing_record_violates_limit path. custom_a goes
     // (alphabetically first) and custom_b, which alone fits the target,
@@ -2327,8 +2321,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     assert!(!read_props.as_object().unwrap().contains_key("custom_a"));
 
     // Unremediable: the stored row is over the ceiling and its protected
-    // property alone exceeds the trim target — nothing can be trimmed,
-    // so the update is rejected. (Its warning lands after the throttle
+    // property alone exceeds the trim target, so nothing can be trimmed
+    // and the update is rejected. (Its warning lands after the throttle
     // burst of 2 and is suppressed; the error is asserted directly.)
     const UNREMEDIABLE_PERSON_ID: i64 = 12;
     let unremediable_partition = partition_for_person(1, UNREMEDIABLE_PERSON_ID, NUM_PARTITIONS);
@@ -2422,8 +2416,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
 
     // Team 1's (team, type) budget is exhausted: another enforcement
     // action still rejects, but its warning is suppressed. A fresh
-    // team's warning still emits, and — the warnings topic being a
-    // single partition — arriving as the very next message proves the
+    // team's warning still emits, and (the warnings topic being a
+    // single partition) arriving as the very next message proves the
     // suppressed one was never produced.
     const TEAM_2_PERSON_ID: i64 = 11;
     let team2_partition = partition_for_person(2, TEAM_2_PERSON_ID, NUM_PARTITIONS);
@@ -2494,7 +2488,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     // NUL bytes are sanitized at admission (`\u{0000}` → `\u{FFFD}`,
     // matching the Node pipeline): Postgres jsonb refuses NUL, so an
     // unsanitized record would be unapplyable by the writer. The stored
-    // state — response and strong read alike — carries the sanitized form.
+    // state, response and strong read alike, carries the sanitized form.
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
@@ -2583,7 +2577,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
 /// A cancelled request, or a commit whose fate stayed unknown, can leave a
 /// record on the changelog that this pod never learned about. The cache
 /// still holds the version from before that write, so the next update for
-/// the same person would derive the same number again — and the writer's
+/// the same person would derive the same number again, and the writer's
 /// strict version guard keeps whichever of the two records arrived first,
 /// discarding the other. When the discarded one is the acked write, the
 /// acknowledgement was a lie.
@@ -2663,7 +2657,7 @@ async fn an_unresolved_version_is_never_reused() {
 /// Nothing constructed the service with fencing on, so its entire fenced
 /// arm was unreachable: a `panic!` at the top of it left the whole suite
 /// green. That arm decides, for every failure mode, whether the write's
-/// version is handed back for reuse — and handing back a version whose
+/// version is handed back for reuse, and handing back a version whose
 /// record may be on the changelog is the acked-write loss the floors
 /// exist to prevent.
 ///
@@ -2741,7 +2735,7 @@ async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
     );
 
     // The bounced write never reached the broker, so its version is free
-    // to derive again — the next successful write must land exactly one
+    // to derive again: the next successful write must land exactly one
     // past the first, not two.
     fenced.acquire(0).await.expect("re-take the fence");
     let third = service
@@ -2761,10 +2755,10 @@ async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
 /// have landed on an attempt librdkafka re-issued internally. Handing the
 /// version back would put a second record at the same number behind one
 /// that may be committed, and the writer's first-wins guard then discards
-/// whichever arrived second — which is the acked one.
+/// whichever arrived second, which is the acked one.
 ///
 /// The cached entry stays. Evicting it resolves nothing, since recovery
-/// reads the last *marked* offset — the previous write that did succeed —
+/// reads the last marked offset (the previous write that did succeed)
 /// and it would answer NOT_FOUND outright once that mark is pruned on a
 /// pod with no fallback pool configured.
 #[tokio::test]
@@ -2785,7 +2779,7 @@ async fn a_fence_with_an_unknown_outcome_keeps_both_its_version_and_its_cache_en
 
 /// Both doubt arms carry the same obligation: the record may be in the
 /// log, so the version stays spent and the cached entry stays put. They
-/// differ only in what the caller is told — an ownership bounce when the
+/// differ only in what the caller is told: an ownership bounce when the
 /// partition also moved, plain doubt when it did not.
 async fn an_unknown_outcome_keeps_its_version(
     staged: personhog_leader::fencing::FencedProduceError,
@@ -2875,7 +2869,7 @@ async fn an_unknown_outcome_keeps_its_version(
 }
 
 /// The scalar fields carry merge semantics, not assignment: identification
-/// only ever ORs true (and counts as a change on its own — an $identify
+/// only ever ORs true (and counts as a change on its own: an $identify
 /// with no property diffs must still produce a record), while last-seen
 /// only ever advances and never earns a record by itself.
 #[tokio::test]

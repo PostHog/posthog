@@ -19,7 +19,7 @@ use rdkafka::producer::{DefaultProducerContext, FutureProducer, FutureRecord};
 use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
 use rdkafka::{Offset, TopicPartitionList};
 
-/// Build a Person proto with deterministic fields — enough that the
+/// Build a Person proto with deterministic fields: enough that the
 /// warming pipeline's decode + JSON-parse + cache-write round-trip
 /// covers every code path.
 fn make_person(team_id: i64, person_id: i64) -> Person {
@@ -68,8 +68,8 @@ async fn produce_garbage_to_partition(
     partition: i32,
 ) {
     let key = "garbage";
-    // Payload that isn't valid Person proto: a long byte string of 0xFFs
-    // — prost's varint decoder rejects these immediately.
+    // Payload that is not a valid Person proto: a long byte string of
+    // 0xFFs, which prost's varint decoder rejects immediately.
     let payload = vec![0xFFu8; 32];
     let record = FutureRecord::to(CHANGELOG_TOPIC)
         .key(key)
@@ -92,13 +92,12 @@ fn warming_config_for(
 
 /// Happy path: produce N messages to a partition, warm, assert every
 /// record landed in the cache. Also asserts FIFO ordering by relying on
-/// the cache's `put` semantics — later puts overwrite earlier ones, so
+/// the cache's `put` semantics: later puts overwrite earlier ones, so
 /// distinct `person_id`s produce distinct entries that we can count.
 #[tokio::test]
 async fn warming_populates_cache_from_kafka() {
     let (cluster, producer) = create_test_kafka().await;
 
-    // Produce 5 records to partition 0.
     for person_id in 1..=5 {
         let person = make_person(1, person_id);
         produce_person_to_partition(&producer, 0, &person).await;
@@ -156,8 +155,9 @@ async fn warming_handles_empty_partition() {
         "no records were produced, so cache must be empty"
     );
 
-    // The empty path must return its consumer to the pool, not drop it —
-    // a second empty warm reuses the same client instead of creating one.
+    // The empty path must return its consumer to the pool, not drop it:
+    // a second empty warm reuses the same client instead of creating
+    // one.
     let created_after_first = pools.warming.created_count();
     warm_from_kafka(&cfg, &pools, &cache, &DirtyIndex::new(1_000_000), 0)
         .await
@@ -176,7 +176,6 @@ async fn warming_handles_empty_partition() {
 async fn warming_only_populates_target_partition() {
     let (cluster, producer) = create_test_kafka().await;
 
-    // Produce one record to partition 0 and one to partition 1.
     produce_person_to_partition(&producer, 0, &make_person(1, 100)).await;
     produce_person_to_partition(&producer, 1, &make_person(1, 200)).await;
 
@@ -308,9 +307,9 @@ async fn warming_starts_from_writer_committed_offset() {
         produce_person_to_partition(&producer, 0, &person).await;
     }
 
-    // Writer "committed" through offset 5 — meaning records at offsets
-    // 0..4 are durable in PG, the records at 5..7 are still in flight
-    // and must be warmed.
+    // Writer "committed" through offset 5, meaning records at offsets
+    // 0..4 are durable in PG and the records at 5..7 are still in
+    // flight and must be warmed.
     commit_writer_offset_at(&cluster, "personhog-writer", 0, 5);
 
     let cache = PartitionedCache::new(1 << 20);
@@ -336,7 +335,7 @@ async fn warming_starts_from_writer_committed_offset() {
         );
     }
 
-    // Records 0..4 (person_ids 1..5) must NOT be in cache — they're
+    // Records 0..4 (person_ids 1..5) must NOT be in cache; they are
     // durable in PG and warming correctly skipped them.
     for person_id in 1..=5 {
         let key = PersonCacheKey {
@@ -363,7 +362,7 @@ async fn warming_fails_loudly_on_properties_json_error() {
     // and buffers something before hitting the failure.
     produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
 
-    // Person with invalid JSON in properties — proto decodes, but
+    // Person with invalid JSON in properties: proto decodes, but
     // `serde_json::from_slice` on `properties` fails.
     let bad = Person {
         id: 2,
@@ -400,8 +399,9 @@ async fn warming_fails_loudly_on_properties_json_error() {
         "atomic commit: cache must not have been touched on JSON failure"
     );
     // Marks are written per record as the range streams; a failed warm
-    // must clear them — orphaned marks for a partition this pod never
-    // serves would pin memory and mislead a later owner's bookkeeping.
+    // must clear them, because orphaned marks for a partition this pod
+    // never serves would pin memory and mislead a later owner's
+    // bookkeeping.
     assert_eq!(
         dirty_index.get(&PersonCacheKey {
             team_id: 1,
@@ -414,7 +414,7 @@ async fn warming_fails_loudly_on_properties_json_error() {
 
 /// Last-write-wins: the changelog can contain multiple updates for the
 /// same `person_id` (each update produces a new record). After warming,
-/// the cache must reflect the *latest* update — proven by checking the
+/// the cache must reflect the latest update, proven by checking the
 /// version field, which the writer increments per update.
 #[tokio::test]
 async fn warming_preserves_last_write_for_same_key() {
@@ -519,9 +519,9 @@ async fn warming_seeds_dirty_index_only_at_or_past_the_committed_offset() {
     }
 }
 
-/// Warming must seed the dirty index for every record the writer has not
-/// applied — with no committed offset at all, that is every record — so a
-/// post-warm eviction still recovers from the changelog instead of
+/// Warming must seed the dirty index for every record the writer has
+/// not applied (with no committed offset at all, that is every record),
+/// so a post-warm eviction still recovers from the changelog instead of
 /// trusting a PG row the writer never wrote.
 #[tokio::test]
 async fn warming_seeds_dirty_index_when_writer_has_no_commits() {
@@ -584,7 +584,7 @@ async fn sequential_warms_reuse_pooled_clients() {
     );
 }
 
-/// Prewarming must fill every slot with a distinct connected client —
+/// Prewarming must fill every slot with a distinct connected client;
 /// returning clients to the pool mid-loop would hand the same one back
 /// to each iteration, leaving all but one slot to be built cold on the
 /// handoff path.
@@ -688,8 +688,8 @@ async fn warming_still_fails_on_a_persistent_stop_class_error() {
 }
 
 /// The warm's memory contract: the build evicts under the partition's
-/// byte budget, so a range larger than the budget still warms — with a
-/// partial cache — while EVERY unapplied person gets a dirty mark. The
+/// byte budget, so a range larger than the budget still warms, with a
+/// partial cache, while EVERY unapplied person gets a dirty mark. The
 /// marks are what make the evictions safe: a miss on a marked person
 /// recovers from the changelog instead of trusting a stale PG row, so
 /// full mark coverage under eviction is the invariant that lets the
@@ -698,8 +698,8 @@ async fn warming_still_fails_on_a_persistent_stop_class_error() {
 async fn warming_a_range_larger_than_the_budget_marks_every_person() {
     let (cluster, producer) = create_test_kafka().await;
 
-    // Forty persons with ~4KB of properties each — far past the tiny
-    // budget below — with no writer committed offset, so every record
+    // Forty persons with ~4KB of properties each, far past the tiny
+    // budget below, with no writer committed offset, so every record
     // counts as unapplied.
     let persons = 40i64;
     for person_id in 1..=persons {

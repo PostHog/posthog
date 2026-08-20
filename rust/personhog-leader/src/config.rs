@@ -18,9 +18,9 @@ pub struct Config {
     /// by their approximate serialized size, so this bounds memory, not
     /// entry count. Sized against full ownership: a lone survivor owns
     /// every partition, so the worst-case cache footprint is this value
-    /// times the partition count — 16 MiB × 16 partitions = 256 MiB —
-    /// and in-memory size can run a small multiple of serialized weight
-    /// for key-dense documents.
+    /// times the partition count (16 MiB × 16 partitions = 256 MiB), and
+    /// in-memory size can run a small multiple of serialized weight for
+    /// key-dense documents.
     #[envconfig(default = "16777216")]
     pub cache_memory_capacity_bytes: usize,
 
@@ -53,9 +53,9 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub fencing_txn_timeout_ms: u64,
 
-    /// `message.timeout.ms` for the fenced changelog producer only. It is
-    /// separate from the shared producer's because a fenced write's total
-    /// must fit inside the lease self-fence runway — see
+    /// `message.timeout.ms` for the fenced changelog producer only. It
+    /// is separate from the shared producer's because a fenced write's
+    /// total must fit inside the lease self-fence runway; see
     /// [`Config::validate_fencing_timescales`].
     #[envconfig(default = "0")]
     pub fencing_message_timeout_ms: u32,
@@ -64,7 +64,7 @@ pub struct Config {
     pub metrics_port: u16,
 
     /// Maximum concurrent partition warms. Warms are broker-bound reads
-    /// on MSK, so this can sit well above the S3-era default of 4.
+    /// on MSK, so moderate concurrency is safe.
     #[envconfig(default = "8")]
     pub warm_concurrency: usize,
 
@@ -91,10 +91,10 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub grpc_max_connection_age_secs: u64,
 
-    /// Maximum concurrent in-flight gRPC requests before the server sheds
-    /// load with RESOURCE_EXHAUSTED. That code is terminal end to end —
-    /// the router treats a delivered response as an outcome and the
-    /// client does not retry it — so this is backpressure to the caller,
+    /// Maximum concurrent in-flight gRPC requests before the server
+    /// sheds load with RESOURCE_EXHAUSTED. That code is terminal end to
+    /// end (the router treats a delivered response as an outcome and the
+    /// client does not retry it), so this is backpressure to the caller,
     /// not a redirect. 0 = disabled.
     #[envconfig(default = "0")]
     pub max_concurrent_requests: usize,
@@ -142,11 +142,11 @@ pub struct Config {
     #[envconfig(default = "personhog-writer")]
     pub writer_consumer_group: String,
 
-    /// How many offsets to rewind past the writer's committed offset when
-    /// warming. Pure safety margin — any non-negative value is correct, but
-    /// a larger value is more forgiving of momentary races between the
-    /// writer's commit and our observation of it. Bounded above by Kafka's
-    /// earliest available offset.
+    /// How many offsets to rewind past the writer's committed offset
+    /// when warming. Pure safety margin: any non-negative value is
+    /// correct, and a larger value is more forgiving of momentary races
+    /// between the writer's commit and our observation of it. Bounded
+    /// above by Kafka's earliest available offset.
     #[envconfig(default = "1000")]
     pub warm_lookback_offsets: i64,
 
@@ -186,7 +186,7 @@ pub struct Config {
     /// that would newly push a within-limit row over this is rejected; a
     /// row already over it (predating the constraint, or from another
     /// writer) is remediated by trimming to the target below, discarding
-    /// the triggering update — mirroring the Node pipeline's policy. So
+    /// the triggering update (mirroring the Node pipeline's policy). So
     /// every acked record is applyable by the writer verbatim: the cache,
     /// the changelog, and Postgres can never disagree about an acked row.
     #[envconfig(default = "655360")]
@@ -205,30 +205,29 @@ pub struct Config {
 
     // ── Dirty index / changelog recovery ─────────────────────────
     /// How often to poll the writer's committed offsets and prune dirty
-    /// index marks the writer has applied to PG. A tick costs one batched
-    /// OffsetFetch plus work proportional to the marks actually reclaimed
-    /// (the index is never scanned), so a short interval is cheap — and it
-    /// bounds how long an applied-but-unpruned mark keeps sending reads to
-    /// the changelog for state PG already has.
+    /// index marks the writer has applied to PG. A tick costs one
+    /// batched OffsetFetch plus work proportional to the marks actually
+    /// reclaimed (the index is never scanned), so a short interval is
+    /// cheap, and it bounds how long an applied-but-unpruned mark keeps
+    /// sending reads to the changelog for state PG already has.
     #[envconfig(default = "1")]
     pub dirty_index_prune_interval_secs: u64,
 
-    /// Overall deadline for recovering one evicted dirty person from the
-    /// changelog, including transient-failure retries. A point read that
-    /// hasn't returned in a few seconds isn't going to, and each recovery
-    /// occupies a pooled consumer for its whole duration — a long deadline
-    /// amplifies a broker blip into pool exhaustion.
+    /// Overall deadline for recovering one evicted dirty person from
+    /// the changelog, including transient-failure retries. A point read
+    /// that has not returned in a few seconds is not going to, and each
+    /// recovery occupies a pooled consumer for its whole duration; a
+    /// long deadline amplifies a broker blip into pool exhaustion.
     #[envconfig(default = "5")]
     pub recovery_recv_timeout_secs: u64,
 
-    /// Number of pooled changelog-recovery consumers, bounding concurrent
-    /// recoveries the way a DB connection pool bounds queries. Each is a
-    /// full Kafka client (its own connections and background threads), but
-    /// even 16 is fewer than the per-partition consumers this pool
-    /// replaced. Under a benchmarked writer outage a pool of 4 queued
-    /// recoveries for ~10ms on average and tripled write p99; 16 zeroed
-    /// the queueing. The `personhog_leader_recovery_pool_wait_ms`
-    /// histogram shows when this is undersized.
+    /// Number of pooled changelog-recovery consumers, bounding
+    /// concurrent recoveries the way a DB connection pool bounds
+    /// queries. Each is a full Kafka client (its own connections and
+    /// background threads). Under a benchmarked writer outage a pool of
+    /// 4 queued recoveries and tripled write p99; 16 zeroed the
+    /// queueing. The `personhog_leader_recovery_pool_wait_ms` histogram
+    /// shows when this is undersized.
     #[envconfig(default = "16")]
     pub recovery_pool_size: usize,
 
@@ -242,20 +241,20 @@ pub struct Config {
 
     /// Bound on the unresolved-version floors, its own knob rather than
     /// borrowing the dirty index's. The two grow under different
-    /// failures: dirty marks accumulate whenever the writer lags, floors
-    /// only when writes end without an answer — cancellations and
-    /// ambiguous commits — which is orders of magnitude rarer. Past the
+    /// failures: dirty marks accumulate whenever the writer lags; floors
+    /// only when writes end without an answer (cancellations and
+    /// ambiguous commits), which is orders of magnitude rarer. Past the
     /// bound, floors spill to one coarse per-partition value (safety
     /// survives; precision degrades), so this sizes memory, not
     /// correctness. The default is a fraction of the dirty index's.
     #[envconfig(default = "1000000")]
     pub emitted_versions_max_entries: usize,
 
-    /// Hard cap on live lifecycle fences (~100 bytes each). The fence map
-    /// grows one entry per person frozen by a lifecycle op and has no
-    /// eviction, so this is the memory fuse against a surge of ops from a
-    /// huge customer: at the cap, new FencePerson calls shed with
-    /// RESOURCE_EXHAUSTED — backpressure the saga's retries absorb —
+    /// Hard cap on live lifecycle fences (~100 bytes each). The fence
+    /// map grows one entry per person frozen by a lifecycle op and has
+    /// no eviction, so this is the memory fuse against a surge of ops
+    /// from a huge customer: at the cap, new FencePerson calls shed with
+    /// RESOURCE_EXHAUSTED (backpressure the saga's retries absorb),
     /// while re-seals of already-fenced persons and the takeover scan
     /// (marks already live; the freeze must hold) are exempt.
     #[envconfig(default = "250000")]
@@ -275,7 +274,8 @@ pub struct Config {
     /// (its PG_TARGET_TABLE): the dirty index treats an unmarked person's
     /// PG row as current, which is only true of the writer's own target.
     /// Prod pairs posthog_person on both sides; the dev validation stack
-    /// pairs personhog_person_tmp on both — flip them together at cutover.
+    /// pairs personhog_person_tmp on both. Flip them together at
+    /// cutover.
     #[envconfig(default = "posthog_person")]
     pub fallback_table: String,
 
@@ -333,13 +333,13 @@ pub struct Config {
 
     // ── Shutdown budgets ─────────────────────────────────────────
     // The lifecycle manager's per-phase windows. Configurable because
-    // the terms validated against them — the drain timeout, the
-    // heartbeat interval — are, and a fixed ceiling under adjustable
+    // the terms validated against them (the drain timeout, the
+    // heartbeat interval) are, and a fixed ceiling under adjustable
     // terms is a configuration an operator cannot resolve. Their
     // relations are checked by `validate_shutdown_budgets` at startup.
     /// How long the lifecycle manager lets the coordination component
-    /// exit gracefully. The pod's whole teardown — drain setup, drain,
-    /// fence, keepalive join, revoke — must fit inside it, which
+    /// exit gracefully. The pod's whole teardown (drain setup, drain,
+    /// fence, keepalive join, revoke) must fit inside it, which
     /// `validate_lease_timescales` enforces.
     #[envconfig(default = "55")]
     pub coordination_graceful_shutdown_secs: u64,
@@ -360,15 +360,14 @@ pub struct Config {
 /// reserves for self-fencing (a third of the TTL). The bound is on the
 /// *queued* write, not the lucky one: an arrival can park behind a
 /// window that is already committing, so it pays that window's send and
-/// commit before its own — hence the factor of two below.
+/// commit before its own, hence the factor of two below.
 ///
 /// A commit may also be re-attempted, and the shares are sized so that
-/// every attempt the code will make still fits. The alternative was a
-/// bound that quietly assumed a single attempt while the retry loop
-/// spent three times it: an assertion the runway could not honour is
-/// worse than a tighter timeout, because the whole point of deriving
-/// these from the lease is that a write cannot outlive the fence that
-/// ends its session.
+/// every attempt the code will make still fits. A bound that quietly
+/// assumed a single attempt while the retry loop spent three times it
+/// would be an assertion the runway cannot honor, worse than a tighter
+/// timeout: the whole point of deriving these from the lease is that a
+/// write cannot outlive the fence that ends its session.
 ///
 /// librdkafka additionally requires `message.timeout.ms <= transaction
 /// .timeout.ms`, and rejects a `transaction.timeout.ms` under a second.
@@ -386,14 +385,14 @@ pub const FENCING_COMMIT_ATTEMPTS: u32 = 2;
 
 /// How many times a window's abort is attempted in total.
 ///
-/// One, deliberately. An abort that does not land leaves the producer in
-/// a state it cannot begin another transaction from — which is now a
-/// condemned fence, given up on the next write and re-taken by the
-/// healing pass, whose `init_transactions` aborts the pending
-/// transaction at the broker as a side effect. Retrying the abort is
-/// therefore a slower, less reliable version of a recovery that already
-/// exists, and it is not free: every attempt is bounded by the
-/// transaction timeout and has to fit the same runway.
+/// One, deliberately. An abort that does not land leaves the producer
+/// in a state it cannot begin another transaction from: a condemned
+/// fence, given up on the next write and re-taken by the healing pass,
+/// whose `init_transactions` aborts the pending transaction at the
+/// broker as a side effect. Retrying the abort is a slower, less
+/// reliable version of a recovery that already exists, and it is not
+/// free: every attempt is bounded by the transaction timeout and has to
+/// fit the same runway.
 pub const FENCING_ABORT_ATTEMPTS: u32 = 1;
 
 /// Every call bounded by the transaction timeout that one window can
@@ -423,16 +422,17 @@ impl Config {
     /// Slack the drain spends outside the writes themselves: the settle
     /// wait that follows `wait_until_empty`, plus one poll interval of
     /// granularity on the wait (the coordination drain polls at 50ms).
-    /// Subtracted from the runway before sizing the write budget — sizing
-    /// against the full runway left the lease-loss drain oversubscribed
-    /// by construction, so worst-case queueing failed the drain and cost
-    /// a restart to load rather than to failure.
+    /// Subtracted from the runway before sizing the write budget:
+    /// sizing against the full runway would oversubscribe the
+    /// lease-loss drain by construction, so worst-case queueing would
+    /// fail the drain and cost a restart to load rather than to
+    /// failure.
     fn fencing_drain_slack(&self) -> Duration {
         self.fencing_settle_budget() + Duration::from_millis(50)
     }
 
     /// The budget one write may spend, derived so that a write queued
-    /// behind another — and the settle that follows the queue draining —
+    /// behind another, and the settle that follows the queue draining,
     /// still finishes inside the runway.
     fn fencing_budget(&self) -> Duration {
         self.lease_fence_runway()
@@ -461,34 +461,22 @@ impl Config {
     /// The producer queue each fenced producer gets, in MiB.
     ///
     /// The shared producer's queue is sized for one client; the fenced
-    /// path creates one producer *per owned partition*, so inheriting
-    /// that figure multiplies it by the partition count. A lone survivor
-    /// owning every partition would be entitled to the whole product,
-    /// which for the deployed shape is several gigabytes against a pod
-    /// sized for one — a client spreading large property updates across
-    /// partitions while Kafka is slow could fill the independent queues
-    /// and exhaust the leader.
-    ///
-    /// So the budget is the aggregate, divided. The floor keeps a
-    /// high-partition-count deployment from starving any single producer
-    /// below a workable depth; it trades the guarantee for a bound that
-    /// is still far under the un-divided figure.
+    /// path creates one producer per owned partition, so inheriting
+    /// that figure multiplies it by the partition count. A lone
+    /// survivor owning every partition would be entitled to the whole
+    /// product, several gigabytes against a pod sized for one, and a
+    /// client spreading large property updates across partitions while
+    /// Kafka is slow could fill the independent queues and exhaust the
+    /// leader. So the budget is the aggregate, divided.
     pub fn fencing_queue_mib(&self, partitions: u32) -> u32 {
-        // The floor cannot be unconditional: above roughly fifty
-        // partitions it would start multiplying again, and the aggregate
-        // this exists to bound would scale with partition count exactly
-        // as it did before. So it applies only while it stays inside the
-        // aggregate, and past that point the division wins and each
-        // producer gets a shallow queue — which is the honest answer for
-        // a deployment with more partitions than a producer's worth of
-        // memory to give them.
-        // No floor. One was tried and was dead code: inside a guard that
-        // only admits it when `MIN * partitions <= aggregate`, the
-        // division already yields at least `MIN`, so the `max` never
-        // fired. Applying it *outside* such a guard is worse — it
-        // multiplies back up, which is the defect this division exists to
-        // remove. The honest bound is the aggregate, and one MiB is the
-        // smallest queue librdkafka will take.
+        // No floor beyond one MiB, the smallest queue librdkafka will
+        // take. A larger floor guarded to fit the aggregate is dead
+        // code (the division already yields at least it), and one
+        // applied without the guard multiplies back up with partition
+        // count, the defect this division exists to remove. Past
+        // roughly fifty partitions each producer simply gets a shallow
+        // queue: the honest answer for a deployment with more
+        // partitions than memory to give them.
         (self.kafka.kafka_producer_queue_mib / partitions.max(1)).max(1)
     }
 
@@ -501,13 +489,13 @@ impl Config {
     /// How long fence acquisition may take.
     ///
     /// Deliberately not the transaction timeout. That one is sized so
-    /// that a *queued write* still resolves inside the lease runway, and
-    /// acquisition is neither queued nor a write — it is two broker round
+    /// that a queued write still resolves inside the lease runway, and
+    /// acquisition is neither queued nor a write: it is two broker round
     /// trips, one of which makes the coordinator abort a predecessor's
-    /// open transaction. Tying it to the runway meant re-budgeting the
-    /// write path silently tightened acquisition, and acquisition happens
-    /// fleet-wide during a deploy, which is the worst moment to have
-    /// shortened it.
+    /// open transaction. Deriving it from the write budget would let a
+    /// write-path re-budget silently tighten acquisition, and
+    /// acquisition happens fleet-wide during a deploy, the worst moment
+    /// to shorten it.
     ///
     /// It still has to fit inside the runway as a whole: a warm that
     /// outlives the lease it is warming for has nothing to serve.
@@ -520,26 +508,23 @@ impl Config {
 
     /// Ceiling on the drain's wait for an open window to commit.
     ///
-    /// The wait exists to catch a committer about to fire anyway — it
-    /// sleeps for the window, then commits — so a longer budget only
+    /// The wait exists to catch a committer about to fire anyway (it
+    /// sleeps for the window, then commits), so a longer budget only
     /// helps when the commit is retrying, which is the case where the
     /// successor's abort is the right answer regardless.
     ///
     /// Absolute rather than derived from the lease, because what it has
     /// to fit inside is absolute: the pre-revoke self-fence allows three
     /// seconds for a whole drain. Bounding it by the broker's own
-    /// patience instead would be inert — `fencing_txn_timeout` floors at
+    /// patience instead would be inert: `fencing_txn_timeout` floors at
     /// a second and the window can make three such calls, so that bound
-    /// never falls below four and a half, and every accepted lease would
-    /// leave the cap doing all the work. Before the drain slack was paid
-    /// out of the write budget it sat at 7.5s at the production lease
-    /// (about 6s now), truncating on every shutdown with an open window
-    /// and reporting the drain as failed.
+    /// never falls below four and a half seconds, past the whole
+    /// allowance.
     ///
     /// Residual: a `drain_timeout` configured under two seconds shrinks
     /// that allowance below this budget, and the leader cannot see the
-    /// coordination-side value to derive against. Truncating is safe —
-    /// the wait is best-effort — so the cost is a spurious drain
+    /// coordination-side value to derive against. Truncating is safe
+    /// (the wait is best-effort), so the cost is a spurious drain
     /// failure, not a correctness one.
     pub fn fencing_settle_budget(&self) -> Duration {
         Duration::from_secs(2)
@@ -550,19 +535,19 @@ impl Config {
     ///
     /// A window lives from `begin_transaction` through its admission
     /// interval, its sends, and its commit, so the broker's patience has
-    /// to cover all three — bounding it by the commit alone would let the
+    /// to cover all three. Bounding it by the commit alone would let the
     /// broker abort a window this pod is still legitimately filling, and
     /// the resulting epoch bump reads exactly like a fence from a real
     /// successor.
     pub fn fencing_broker_txn_timeout(&self) -> Duration {
-        // Every transaction-timeout-bounded call the window can make, not
-        // just the first: a commit that retries, or a commit followed by
-        // an abort, keeps the transaction open for all of them. A bound
-        // that covers only one call lets the broker abandon a window this
-        // pod is still legitimately working, and that epoch bump is
-        // indistinguishable from a real successor's fence — so a
-        // retriable blip would read as "this pod's claim is stale" and
-        // cost the partition its fence.
+        // Every transaction-timeout-bounded call the window can make,
+        // not just the first: a commit that retries, or a commit
+        // followed by an abort, keeps the transaction open for all of
+        // them. A bound that covers only one call lets the broker
+        // abandon a window this pod is still legitimately working, and
+        // that epoch bump is indistinguishable from a real successor's
+        // fence, so a retriable blip would read as "this pod's claim is
+        // stale" and cost the partition its fence.
         //
         // Half again on top, because the arithmetic is a floor: the
         // window sleep can overshoot and each blocking call waits its
@@ -576,20 +561,21 @@ impl Config {
     /// The lease relations that hold whether or not fencing is on.
     ///
     /// `PodHandle::new` asserts that the heartbeat fits inside the
-    /// keepalive's renewal margin, but it does so several hundred lines
-    /// into startup — after etcd, Kafka and the Postgres pool are
-    /// established — and its message names the heartbeat rather than the
-    /// TTL that decides the margin. Checking it here turns a late panic
-    /// into an early refusal that names both.
+    /// keepalive's renewal margin, but it does so deep into startup
+    /// (after etcd, Kafka, and the Postgres pool are established), and
+    /// its message names the heartbeat rather than the TTL that decides
+    /// the margin. Checking it here turns a late panic into an early
+    /// refusal that names both.
     pub fn validate_lease_timescales(&self) -> Result<(), String> {
         let margin = AuthorityClock::renewal_margin(self.lease_ttl);
         let heartbeat = self.heartbeat_interval();
         // Zero is under every margin, so the comparison below waves it
-        // through — but the keepalive uses this interval as the *timeout*
+        // through, but the keepalive uses this interval as the timeout
         // for each renewal round, so a zero one times out instantly,
         // exhausts the margin through its retry pace, and ends the
-        // session. The pod then releases every partition and starts over,
-        // for as long as it runs, without ever serving or crashing.
+        // session. The pod then releases every partition and starts
+        // over, for as long as it runs, without ever serving or
+        // crashing.
         if heartbeat.is_zero() {
             return Err(
                 "HEARTBEAT_INTERVAL_SECS must be greater than zero: the keepalive uses it as \
@@ -607,13 +593,13 @@ impl Config {
                 self.lease_ttl,
             ));
         }
-        // The pod's graceful exit — drain setup, drain, shutdown-path
-        // fence, one keepalive round's join, bounded revoke — has to
-        // fit the coordination budget, or the lifecycle manager
-        // abandons it mid-teardown while this pod is still the
-        // registered owner. The drain term reads the same
-        // `base_pod_config` the running pod is built from, so a future
-        // knob cannot decouple the validated sum from the deployed one.
+        // The pod's graceful exit (drain setup, drain, shutdown-path
+        // fence, one keepalive round's join, bounded revoke) has to fit
+        // the coordination budget, or the lifecycle manager abandons it
+        // mid-teardown while this pod is still the registered owner.
+        // The drain term reads the same `base_pod_config` the running
+        // pod is built from, so a future knob cannot decouple the
+        // validated sum from the deployed one.
         let drain = self.base_pod_config().drain_timeout;
         let teardown =
             DRAIN_SETUP_BOUND + drain + SHUTDOWN_FENCE_BOUND + heartbeat + REVOKE_TIMEOUT;
@@ -745,8 +731,8 @@ impl Config {
                  ({txn:?}); librdkafka rejects the producer outright"
             ));
         }
-        // Acquisition spends its timeout twice — once on the metadata
-        // ping, once on init_transactions — and both have to land inside
+        // Acquisition spends its timeout twice (once on the metadata
+        // ping, once on init_transactions), and both have to land inside
         // the runway the keepalive reserves. The queued-write bound below
         // caps the derived value transitively at the defaults, but an
         // override can move the inputs, so the two-call bound is checked
@@ -761,7 +747,7 @@ impl Config {
         }
         // A write parked behind a committing window pays that window's
         // send and commit before its own, so the runway has to cover
-        // two — each of them including every commit attempt the code
+        // two, each of them including every commit attempt the code
         // will make, not just the first.
         let queued_worst_case = window + (message + txn * FENCING_TXN_CALLS) * 2;
         let drain_room = runway.saturating_sub(self.fencing_drain_slack());
@@ -902,19 +888,19 @@ mod lease_timescale_tests {
 
     /// The pod's teardown must fit the coordination component's budget,
     /// and the keepalive join is the one term an operator can move. A
-    /// heartbeat the renewal margin accepts can still blow the budget —
+    /// heartbeat the renewal margin accepts can still blow the budget:
     /// that band is exactly what a check on the margin alone missed.
     #[test]
     fn a_teardown_the_shutdown_budget_cannot_fit_is_refused() {
         let mut config =
             Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
         config.lease_ttl = 30;
-        // Inside the 20s renewal margin, so the pair check passes — but
+        // Inside the 20s renewal margin, so the pair check passes, but
         // setup (5s) + drain (30s) + fence (3s) + a 16s join + revoke
         // (5s) = 59s overruns the 55s budget. Sixteen, not a rounder
         // number, because it discriminates on every term: without the
         // setup bound the sum is 54s, which a broken validation would
-        // accept — a 17s join sums to exactly 55s either way and pins
+        // accept; a 17s join sums to exactly 55s either way and pins
         // nothing about the setup term.
         config.heartbeat_interval_secs = 16;
         assert!(config.validate_lease_timescales().is_err());
@@ -946,12 +932,12 @@ mod fencing_timescale_tests {
     }
 
     /// At any lease TTL the derivation must either satisfy every
-    /// relation or be rejected — never produce a config that starts and
+    /// relation or be rejected: never produce a config that starts and
     /// then violates the runway, and never one librdkafka refuses.
     #[test]
     fn derived_timeouts_are_either_valid_or_rejected() {
         // 16 and 20 are the band where the bound's attempt count is the
-        // only thing that decides acceptance — without them the sweep
+        // only thing that decides acceptance; without them the sweep
         // cannot tell a two-call model from a three-call one.
         for lease_ttl in [0, 1, 5, 10, 16, 20, 21, 30, 60, 300] {
             let config = fenced(lease_ttl);
@@ -979,7 +965,7 @@ mod fencing_timescale_tests {
     /// The retry budget and the timeout shares are one decision split
     /// across two constants. Raising the attempt count without shrinking
     /// the shares puts the code back outside the runway it validates
-    /// against — silently, because every existing test would still pass.
+    /// against, silently, because every existing test would still pass.
     #[test]
     fn the_production_ttl_affords_every_transaction_call() {
         let config = fenced(30);
@@ -1012,8 +998,8 @@ mod fencing_timescale_tests {
     /// mentioned the TTL that actually decides the margin.
     ///
     /// The fencing floor and the heartbeat happen not to overlap at the
-    /// default heartbeat today, so the pairs below raise it — which is
-    /// the point: the two checks constrain different things, and nothing
+    /// default heartbeat, so the pairs below raise it, which is the
+    /// point: the two checks constrain different things, and nothing
     /// keeps a future change to the timeout shares from moving the
     /// fencing floor back under the heartbeat.
     #[test]
@@ -1035,7 +1021,7 @@ mod fencing_timescale_tests {
         }
     }
 
-    /// Zero passes the margin comparison — it is under every margin — but
+    /// Zero passes the margin comparison (it is under every margin), but
     /// the keepalive uses the interval as each round's timeout, so it
     /// fences the pod against healthy etcd forever.
     #[test]
@@ -1062,10 +1048,10 @@ mod fencing_timescale_tests {
             .expect("LEASE_TTL=30 with a 10s heartbeat must start");
     }
 
-    /// The broker's patience has to cover the whole window, not the first
-    /// call into it. A bound shorter than the lifetime lets the broker
-    /// abandon a window this pod is still working, and that epoch bump
-    /// is indistinguishable from a real successor's fence — so a
+    /// The broker's patience has to cover the whole window, not the
+    /// first call into it. A bound shorter than the lifetime lets the
+    /// broker abandon a window this pod is still working, and that epoch
+    /// bump is indistinguishable from a real successor's fence, so a
     /// retriable blip would cost the partition its fence and read as a
     /// stale claim.
     #[test]
@@ -1090,9 +1076,9 @@ mod fencing_timescale_tests {
 
     /// The fenced path creates one producer per owned partition, so the
     /// shared producer's queue limits are an aggregate to divide rather
-    /// than a per-producer figure to copy. Inheriting them let a lone
-    /// survivor owning every partition claim the whole product — several
-    /// gigabytes on a pod sized for one — which a client can reach by
+    /// than a per-producer figure to copy. Inheriting them lets a lone
+    /// survivor owning every partition claim the whole product (several
+    /// gigabytes on a pod sized for one), which a client can reach by
     /// spreading large property updates across partitions while Kafka is
     /// slow.
     #[test]
@@ -1109,14 +1095,13 @@ mod fencing_timescale_tests {
                 "partitions={partitions}: a single fenced producer must never be entitled \
                  to more than the shared producer's whole queue"
             );
-            // The aggregate is the invariant: every individual value
-            // looked reasonable while the total scaled with the partition
-            // count, which is how the original defect hid.
-            // Either the whole fleet of producers fits the aggregate, or
-            // every one of them is already at the smallest queue
-            // librdkafka will take — past that point the budget cannot be
-            // honoured at all, and the honest answer is the floor rather
-            // than a number that quietly multiplies.
+            // The aggregate is the invariant: every individual value can
+            // look reasonable while the total scales with the partition
+            // count. Either the whole fleet of producers fits the
+            // aggregate, or every one of them is already at the smallest
+            // queue librdkafka will take; past that point the budget
+            // cannot be honored at all, and the honest answer is the
+            // floor rather than a number that quietly multiplies.
             let aggregate_mib = per_partition_mib * partitions;
             assert!(
                 aggregate_mib <= shared_mib || per_partition_mib == 1,
@@ -1136,7 +1121,7 @@ mod fencing_timescale_tests {
     /// hold a window's worth of writes.
     /// Overrides are the only way to reach the librdkafka limits the
     /// derivation floors away from, so they are the only way these two
-    /// checks ever fire — and without them a pod starts with a producer
+    /// checks ever fire; without them a pod starts with a producer
     /// librdkafka refuses to create, or with no send timeout at all.
     #[test]
     fn overrides_outside_librdkafkas_limits_are_refused() {
@@ -1158,11 +1143,10 @@ mod fencing_timescale_tests {
     }
 
     /// The pre-revoke self-fence allows three seconds for a whole drain,
-    /// and the drain is `wait_until_empty` *then* this wait. A budget
-    /// that ate the whole allowance would turn every shutdown with an
-    /// open window into a reported drain failure — while a budget under
-    /// the admission window cannot outwait the window it exists to
-    /// settle.
+    /// and the drain is `wait_until_empty` then this wait. A budget that
+    /// ate the whole allowance would turn every shutdown with an open
+    /// window into a reported drain failure, while a budget under the
+    /// admission window cannot outwait the window it exists to settle.
     #[test]
     fn settling_fits_inside_the_shutdown_fence_bound() {
         for lease_ttl in [21, 30, 60, 300, 3599] {
@@ -1191,9 +1175,8 @@ mod fencing_timescale_tests {
     }
 
     /// Acquisition is two broker round trips and happens fleet-wide
-    /// during a deploy. Nothing asserted on its budget, and tying it to
-    /// the write path's once already shortened it by a quarter as a side
-    /// effect of re-budgeting writes.
+    /// during a deploy. Deriving its budget from the write path's would
+    /// let a write re-budget silently shorten it.
     #[test]
     fn acquisition_keeps_its_own_budget() {
         for lease_ttl in [21, 30, 60, 300] {
@@ -1205,9 +1188,9 @@ mod fencing_timescale_tests {
                 config.fencing_init_timeout() >= Duration::from_secs(2),
                 "LEASE_TTL={lease_ttl}: acquisition needs room for a broker round trip"
             );
-            // The timeout bounds each of the two calls acquisition makes
-            // — `fetch_metadata` then `init_transactions` — so the budget
-            // the lease has to cover is twice what it names.
+            // The timeout bounds each of the two calls acquisition
+            // makes (`fetch_metadata` then `init_transactions`), so the
+            // budget the lease has to cover is twice what it names.
             assert!(
                 config.fencing_init_timeout() * 2 <= config.lease_fence_runway(),
                 "LEASE_TTL={lease_ttl}: a warm cannot outlive the lease it warms for"

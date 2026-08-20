@@ -1,7 +1,7 @@
 //! The kafka-producer lifecycle component must complete its shutdown
-//! within its flush bound even when the broker is unreachable — a
-//! wedged queue previously held the shutdown phase until the global
-//! timeout, reporting every later phase as stuck along with it.
+//! within its flush bound even when the broker is unreachable;
+//! otherwise a wedged queue holds the shutdown phase until the global
+//! timeout and reports every later phase as stuck along with it.
 
 use std::time::{Duration, Instant};
 
@@ -51,11 +51,11 @@ async fn shutdown_flush_is_bounded_against_an_unreachable_broker() {
     );
 }
 
-/// The incident's failure mode was a stalled broker, not an absent one:
-/// the connection succeeds and requests hang. The flush must give up on
-/// its own bound there too — librdkafka's broker state differs from the
-/// unroutable case (a live socket it waits on, not a connect it
-/// retries), so the unroutable test alone does not cover it.
+/// A stalled broker, not an absent one: the connection succeeds and
+/// requests hang. The flush must give up on its own bound there too,
+/// because librdkafka's broker state differs from the unroutable case
+/// (a live socket it waits on, not a connect it retries), so the
+/// unroutable test alone does not cover it.
 #[tokio::test]
 async fn shutdown_flush_is_bounded_against_a_stalled_broker() {
     // Accept connections and never respond, holding each socket open:

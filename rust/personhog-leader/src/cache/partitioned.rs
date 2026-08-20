@@ -18,12 +18,12 @@ pub enum CacheLookup {
 /// Foyer cache so that releasing a partition drops all its entries cleanly.
 pub struct PartitionedCache {
     partitions: DashMap<u32, PersonCache>,
-    /// Partitions mid-warm: built here record by record — evicting under
-    /// the same per-partition byte budget as a serving cache — and moved
+    /// Partitions mid-warm: built here record by record (evicting under
+    /// the same per-partition byte budget as a serving cache) and moved
     /// to `partitions` in a single insert when the warm's range
-    /// completes. Entirely invisible to readers: `get`/`has_partition`
-    /// consult `partitions` only, so a partition under construction
-    /// answers `PartitionNotOwned` on every path.
+    /// completes. Invisible to readers: `get`/`has_partition` consult
+    /// `partitions` only, so a partition under construction answers
+    /// `PartitionNotOwned` on every path.
     warming: DashMap<u32, PersonCache>,
     per_partition_capacity: usize,
 }
@@ -37,21 +37,19 @@ impl PartitionedCache {
         }
     }
 
-    /// Create a new cache for the given partition. Called during warm-up.
     pub fn create_partition(&self, partition: u32) {
         self.partitions
             .insert(partition, PersonCache::new(self.per_partition_capacity));
     }
 
     /// Atomically install a fully-populated partition cache. The records
-    /// are inserted into a fresh `PersonCache` *before* the partition is
-    /// added to the shared `DashMap`, so any thread that observes
-    /// `has_partition(partition) == true` will also see every record —
-    /// no observer can land in the window where the partition exists
-    /// but its keys haven't been put yet. Used by warming so reads that
-    /// arrive immediately after a handoff Complete don't fall through
-    /// to PG and return stale values for records that the writer hasn't
-    /// yet persisted.
+    /// go into a fresh `PersonCache` before the partition is added to
+    /// the shared `DashMap`, so any thread that observes
+    /// `has_partition(partition) == true` also sees every record; no
+    /// observer can land in a window where the partition exists but its
+    /// keys are missing. Used by warming so reads that arrive right
+    /// after a handoff Complete do not fall through to PG and return
+    /// stale values for records the writer has not yet persisted.
     pub fn install_warmed_partition(
         &self,
         partition: u32,
@@ -65,8 +63,8 @@ impl PartitionedCache {
     }
 
     /// Start building a partition's cache without publishing it. The
-    /// warm inserts record by record with `warm_put` — bounded by the
-    /// per-partition budget, evicting as it goes — and publishes the
+    /// warm inserts record by record with `warm_put` (bounded by the
+    /// per-partition budget, evicting as it goes) and publishes the
     /// finished cache with `publish_warmed_partition`. Re-entrant: a
     /// retried warm begins fresh, replacing any half-built predecessor.
     pub fn begin_warm_partition(&self, partition: u32) {
@@ -99,7 +97,7 @@ impl PartitionedCache {
         self.warming.remove(&partition);
     }
 
-    /// Resident weight of a build in flight — what the warm retained of
+    /// Resident weight of a build in flight: what the warm retained of
     /// its range under the budget.
     pub fn warm_usage_bytes(&self, partition: u32) -> usize {
         self.warming
@@ -108,7 +106,7 @@ impl PartitionedCache {
             .unwrap_or(0)
     }
 
-    /// Drop the cache for the given partition, evicting all entries —
+    /// Drop the cache for the given partition, evicting all entries,
     /// including a build in flight, so a release racing a warm leaves
     /// nothing behind.
     pub fn drop_partition(&self, partition: u32) {
@@ -117,8 +115,8 @@ impl PartitionedCache {
     }
 
     /// Total resident weight in bytes across all owned partitions,
-    /// builds in flight included — the gauge tells the truth during
-    /// warms rather than hiding the construction cost.
+    /// builds in flight included, so the gauge tells the truth during
+    /// warms instead of hiding the construction cost.
     pub fn usage_bytes(&self) -> usize {
         self.partitions
             .iter()
@@ -127,7 +125,7 @@ impl PartitionedCache {
             + self.warming.iter().map(|c| c.usage_bytes()).sum::<usize>()
     }
 
-    /// Check if a partition cache exists (i.e., the partition is owned).
+    /// Whether the partition is owned (its cache exists).
     pub fn has_partition(&self, partition: u32) -> bool {
         self.partitions.contains_key(&partition)
     }
@@ -146,17 +144,17 @@ impl PartitionedCache {
         }
     }
 
-    /// Insert or update a person in the partition's cache.
     pub fn put(&self, partition: u32, key: PersonCacheKey, person: CachedPerson) {
         if let Some(cache) = self.partitions.get(&partition) {
             cache.put(key, person);
         }
     }
 
-    /// Remove a single person from the partition's cache. Only tests call
-    /// this, to force a deterministic eviction — production evictions come
-    /// from Foyer's capacity policy. Safe regardless: the miss path
-    /// recovers the person from the changelog or PG on next access.
+    /// Remove a single person from the partition's cache. Only tests
+    /// call this, to force a deterministic eviction; production
+    /// evictions come from Foyer's capacity policy. Safe regardless: the
+    /// miss path recovers the person from the changelog or PG on next
+    /// access.
     pub fn remove(&self, partition: u32, key: &PersonCacheKey) {
         if let Some(cache) = self.partitions.get(&partition) {
             cache.remove(key);
