@@ -370,7 +370,8 @@ export function SelfDrivingSection(): JSX.Element {
                                     />
                                 </div>
                                 <p className="text-[11px] text-tertiary leading-snug mb-0">
-                                    Overrides the project threshold for reports that suggest you as reviewer.
+                                    Overrides the project threshold for reports that suggest you as reviewer. It applies
+                                    across all your projects.
                                 </p>
                             </div>
                         </div>
