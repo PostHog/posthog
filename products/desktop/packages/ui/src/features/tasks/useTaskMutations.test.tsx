@@ -1,8 +1,13 @@
 import type { Schemas } from "@posthog/api-client";
 import type { Task } from "@posthog/shared/domain-types";
 import { channelFeedQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
+import {
+  type SpaceTaskPage,
+  spaceTreeTasksQueryRoot,
+} from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
+import { taskFeedResultsQueryKey } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { act, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,6 +30,7 @@ import { useRenameTask } from "./useTaskMutations";
 
 const TASK_ID = "task-1";
 const OTHER_TASK_ID = "task-2";
+const SPACE_TREE_KEY = [...spaceTreeTasksQueryRoot, "space-1"] as const;
 
 function createTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -39,6 +45,8 @@ function createTask(overrides: Partial<Task> = {}): Task {
     ...overrides,
   };
 }
+
+type TaskFeedResults = { tasks: Task[]; isComplete: boolean };
 
 function createSummary(overrides: Partial<Schemas.TaskSummary> = {}) {
   return {
@@ -72,6 +80,7 @@ describe("useRenameTask", () => {
     const summaryKey = taskKeys.summaries([TASK_ID]);
     const detailKey = taskKeys.detail(TASK_ID);
     const channelFeedKey = channelFeedQueryKey("channel-1");
+    const taskFeedKey = taskFeedResultsQueryKey("created-by:@me");
     queryClient.setQueryData<Task[]>(listKey, [
       createTask(),
       createTask({ id: OTHER_TASK_ID, title: "Other" }),
@@ -82,6 +91,14 @@ describe("useRenameTask", () => {
     ]);
     queryClient.setQueryData<Task>(detailKey, createTask());
     queryClient.setQueryData<Task[]>(channelFeedKey, [createTask()]);
+    queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
+      tasks: [createTask()],
+      count: 7,
+    });
+    queryClient.setQueryData<TaskFeedResults>(taskFeedKey, {
+      tasks: [createTask()],
+      isComplete: true,
+    });
 
     await act(async () => {
       await result.current.renameTask({
@@ -116,6 +133,18 @@ describe("useRenameTask", () => {
         title_manually_set: true,
       },
     );
+    expect(
+      queryClient.getQueryData<SpaceTaskPage>(SPACE_TREE_KEY),
+    ).toMatchObject({
+      tasks: [{ title: "Renamed", title_manually_set: true }],
+      count: 7,
+    });
+    expect(
+      queryClient.getQueryData<TaskFeedResults>(taskFeedKey)?.tasks[0],
+    ).toMatchObject({
+      title: "Renamed",
+      title_manually_set: true,
+    });
 
     expect(mockUpdateTask).toHaveBeenCalledWith(TASK_ID, {
       title: "Renamed",
@@ -133,12 +162,21 @@ describe("useRenameTask", () => {
     const summaryKey = taskKeys.summaries([TASK_ID]);
     const detailKey = taskKeys.detail(TASK_ID);
     const channelFeedKey = channelFeedQueryKey("channel-1");
+    const taskFeedKey = taskFeedResultsQueryKey("created-by:@me");
     queryClient.setQueryData<Task[]>(listKey, [createTask()]);
     queryClient.setQueryData<Schemas.TaskSummary[]>(summaryKey, [
       createSummary(),
     ]);
     queryClient.setQueryData<Task>(detailKey, createTask());
     queryClient.setQueryData<Task[]>(channelFeedKey, [createTask()]);
+    queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
+      tasks: [createTask()],
+      count: 7,
+    });
+    queryClient.setQueryData<TaskFeedResults>(taskFeedKey, {
+      tasks: [createTask()],
+      isComplete: true,
+    });
 
     let caught: unknown;
     await act(async () => {
@@ -169,6 +207,12 @@ describe("useRenameTask", () => {
     expect(queryClient.getQueryData<Task[]>(channelFeedKey)?.[0].title).toBe(
       "Original title",
     );
+    expect(
+      queryClient.getQueryData<SpaceTaskPage>(SPACE_TREE_KEY)?.tasks[0].title,
+    ).toBe("Original title");
+    expect(
+      queryClient.getQueryData<TaskFeedResults>(taskFeedKey)?.tasks[0].title,
+    ).toBe("Original title");
 
     expect(mockUpdateSessionTaskTitle).toHaveBeenNthCalledWith(
       1,
@@ -184,7 +228,12 @@ describe("useRenameTask", () => {
 
   it("skips rollback when a newer rename has advanced the title past ours", async () => {
     const failure = new Error("network down");
-    mockUpdateTask.mockRejectedValue(failure);
+    let failUpdate: (() => void) | undefined;
+    mockUpdateTask.mockReturnValue(
+      new Promise((_, reject) => {
+        failUpdate = () => reject(failure);
+      }),
+    );
     const { result, queryClient } = renderRenameHook();
 
     const listKey = taskKeys.list();
@@ -195,11 +244,23 @@ describe("useRenameTask", () => {
       createSummary(),
     ]);
     queryClient.setQueryData<Task>(detailKey, createTask());
+    queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
+      tasks: [createTask()],
+      count: 7,
+    });
 
     const renamePromise = result.current.renameTask({
       taskId: TASK_ID,
       currentTitle: "Original title",
       newTitle: "First rename",
+    });
+
+    // Our own optimistic write has to land before the newer rename overtakes
+    // it, or the test states the opposite of what it names.
+    await waitFor(() => {
+      expect(queryClient.getQueryData<Task[]>(listKey)?.[0].title).toBe(
+        "First rename",
+      );
     });
 
     queryClient.setQueryData<Task[]>(listKey, [
@@ -212,9 +273,14 @@ describe("useRenameTask", () => {
       detailKey,
       createTask({ title: "Second rename", title_manually_set: true }),
     );
+    queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
+      tasks: [createTask({ title: "Second rename", title_manually_set: true })],
+      count: 7,
+    });
 
     let caught: unknown;
     await act(async () => {
+      failUpdate?.();
       try {
         await renamePromise;
       } catch (error) {
@@ -232,11 +298,51 @@ describe("useRenameTask", () => {
     expect(queryClient.getQueryData<Task>(detailKey)?.title).toBe(
       "Second rename",
     );
+    expect(
+      queryClient.getQueryData<SpaceTaskPage>(SPACE_TREE_KEY)?.tasks[0].title,
+    ).toBe("Second rename");
 
     expect(mockUpdateSessionTaskTitle).not.toHaveBeenCalledWith(
       TASK_ID,
       "Original title",
     );
+  });
+
+  it("keeps the new title when a poll that was already in flight resolves with the old one", async () => {
+    mockUpdateTask.mockResolvedValue(undefined);
+    const { result, queryClient } = renderRenameHook();
+
+    queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
+      tasks: [createTask()],
+      count: 7,
+    });
+    let resolvePoll: ((page: SpaceTaskPage) => void) | undefined;
+    const inFlightPoll = queryClient
+      .fetchQuery<SpaceTaskPage>({
+        queryKey: SPACE_TREE_KEY,
+        queryFn: () =>
+          new Promise<SpaceTaskPage>((resolve) => {
+            resolvePoll = resolve;
+          }),
+      })
+      .catch(() => undefined);
+
+    await act(async () => {
+      await result.current.renameTask({
+        taskId: TASK_ID,
+        currentTitle: "Original title",
+        newTitle: "Renamed",
+      });
+    });
+
+    await act(async () => {
+      resolvePoll?.({ tasks: [createTask()], count: 7 });
+      await inFlightPoll;
+    });
+
+    expect(
+      queryClient.getQueryData<SpaceTaskPage>(SPACE_TREE_KEY)?.tasks[0].title,
+    ).toBe("Renamed");
   });
 
   it("does not write to the detail cache when no detail entry exists", async () => {

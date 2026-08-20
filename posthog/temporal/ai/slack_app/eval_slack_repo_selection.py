@@ -64,10 +64,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-# Must run as `python posthog/temporal/ai/eval_slack_repo_selection.py` (not `python -m ...`):
+# Must run as `python posthog/temporal/ai/slack_app/eval_slack_repo_selection.py` (not `python -m ...`):
 # `python -m` would import `posthog/temporal/ai/__init__.py` first, which loads workflows that
 # reference Django models before django.setup() has a chance to fire.
-_repo_root = Path(__file__).resolve().parents[3]
+_repo_root = Path(__file__).resolve().parents[4]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
@@ -83,7 +83,7 @@ from posthog.models import Team
 from posthog.temporal.ai.slack_app import POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo
 
-from products.slack_app.backend.api import _extract_explicit_repo
+from products.slack_app.backend.api import _extract_explicit_repo, _extract_explicit_repo_from_thread
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import (
     RepoSelectionRejectedError,
@@ -145,6 +145,33 @@ CASES: list[Case] = [
         description="Cascade picks the repo directly when the text contains a connected org/repo.",
         text_template="@PostHog can you look at {first_repo} and fix the readme typo",
         thread_messages=[{"user": "tester", "text": "@PostHog can you look at {first_repo} and fix the readme typo"}],
+        expected_stage="cascade",
+        expected_outcome="auto",
+    ),
+    Case(
+        name="ci_run_link",
+        description="Cascade reads the repo out of a workflow-run link, so a CI ask never reaches the agent.",
+        text_template="@PostHog is this flaky? https://github.com/{first_repo}/actions/runs/30560492835",
+        thread_messages=[
+            {
+                "user": "tester",
+                "text": "@PostHog is this flaky? https://github.com/{first_repo}/actions/runs/30560492835",
+            }
+        ],
+        expected_stage="cascade",
+        expected_outcome="auto",
+    ),
+    Case(
+        name="ci_run_link_earlier_in_the_thread",
+        description="Cascade reads the repo from a link someone posted before the mention, the usual shape of a CI ask.",
+        text_template="@PostHog is this one flaky?",
+        thread_messages=[
+            {
+                "user": "tester",
+                "text": "https://github.com/{first_repo}/actions/runs/30560492835 went red again",
+            },
+            {"user": "tester", "text": "@PostHog is this one flaky?"},
+        ],
         expected_stage="cascade",
         expected_outcome="auto",
     ),
@@ -425,8 +452,11 @@ class Command:
         self.stdout.write(f"  text:     {text}")
         self.stdout.write(f"  expected: {case.expected_stage}/{case.expected_outcome}")
 
-        # Stage 1: cascade (synchronous, no LLM)
-        explicit = _extract_explicit_repo(text, ctx.all_repos)
+        # Stage 1: cascade (synchronous, no LLM). Mirrors `cascade_posthog_code_repository_activity`,
+        # because reading only the mention here would pass cases that production sends to the agent.
+        explicit = _extract_explicit_repo(text, ctx.all_repos) or _extract_explicit_repo_from_thread(
+            thread_messages, ctx.all_repos
+        )
         if explicit:
             self.stdout.write(self.style.SUCCESS(f"  cascade → auto: {explicit}"))
             return CaseResult(case=case, actual_stage="cascade", actual_outcome="auto", detail=explicit)

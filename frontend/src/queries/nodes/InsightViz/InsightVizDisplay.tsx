@@ -10,7 +10,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { HideWeekendsDeprecationNotice } from 'scenes/insights/EditorFilters/HideWeekendsDeprecationNotice'
 import {
     BoxPlotMissingPropertyState,
     FunnelDataWarehouseStepIncompleteState,
@@ -512,7 +511,6 @@ export function InsightVizDisplay({
                 data-attr="insights-graph"
             >
                 {disableHeader ? null : <InsightDisplayConfig />}
-                {!embedded && <HideWeekendsDeprecationNotice insightProps={insightProps} />}
                 {showingResults && (
                     <>
                         {!embedded &&

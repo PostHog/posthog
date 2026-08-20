@@ -78,6 +78,11 @@ export interface Task {
   description: string;
   created_at: string;
   updated_at: string;
+  /**
+   * When something last happened in the session, as opposed to `updated_at` (when the row was
+   * last written). The timestamp a "recent activity" sort reads. Empty on older responses.
+   */
+  last_activity_at?: string;
   created_by?: UserBasic | null;
   origin_product: string;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")
@@ -109,6 +114,12 @@ export interface TaskSearchResult {
  * threads, instructions (CONTEXT.md) and filed canvases. `personal` is the
  * user's private "#me" channel. `starred` is per-user.
  */
+export interface ProvisionedTaskChannels {
+  channels: TaskChannel[];
+  personal_created: boolean;
+  general_created: boolean;
+}
+
 export interface TaskChannel {
   id: string;
   name: string;
@@ -118,6 +129,7 @@ export interface TaskChannel {
   repositories?: string[];
   created_at: string;
   created_by?: UserBasic | null;
+  system_role?: "personal" | "general" | null;
 }
 
 /** Lifecycle events a client may post into a channel's feed. */
@@ -242,6 +254,8 @@ export interface TaskActivity {
   latest_comment_id?: string | null;
   latest_comment_scope?: string | null;
   latest_comment_item_id?: string | null;
+  target_scope?: "desktop_canvas" | null;
+  target_id?: string | null;
   is_unread: boolean;
 }
 
@@ -454,6 +468,10 @@ export interface CloudTaskSnapshotUpdate extends CloudTaskUpdateBase {
   kind: "snapshot";
   newEntries: StoredLogEntry[];
   totalEntryCount: number;
+  /** Chain index of newEntries[0] when the snapshot is a tail window rather
+   *  than the full history; older entries page in on demand. Absent means
+   *  the snapshot starts at the head of the chain. */
+  windowStart?: number;
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
@@ -624,6 +642,16 @@ export interface SignalReport {
   implementation_pr_url?: string | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
+  /** The persistent canvas session generated for this report, when available. */
+  canvas_session?: {
+    canvas_id: string;
+    discussion_task_id: string;
+    generation_task_id?: string | null;
+    generation_status: "pending" | "generating" | "ready" | "failed";
+    collaboration_mode: "managed" | "collaborative";
+    failure_reason: string;
+    updated_at: string;
+  } | null;
   /** The report's PR refund, when one exists (one refund per report, ever). */
   refund?: SignalReportRefund | null;
   /** Marks reports that were never billable ("Free"), so there is nothing to refund. */

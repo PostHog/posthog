@@ -32,7 +32,7 @@ import {
     ScoutCreateModalHost,
     useScoutCreateDisabledReason,
 } from 'products/signals/frontend/inbox/components/config/scouts/ScoutCreateModalHost'
-import { ScoutRowCard } from 'products/signals/frontend/inbox/components/config/scouts/ScoutRowCard'
+import { ScoutSummaryRow } from 'products/signals/frontend/inbox/components/config/scouts/ScoutSummaryRow'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import { signalSourcesLogic } from 'products/signals/frontend/inbox/signalSourcesLogic'
 
@@ -214,8 +214,8 @@ function ScoutTemplateCard({ template }: { template: AIObservabilityScoutTemplat
 
 export function AIObservabilitySelfDriving(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { scoutConfigs, scoutConfigsLoading, deletingScoutIds, updatingScoutIds } = useValues(scoutFleetLogic)
-    const { deleteScout, loadScoutConfigs, updateScoutConfig } = useActions(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, updatingScoutIds } = useValues(scoutFleetLogic)
+    const { loadScoutConfigs, updateScoutConfig } = useActions(scoutFleetLogic)
     const { evaluations, evaluationsLoadFailed, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { loadEvaluations } = useActions(llmEvaluationsLogic)
     const {
@@ -345,13 +345,10 @@ export function AIObservabilitySelfDriving(): JSX.Element {
         scoutsContent = (
             <div className="flex flex-col gap-2">
                 {aiObservabilityScouts.map((config) => (
-                    <ScoutRowCard
+                    <ScoutSummaryRow
                         key={config.id}
                         config={config}
-                        rollup={undefined}
                         onUpdate={updateScoutConfig}
-                        onDelete={deleteScout}
-                        deleting={deletingScoutIds.includes(config.id)}
                         updating={updatingScoutIds.includes(config.id)}
                     />
                 ))}

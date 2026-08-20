@@ -1,6 +1,9 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  PROJECT_BLUEBIRD_FLAG,
+  REPORT_CANVAS_INBOX_FLAG,
+} from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
@@ -12,9 +15,11 @@ import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChanne
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
+import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
-  consumeKeepListForNextRoute,
+  clearKeepListForRoute,
+  shouldKeepListForRoute,
   showChannelList,
   showChannelPane,
   useChannelPaneStore,
@@ -108,6 +113,11 @@ function ChannelPanes({
   );
 }
 export function ChannelsSidebar() {
+  const reportCanvasesEnabled = useFeatureFlag(
+    REPORT_CANVAS_INBOX_FLAG,
+    import.meta.env.DEV,
+  );
+  useReportSpace(reportCanvasesEnabled);
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
   const isResizing = useChannelsSidebarStore((state) => state.isResizing);
@@ -182,13 +192,19 @@ export function ChannelsSidebar() {
     enabled: channelsLayout,
   });
   useEffect(() => {
-    if (!channelsLayout || !routeChannelId) return;
+    if (!channelsLayout) return;
+    // A route with no channel ends the navigation the latch was armed for. Left
+    // set, it would hold a later deep link to that channel on the list.
+    if (!routeChannelId) {
+      clearKeepListForRoute();
+      return;
+    }
     setCurrentChannel(routeChannelId);
     // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
     // it, so the slider follows the route even if the list was being browsed.
     // Unless the navigation said otherwise: opening a session from the list's
     // tree loads it without taking the tree off the screen.
-    if (!consumeKeepListForNextRoute()) showChannelPane();
+    if (!shouldKeepListForRoute(routeChannelId)) showChannelPane();
   }, [channelsLayout, routeChannelId, setCurrentChannel]);
 
   // Browsing the list is view state, not navigation: you stay in the channel

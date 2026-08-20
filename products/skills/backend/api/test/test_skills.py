@@ -1,6 +1,7 @@
 import uuid
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
 
@@ -13,6 +14,11 @@ from posthog.models.organization import OrganizationMembership
 
 from ee.models.rbac.access_control import AccessControl
 
+from ...api.community_publish_services import (
+    CommunitySkillPublishError,
+    CommunitySkillPublishNotConfiguredError,
+    CommunitySkillPublishValidationError,
+)
 from ...api.skill_serializers import DEFAULT_BODY_PAGE_LENGTH
 from ...api.skill_services import (
     MAX_SKILL_FILE_COUNT,
@@ -23,6 +29,8 @@ from ...api.skill_services import (
     set_skill_owners,
 )
 from ...models.skills import LLMSkill, LLMSkillFile
+
+COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
 
 
 class TestLLMSkillAPI(APIBaseTest):
@@ -152,6 +160,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("reserved_new", "new"),
             ("reserved_scouts", "scouts"),
             ("reserved_review_hog", "review-hog"),
+            ("reserved_community", "community"),
         ]
     )
     def test_create_skill_validates_name_format(self, _label, skill_name):
@@ -896,6 +905,28 @@ class TestLLMSkillAPI(APIBaseTest):
         copy_skill = LLMSkill.objects.get(name="the-copy", deleted=False)
         assert LLMSkillFile.objects.filter(skill=copy_skill).count() == 1
 
+    @parameterized.expand(
+        [
+            ("plain-name-copy", "", ""),
+            ("review-hog-perspective-my-lens", "", "review_hog"),
+            ("plain-copy-of-scout", "scout", ""),
+        ]
+    )
+    def test_duplicate_derives_category_from_new_name(
+        self, new_name: str, source_category: str, expected_category: str
+    ):
+        self.create_skill(name="category-source", category=source_category)
+
+        response = self.client.post(
+            self._url("name/category-source/duplicate"),
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["category"] == expected_category
+        assert LLMSkill.objects.get(name=new_name, deleted=False).category == expected_category
+
     def test_duplicate_to_existing_name_fails(self):
         self.create_skill(name="source")
         self.create_skill(name="taken")
@@ -1221,6 +1252,143 @@ class TestLLMSkillAPI(APIBaseTest):
         assert len(data["versions"]) == 2
         assert data["versions"][0]["version"] == 2
         assert data["versions"][1]["version"] == 1
+
+    # --- Publish to community ---
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_succeeds(self, mock_publish, _mock_flag):
+        mock_publish.return_value = {
+            "pr_url": "https://github.com/PostHog/community-skills/pull/7",
+            "pr_number": 7,
+            "branch": "community-skill/make-pr",
+        }
+        skill = self.create_skill(
+            name="make-pr",
+            description="Open a PR.",
+            body="# Make PR",
+            allowed_tools=["query"],
+            metadata={"tags": ["github"]},
+        )
+        LLMSkillFile.objects.create(
+            skill=skill, path="references/playbook.md", content="hints", content_type="text/markdown"
+        )
+
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"),
+            data={"author_handle": "andymaguire"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json() == mock_publish.return_value
+        _, kwargs = mock_publish.call_args
+        assert kwargs["slug"] == "make-pr"
+        assert kwargs["name"] == "Make Pr"  # default display name = title-cased slug
+        assert kwargs["description"] == "Open a PR."
+        assert kwargs["tags"] == ["github"]  # falls back to metadata tags
+        assert kwargs["allowed_tools"] == ["query"]
+        assert kwargs["author_handle"] == "andymaguire"
+        assert kwargs["files"] == [
+            {"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}
+        ]
+
+    @parameterized.expand(
+        [
+            # An explicit empty list means "no tags" and must not fall back to the skill's own tags.
+            ("explicit empty list", {"tags": []}, ["github"], []),
+            # metadata is an arbitrary dict, and ingest drops an entry whose tags are not all strings.
+            ("unusable metadata tags", {}, ["github", 123, {"name": "x"}, "  ", "y" * 65], ["github"]),
+            # Sync only lowercases a tag and filtering matches it exactly, so an unstripped tag would
+            # publish as one no catalog filter can select.
+            ("padded metadata tags", {}, [" github "], ["github"]),
+        ]
+    )
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_tags(
+        self, _label: str, payload: dict, metadata_tags: list, expected: list, mock_publish, _mock_flag
+    ):
+        mock_publish.return_value = {"pr_url": "https://github.com/x/y/pull/1", "pr_number": 1, "branch": "b"}
+        self.create_skill(name="make-pr", metadata={"tags": metadata_tags})
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_publish.call_args.kwargs["tags"] == expected
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, _mock_flag):
+        response = self.client.post(self._url("name/does-not-exist/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_publish.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # Longer than CommunitySkill.name: the PR merges and ingest then drops the entry.
+            ("over the catalog limit", "x" * 65),
+            # The name becomes the commit message, where a trailer would reattribute the App's commit.
+            ("spanning two lines", "Make PR\nCo-authored-by: someone <a@b.c>"),
+        ]
+    )
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_rejects_display_name(self, _label: str, display_name: str, mock_publish, _mock_flag):
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"),
+            data={"display_name": display_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_publish.assert_not_called()
+
+    @patch(COMMUNITY_FLAG, return_value=False)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_is_gated_on_the_community_flag(self, mock_publish, _mock_flag):
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_publish.assert_not_called()
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_not_configured_returns_503(self, mock_publish, _mock_flag):
+        mock_publish.side_effect = CommunitySkillPublishNotConfiguredError("nope")
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_invalid_skill_returns_400(self, mock_publish, _mock_flag):
+        # Nothing reached GitHub and republishing the same skill fails the same way, so a 502 would
+        # tell the publisher to retry an upstream request that was never the problem.
+        mock_publish.side_effect = CommunitySkillPublishValidationError("that slug is reserved")
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "that slug is reserved"
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_github_error_returns_502(self, mock_publish, _mock_flag):
+        mock_publish.side_effect = CommunitySkillPublishError("github exploded")
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
 
 
 # llm_skill is its own access-control resource (see ACCESS_CONTROL_RESOURCES in
