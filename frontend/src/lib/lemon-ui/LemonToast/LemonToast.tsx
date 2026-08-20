@@ -185,9 +185,10 @@ interface ToastError {
 // appearing if dismiss() is called synchronously after creation in the same tick.
 const cancelledIds = new Set<number | string>()
 
-// When each visible error toast appeared, so a scene change can clear ones left over from
-// a previous page. Only errors are tracked: success, info, and loading toasts can carry
-// meaning across navigation (for example an export that is still running).
+// When each visible auto-closing error toast appeared, so a scene change can clear ones left
+// over from a previous page. Only auto-closing errors are tracked: success, info, and loading
+// toasts can carry meaning across navigation (for example an export that is still running), and
+// errors pinned open with autoClose:false are deliberate persistent prompts that must survive it.
 const errorToastShownAt = new Map<number | string, number>()
 
 // Errors raised in the same tick as a navigation stay this long, so an error about the
@@ -287,7 +288,13 @@ export const lemonToast = {
                     ...options,
                 }
             )
-            errorToastShownAt.set(id, Date.now())
+            // An error pinned open with autoClose:false is a deliberate persistent prompt (e.g. a
+            // re-auth or verified-domain block whose only exit is its logout button). Not tracking
+            // it keeps a scene change from sweeping it, which would strand the user with a failing
+            // session and, where the caller latches a "shown" flag, no way to raise it again.
+            if (options.autoClose !== false) {
+                errorToastShownAt.set(id, Date.now())
+            }
         })
         return id
     },

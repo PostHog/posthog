@@ -88,5 +88,22 @@ describe('LemonToast', () => {
             expect(toast.isActive(errorId)).toBe(true)
             expect(toast.isActive(successId)).toBe(true)
         })
+
+        it('spares an error pinned open with autoClose:false, even when aged past the grace window', async () => {
+            render(<ToastContainer autoClose={false} />)
+            let id: number | string = ''
+            await act(async () => {
+                // An actionable prompt whose only exit is its own button (e.g. a re-auth block).
+                id = lemonToast.error('re-authenticate to continue', { autoClose: false })
+                await jest.advanceTimersByTimeAsync(300)
+            })
+            expect(toast.isActive(id)).toBe(true)
+
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(1500)
+                lemonToast.dismissStaleErrors()
+            })
+            expect(toast.isActive(id)).toBe(true)
+        })
     })
 })
