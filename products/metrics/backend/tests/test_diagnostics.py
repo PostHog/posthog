@@ -1,9 +1,12 @@
 import datetime as dt
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
 
+from products.metrics.backend import diagnostics
 from products.metrics.backend.diagnostics import decompose_bucket
 from products.metrics.backend.fundamentals import SpatialReducer, TemporalReducer
 from products.metrics.backend.tests._seeder import seed_metric
@@ -226,3 +229,82 @@ class TestExplainEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == 400
+
+
+class TestCounterBoundary(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        # The predecessor sample sits in the previous bucket; the chart's window
+        # function diffs across that edge, so the check has to as well.
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="bytes_total",
+            metric_type="sum",
+            aggregation_temporality="cumulative",
+            is_monotonic=True,
+            labels={"pod": "a"},
+            points=[
+                (BUCKET - dt.timedelta(seconds=60), 100.0),
+                (BUCKET + dt.timedelta(seconds=60), 120.0),
+                (BUCKET + dt.timedelta(seconds=120), 140.0),
+            ],
+        )
+
+    def test_increase_counts_the_rise_across_the_bucket_edge(self) -> None:
+        decomposition = decompose_bucket(
+            team=self.team,
+            metric_name="bytes_total",
+            aggregation="increase",
+            bucket_start=BUCKET,
+            interval="minute_5",
+        )
+
+        # 100 -> 120 -> 140: the bucket rose by 40, of which 20 crosses the
+        # edge. Read in isolation, both sides would drop that 20 and agree on
+        # a value the chart never plotted.
+        assert decomposition.reference_value == 40.0
+        assert decomposition.actual_value == 40.0
+        assert decomposition.agrees is True
+
+    def test_rate_normalizes_the_boundary_increase_too(self) -> None:
+        decomposition = decompose_bucket(
+            team=self.team,
+            metric_name="bytes_total",
+            aggregation="rate",
+            bucket_start=BUCKET,
+            interval="minute_5",
+        )
+
+        assert decomposition.reference_value == pytest.approx(40.0 / 300.0)
+        assert decomposition.agrees is True
+
+
+class TestTruncatedBucket(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+
+    def test_truncated_read_reports_not_comparable_instead_of_a_verdict(self) -> None:
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="cache_size",
+            metric_type="gauge",
+            aggregation_temporality="",
+            labels={"pod": "a"},
+            points=[(BUCKET + dt.timedelta(seconds=10 * i), float(i)) for i in range(6)],
+        )
+
+        with patch.object(diagnostics, "_MAX_ROWS_READ", 5):
+            decomposition = decompose_bucket(
+                team=self.team,
+                metric_name="cache_size",
+                aggregation="sum",
+                bucket_start=BUCKET,
+                interval="minute_5",
+            )
+
+        # The reference saw 5 of 6 rows while the runner saw all of them, so
+        # any verdict would be an artifact of the unequal inputs.
+        assert decomposition.rows_truncated is True
+        assert decomposition.agrees is None

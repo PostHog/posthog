@@ -64,10 +64,15 @@ def _interval_step(interval: str) -> dt.timedelta:
     raise ValueError(f"Unknown interval: {interval!r}")
 
 
+def _as_utc(timestamp: dt.datetime) -> dt.datetime:
+    """ClickHouse hands timestamps back naive; the bucket edges are aware."""
+    return timestamp.replace(tzinfo=dt.UTC) if timestamp.tzinfo is None else timestamp.astimezone(dt.UTC)
+
+
 def _raw_samples_query(
     *,
     metric_name: str,
-    bucket_start: dt.datetime,
+    date_from: dt.datetime,
     bucket_end: dt.datetime,
     filters: Sequence[MetricFilter],
     metric_type: str | None,
@@ -93,7 +98,7 @@ def _raw_samples_query(
         """,
         placeholders={
             "metric_name": ast.Constant(value=metric_name),
-            "date_from": ast.Constant(value=bucket_start),
+            "date_from": ast.Constant(value=date_from),
             "date_to": ast.Constant(value=bucket_end),
             "filters": filters_expr(filters),
             "type_filter": type_filter_expr(metric_type),
@@ -109,6 +114,7 @@ def _actual_value(
     team: Team,
     metric_name: str,
     aggregation: str,
+    date_from: dt.datetime,
     bucket_start: dt.datetime,
     bucket_end: dt.datetime,
     interval: str,
@@ -116,21 +122,27 @@ def _actual_value(
     metric_type: str | None,
     quantile: float | None,
 ) -> float | None:
-    """What the product would plot for this point, through the real runner."""
+    """What the product would plot for this point, through the real runner.
+
+    `date_from` reaches back one bucket for the counter functions so the
+    runner's window function sees the predecessor sample, exactly as it does
+    under the chart; only the requested bucket's row is returned.
+    """
     rows = MetricQueryRunner(
         team=team,
         metric_name=metric_name,
         aggregation=aggregation,
-        date_from=bucket_start,
+        date_from=date_from,
         date_to=bucket_end,
         interval=interval,
         filters=filters,
         metric_type=metric_type,
         quantile=quantile,
     ).run()
-    if not rows:
-        return None
-    return rows[0]["value"]
+    for row in rows:
+        if _as_utc(dt.datetime.fromisoformat(row["time"])) == bucket_start:
+            return row["value"]
+    return None
 
 
 def decompose_bucket(
@@ -147,14 +159,20 @@ def decompose_bucket(
     max_samples_per_series: int = DEFAULT_MAX_SAMPLES_PER_SERIES,
 ) -> MetricBucketDecomposition:
     """Take one chart point apart into the series and samples behind it."""
+    bucket_start = _as_utc(bucket_start)
     step = _interval_step(interval)
     bucket_end = bucket_start + step
+    # The counter functions diff against the last sample before the bucket, the
+    # way the chart's window function does, so their raw read reaches back one
+    # bucket for that predecessor.
+    needs_boundary = aggregation in ("rate", "increase")
+    date_from = bucket_start - step if needs_boundary else bucket_start
 
     response = execute_hogql_query(
         query_type="MetricBucketDecomposition",
         query=_raw_samples_query(
             metric_name=metric_name,
-            bucket_start=bucket_start,
+            date_from=date_from,
             bucket_end=bucket_end,
             filters=filters,
             metric_type=metric_type,
@@ -169,6 +187,7 @@ def decompose_bucket(
     # Group the raw rows into series, keyed the way a series is actually
     # identified: everything that isn't the timestamp or the value.
     grouped: dict[tuple, list[Sample]] = {}
+    predecessors: dict[tuple, Sample] = {}
     identities: dict[tuple, tuple[str, dict[str, str], dict[str, str]]] = {}
     resolved_type = metric_type or ""
     temporality = ""
@@ -179,7 +198,15 @@ def decompose_bucket(
             tuple(sorted(dict(resource_attributes).items())),
             row_metric_type,
         )
-        grouped.setdefault(key, []).append(Sample(timestamp=timestamp, value=float(value)))
+        sample = Sample(timestamp=_as_utc(timestamp), value=float(value))
+        if sample.timestamp < bucket_start:
+            # Only a series' newest pre-bucket reading matters: it is the
+            # baseline its first in-bucket diff runs against.
+            held = predecessors.get(key)
+            if held is None or sample.timestamp > held.timestamp:
+                predecessors[key] = sample
+        else:
+            grouped.setdefault(key, []).append(sample)
         identities.setdefault(key, (service_name, dict(attributes), dict(resource_attributes)))
         # A bucket normally holds one type and one temporality; when a name has
         # been ingested as several, the first is enough to plan a reduction and
@@ -196,7 +223,16 @@ def decompose_bucket(
     if quantile is not None:
         plan = replace(plan, quantile=quantile)
 
-    reference_value = apply_plan(grouped, plan)
+    # Delta increments before the bucket belong to the previous point, so only
+    # the odometer-style reduction gets its baseline prepended.
+    if plan.temporal is TemporalReducer.INCREASE:
+        reduction_input = {
+            key: ([predecessors[key], *samples] if key in predecessors else samples) for key, samples in grouped.items()
+        }
+    else:
+        reduction_input = grouped
+
+    reference_value = apply_plan(reduction_input, plan)
 
     # Largest contributors first — that is what someone reading a surprising
     # total wants to see, and it makes the trimmed tail the least interesting part.
@@ -220,7 +256,7 @@ def decompose_bucket(
                 # a reader adds up still reach the number they are explaining.
                 value=None
                 if plan.temporal is TemporalReducer.POOLED_SAMPLES
-                else reduce_temporal(samples, plan.temporal) / plan.divisor,
+                else reduce_temporal(reduction_input[key], plan.temporal) / plan.divisor,
             )
         )
 
@@ -228,6 +264,7 @@ def decompose_bucket(
         team=team,
         metric_name=metric_name,
         aggregation=aggregation,
+        date_from=date_from,
         bucket_start=bucket_start,
         bucket_end=bucket_end,
         interval=interval,
@@ -252,7 +289,9 @@ def decompose_bucket(
         rows_truncated=rows_truncated,
         reference_value=reference_value,
         actual_value=actual_value,
-        agrees=_agrees(reference_value, actual_value),
+        # A truncated read means the reference covers only part of the bucket,
+        # so any verdict would be an artifact of the unequal inputs.
+        agrees=None if rows_truncated else _agrees(reference_value, actual_value),
     )
 
 

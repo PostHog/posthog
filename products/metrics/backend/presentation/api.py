@@ -675,7 +675,8 @@ class _MetricBucketDecompositionSerializer(serializers.Serializer):
         help_text="The value the product would plot for this point. Null when the query returned no row.",
     )
     agrees = serializers.BooleanField(
-        help_text="Whether the two values match. False means one of the reductions is wrong, and the series breakdown shows where they parted."
+        allow_null=True,
+        help_text="Whether the two values match. False means one of the reductions is wrong, and the series breakdown shows where they parted. Null when the raw read was truncated, so the two are not comparable.",
     )
 
 

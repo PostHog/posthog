@@ -116,8 +116,14 @@ const Decomposition = ({ decomposition }: { decomposition: _MetricBucketDecompos
 
     return (
         <div className="flex flex-col gap-3">
-            <LemonBanner type={decomposition.agrees ? 'success' : 'error'}>
-                {decomposition.agrees ? (
+            <LemonBanner type={decomposition.agrees === null ? 'warning' : decomposition.agrees ? 'success' : 'error'}>
+                {decomposition.agrees === null ? (
+                    <>
+                        This bucket holds more raw samples than the check reads, so the recomputed value covers only
+                        part of the data and proves nothing about the chart's {formatValue(decomposition.actual_value)}.
+                        Narrow with a filter and check again.
+                    </>
+                ) : decomposition.agrees ? (
                     <>
                         The chart shows {formatValue(decomposition.actual_value)} for this bucket, and recomputing it
                         from the raw samples gives the same number.
@@ -140,15 +146,10 @@ const Decomposition = ({ decomposition }: { decomposition: _MetricBucketDecompos
 
             <p className="mb-0">
                 To get {formatValue(decomposition.reference_value)}, the check {temporal}, then {spatial}.
-                {!decomposition.agrees && ' The chart reached its number a different way.'}
+                {decomposition.aggregation === 'rate' &&
+                    ' The result is divided by the bucket length, so it is per second.'}
+                {decomposition.agrees === false && ' The chart reached its number a different way.'}
             </p>
-
-            {decomposition.rows_truncated && (
-                <LemonBanner type="warning">
-                    This bucket holds more raw samples than the check reads, so the totals above cover only the samples
-                    it read. Try a narrower filter.
-                </LemonBanner>
-            )}
 
             <div>
                 <h4>Series in this bucket</h4>

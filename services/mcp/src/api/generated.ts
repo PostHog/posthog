@@ -83470,8 +83470,11 @@ export namespace Schemas {
          * @nullable
          */
       actual_value: number | null;
-      /** Whether the two values match. False means one of the reductions is wrong, and the series breakdown shows where they parted. */
-      agrees: boolean;
+      /**
+         * Whether the two values match. False means one of the reductions is wrong, and the series breakdown shows where they parted. Null when the raw read was truncated, so the two are not comparable.
+         * @nullable
+         */
+      agrees: boolean | null;
     }
 
     export interface _MetricGroupBy {

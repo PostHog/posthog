@@ -362,4 +362,6 @@ class MetricBucketDecomposition:
     rows_truncated: bool
     reference_value: float | None
     actual_value: float | None
-    agrees: bool
+    # None when the raw read was truncated: the reference then covers only part
+    # of the bucket, so comparing it to the chart proves nothing either way.
+    agrees: bool | None
