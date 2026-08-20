@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -55,17 +56,20 @@ describe('autofillReleaseLogic', () => {
         expect(focusSpy).toHaveBeenCalledTimes(shouldFocus ? 1 : 0)
     })
 
-    it('completes the scene change even if focusing the sink throws', async () => {
+    it('completes the scene change and reports the error if focusing the sink throws', async () => {
         await expectLogic(logic, () => router.actions.push('/insights')).toDispatchActions(['locationChanged'])
 
         const sink = document.querySelector(SINK_SELECTOR) as HTMLInputElement
         // a downstream blur handler on an unmounting form can throw when focus() moves off it
+        const error = new TypeError('y is not a function')
         jest.spyOn(sink, 'focus').mockImplementation(() => {
-            throw new TypeError('y is not a function')
+            throw error
         })
 
         await expectLogic(logic, () => router.actions.push('/dashboard')).toDispatchActions(['locationChanged'])
 
         expect(router.values.location.pathname).toContain('/dashboard')
+        // the failure is swallowed for navigation, but must still reach error tracking
+        expect(posthog.captureException).toHaveBeenCalledWith(error, expect.any(Object))
     })
 })

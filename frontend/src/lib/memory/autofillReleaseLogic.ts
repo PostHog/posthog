@@ -1,6 +1,7 @@
 import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
+import posthog from 'posthog-js'
 
 const SINK_ID = 'autofill-release-sink'
 
@@ -124,8 +125,11 @@ export const autofillReleaseLogic = kea<autofillReleaseLogicType>([
             try {
                 sink.focus({ preventScroll: true })
                 sink.blur()
-            } catch {
-                // a blur/focus handler downstream threw; navigation must still complete
+            } catch (e) {
+                // report the downstream handler's failure so the underlying defect
+                // stays visible in error tracking; navigation must still complete,
+                // so we don't rethrow
+                posthog.captureException(e, { context: 'autofillReleaseLogic sink focus' })
             }
         },
     })),
