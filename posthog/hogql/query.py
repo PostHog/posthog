@@ -52,6 +52,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryErr
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.local_constant_query import try_execute_local_constant_query
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
@@ -636,7 +637,7 @@ class HogQLQueryExecutor:
         self._execute_direct_sql_query(adapter)
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
-    def _execute_clickhouse_query(self):
+    def _execute_clickhouse_query(self) -> None:
         # A None prepared AST compiles to empty SQL: nothing to run, so return empty results.
         # execute() guards this, but direct callers (e.g. web-analytics events prefilter) don't.
         # A None (vs "") clickhouse_sql means _prepare_execution() never ran — surface that.
@@ -649,6 +650,13 @@ class HogQLQueryExecutor:
         clickhouse_context = self.clickhouse_context
         if clickhouse_context is None:
             raise ValueError("Cannot execute ClickHouse query: ClickHouse context was not prepared")
+        if not self.debug and isinstance(self.select_query, ast.SelectQuery):
+            with self.timings.measure("local_constant_execute"):
+                local_result = try_execute_local_constant_query(self.select_query, self.print_columns)
+            if local_result is not None:
+                self.results = local_result.results
+                self.types = local_result.types
+                return
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):

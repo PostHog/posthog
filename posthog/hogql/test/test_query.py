@@ -14,7 +14,7 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -44,6 +44,7 @@ from posthog.hogql.test.utils import (
     pretty_print_response_in_tests,
 )
 
+from posthog.clickhouse.client import sync_execute as execute_clickhouse
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -430,6 +431,54 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(executor.results, [])
         self.assertEqual(executor.types, [])
         mock_sync_execute.assert_not_called()
+
+    @patch("posthog.hogql.query.sync_execute")
+    def test_execute_hogql_query_executes_constants_locally(self, mock_sync_execute: MagicMock) -> None:
+        response = execute_hogql_query(
+            "SELECT 1 AS one, [1, 256, NULL] AS numbers, (1, 'hello') AS pair",
+            team=self.team,
+        )
+
+        self.assertEqual(response.results, [(1, [1, 256, None], (1, "hello"))])
+        self.assertEqual(
+            response.types,
+            [
+                ("one", "UInt8"),
+                ("numbers", "Array(Nullable(UInt16))"),
+                ("pair", "Tuple(UInt8, String)"),
+            ],
+        )
+        self.assertIn("./local_constant_execute", {timing.k for timing in response.timings or []})
+        mock_sync_execute.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "values",
+                "SELECT 1 AS one, -129 AS negative, 1.5 AS fraction, 'hello' AS text, "
+                "NULL AS missing, true AS yes, false AS no, [1, 256, NULL] AS numbers, "
+                "(1, 'hello') AS pair",
+            ),
+            ("false_where", "SELECT 1 AS one WHERE false"),
+            ("zero_limit", "SELECT 1 AS one LIMIT 0"),
+            ("positive_offset", "SELECT 1 AS one LIMIT 1 OFFSET 1"),
+        ]
+    )
+    def test_local_constant_query_matches_clickhouse(self, _name: str, query: str) -> None:
+        oracle_executor = HogQLQueryExecutor(query=query, team=self.team)
+        clickhouse_sql, clickhouse_context = oracle_executor.generate_clickhouse_sql()
+        clickhouse_results, clickhouse_types = execute_clickhouse(
+            clickhouse_sql,
+            clickhouse_context.values,
+            with_column_types=True,
+            team_id=self.team.pk,
+            readonly=True,
+        )
+
+        response = execute_hogql_query(query, team=self.team)
+
+        self.assertEqual(response.results, clickhouse_results)
+        self.assertEqual(response.types, clickhouse_types)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_persons(self):
@@ -2239,7 +2288,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ) as mock_sync_execute,
             patch("posthog.hogql.query.sleep") as mock_sleep,
         ):
-            response = execute_hogql_query("SELECT 1", team=self.team)
+            response = execute_hogql_query("SELECT 1 FROM events LIMIT 1", team=self.team)
 
         self.assertEqual(response.results, [(1,)])
         self.assertEqual(mock_sync_execute.call_count, 2)
@@ -2252,7 +2301,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             patch("posthog.hogql.query.sleep"),
         ):
             with self.assertRaises(CHQueryErrorS3Error):
-                execute_hogql_query("SELECT 1", team=self.team)
+                execute_hogql_query("SELECT 1 FROM events LIMIT 1", team=self.team)
 
         self.assertEqual(mock_sync_execute.call_count, 2)
 
@@ -2264,7 +2313,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             patch("posthog.hogql.query.sleep") as mock_sleep,
         ):
             with self.assertRaises(InternalCHQueryError):
-                execute_hogql_query("SELECT 1", team=self.team)
+                execute_hogql_query("SELECT 1 FROM events LIMIT 1", team=self.team)
 
         self.assertEqual(mock_sync_execute.call_count, 1)
         mock_sleep.assert_not_called()
