@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,6 +19,7 @@ import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/a
 import { SignalScoutRunSummary } from '../types'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
+jest.mock('posthog-js')
 jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutChatTasksCreate: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
@@ -314,6 +316,36 @@ describe('scoutFleetLogic', () => {
         // The endpoint enforces no consent check of its own, so dropping the guard here would
         // start an agent sandbox for an organization that declined AI data processing.
         expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
+    })
+
+    it('reports roster filtering without leaking the search term', async () => {
+        jest.useFakeTimers()
+        try {
+            const capture = posthog.capture as jest.Mock
+            capture.mockClear()
+            logic.actions.loadScoutConfigsSuccess([
+                BASE_CONFIG,
+                { ...BASE_CONFIG, id: 'config-2', skill_name: 'signals-scout-revenue', enabled: false },
+            ])
+
+            logic.actions.setScoutEnabledFilter('disabled')
+            logic.actions.setScoutSearch('rev')
+            logic.actions.setScoutSearch('reve')
+            await jest.advanceTimersByTimeAsync(600)
+            logic.actions.setScoutSearch('')
+            await jest.advanceTimersByTimeAsync(600)
+
+            const scoutActions = capture.mock.calls
+                .filter(([event]) => event === 'Scout action')
+                .map(([, properties]) => properties)
+            expect(scoutActions).toEqual([
+                expect.objectContaining({ action_type: 'filter_enabled', filter: 'disabled', filter_match_count: 1 }),
+                expect.objectContaining({ action_type: 'search_scouts', search_length: 4, filter_match_count: 1 }),
+            ])
+            expect(JSON.stringify(scoutActions)).not.toContain('reve')
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('resets the in-flight chat type when the kickoff fails', async () => {

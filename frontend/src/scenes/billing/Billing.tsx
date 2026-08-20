@@ -7,11 +7,11 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import * as judge from '@posthog/brand/hoggies/png/judge'
+import * as star from '@posthog/brand/hoggies/png/star'
 import { IconDocument } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { StarHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -41,6 +41,7 @@ import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
 
 const HedgehogJudge = pngHoggie(judge)
+const HedgehogStar = pngHoggie(star)
 
 export const scene: SceneExport = {
     component: Billing,
@@ -205,7 +206,7 @@ export function Billing(): JSX.Element {
                 <div className="mt-6 max-w-300">
                     <LemonBanner type="info" hideIcon>
                         <div className="flex items-center gap-4">
-                            <StarHog className="w-16 h-16 flex-shrink-0" />
+                            <HedgehogStar className="w-16 h-16 flex-shrink-0" />
                             <div>
                                 <p className="font-semibold mb-2">You have active coupons!</p>
                                 <ul className="list-disc list-inside space-y-1">

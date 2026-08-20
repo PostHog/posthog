@@ -1235,6 +1235,14 @@ class AccountViewSet(
                 description="Include churned accounts. Churned accounts are hidden by default.",
             ),
             OpenApiParameter(
+                name="include_ignored",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                description="Include ignored accounts. Ignored accounts are hidden by default.",
+            ),
+            OpenApiParameter(
                 name="ordering",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -1259,6 +1267,7 @@ class AccountViewSet(
                 tags=tags,
                 all_roles_unassigned=request.query_params.get("all_roles_unassigned", "").lower() == "true",
                 include_churned=request.query_params.get("include_churned", "").lower() == "true",
+                include_ignored=request.query_params.get("include_ignored", "").lower() == "true",
                 ordering=ordering,
             ),
             AccountSerializer,

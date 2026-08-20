@@ -841,9 +841,13 @@ export function planFeedQuery(
   }
 
   const archived = groups.get("archived");
-  if (archived && archived.positives.length > 0) {
+  if (archived) {
     // Task lists exclude archived tasks unless the query includes them.
-    server.archived = true;
+    if (archived.positives.length > 0 && archived.negatives.length > 0) {
+      predicates.push(MATCH_NONE);
+    } else if (archived.positives.length > 0) {
+      server.archived = true;
+    }
   }
 
   const pr = groups.get("pr");

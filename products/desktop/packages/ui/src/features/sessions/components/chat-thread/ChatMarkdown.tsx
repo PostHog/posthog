@@ -12,6 +12,7 @@ import {
 } from "@posthog/quill";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
   markOpenLinkDestination,
@@ -100,6 +101,8 @@ const components: Components = {
         <EvidenceRefChip target={evidenceTarget}>{children}</EvidenceRefChip>
       );
     }
+    const githubChip = githubRefChipFor(href, children);
+    if (githubChip) return githubChip;
     const link = (
       <a
         href={href}
