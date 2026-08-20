@@ -12,6 +12,7 @@ import structlog
 import dns.resolver
 
 from posthog.constants import AvailableFeature
+from posthog.dns_utils import dnssec_resolver
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig
@@ -379,9 +380,8 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         Performs a DNS verification for a specific domain.
         """
         try:
-            # TODO: Should we manually validate DNSSEC?
-            dns_response = dns.resolver.resolve(f"_posthog-challenge.{self.domain}", "TXT")
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            dns_response = dnssec_resolver().resolve(f"_posthog-challenge.{self.domain}", "TXT")
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):
             pass
         else:
             for item in list(dns_response.response.answer[0]):

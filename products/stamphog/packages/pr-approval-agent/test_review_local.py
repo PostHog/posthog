@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import MagicMock
 
 # review_local pulls in review_pr, whose reviewer.py imports claude_agent_sdk (installed by
@@ -342,6 +343,7 @@ def test_absent_review_threads_key_is_a_clean_no_op(monkeypatch) -> None:
     assert pr.review_comments == []
 
 
+@freeze_time("2026-01-01T12:00:00Z")
 def test_fresh_trusted_bot_eyes_reach_pr_data_and_flag_in_flight(monkeypatch) -> None:
     # The hosted context now carries raw PR reactions; a fresh 👀 from an allowlisted reviewer bot
     # must reach PRData so the offline WAIT check can fire — hard-coding pr_reactions=[] meant
