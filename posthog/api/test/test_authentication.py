@@ -628,6 +628,7 @@ class TestLoginAPI(APIBaseTest):
             distinct_id=self.user.distinct_id,
             event="user login failed",
             properties={"failure_reason": "invalid_credentials", "account_exists": True},
+            groups={"instance": ANY},
         )
 
     @patch("posthoganalytics.capture")
@@ -653,6 +654,7 @@ class TestLoginAPI(APIBaseTest):
                 "account_exists": False,
                 "$process_person_profile": False,
             },
+            groups={"instance": ANY},
         )
 
     def test_cant_login_without_required_attributes(self):
@@ -1843,6 +1845,7 @@ class TestPasswordResetAPI(APIBaseTest):
             distinct_id=self.user.distinct_id,
             event="user login failed",
             properties={"failure_reason": "invalid_credentials", "account_exists": True},
+            groups={"instance": ANY},
         )
         self.assertEqual(mock_capture.call_count, 3)
 

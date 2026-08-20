@@ -159,6 +159,8 @@ def report_user_login_failed(failure_reason: str, distinct_id: str | None = None
         distinct_id=distinct_id or str(uuid4()),
         event="user login failed",
         properties=properties,
+        # The instance group lets failure rates be broken down by deployment, matching "user logged in".
+        groups=groups(),
     )
 
 
