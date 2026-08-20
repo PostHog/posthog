@@ -2030,7 +2030,7 @@ describe('Hog Executor', () => {
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('email')
             expect(result.invocation.queueMetadata?.originQueue).toBe('hogflow')
-            expect(result.invocation.queuePriority).toBe(10)
+            expect(result.invocation.queuePriority).toBe(1)
             expect(result.invocation.queueMetadata?.originPriority).toBe(invocation.queuePriority)
             expect(result.metrics).toContainEqual(
                 expect.objectContaining({
@@ -2070,14 +2070,16 @@ describe('Hog Executor', () => {
             const invocation: CyclotronJobInvocationHogFunction = {
                 ...createExampleInvocation(hogFunction),
                 queue: 'email',
-                queuePriority: 10,
-                queueMetadata: { originQueue: 'hogflow', originPriority: 1 },
+                queuePriority: 1,
+                // originPriority 0 also guards the restore against a `||`-style
+                // fallback that would treat a falsy origin priority as absent.
+                queueMetadata: { originQueue: 'hogflow', originPriority: 0 },
             }
 
             const result = (executor as any).routeToQueue(invocation, 'hogflow')
 
             expect(result.invocation.queue).toBe('hogflow')
-            expect(result.invocation.queuePriority).toBe(1)
+            expect(result.invocation.queuePriority).toBe(0)
             expect(result.invocation.queueMetadata).toBeUndefined()
         })
 

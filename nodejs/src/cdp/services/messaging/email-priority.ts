@@ -11,16 +11,16 @@ import { HogFunctionType } from '../../types'
  *
  * 'fast' dequeues before 'bulk' (lower value wins, matching the hog/hogflow
  * queues' priority semantics). The SES rate-limit token bucket is claimed in
- * dequeue order, so dequeue priority is also send priority. The gap between
- * the values leaves room for intermediate classes, and keeps 'bulk' above the
- * 0-2 range the hogflow queue uses, so rows routed by pre-classification
- * workers sort between the two classes rather than behind 'bulk'.
+ * dequeue order, so dequeue priority is also send priority. Only the relative
+ * order of the values matters: email rows are only ever compared against
+ * other email rows, and routeToQueue restores the origin priority before a
+ * job leaves the email queue.
  */
 export type EmailQueuePriorityClass = 'fast' | 'bulk'
 
 export const EMAIL_QUEUE_PRIORITY: Record<EmailQueuePriorityClass, number> = {
     fast: 0,
-    bulk: 10,
+    bulk: 1,
 }
 
 /**
