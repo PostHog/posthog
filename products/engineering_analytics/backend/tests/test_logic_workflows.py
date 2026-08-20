@@ -17,6 +17,7 @@ from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
+    TRUNK_MERGE_QUEUE_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -24,7 +25,9 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     _issue_event_row,
     _pr_row,
     _run_row,
+    _trunk_queue_row,
     connect_github_source_without_data,
+    create_trunk_source,
 )
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _RUN_QUERY,
@@ -454,6 +457,51 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.merge_queue_p95_first_gate_to_merge_seconds == pytest.approx(1.95 * 86400)
         assert overview.merge_queue_p99_first_gate_to_merge_seconds == pytest.approx(1.99 * 86400)
         assert overview.merge_queue_median_first_gate_to_merge_seconds_prev is None
+        # No TrunkIo source connected: the Trunk-recorded outcomes read unavailable, never zero.
+        assert overview.merge_queue_trunk_available is False
+        assert overview.merge_queue_ejected_share is None
+        assert overview.merge_queue_skip_the_line_count is None
+
+    def test_repo_overview_trunk_queue_outcomes(self) -> None:
+        # Guards the Trunk-recorded outcomes: only concluded states enter the eviction denominator,
+        # and windowing keys on each entry's last state change.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "closed", 0, _ago(10), merged_at=_ago(2), head_sha="sha80")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80)],
+        )
+        trunk = create_trunk_source(self.team)
+        self._create_table(
+            "trunk_io_merge_queue_pull_requests",
+            TRUNK_MERGE_QUEUE_COLUMNS,
+            [
+                _trunk_queue_row("q1", "merged", 80, _ago(2), skip_the_line=True),
+                _trunk_queue_row("q2", "merged", 81, _ago(3)),
+                _trunk_queue_row("q3", "merged", 82, _ago(4)),
+                _trunk_queue_row("q4", "failed", 83, _ago(5)),
+                _trunk_queue_row("q5", "cancelled", 84, _ago(6)),
+                # Still testing: concluded nothing, so it enters no denominator.
+                _trunk_queue_row("q6", "testing", 85, _ago(1)),
+                # Previous window (a -30d window's prev twin covers [-60d, -30d)).
+                _trunk_queue_row("q7", "failed", 60, _ago(45)),
+                _trunk_queue_row("q8", "merged", 61, _ago(44), skip_the_line=True),
+            ],
+            source=trunk,
+            prefix="trunkprefix_",
+            schema_name="MergeQueuePullRequests",
+        )
+
+        overview = api.get_repo_overview(team=self.team, include_series=False)
+        assert overview.merge_queue_trunk_available is True
+        assert overview.merge_queue_ejected_share == pytest.approx(0.4)  # failed + cancelled of 5 concluded
+        assert overview.merge_queue_ejected_share_prev == pytest.approx(0.5)  # 1 of 2 concluded
+        assert overview.merge_queue_skip_the_line_count == 1
+        assert overview.merge_queue_skip_the_line_count_prev == 1
 
     def test_repo_overview_ready_to_merge_median_and_series(self) -> None:
         # Guards the overview's ready_by_pr join: the headline must anchor on the last ready
