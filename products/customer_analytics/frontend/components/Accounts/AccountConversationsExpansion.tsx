@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconLock, IconSupport } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCard,
     LemonCheckbox,
@@ -21,13 +22,13 @@ import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 import { urls } from 'scenes/urls'
 
 import gmailIcon from 'public/services/gmail.png'
 
 import type {
     AccountEmailThreadMessageApi,
-    AccountEmailThreadParticipantApi,
     AccountSupportTicketMessageApi,
     ConversationMessageSummaryApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -38,7 +39,7 @@ import {
     ConversationSource,
     NOT_LOADED,
 } from './accountConversationsLogic'
-import { accountEmailThreadsLogic } from './accountEmailThreadsLogic'
+import { accountEmailThreadsLogic, MESSAGE_PAGE_SIZE } from './accountEmailThreadsLogic'
 import { periodLabel } from './AccountSummariesExpansion'
 import { AccountSummaryCadencePicker } from './AccountSummaryCadencePicker'
 
@@ -194,16 +195,6 @@ function Person({ name, email, personId }: { name: string; email?: string; perso
     return personId ? <Link to={urls.personByUUID(personId)}>{content}</Link> : content
 }
 
-function EmailParticipant({ participant }: { participant: AccountEmailThreadParticipantApi }): JSX.Element {
-    return (
-        <Person
-            name={participant.display_name || participant.email}
-            email={participant.email}
-            personId={participant.kind === 'customer' ? participant.person_id : null}
-        />
-    )
-}
-
 function LatestMessageActivity({ message }: { message: ConversationMessageSummaryApi }): JSX.Element {
     const person = (
         <Person
@@ -309,7 +300,7 @@ function ConversationDetail({
     conversation: AccountConversation
 }): JSX.Element {
     const emailLogic = accountEmailThreadsLogic({ accountId })
-    const { threadDetails, threadDetailsLoading, threadDetailErrors } = useValues(emailLogic)
+    const { threadDetails, threadDetailsLoading, threadDetailErrors, threadDetailPages } = useValues(emailLogic)
     const {
         expandedSummaryMessageIds,
         supportTicketMessages,
@@ -317,6 +308,7 @@ function ConversationDetail({
         supportTicketMessageErrors,
     } = useValues(accountConversationsLogic({ accountId }))
     const { toggleSummaryMessages } = useActions(accountConversationsLogic({ accountId }))
+    const { setThreadDetailPage } = useActions(emailLogic)
 
     if (conversation.source === 'slack') {
         return (
@@ -404,11 +396,23 @@ function ConversationDetail({
     if (!detail || threadDetailErrors[conversation.email.id]) {
         return <EmptyState title="Couldn't load this conversation" detail="Collapse it and try again." />
     }
+    const page = threadDetailPages[conversation.email.id] ?? 1
     return (
         <div className="flex flex-col gap-2 bg-surface-primary p-4">
             {detail.results.map((message) => (
                 <EmailMessage key={message.id} message={message} />
             ))}
+            <PaginationControl
+                pagination={{ controlled: true, pageSize: MESSAGE_PAGE_SIZE }}
+                currentPage={page}
+                setCurrentPage={(newPage) => setThreadDetailPage(conversation.email.id, newPage)}
+                pageCount={Math.max(1, Math.ceil(detail.count / MESSAGE_PAGE_SIZE))}
+                dataSourcePage={detail.results}
+                entryCount={detail.count}
+                currentStartIndex={(page - 1) * MESSAGE_PAGE_SIZE}
+                currentEndIndex={(page - 1) * MESSAGE_PAGE_SIZE + detail.results.length}
+                nouns={['message', 'messages']}
+            />
         </div>
     )
 }
@@ -446,22 +450,57 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
         searchTerm,
         sources,
         expandedConversationId,
+        olderConversationCount,
     } = useValues(logic)
-    const { setSearchTerm, setSources, openConversation, closeConversation } = useActions(logic)
+    const { setSearchTerm, setSources, openConversation, closeConversation, loadMoreConversations } = useActions(logic)
     const { openThread, closeThread } = useActions(emailLogic)
 
-    if (conversationsResult === NOT_LOADED || conversationsResultLoading) {
+    if (
+        conversationsResult === NOT_LOADED ||
+        (conversationsResultLoading && conversationsResult.conversations === null)
+    ) {
         return <LemonSkeleton className="h-64 w-full" />
     }
+    const toolbar = (
+        <div className="hide-scrollbar flex items-center gap-4 overflow-x-auto pb-1">
+            <LemonInput
+                type="search"
+                value={searchTerm}
+                onChange={setSearchTerm}
+                placeholder="Search conversations"
+                size="small"
+                className="min-w-56 max-w-md flex-1"
+                data-attr="account-conversations-search"
+            />
+            <SourceFilter sources={sources} onChange={setSources} />
+            <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
+                <span className="text-sm text-muted">Slack summary cadence</span>
+                <AccountSummaryCadencePicker accountId={accountId} />
+            </div>
+        </div>
+    )
     if (conversationsResult.loadFailed) {
-        return <EmptyState title="Couldn't load conversations" detail="Refresh the page to try again." />
+        return (
+            <div className="flex flex-col gap-3">
+                {toolbar}
+                <EmptyState title="Couldn't load conversations" detail="Refresh the page to try again." />
+            </div>
+        )
     }
     if (!conversationsResult.conversations?.length) {
         return (
-            <EmptyState
-                title="No conversations yet"
-                detail="Email, Support, and Slack conversations will appear here."
-            />
+            <div className="flex flex-col gap-3">
+                {toolbar}
+                {conversationsResult.failedSources.length > 0 && (
+                    <LemonBanner type="warning">
+                        Some conversation sources aren't available. Showing the sources that loaded.
+                    </LemonBanner>
+                )}
+                <EmptyState
+                    title="No conversations yet"
+                    detail="Email, Support, and Slack conversations will appear here."
+                />
+            </div>
         )
     }
 
@@ -509,8 +548,16 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
             align: 'left',
             render: (_, conversation) => {
                 if (conversation.source === 'email') {
-                    const starter = conversation.email.participants[0]
-                    return starter ? <EmailParticipant participant={starter} /> : <span className="text-muted">—</span>
+                    const starter = conversation.email.first_message?.sender
+                    return starter ? (
+                        <Person
+                            name={starter.name || starter.email || 'Unknown sender'}
+                            email={starter.email ?? undefined}
+                            personId={starter.person_id}
+                        />
+                    ) : (
+                        <span className="text-muted">—</span>
+                    )
                 }
                 if (conversation.source === 'support') {
                     return (
@@ -558,22 +605,12 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="hide-scrollbar flex items-center gap-4 overflow-x-auto pb-1">
-                <LemonInput
-                    type="search"
-                    value={searchTerm}
-                    onChange={setSearchTerm}
-                    placeholder="Search conversations"
-                    size="small"
-                    className="min-w-56 max-w-md flex-1"
-                    data-attr="account-conversations-search"
-                />
-                <SourceFilter sources={sources} onChange={setSources} />
-                <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
-                    <span className="text-sm text-muted">Slack summary cadence</span>
-                    <AccountSummaryCadencePicker accountId={accountId} />
-                </div>
-            </div>
+            {toolbar}
+            {conversationsResult.failedSources.length > 0 && (
+                <LemonBanner type="warning">
+                    Some conversation sources aren't available. Showing the sources that loaded.
+                </LemonBanner>
+            )}
             <LemonTable<AccountConversation>
                 data-attr="account-conversations-table"
                 size="small"
@@ -592,8 +629,28 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
                     showRowExpansionToggle: false,
                     noIndent: true,
                 }}
-                emptyState="No conversations match your search and filters."
+                emptyState={
+                    olderConversationCount > 0
+                        ? 'No loaded conversations match. Load older conversations to search more.'
+                        : 'No conversations match your search and filters.'
+                }
             />
+            {olderConversationCount > 0 && (
+                <div className="flex items-center justify-end gap-3">
+                    <span className="text-xs text-muted">
+                        {olderConversationCount} older {olderConversationCount === 1 ? 'conversation' : 'conversations'}{' '}
+                        not loaded
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        loading={conversationsResultLoading}
+                        onClick={loadMoreConversations}
+                    >
+                        Load older conversations
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }

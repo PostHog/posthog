@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -44,6 +46,16 @@ describe('accountConversationsLogic', () => {
                     subject: 'Renewal planning',
                     preview: 'Latest email',
                     first_message_at: '2026-08-01T09:00:00Z',
+                    first_message: {
+                        sender: {
+                            name: 'Example customer',
+                            email: 'customer@example.com',
+                            person_id: null,
+                            distinct_id: null,
+                        },
+                        sent_at: '2026-08-01T09:00:00Z',
+                        direction: 'inbound',
+                    },
                     last_message_at: '2026-08-03T09:00:00Z',
                     last_message: {
                         sender: {
@@ -148,6 +160,9 @@ describe('accountConversationsLogic', () => {
         logic.actions.setSearchTerm('support preview')
         expect(logic.values.filteredConversations.map((conversation) => conversation.source)).toEqual(['support'])
 
+        logic.actions.setSearchTerm('Account manager')
+        expect(logic.values.filteredConversations.map((conversation) => conversation.source)).toEqual(['slack'])
+
         logic.actions.setSearchTerm('')
         logic.actions.setSources(['email'])
         expect(logic.values.filteredConversations.map((conversation) => conversation.source)).toEqual(['email'])
@@ -163,5 +178,44 @@ describe('accountConversationsLogic', () => {
         expect(logic.values.expandedSummaryMessageIds['22222222-2222-2222-2222-222222222222']).toBeUndefined()
         logic.actions.toggleSummaryMessages('22222222-2222-2222-2222-222222222222')
         expect(logic.values.expandedSummaryMessageIds['22222222-2222-2222-2222-222222222222']).toBe(true)
+    })
+
+    it('keeps available conversations when one source is forbidden', async () => {
+        mockSupportTickets.mockRejectedValue(new ApiError('Forbidden', 403))
+        logic = accountConversationsLogic({ accountId: 'account-1' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.conversationsResult.failedSources).toEqual(['support'])
+        expect(logic.values.filteredConversations.map(({ source }) => source)).toEqual(['slack', 'email'])
+        expect(logic.values.conversationsResult.loadFailed).toBeUndefined()
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    it('loads older paginated conversations without replacing the current timeline', async () => {
+        const firstPage = await mockSummaries('997', 'account-1', { limit: 50, offset: 0 })
+        const olderSummary = {
+            ...firstPage.results[0],
+            id: '44444444-4444-4444-4444-444444444444',
+            content: 'Older Slack summary',
+            generated_at: '2026-07-10T01:00:00Z',
+        }
+        jest.clearAllMocks()
+        mockSummaries
+            .mockResolvedValueOnce({ ...firstPage, count: 2 })
+            .mockResolvedValueOnce({ ...firstPage, count: 2, results: [olderSummary] })
+        logic = accountConversationsLogic({ accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.olderConversationCount).toBe(1)
+        await expectLogic(logic, () => logic.actions.loadMoreConversations()).toFinishAllListeners()
+
+        expect(mockSummaries).toHaveBeenLastCalledWith('997', 'account-1', { limit: 50, offset: 1 })
+        expect(logic.values.olderConversationCount).toBe(0)
+        expect(logic.values.conversationsResult.conversations?.map(({ id }) => id)).toContain(
+            'slack:44444444-4444-4444-4444-444444444444'
+        )
     })
 })

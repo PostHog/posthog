@@ -1116,6 +1116,11 @@ class AccountEmailThreadSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Source timestamp of the first captured message.",
     )
+    first_message = ConversationMessageSummarySerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Sender, timestamp, and direction of the first captured message, when available.",
+    )
     last_message_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -1144,6 +1149,7 @@ class AccountEmailThreadSerializer(DataclassSerializer):
             "subject",
             "preview",
             "first_message_at",
+            "first_message",
             "last_message_at",
             "last_message",
             "message_count",

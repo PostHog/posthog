@@ -477,6 +477,16 @@ export const RowExpandedEmailThreads: Story = {
                     subject: 'Renewal planning',
                     preview: 'I shared the revised timeline with the team.',
                     first_message_at: '2026-05-20T09:00:00Z',
+                    first_message: {
+                        sender: {
+                            name: 'Example buyer',
+                            email: 'buyer@example.com',
+                            person_id: null,
+                            distinct_id: null,
+                        },
+                        sent_at: '2026-05-20T09:00:00Z',
+                        direction: 'inbound',
+                    },
                     last_message_at: '2026-05-20T11:30:00Z',
                     last_message: {
                         sender: {

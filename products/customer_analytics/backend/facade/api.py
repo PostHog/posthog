@@ -3788,7 +3788,7 @@ def get_account_support_tickets(
     account = _resolve_account(team_id, account_id=account_id)
     if account is None or not account.external_id:
         return []
-    return list_account_tickets(team_id, account.external_id, limit=limit)
+    return list_account_tickets(team_id, account.external_id, user_access_control, limit=limit)
 
 
 def get_account_support_ticket_messages(
@@ -3811,6 +3811,7 @@ def get_account_support_ticket_messages(
         team_id,
         account.external_id,
         ticket_id,
+        user_access_control,
         offset=offset,
         limit=limit,
     )

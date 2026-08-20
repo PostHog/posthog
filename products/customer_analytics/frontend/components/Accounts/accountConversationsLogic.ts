@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -26,10 +27,18 @@ export type AccountConversation =
 
 interface AccountConversationsResult {
     conversations: AccountConversation[] | null
+    emailCount: number
+    failedSources: ConversationSource[]
     loadFailed?: boolean
+    summaryCount: number
 }
 
-export const NOT_LOADED: AccountConversationsResult = { conversations: null }
+export const NOT_LOADED: AccountConversationsResult = {
+    conversations: null,
+    emailCount: 0,
+    failedSources: [],
+    summaryCount: 0,
+}
 const LIST_LIMIT = 50
 
 export interface AccountConversationsLogicProps {
@@ -43,6 +52,7 @@ interface accountConversationsLogicValues {
     expandedConversationId: string | null
     expandedSummaryMessageIds: Record<string, boolean>
     filteredConversations: AccountConversation[]
+    olderConversationCount: number
     searchTerm: string
     sources: ConversationSource[]
     supportTicketMessageErrors: Record<string, boolean>
@@ -55,6 +65,12 @@ interface accountConversationsLogicActions {
     loadConversations: () => void
     loadConversationsFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     loadConversationsSuccess: (
+        conversationsResult: AccountConversationsResult,
+        payload?: unknown
+    ) => { conversationsResult: AccountConversationsResult; payload?: unknown }
+    loadMoreConversations: () => void
+    loadMoreConversationsFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
+    loadMoreConversationsSuccess: (
         conversationsResult: AccountConversationsResult,
         payload?: unknown
     ) => { conversationsResult: AccountConversationsResult; payload?: unknown }
@@ -81,6 +97,53 @@ type accountConversationsLogicType = MakeLogicType<
     accountConversationsLogicMeta
 >
 
+function createEmailConversations(emails: readonly AccountEmailThreadApi[]): AccountConversation[] {
+    return emails.map(
+        (email): AccountConversation => ({
+            id: `email:${email.id}`,
+            source: 'email',
+            occurredAt: email.last_message?.sent_at ?? email.last_message_at,
+            email,
+        })
+    )
+}
+
+function createSupportConversations(tickets: readonly SupportTicketApi[]): AccountConversation[] {
+    return tickets.map(
+        (ticket): AccountConversation => ({
+            id: `support:${ticket.id}`,
+            source: 'support',
+            occurredAt: ticket.last_message?.sent_at ?? ticket.last_message_at,
+            ticket,
+        })
+    )
+}
+
+function createSlackConversations(summaries: readonly AccountChannelSummaryApi[]): AccountConversation[] {
+    return summaries.map(
+        (summary): AccountConversation => ({
+            id: `slack:${summary.id}`,
+            source: 'slack',
+            occurredAt: summary.generated_at,
+            summary,
+        })
+    )
+}
+
+function sortConversations(conversations: AccountConversation[]): AccountConversation[] {
+    return conversations.sort((left, right) => (right.occurredAt ?? '').localeCompare(left.occurredAt ?? ''))
+}
+
+function captureSourceFailure(source: ConversationSource, error: unknown): void {
+    if (error instanceof ApiError && error.status === 403) {
+        return
+    }
+    posthog.captureException(error instanceof Error ? error : new Error(`Failed to load ${source} conversations`), {
+        scope: 'accountConversationsLogic.loadConversations',
+        source,
+    })
+}
+
 function searchableText(conversation: AccountConversation): string {
     if (conversation.source === 'email') {
         return `${conversation.email.subject} ${conversation.email.preview} ${conversation.email.participants
@@ -90,7 +153,7 @@ function searchableText(conversation: AccountConversation): string {
     if (conversation.source === 'support') {
         return `${conversation.ticket.ticket_number} ${conversation.ticket.last_message_text ?? ''} ${conversation.ticket.started_by}`
     }
-    return `${conversation.summary.period_start} ${conversation.summary.period_end} ${conversation.summary.content}`
+    return `${conversation.summary.period_start} ${conversation.summary.period_end} ${conversation.summary.content} ${conversation.summary.messages.map(({ author }) => author).join(' ')}`
 }
 
 export const accountConversationsLogic = kea<accountConversationsLogicType>([
@@ -116,50 +179,107 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
             NOT_LOADED,
             {
                 loadConversations: async (): Promise<AccountConversationsResult> => {
-                    try {
-                        const [emailResponse, supportTickets, summaryResponse] = await Promise.all([
-                            accountsEmailThreadsList(String(values.currentTeamId), props.accountId, {
-                                limit: LIST_LIMIT,
-                                offset: 0,
-                            }),
-                            accountsSupportTicketsList(String(values.currentTeamId), props.accountId),
-                            accountsSummariesList(String(values.currentTeamId), props.accountId, {
-                                limit: LIST_LIMIT,
-                                offset: 0,
-                            }),
-                        ])
-                        const conversations: AccountConversation[] = [
-                            ...emailResponse.results.map(
-                                (email): AccountConversation => ({
-                                    id: `email:${email.id}`,
-                                    source: 'email',
-                                    occurredAt: email.last_message?.sent_at ?? email.last_message_at,
-                                    email,
-                                })
-                            ),
-                            ...supportTickets.map(
-                                (ticket): AccountConversation => ({
-                                    id: `support:${ticket.id}`,
-                                    source: 'support',
-                                    occurredAt: ticket.last_message?.sent_at ?? ticket.last_message_at,
-                                    ticket,
-                                })
-                            ),
-                            ...summaryResponse.results.map(
-                                (summary): AccountConversation => ({
-                                    id: `slack:${summary.id}`,
-                                    source: 'slack',
-                                    occurredAt: summary.generated_at,
-                                    summary,
-                                })
-                            ),
-                        ].sort((left, right) => (right.occurredAt ?? '').localeCompare(left.occurredAt ?? ''))
-                        return { conversations }
-                    } catch (error) {
-                        posthog.captureException(error as Error, {
-                            scope: 'accountConversationsLogic.loadConversations',
-                        })
-                        return { conversations: null, loadFailed: true }
+                    const [emailResult, supportResult, summaryResult] = await Promise.allSettled([
+                        accountsEmailThreadsList(String(values.currentTeamId), props.accountId, {
+                            limit: LIST_LIMIT,
+                            offset: 0,
+                        }),
+                        accountsSupportTicketsList(String(values.currentTeamId), props.accountId),
+                        accountsSummariesList(String(values.currentTeamId), props.accountId, {
+                            limit: LIST_LIMIT,
+                            offset: 0,
+                        }),
+                    ])
+                    const results = [
+                        ['email', emailResult],
+                        ['support', supportResult],
+                        ['slack', summaryResult],
+                    ] as const
+                    const failedSources = results
+                        .filter(([, result]) => result.status === 'rejected')
+                        .map(([source]) => source)
+                    for (const [source, result] of results) {
+                        if (result.status === 'rejected') {
+                            captureSourceFailure(source, result.reason)
+                        }
+                    }
+                    if (failedSources.length === results.length) {
+                        return {
+                            conversations: null,
+                            emailCount: 0,
+                            failedSources,
+                            loadFailed: true,
+                            summaryCount: 0,
+                        }
+                    }
+                    const conversations = sortConversations([
+                        ...(emailResult.status === 'fulfilled'
+                            ? createEmailConversations(emailResult.value.results)
+                            : []),
+                        ...(supportResult.status === 'fulfilled'
+                            ? createSupportConversations(supportResult.value)
+                            : []),
+                        ...(summaryResult.status === 'fulfilled'
+                            ? createSlackConversations(summaryResult.value.results)
+                            : []),
+                    ])
+                    return {
+                        conversations,
+                        emailCount: emailResult.status === 'fulfilled' ? emailResult.value.count : 0,
+                        failedSources,
+                        summaryCount: summaryResult.status === 'fulfilled' ? summaryResult.value.count : 0,
+                    }
+                },
+                loadMoreConversations: async (): Promise<AccountConversationsResult> => {
+                    const currentResult = values.conversationsResult
+                    if (!currentResult.conversations) {
+                        return currentResult
+                    }
+                    const loadedEmailCount = currentResult.conversations.filter(
+                        ({ source }) => source === 'email'
+                    ).length
+                    const loadedSummaryCount = currentResult.conversations.filter(
+                        ({ source }) => source === 'slack'
+                    ).length
+                    const [emailResult, summaryResult] = await Promise.allSettled([
+                        loadedEmailCount < currentResult.emailCount
+                            ? accountsEmailThreadsList(String(values.currentTeamId), props.accountId, {
+                                  limit: LIST_LIMIT,
+                                  offset: loadedEmailCount,
+                              })
+                            : Promise.resolve(null),
+                        loadedSummaryCount < currentResult.summaryCount
+                            ? accountsSummariesList(String(values.currentTeamId), props.accountId, {
+                                  limit: LIST_LIMIT,
+                                  offset: loadedSummaryCount,
+                              })
+                            : Promise.resolve(null),
+                    ])
+                    const conversations = [...currentResult.conversations]
+                    const failedSources = [...currentResult.failedSources]
+                    let emailCount = currentResult.emailCount
+                    let summaryCount = currentResult.summaryCount
+                    if (emailResult.status === 'fulfilled' && emailResult.value) {
+                        conversations.push(...createEmailConversations(emailResult.value.results))
+                        emailCount = emailResult.value.count
+                    } else if (emailResult.status === 'rejected') {
+                        failedSources.push('email')
+                        captureSourceFailure('email', emailResult.reason)
+                    }
+                    if (summaryResult.status === 'fulfilled' && summaryResult.value) {
+                        conversations.push(...createSlackConversations(summaryResult.value.results))
+                        summaryCount = summaryResult.value.count
+                    } else if (summaryResult.status === 'rejected') {
+                        failedSources.push('slack')
+                        captureSourceFailure('slack', summaryResult.reason)
+                    }
+                    return {
+                        conversations: sortConversations([
+                            ...new Map(conversations.map((item) => [item.id, item])).values(),
+                        ]),
+                        emailCount,
+                        failedSources: [...new Set(failedSources)],
+                        summaryCount,
                     }
                 },
             },
@@ -219,6 +339,18 @@ export const accountConversationsLogic = kea<accountConversationsLogicType>([
                     (conversation: AccountConversation) =>
                         sources.includes(conversation.source) &&
                         (!normalizedSearch || searchableText(conversation).toLowerCase().includes(normalizedSearch))
+                )
+            },
+        ],
+        olderConversationCount: [
+            (selectors) => [selectors.conversationsResult],
+            (result: AccountConversationsResult): number => {
+                const conversations: AccountConversation[] = result.conversations ?? []
+                const loadedEmailCount = conversations.filter(({ source }) => source === 'email').length
+                const loadedSummaryCount = conversations.filter(({ source }) => source === 'slack').length
+                return (
+                    Math.max(0, result.emailCount - loadedEmailCount) +
+                    Math.max(0, result.summaryCount - loadedSummaryCount)
                 )
             },
         ],

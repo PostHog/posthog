@@ -740,9 +740,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         ))
                                 ) : (
                                     <tr className="LemonTable__empty-state">
-                                        <td colSpan={columns.length + Number(!!expandable)}>
-                                            {emptyState || `No ${nouns[1]}`}
-                                        </td>
+                                        <td colSpan={headerLoaderColSpan}>{emptyState || `No ${nouns[1]}`}</td>
                                     </tr>
                                 )}
                             </tbody>

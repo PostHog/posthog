@@ -419,6 +419,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly first_message_at: string | null;
+      /** Sender, timestamp, and direction of the first captured message, when available. */
+      readonly first_message: ConversationMessageSummary | null;
       /**
          * Source timestamp of the latest captured message.
          * @nullable

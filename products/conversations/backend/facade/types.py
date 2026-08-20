@@ -89,6 +89,7 @@ class AccountEmailThreadSummary:
     subject: str
     preview: str
     first_message_at: datetime | None
+    first_message: ConversationMessageSummary | None
     last_message_at: datetime | None
     last_message: ConversationMessageSummary | None
     message_count: int

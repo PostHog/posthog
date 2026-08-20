@@ -53,11 +53,35 @@ describe('LemonTable', () => {
         expect(renderedOrder()).toEqual(expectedOrder)
     })
 
-    it('keeps headers aligned when the row expansion toggle is hidden', () => {
-        render(
+    it('keeps headers, expanded rows, and empty states aligned when the row expansion toggle is hidden', () => {
+        const { rerender } = render(
             <LemonTable
                 rowKey="id"
                 dataSource={DATA}
+                columns={COLUMNS}
+                expandable={{
+                    expandedRowRender: () => <div>Expanded</div>,
+                    isRowExpanded: () => true,
+                    showRowExpansionToggle: false,
+                    noIndent: true,
+                }}
+            />
+        )
+
+        const headerCells = document.querySelectorAll('thead tr:last-child th')
+        const firstRowCells = document.querySelectorAll('tbody tr:first-child > td')
+        const expansionCells = document.querySelectorAll('tbody tr.LemonTable__expansion > td')
+
+        expect(headerCells).toHaveLength(1)
+        expect(firstRowCells).toHaveLength(1)
+        expect(firstRowCells[0]).toHaveTextContent('alpha')
+        expect(expansionCells).toHaveLength(3)
+        expect(expansionCells[0]).toHaveAttribute('colspan', '1')
+
+        rerender(
+            <LemonTable
+                rowKey="id"
+                dataSource={[]}
                 columns={COLUMNS}
                 expandable={{
                     expandedRowRender: () => <div>Expanded</div>,
@@ -66,12 +90,7 @@ describe('LemonTable', () => {
             />
         )
 
-        const headerCells = document.querySelectorAll('thead tr:last-child th')
-        const firstRowCells = document.querySelectorAll('tbody tr:first-child > td')
-
-        expect(headerCells).toHaveLength(1)
-        expect(firstRowCells).toHaveLength(1)
-        expect(firstRowCells[0]).toHaveTextContent('alpha')
+        expect(document.querySelector('tbody tr.LemonTable__empty-state > td')).toHaveAttribute('colspan', '1')
     })
 
     it('keeps group headers aligned when the sticky first group has a single column', () => {
