@@ -204,6 +204,21 @@ describe("buildChannelItems", () => {
     expect(item.branch).toBe("posthog/session-list");
   });
 
+  it("does not treat a scratch workspace's folder as a repository", () => {
+    const [item] = build({
+      feedTasks: [task({ id: "t1" })],
+      sessionFacts: {
+        needsInputTaskIds: NONE,
+        viewedTimestamps: {},
+        workspaceByTaskId: new Map([
+          ["t1", { folderPath: "/scratch/t1", isScratch: true }],
+        ]),
+      },
+    });
+
+    expect(item.repository).toBeNull();
+  });
+
   it("reads a filed session's source, and none for one started here", () => {
     const items = build({
       feedTasks: [
