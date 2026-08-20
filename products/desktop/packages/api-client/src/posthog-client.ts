@@ -1597,7 +1597,6 @@ export class PostHogAPIClient {
   private api: ReturnType<typeof createApiClient>;
   private _teamId: number | null = null;
   private githubConnectFrom: string;
-  private readonly fetch: FetchImplementation;
   private readonly apiHost: string;
 
   constructor(
@@ -1610,7 +1609,6 @@ export class PostHogAPIClient {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
     this.apiHost = baseUrl;
     this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
-    this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.api = createApiClient(
       buildApiFetcher({
         getAccessToken,
@@ -3718,15 +3716,6 @@ export class PostHogAPIClient {
     }
   }
 
-  async getTaskRunSessionLogs(
-    taskId: string,
-    runId: string,
-    options?: { limit?: number; after?: string },
-  ): Promise<StoredLogEntry[]> {
-    return (await this.getTaskRunSessionLogsResult(taskId, runId, options))
-      .entries;
-  }
-
   // AbortController + setTimeout because Hermes, which runs this client on
   // mobile, has no AbortSignal.timeout.
   private async fetchSessionLogsPage(
@@ -3850,39 +3839,6 @@ export class PostHogAPIClient {
     } catch (err) {
       log.warn("Failed to fetch task run session logs", err);
       return { entries, complete: false, truncatedHeadCount };
-    }
-  }
-
-  async getTaskLogs(taskId: string): Promise<StoredLogEntry[]> {
-    try {
-      const task = await this.getTask(taskId);
-      const logUrl = task?.latest_run?.log_url;
-
-      if (!logUrl) {
-        return [];
-      }
-
-      const response = await this.fetch(logUrl);
-
-      if (!response.ok) {
-        log.warn(
-          `Failed to fetch logs: ${response.status} ${response.statusText}`,
-        );
-        return [];
-      }
-
-      const content = await response.text();
-
-      if (!content.trim()) {
-        return [];
-      }
-      return content
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as StoredLogEntry);
-    } catch (err) {
-      log.warn("Failed to fetch task logs from latest run", err);
-      return [];
     }
   }
 

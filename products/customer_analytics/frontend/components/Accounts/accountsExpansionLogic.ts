@@ -7,6 +7,7 @@ export type AccountExpansionTab =
     | 'notes'
     | 'users'
     | 'relationships'
+    | 'feature_requests'
     | 'usage'
     | 'spend'
     | 'opportunities'
@@ -20,6 +21,7 @@ export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = [
     'notes',
     'users',
     'relationships',
+    'feature_requests',
     'usage',
     'spend',
     'opportunities',

@@ -24,7 +24,7 @@ from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
