@@ -315,7 +315,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 }
 
                 actions.loadEventDefinitions()
-                actionsModel.findMounted()?.actions.loadActions(true)
+                actionsModel.findMounted({ shouldLoad: true })?.actions.loadActions(true)
                 actions.loadTags() // reload tags in case new tags are being saved
                 return action
             },
@@ -402,7 +402,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     actions.resetAction()
                     deleteFromTree('action', String(actionId))
                     router.actions.push(urls.actions())
-                    actionsModel.findMounted()?.actions.loadActions(true)
+                    actionsModel.findMounted({ shouldLoad: true })?.actions.loadActions(true)
                 }
             })
         },
