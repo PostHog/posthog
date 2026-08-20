@@ -24,8 +24,8 @@ for cold or stale mappings.
 | Topic | `clickhouse_usage_records`, 8 partitions, 7-day retention |
 | ClickHouse Kafka table and MV | `NodeRole.INGESTION_SMALL` |
 | ClickHouse storage and read tables | `NodeRole.DATA` |
-| Redis (HyperCache) | the `billing` instance |
-| Owning team | `team-billing` |
+| HyperCache store | a dedicated serverless Valkey cluster |
+| Owning team | `team-ingestion` |
 
 `warpstream-shared` carries the low-volume topics that do not justify a cluster
 of their own, which is what usage records are.
@@ -36,6 +36,14 @@ putting them there would couple billing data to the noisiest cluster for no gain
 The producer and the ClickHouse Kafka engine table must name the same cluster:
 the table takes it from `CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION`,
 and the service takes its topic from `USAGE_INGESTION_TOPIC`.
+
+The Valkey cluster is dedicated rather than shared with billing or ingestion, so
+its cost stays attributable and a usage-reporting incident stays off a shared
+instance.
+The Django publisher and this service must both point at it: they use
+`USAGE_INGESTION_REDIS_URL` and
+`USAGE_INGESTION_TEAM_ORGANIZATION_REDIS_URL` respectively, and if they disagree
+every lookup silently falls through to PostgreSQL.
 
 Partition count can be raised later without risk, which is not true of an
 ordered stream.
