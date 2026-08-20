@@ -4476,6 +4476,10 @@ snapshots:
         hash: v1.k794b7964.62481a20890d8d9702570d58b69f47580c91399daa635cab23d9e8da75d2636f.oAaWHdceTRTQOchqDXvZ7-ym0DB_CpRpPyXnqlKugwo
     lemon-ui-object-tags--static-only--light:
         hash: v1.k794b7964.1a69b09d2bc7612599daf0a1228b103250debc4afa2224fb8005e3c9b7f63326.gU2OzoeUxnsDI54qX0B9UdaUsf0FRNhRuem7P2t2CIY
+    lemon-ui-object-tags--wrap-long-tags-in-narrow-container--dark:
+        hash: v1.k794b7964.d0fa366eb671acf1e7625ca635c64bda5890be3b787b79cf04cfefdf8c373ccb.Du_mnCWcW74eny1ZDLhueIqRdIkmAgbYZ9Yr63EOM4s
+    lemon-ui-object-tags--wrap-long-tags-in-narrow-container--light:
+        hash: v1.k794b7964.e04b66e33d1a6381143b404306d2574d613b6d2171627b7874d82499c86e3d5a.22xFdY4MD0kVHWGQ8wMrjWCScOj4zvXYQpteE5kTJHI
     lemon-ui-pagination-control--bordered--dark:
         hash: v1.k794b7964.35250c17a64dcfcb9d4b9cf13641dbf1c13ac76bf0acaa34df193f91d5d495db.rzQgorIAAL-incvoI_TqbpSdRi7jKRYN6Pq83dr7vBc
     lemon-ui-pagination-control--bordered--light:
