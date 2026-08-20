@@ -560,7 +560,9 @@ class TestReleaseMailgunDomainOnChannelDelete(BaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 team.delete()
 
-        assert not EmailChannel.objects.filter(domain="acme.example.com").exists()
+        # The delete completing is the assertion; this proves the failure was actually
+        # injected, so the test can't pass by the receiver never firing at all.
+        mock_task.delay.assert_called_once_with(domain="acme.example.com")
 
 
 class TestReleaseMailgunDomainTask(BaseTest):
@@ -590,5 +592,7 @@ class TestReleaseMailgunDomainTask(BaseTest):
         with patch(
             "products.conversations.backend.tasks.delete_domain",
             side_effect=MailgunNotConfigured("no key"),
-        ):
+        ) as mock_delete:
             release_mailgun_domain_if_unused("acme.example.com")
+
+        mock_delete.assert_called_once_with("acme.example.com")

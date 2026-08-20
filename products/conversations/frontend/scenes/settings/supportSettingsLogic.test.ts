@@ -12,7 +12,7 @@ import { TeamType } from '~/types'
 import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
-    lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn() },
+    lemonToast: { success: jest.fn(), error: jest.fn(), warning: jest.fn() },
 }))
 
 describe('supportSettingsLogic', () => {

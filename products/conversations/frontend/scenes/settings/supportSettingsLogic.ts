@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { shouldReportApiFailure } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -1411,9 +1410,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error(
                     emailApiErrorMessage(error, 'Could not connect this email. Check the address and try again.')
                 )
-                if (shouldReportApiFailure(error)) {
-                    posthog.captureException(error as Error, { scope: 'supportSettingsLogic.connectEmail' })
-                }
                 actions.connectEmailDone(null)
             }
         },
@@ -1425,9 +1421,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error(
                     emailApiErrorMessage(error, 'Could not disconnect this email. Refresh the page and try again.')
                 )
-                if (shouldReportApiFailure(error)) {
-                    posthog.captureException(error as Error, { scope: 'supportSettingsLogic.disconnectEmail' })
-                }
                 return
             }
             const wasLast = values.emailConfigs.length === 1
