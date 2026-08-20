@@ -9,13 +9,13 @@ import { SCOUT_ROSTER_WINDOW_LABEL, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../
 import { ScoutAlphaBanner } from './ScoutAlphaBanner'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutsEmptyState } from './ScoutsEmptyState'
-import { ScoutsRosterGroups } from './ScoutsRosterGroups'
 import { ScoutsRosterHeader } from './ScoutsRosterHeader'
+import { ScoutsRosterTable } from './ScoutsRosterTable'
 
 /**
- * The scout roster: one grouped table over the whole troop, ordered so the scouts that need a
- * decision sit above the ones that don't. Replaces the card list that used to live in the Scout
- * troop modal — the fleet outgrew a 760px portal, and a modal can't host the scout pages it links to.
+ * The scout roster: one alphabetical table over the whole troop, with lifecycle as a sortable
+ * Status column. Replaces the card list that used to live in the Scout troop modal — the fleet
+ * outgrew a 760px portal, and a modal can't host the scout pages it links to.
  */
 export function ScoutsRoster(): JSX.Element {
     const { scoutConfigs, scoutConfigsLoading, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
@@ -76,7 +76,7 @@ export function ScoutsRoster(): JSX.Element {
         <div className="flex flex-col">
             <ScoutAlphaBanner />
             <ScoutsRosterHeader />
-            <ScoutsRosterGroups />
+            <ScoutsRosterTable />
             <div className="flex flex-col gap-1 px-6 py-4">
                 <span className="text-xs text-muted">
                     The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. Each scout's run strip shows its{' '}
