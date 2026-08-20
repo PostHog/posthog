@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_does_not_contain_event_properties
+# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_does_not_contain_event_properties[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -24,10 +24,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
-                                                                                                                                                                                                                        (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                         FROM events
-                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'something'), ''), 'null'), '^"|"$', '')), '%paul.com%'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                         GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                        (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                         FROM events_json AS events
+                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^something), '{}'), toJSONString(events.properties.^something), if(isNull(events.properties.something), NULL, if(startsWith(dynamicType(events.properties.something), 'DateTime'), replaceOne(toString(events.properties.something), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.something), 'Array'), startsWith(dynamicType(events.properties.something), 'Map'), startsWith(dynamicType(events.properties.something), 'Tuple')), toJSONString(events.properties.something), toString(events.properties.something)))))), '%paul.com%'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                         GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
@@ -47,7 +47,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_does_not_match_regex_event_properties
+# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_does_not_match_regex_event_properties[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -72,10 +72,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
-                                                                                                                                                                                                                        (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                         FROM events
-                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                         GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                        (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                         FROM events_json AS events
+                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(match(toString(events.properties.`$host`), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                         GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
@@ -95,7 +95,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True
+# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -120,10 +120,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                     (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                      FROM events
-                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), and(in(events.event, ['$pageview', 'bar', 'baz', 'foo']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/target-flag'), ''), 'null'), '^"|"$', ''), 'true'), 0)), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                      GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                     (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                      FROM events_json AS events
+                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), and(in(events.event, ['$pageview', 'bar', 'baz', 'foo']), ifNull(equals(if(notEquals(toJSONString(events.properties.^`$feature/target-flag`), '{}'), toJSONString(events.properties.^`$feature/target-flag`), if(isNull(events.properties.`$feature/target-flag`), NULL, if(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'DateTime'), replaceOne(toString(events.properties.`$feature/target-flag`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Array'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Map'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Tuple')), toJSONString(events.properties.`$feature/target-flag`), toString(events.properties.`$feature/target-flag`))))), 'true'), 0)), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                      GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                       HAVING 1
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
@@ -145,7 +145,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False
+# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -170,10 +170,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                     (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                      FROM events
-                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), and(in(events.event, ['$pageview', 'bar', 'baz', 'foo']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/target-flag'), ''), 'null'), '^"|"$', ''), 'false'), 0)), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                      GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                     (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                      FROM events_json AS events
+                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), and(in(events.event, ['$pageview', 'bar', 'baz', 'foo']), ifNull(equals(if(notEquals(toJSONString(events.properties.^`$feature/target-flag`), '{}'), toJSONString(events.properties.^`$feature/target-flag`), if(isNull(events.properties.`$feature/target-flag`), NULL, if(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'DateTime'), replaceOne(toString(events.properties.`$feature/target-flag`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Array'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Map'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Tuple')), toJSONString(events.properties.`$feature/target-flag`), toString(events.properties.`$feature/target-flag`))))), 'false'), 0)), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                      GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                       HAVING 1
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
@@ -195,7 +195,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set
+# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -220,10 +220,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                     (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                      FROM events
-                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), and(in(events.event, ['$pageview', 'bar', 'baz', 'foo']), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/target-flag'), ''), 'null'), '^"|"$', ''))), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                      GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                     (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                      FROM events_json AS events
+                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), and(in(events.event, ['$pageview', 'bar', 'baz', 'foo']), isNotNull(if(notEquals(toJSONString(events.properties.^`$feature/target-flag`), '{}'), toJSONString(events.properties.^`$feature/target-flag`), if(isNull(events.properties.`$feature/target-flag`), NULL, if(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'DateTime'), replaceOne(toString(events.properties.`$feature/target-flag`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Array'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Map'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Tuple')), toJSONString(events.properties.`$feature/target-flag`), toString(events.properties.`$feature/target-flag`))))))), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                      GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                       HAVING 1
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
@@ -245,7 +245,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set
+# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -270,10 +270,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
-                                                                                                                                                                                                                        (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                         FROM events
-                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/target-flag'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                         GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                        (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                         FROM events_json AS events
+                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^`$feature/target-flag`), '{}'), toJSONString(events.properties.^`$feature/target-flag`), if(isNull(events.properties.`$feature/target-flag`), NULL, if(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'DateTime'), replaceOne(toString(events.properties.`$feature/target-flag`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Array'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Map'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Tuple')), toJSONString(events.properties.`$feature/target-flag`), toString(events.properties.`$feature/target-flag`)))))), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                         GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
@@ -293,7 +293,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_two_is_not_event_properties
+# name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_two_is_not_event_properties[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -318,10 +318,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
-                                                                                                                                                                                                                        (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                         FROM events
-                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'probe-one'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'probe-two'), ''), 'null'), '^"|"$', ''), 'val'), 0)), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                         GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                        (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                         FROM events_json AS events
+                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), or(ifNull(equals(if(notEquals(toJSONString(events.properties.^`probe-one`), '{}'), toJSONString(events.properties.^`probe-one`), if(isNull(events.properties.`probe-one`), NULL, if(startsWith(dynamicType(events.properties.`probe-one`), 'DateTime'), replaceOne(toString(events.properties.`probe-one`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`probe-one`), 'Array'), startsWith(dynamicType(events.properties.`probe-one`), 'Map'), startsWith(dynamicType(events.properties.`probe-one`), 'Tuple')), toJSONString(events.properties.`probe-one`), toString(events.properties.`probe-one`))))), 'val'), 0), ifNull(equals(if(notEquals(toJSONString(events.properties.^`probe-two`), '{}'), toJSONString(events.properties.^`probe-two`), if(isNull(events.properties.`probe-two`), NULL, if(startsWith(dynamicType(events.properties.`probe-two`), 'DateTime'), replaceOne(toString(events.properties.`probe-two`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`probe-two`), 'Array'), startsWith(dynamicType(events.properties.`probe-two`), 'Map'), startsWith(dynamicType(events.properties.`probe-two`), 'Tuple')), toJSONString(events.properties.`probe-two`), toString(events.properties.`probe-two`))))), 'val'), 0)), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                         GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
@@ -341,7 +341,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_does_not_contain_event_properties
+# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_does_not_contain_event_properties[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -366,10 +366,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
-                                                                                                                                                                                                                        (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                         FROM events
-                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'something'), ''), 'null'), '^"|"$', '')), '%paul.com%'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                         GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                        (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                         FROM events_json AS events
+                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^something), '{}'), toJSONString(events.properties.^something), if(isNull(events.properties.something), NULL, if(startsWith(dynamicType(events.properties.something), 'DateTime'), replaceOne(toString(events.properties.something), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.something), 'Array'), startsWith(dynamicType(events.properties.something), 'Map'), startsWith(dynamicType(events.properties.something), 'Tuple')), toJSONString(events.properties.something), toString(events.properties.something)))))), '%paul.com%'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                         GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
@@ -389,7 +389,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_does_not_match_regex_event_properties
+# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_does_not_match_regex_event_properties[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -414,10 +414,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
-                                                                                                                                                                                                                        (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                         FROM events
-                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                         GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                        (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                         FROM events_json AS events
+                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(match(toString(events.properties.`$host`), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                         GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
@@ -437,7 +437,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True
+# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -462,10 +462,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                     (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                      FROM events
-                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/target-flag'), ''), 'null'), '^"|"$', ''), 'true'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                      GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                     (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                      FROM events_json AS events
+                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(equals(if(notEquals(toJSONString(events.properties.^`$feature/target-flag`), '{}'), toJSONString(events.properties.^`$feature/target-flag`), if(isNull(events.properties.`$feature/target-flag`), NULL, if(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'DateTime'), replaceOne(toString(events.properties.`$feature/target-flag`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Array'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Map'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Tuple')), toJSONString(events.properties.`$feature/target-flag`), toString(events.properties.`$feature/target-flag`))))), 'true'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                      GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                       HAVING 1
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
@@ -487,7 +487,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False
+# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -512,10 +512,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                     (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                      FROM events
-                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/target-flag'), ''), 'null'), '^"|"$', ''), 'false'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                      GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                     (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                      FROM events_json AS events
+                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), ifNull(equals(if(notEquals(toJSONString(events.properties.^`$feature/target-flag`), '{}'), toJSONString(events.properties.^`$feature/target-flag`), if(isNull(events.properties.`$feature/target-flag`), NULL, if(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'DateTime'), replaceOne(toString(events.properties.`$feature/target-flag`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Array'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Map'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Tuple')), toJSONString(events.properties.`$feature/target-flag`), toString(events.properties.`$feature/target-flag`))))), 'false'), 0), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                      GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                       HAVING 1
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
@@ -537,7 +537,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set
+# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -562,10 +562,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                                                     (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                      FROM events
-                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/target-flag'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                      GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                     (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                      FROM events_json AS events
+                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^`$feature/target-flag`), '{}'), toJSONString(events.properties.^`$feature/target-flag`), if(isNull(events.properties.`$feature/target-flag`), NULL, if(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'DateTime'), replaceOne(toString(events.properties.`$feature/target-flag`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Array'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Map'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Tuple')), toJSONString(events.properties.`$feature/target-flag`), toString(events.properties.`$feature/target-flag`)))))), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                      GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                       HAVING 1
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
@@ -587,7 +587,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set
+# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -612,10 +612,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
-                                                                                                                                                                                                                        (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                         FROM events
-                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/target-flag'), ''), 'null'), '^"|"$', '')), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                         GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                        (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                         FROM events_json AS events
+                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^`$feature/target-flag`), '{}'), toJSONString(events.properties.^`$feature/target-flag`), if(isNull(events.properties.`$feature/target-flag`), NULL, if(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'DateTime'), replaceOne(toString(events.properties.`$feature/target-flag`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Array'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Map'), startsWith(dynamicType(events.properties.`$feature/target-flag`), 'Tuple')), toJSONString(events.properties.`$feature/target-flag`), toString(events.properties.`$feature/target-flag`)))))), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                         GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
@@ -635,7 +635,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_two_is_not_event_properties
+# name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_two_is_not_event_properties[new_events_schema]
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -660,10 +660,10 @@
          coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
-                                                                                                                                                                                                                        (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                                                         FROM events
-                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'probe-one'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'probe-two'), ''), 'null'), '^"|"$', ''), 'val'), 0)), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                         GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                        (SELECT events.properties.`$session_id` AS session_id
+                                                                                                                                                                                                                         FROM events_json AS events
+                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 99999), notEmpty(events.properties.`$session_id`), lessOrEquals(events.timestamp, now64(6, 'UTC')), or(ifNull(equals(if(notEquals(toJSONString(events.properties.^`probe-one`), '{}'), toJSONString(events.properties.^`probe-one`), if(isNull(events.properties.`probe-one`), NULL, if(startsWith(dynamicType(events.properties.`probe-one`), 'DateTime'), replaceOne(toString(events.properties.`probe-one`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`probe-one`), 'Array'), startsWith(dynamicType(events.properties.`probe-one`), 'Map'), startsWith(dynamicType(events.properties.`probe-one`), 'Tuple')), toJSONString(events.properties.`probe-one`), toString(events.properties.`probe-one`))))), 'val'), 0), ifNull(equals(if(notEquals(toJSONString(events.properties.^`probe-two`), '{}'), toJSONString(events.properties.^`probe-two`), if(isNull(events.properties.`probe-two`), NULL, if(startsWith(dynamicType(events.properties.`probe-two`), 'DateTime'), replaceOne(toString(events.properties.`probe-two`), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.`probe-two`), 'Array'), startsWith(dynamicType(events.properties.`probe-two`), 'Map'), startsWith(dynamicType(events.properties.`probe-two`), 'Tuple')), toJSONString(events.properties.`probe-two`), toString(events.properties.`probe-two`))))), 'val'), 0)), greaterOrEquals(events.timestamp, toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                         GROUP BY events.properties.`$session_id`
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
