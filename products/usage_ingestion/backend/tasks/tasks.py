@@ -1,7 +1,4 @@
 from django.conf import settings
-from django.db import transaction
-from django.db.models.signals import post_save, pre_delete
-from django.dispatch import receiver
 
 import structlog
 from celery import shared_task
@@ -31,19 +28,6 @@ def update_team_organization_cache_task(team_id: int) -> None:
 
     if not update_team_organization_cache(team):
         logger.warning("Failed to publish usage-ingestion team organization mapping", team_id=team_id)
-
-
-@receiver(post_save, sender=Team)
-def publish_team_organization_on_save(sender: type[Team], instance: Team, **kwargs: object) -> None:
-    if not settings.USAGE_INGESTION_REDIS_URL:
-        return
-
-    transaction.on_commit(lambda: update_team_organization_cache_task.delay(instance.id))
-
-
-@receiver(pre_delete, sender=Team)
-def clear_team_organization_on_delete(sender: type[Team], instance: Team, **kwargs: object) -> None:
-    clear_team_organization_cache(instance)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
