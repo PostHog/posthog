@@ -416,7 +416,9 @@ def get_distinct_ids_mapped_by_email(team_id: int, emails: list[str]) -> dict[st
         return {}
 
     distinct_id_by_uuid: dict[str, str] = {}
-    for person in get_persons_by_uuids(team_id, list(set(uuid_by_email.values()))):
+    # Only one distinct id per person is used as the $set target, so bound the fetch — the default
+    # is unbounded and pulls every distinct id for merge-heavy persons behind a shared email.
+    for person in get_persons_by_uuids(team_id, list(set(uuid_by_email.values())), distinct_id_limit=1):
         if person.distinct_ids:
             distinct_id_by_uuid[str(person.uuid)] = person.distinct_ids[0]
 
