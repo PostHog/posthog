@@ -1116,6 +1116,17 @@ class RepoOverview:
     # CI-outcome proxy, not the queue's own eviction record.
     merge_queue_failed_gate_merge_share: float | None
     merge_queue_failed_gate_merge_share_prev: float | None
+    # Trunk-recorded outcomes, present only when the team's TrunkIo warehouse source has the opt-in
+    # merge-queue endpoint synced; without it consumers fall back to the failed-gate proxy above.
+    # Windowed on each entry's last state change — Trunk keeps no state history.
+    merge_queue_trunk_available: bool
+    # Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that ended failed or
+    # cancelled, from the queue's own records.
+    merge_queue_ejected_share: float | None
+    merge_queue_ejected_share_prev: float | None
+    # Queue entries prioritized past the queue order (urgent merges).
+    merge_queue_skip_the_line_count: int | None
+    merge_queue_skip_the_line_count_prev: int | None
     # Median wall clock for a push round to settle fully green over the window: the window-level
     # twin of time_to_green_series, same population and exclusions. None when no fully green rounds.
     median_time_to_green_seconds: float | None

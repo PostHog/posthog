@@ -1041,6 +1041,28 @@ export interface RepoOverviewApi {
      * @nullable
      */
     merge_queue_failed_gate_merge_share_prev: number | null
+    /** Whether the team's TrunkIo warehouse source has the opt-in merge-queue endpoint synced. When false, every merge_queue_ejected_* and merge_queue_skip_the_line_* field is null; fall back to merge_queue_failed_gate_merge_share. */
+    merge_queue_trunk_available: boolean
+    /**
+     * Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that ended failed or cancelled, from the queue's own records. Windowed on each entry's last state change. Null when the Trunk source isn't synced or nothing concluded.
+     * @nullable
+     */
+    merge_queue_ejected_share: number | null
+    /**
+     * The same fraction over the previous window. Null when the Trunk source isn't synced or nothing concluded.
+     * @nullable
+     */
+    merge_queue_ejected_share_prev: number | null
+    /**
+     * Queue entries prioritized past the queue order (urgent merges) in the window. Null when the Trunk source isn't synced.
+     * @nullable
+     */
+    merge_queue_skip_the_line_count: number | null
+    /**
+     * Urgent merges over the previous window. Null when the Trunk source isn't synced.
+     * @nullable
+     */
+    merge_queue_skip_the_line_count_prev: number | null
     /**
      * Median wall clock for a PR push round to settle fully green over the window — the window-level twin of time_to_green_series, same population and exclusions. Null when no fully green rounds.
      * @nullable

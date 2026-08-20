@@ -27,12 +27,17 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
-from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
+from products.engineering_analytics.backend.logic.sources import (
+    GitHubTables,
+    resolve_github_tables,
+    resolve_trunk_merge_queue_table,
+)
 from products.engineering_analytics.backend.logic.views import (
     issue_events,
     job_costs,
     pull_requests,
     team_members,
+    trunk_merge_queue,
     workflow_jobs,
     workflow_runs,
 )
@@ -172,6 +177,15 @@ class CuratedGitHubSource:
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
+
+    def trunk_merge_queue_source(self) -> str | None:
+        """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
+        opt-in merge-queue endpoint synced — the normal state; consumers degrade to the
+        GitHub-derived proxy."""
+        table = resolve_trunk_merge_queue_table(self._team)
+        if table is None:
+            return None
+        return f"({trunk_merge_queue.build_query(table)})"
 
     def members_source(self) -> str | None:
         """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""

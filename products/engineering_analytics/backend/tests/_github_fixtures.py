@@ -59,6 +59,39 @@ def create_github_source(
     )
 
 
+def create_trunk_source(
+    team: Team, *, prefix: str = "trunkprefix_", source_id: str = "trunk-source"
+) -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id=source_id,
+        connection_id=source_id,
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.TRUNKIO,
+        prefix=prefix,
+        job_inputs={},
+    )
+
+
+def _trunk_queue_row(
+    entry_id: str,
+    state: str,
+    pr_number: int,
+    state_changed_at: str,
+    *,
+    skip_the_line: bool = False,
+    priority_name: str = "medium",
+) -> dict[str, Any]:
+    return {
+        "id": entry_id,
+        "state": state,
+        "pr_number": pr_number,
+        "priority_name": priority_name,
+        "skip_the_line": skip_the_line,
+        "state_changed_at": state_changed_at,
+    }
+
+
 def link_schema(
     team: Team,
     source: ExternalDataSource,

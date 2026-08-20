@@ -122,6 +122,89 @@ _EMPTY_STATS = MergeQueueWindowStats(
 )
 
 
+# Trunk records each entry's terminal state directly, so eviction here is the queue's own verdict
+# rather than the CI-outcome proxy above. Windowed on the entry's last state change — Trunk keeps
+# no state history, so that approximates conclusion time.
+_TRUNK_OUTCOMES_SELECT = """
+    SELECT
+        countIf(ejected AND __CUR__) / nullIf(countIf(concluded AND __CUR__), 0) AS ejected_share_cur,
+        countIf(ejected AND __PREV__) / nullIf(countIf(concluded AND __PREV__), 0) AS ejected_share_prev,
+        countIf(skip_the_line AND __CUR__) AS skip_the_line_cur,
+        countIf(skip_the_line AND __PREV__) AS skip_the_line_prev
+    FROM (
+        SELECT
+            state_changed_at,
+            state IN ('merged', 'failed', 'cancelled') AS concluded,
+            state IN ('failed', 'cancelled') AS ejected,
+            skip_the_line
+        FROM __TRUNK_SOURCE__
+        WHERE state_changed_at >= {prev_from} __DATE_TO_CHANGED__
+    )
+"""
+
+
+@dataclass(frozen=True, kw_only=True)
+class TrunkQueueOutcomes:
+    """Queue outcomes from Trunk's own records, for a window and its previous twin. Everything is
+    None when no TrunkIo source has the merge-queue endpoint synced (``available``)."""
+
+    available: bool
+    ejected_share: float | None
+    ejected_share_prev: float | None
+    skip_the_line_count: int | None
+    skip_the_line_count_prev: int | None
+
+
+_TRUNK_UNAVAILABLE = TrunkQueueOutcomes(
+    available=False,
+    ejected_share=None,
+    ejected_share_prev=None,
+    skip_the_line_count=None,
+    skip_the_line_count_prev=None,
+)
+
+
+def query_merge_queue_trunk_outcomes(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    prev_from: datetime,
+) -> TrunkQueueOutcomes:
+    """Trunk-recorded queue outcomes for [date_from, date_to] and [prev_from, date_from], one scan;
+    the unavailable shape when the opt-in Trunk merge-queue table isn't synced."""
+    source = curated.trunk_merge_queue_source()
+    if source is None:
+        return _TRUNK_UNAVAILABLE
+    cur = "(state_changed_at >= {date_from}" + (" AND state_changed_at <= {date_to})" if date_to is not None else ")")
+    prev = "(state_changed_at >= {prev_from} AND state_changed_at < {date_from})"
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "prev_from": ast.Constant(value=prev_from),
+    }
+    date_to_changed_clause = ""
+    if date_to is not None:
+        date_to_changed_clause = "AND state_changed_at <= {date_to}"
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = (
+        _TRUNK_OUTCOMES_SELECT.replace("__CUR__", cur)
+        .replace("__PREV__", prev)
+        .replace("__TRUNK_SOURCE__", source)
+        .replace("__DATE_TO_CHANGED__", date_to_changed_clause)
+    )
+    response = curated.run(
+        sql, query_type="engineering_analytics.merge_queue_trunk_outcomes", placeholders=placeholders
+    )
+    ejected_cur, ejected_prev, skip_cur, skip_prev = response.results[0] if response.results else (None, None, 0, 0)
+    return TrunkQueueOutcomes(
+        available=True,
+        ejected_share=opt_float(ejected_cur),
+        ejected_share_prev=opt_float(ejected_prev),
+        skip_the_line_count=int(skip_cur or 0),
+        skip_the_line_count_prev=int(skip_prev or 0),
+    )
+
+
 def query_merge_queue_overview(
     *,
     curated: CuratedGitHubSource,

@@ -504,6 +504,31 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "help_text": "The same fraction over the previous window. Null when no queue-landed merges.",
                 "allow_null": True,
             },
+            "merge_queue_trunk_available": {
+                "help_text": "Whether the team's TrunkIo warehouse source has the opt-in merge-queue endpoint "
+                "synced. When false, every merge_queue_ejected_* and merge_queue_skip_the_line_* field is null; "
+                "fall back to merge_queue_failed_gate_merge_share."
+            },
+            "merge_queue_ejected_share": {
+                "help_text": "Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that "
+                "ended failed or cancelled, from the queue's own records. Windowed on each entry's last state "
+                "change. Null when the Trunk source isn't synced or nothing concluded.",
+                "allow_null": True,
+            },
+            "merge_queue_ejected_share_prev": {
+                "help_text": "The same fraction over the previous window. Null when the Trunk source isn't "
+                "synced or nothing concluded.",
+                "allow_null": True,
+            },
+            "merge_queue_skip_the_line_count": {
+                "help_text": "Queue entries prioritized past the queue order (urgent merges) in the window. "
+                "Null when the Trunk source isn't synced.",
+                "allow_null": True,
+            },
+            "merge_queue_skip_the_line_count_prev": {
+                "help_text": "Urgent merges over the previous window. Null when the Trunk source isn't synced.",
+                "allow_null": True,
+            },
             "median_time_to_green_seconds": {
                 "help_text": "Median wall clock for a PR push round to settle fully green over the window — the "
                 "window-level twin of time_to_green_series, same population and exclusions. Null when no fully "
