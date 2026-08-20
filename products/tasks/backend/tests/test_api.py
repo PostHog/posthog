@@ -9832,6 +9832,64 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(response.json()["error"], "Failed to queue user message for task run")
 
+    def _signals_run(self, *, ai_stage: str | None):
+        """An auto-started implementation task and its live run, as the pipeline creates them."""
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Implementation: fix the thing",
+            description="Test Description",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            internal=True,
+        )
+        state: dict[str, Any] = {"sandbox_url": "http://localhost:9999", "mode": "background"}
+        if ai_stage is not None:
+            state["ai_stage"] = ai_stage
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state=state)
+        return task, run
+
+    @parameterized.expand(
+        [
+            ("pipeline_started", "implementation"),
+            ("scout", "scout:web-analytics"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
+    @patch("products.tasks.backend.facade.cancellation.cancel_task_run", return_value=("accepted", None))
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_forks_instead_of_steering_a_pipeline_run(
+        self, _name, ai_stage, mock_signal_followup, mock_cancel, _mock_trigger
+    ):
+        task, run = self._signals_run(ai_stage=ai_stage)
+
+        response = self.client.post(self._command_url(task, run), self._make_user_message(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_signal_followup.assert_not_called()
+        mock_cancel.assert_called_once()
+
+        successor = task.runs.exclude(id=run.id).get()
+        self.assertEqual(response.json()["result"]["forked_run_id"], str(successor.id))
+        # No `ai_stage` is what earns the successor the interactive-run scope and its ceiling.
+        self.assertNotIn("ai_stage", successor.state)
+        self.assertEqual(successor.state["resume_from_run_id"], str(run.id))
+        self.assertEqual(successor.state["pending_user_message"], "Hello agent")
+        # Interactive mode is what brings the successor under the wall-clock cap.
+        self.assertEqual(successor.state["mode"], "interactive")
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_still_steers_a_hand_started_signals_run(self, mock_signal_followup):
+        task, run = self._signals_run(ai_stage=None)
+
+        response = self.client.post(self._command_url(task, run), self._make_user_message(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("forked_run_id", response.json()["result"])
+        self.assertFalse(task.runs.exclude(id=run.id).exists())
+        mock_signal_followup.assert_called_once_with(
+            run.workflow_id, "Hello agent", [], "req-1", self.user.id, None, steer=False
+        )
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_rejects_unknown_artifact_ids(self, mock_post):

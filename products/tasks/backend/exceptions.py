@@ -115,6 +115,16 @@ class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
         )
 
 
+class PipelineRunNotSteerable(Exception):
+    """A person's message cannot be delivered to this run in place.
+
+    The run was started by the Signals pipeline, so its sandbox holds a token minted for the
+    pipeline's budget. The agent server reads that token once at boot and never re-reads it,
+    so the person's turn would spend against the pipeline's budget rather than the interactive
+    ceiling. Callers fork the run instead of steering it.
+    """
+
+
 class SandboxNetworkPolicyError(ProcessTaskFatalError):
     pass
 

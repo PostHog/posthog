@@ -1735,9 +1735,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        # A restored snapshot already carries the working tree on its branch, and a handed-off
+        # run gets its tree from the git checkpoint the agent server applies. Every other resume
+        # just cloned (see `repositories_to_clone` above) and still needs the checkout — skipping
+        # it there left the run on the repository's default branch. Background runs never take
+        # resume snapshots, so a resume of one always lands here.
+        skip_checkout = used_snapshot or bool(state.get("handoff_resumed"))
         checkout_ms: int | None = None
-        if will_checkout and checkout_repository not in failed_repositories and not is_resume:
+        if will_checkout and checkout_repository not in failed_repositories and not skip_checkout:
             assert checkout_repository is not None
             assert prepared.branch is not None
             prepares_repository_desktop = prepares_desktop(checkout_repository)

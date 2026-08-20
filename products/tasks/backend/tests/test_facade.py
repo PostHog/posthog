@@ -510,6 +510,41 @@ class TestFacadeReadsAndMappers(TestCase):
 
     @parameterized.expand(
         [
+            # Run artifacts belong to the run they were uploaded against, so the successor can't
+            # carry them. Refusing beats dropping the attachment on the floor.
+            ("attachments", "Take a look at this", ["artifact-1"], "attachments_not_forkable"),
+            # A malformed empty message must not be reason enough to stop work in flight.
+            ("empty_message", "   ", [], "nothing_to_deliver"),
+        ]
+    )
+    def test_pipeline_run_is_left_running_when_its_takeover_cannot_be_forked(
+        self, _name, content, artifact_ids, expected_outcome
+    ):
+        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, internal=True)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"ai_stage": "implementation"},
+        )
+
+        with patch("products.tasks.backend.facade.cancellation.cancel_task_run") as mock_cancel:
+            outcome, successor = facade.deliver_task_run_user_message(
+                run.id,
+                task.id,
+                self.team.id,
+                content=content,
+                artifact_ids=artifact_ids,
+                actor_user_id=self.user.id,
+            )
+
+        self.assertEqual(outcome, expected_outcome)
+        self.assertIsNone(successor)
+        mock_cancel.assert_not_called()
+        self.assertFalse(task.runs.exclude(id=run.id).exists())
+
+    @parameterized.expand(
+        [
             # The inbox "Create PR" button sends no branch, so the team's configured base branch is
             # the only thing that can keep the PR off the repo's GitHub default branch. Repo casing
             # differs from the stored key because GitHub preserves it while the serializer lowercases.

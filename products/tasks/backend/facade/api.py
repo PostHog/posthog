@@ -192,6 +192,7 @@ __all__ = [
     "claim_and_fail_stale_run",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
+    "deliver_task_run_user_message",
     "ensure_personal_channel_id",
     "ensure_sandbox_custom_image_builder_task",
     "edit_task_run_living_artifact",
@@ -3624,6 +3625,10 @@ def signal_task_run_user_message(
     (completed or evicted — a terminal outcome), ``None`` when the run isn't
     found. Transient signalling failures propagate so a calling Temporal
     activity retries rather than reporting a dead end to the user.
+
+    Raises ``PipelineRunNotSteerable`` for a live pipeline-started Signals run — the single
+    place that decision is made, so every caller fails closed rather than spending a person's
+    turn against the pipeline's budget. ``deliver_task_run_user_message`` catches it and forks.
     """
     from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
 
@@ -3634,13 +3639,18 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    from products.tasks.backend.exceptions import (
-        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+    from products.tasks.backend.exceptions import (  # noqa: PLC0415 — keep temporalio off the api import path
+        ComputeBillingLimitError,
+        PipelineRunNotSteerable,
     )
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
+    from products.tasks.backend.temporal.oauth import is_pipeline_started_signals_run  # noqa: PLC0415
 
     if reason := get_compute_quota_denial_reason(run.task):
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
+    # After the quota check so an over-quota team is told that, not offered a fork it can't run.
+    if not run.is_terminal and is_pipeline_started_signals_run(run.task, run.state):
+        raise PipelineRunNotSteerable(f"Task run {run.id} was started by the Signals pipeline")
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -3658,6 +3668,120 @@ def signal_task_run_user_message(
             return False
         raise
     return True
+
+
+def deliver_task_run_user_message(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    content: str | None,
+    artifact_ids: list[str],
+    actor_user_id: int | None = None,
+    message_id: str | None = None,
+    steer: bool = False,
+) -> tuple[str, contracts.TaskRunDetailDTO | None]:
+    """Deliver a person's message to a run, forking it when steering in place isn't allowed.
+
+    Outcomes: ``"queued"`` (signalled, run unchanged), ``"forked"`` (a successor run carries
+    the message, DTO set), ``"not_found"``, ``"workflow_gone"``, ``"attachments_not_forkable"``,
+    or ``"nothing_to_deliver"``. The signalling decision itself stays in
+    ``signal_task_run_user_message``; this only handles the fork it refuses.
+    """
+    from products.tasks.backend.exceptions import PipelineRunNotSteerable  # noqa: PLC0415
+
+    try:
+        signal_result = signal_task_run_user_message(
+            run_id,
+            task_id,
+            team_id,
+            content=content,
+            artifact_ids=artifact_ids,
+            actor_user_id=actor_user_id,
+            message_id=message_id,
+            steer=steer,
+        )
+    except PipelineRunNotSteerable:
+        return _fork_pipeline_run_for_takeover(
+            run_id, task_id, team_id, actor_user_id=actor_user_id, content=content, artifact_ids=artifact_ids
+        )
+    if signal_result is None:
+        return "not_found", None
+    return ("queued", None) if signal_result else ("workflow_gone", None)
+
+
+def _fork_pipeline_run_for_takeover(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    actor_user_id: int | None,
+    content: str | None,
+    artifact_ids: list[str],
+) -> tuple[str, contracts.TaskRunDetailDTO | None]:
+    """Stop a pipeline-started run and start a successor carrying the person's message.
+
+    The successor mints its own token. It inherits no ``ai_stage`` (the resume path never
+    copies one), so ``is_interactive_signals_run`` sees a hand-started run and grants the
+    interactive-run scope — which is the whole point: the person's turn meters against the
+    interactive ceiling instead of the pipeline's budget.
+
+    The predecessor is stopped first because both runs would otherwise push the same head
+    branch, and because only one run per task is reachable through ``latest_run``. We don't
+    wait for it to reach ``CANCELLED``: ``cancel_task_run`` signals the workflow, which unwinds
+    and writes the status itself, and that status change is what moves watching clients onto
+    the successor.
+
+    Stopping first does mean a successor that fails to start leaves the task with nothing
+    running. That is the better failure: the alternative order can leave two live runs pushing
+    one branch, which is the unbounded spend this exists to stop. The pushed branch survives
+    either way, so the report can start a fresh run.
+    """
+    if artifact_ids:
+        # Run artifacts belong to the run they were uploaded against, and the successor's
+        # prompt takes task-scoped staged artifacts instead — a different namespace. Refusing
+        # beats silently dropping someone's attachment.
+        return "attachments_not_forkable", None
+    if not (content or "").strip():
+        # Forking stops work in flight, so a malformed empty message must not trigger one.
+        return "nothing_to_deliver", None
+
+    from products.tasks.backend.facade.cancellation import cancel_task_run  # noqa: PLC0415
+
+    cancel_outcome, _ = cancel_task_run(
+        run_id,
+        task_id,
+        team_id,
+        reason="Superseded by a new run after someone took over",
+        source="takeover_fork",
+        requested_by_user_id=actor_user_id,
+    )
+    if cancel_outcome not in ("accepted", "already_terminal"):
+        logger.warning("Could not stop pipeline run %s before forking it (outcome %s)", run_id, cancel_outcome)
+        return "workflow_gone", None
+
+    try:
+        result = run_task(
+            task_id,
+            team_id,
+            actor_user_id,
+            validated_data={
+                "mode": "interactive",
+                "resume_from_run_id": str(run_id),
+                "pending_user_message": content,
+                "pending_user_artifact_ids": [],
+            },
+        )
+    except Exception:
+        # The predecessor is already stopped, so name this as the state it leaves behind rather
+        # than letting it read as an ordinary signalling failure. Reachable when another task
+        # holds the report's live-implementation slot (`enforce_report_implementation_rerun_cap`).
+        logger.exception("Stopped pipeline run %s but its replacement could not start", run_id)
+        return "workflow_gone", None
+    if result is None or result.task is None or result.error is not None:
+        logger.warning("Stopped pipeline run %s but its replacement was rejected", run_id)
+        return "workflow_gone", None
+    return "forked", result.task.latest_run
 
 
 # --- Agent peer messaging (docs: logic/services/peer_messages.py) ---

@@ -95,6 +95,23 @@ def is_interactive_signals_run(task: Task, state: dict[str, Any] | None) -> bool
     return not (state or {}).get("ai_stage")
 
 
+def is_pipeline_started_signals_run(task: Task, state: dict[str, Any] | None) -> bool:
+    """Whether the pipeline started this run, which makes it unsafe to steer in place.
+
+    Reads `ai_stage` the same way `is_interactive_signals_run` does, but across every signals
+    origin rather than only the hand-driven ones, because a scheduled scout has the same
+    problem: its sandbox holds a token minted for the pipeline's budget, and a person's
+    message spends against that budget instead of the interactive ceiling.
+
+    The token cannot be swapped for a live run — the agent server reads it once at boot and
+    never re-reads it — so the only way a person's turn lands on the right budget is a new run
+    with a new mint. Callers refuse the in-place follow-up and fork instead.
+    """
+    if task.origin_product not in SIGNALS_ORIGIN_PRODUCTS:
+        return False
+    return bool((state or {}).get("ai_stage"))
+
+
 def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
     resolved = resolve_scopes(scopes, include_internal_scopes=True)
     return [scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES]

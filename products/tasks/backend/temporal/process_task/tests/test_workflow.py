@@ -1891,6 +1891,71 @@ class TestProcessTaskWorkflowUnit:
         assert checkout_options["start_to_close_timeout"] == timedelta(minutes=20)
         assert checkout_options["retry_policy"].maximum_attempts == 3
 
+    @pytest.mark.parametrize(
+        ("state", "used_snapshot", "expect_checkout"),
+        [
+            # A resume with no usable snapshot just cloned, so it still needs the branch. Skipping
+            # here left the run on the repository's default branch — and background runs never take
+            # resume snapshots, so every resume of one lands in this case.
+            ({"resume_from_run_id": "0199a0e0-0000-7000-8000-000000000000"}, False, True),
+            # A restored snapshot already carries the tree on its branch.
+            ({"resume_from_run_id": "0199a0e0-0000-7000-8000-000000000000"}, True, False),
+            # A handed-off run gets its tree from the checkpoint the agent server applies.
+            ({"handoff_resumed": True}, False, False),
+        ],
+    )
+    async def test_resume_checks_out_its_branch_unless_a_snapshot_supplied_the_tree(
+        self, monkeypatch, state, used_snapshot, expect_checkout
+    ):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            repository="posthog/posthog",
+            state={"repositories": ["posthog/posthog"], **state},
+        )
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog",
+            github_token="ghs_token",
+            branch="posthog-self-driving/fix-abc123",
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=used_snapshot,
+            should_create_snapshot=not used_snapshot,
+            shallow_clone=True,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            calls.append(activity_fn)
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            if activity_fn is launch_agent_server:
+                return StartAgentServerOutput(sandbox_url=created.sandbox_url)
+            if activity_fn in (clone_repository_in_sandbox, mark_repo_ready, emit_progress_activity):
+                return None
+            if activity_fn is checkout_branch_in_sandbox:
+                return None
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow._get_sandbox_for_repository()
+
+        assert (checkout_branch_in_sandbox in calls) is expect_checkout
+
     async def test_overlap_releases_agent_after_primary_clone_and_materializes_failed_secondary(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
