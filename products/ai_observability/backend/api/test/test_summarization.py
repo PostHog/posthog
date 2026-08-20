@@ -343,7 +343,19 @@ class TestSummarizationAPI(APIBaseTest):
             "mode": "minimal",
             "data": {
                 "trace": {"id": "cached_trace", "properties": {"$ai_span_name": "test"}},
-                "hierarchy": [],
+                "hierarchy": [
+                    {
+                        "event": {
+                            "id": "gen1",
+                            "event": "$ai_generation",
+                            "properties": {
+                                "$ai_input": [{"role": "user", "content": "hello"}],
+                                "$ai_output_choices": [{"message": {"role": "assistant", "content": "hi"}}],
+                            },
+                        },
+                        "children": [],
+                    }
+                ],
             },
         }
         self.client.post(
@@ -470,7 +482,19 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
                 "mode": "minimal",
                 "data": {
                     "trace": {"id": trace_id, "properties": {"$ai_span_name": "cached-trace"}},
-                    "hierarchy": [],
+                    "hierarchy": [
+                        {
+                            "event": {
+                                "id": "gen1",
+                                "event": "$ai_generation",
+                                "properties": {
+                                    "$ai_input": [{"role": "user", "content": "hello"}],
+                                    "$ai_output_choices": [{"message": {"role": "assistant", "content": "hi"}}],
+                                },
+                            },
+                            "children": [],
+                        }
+                    ],
                 },
             },
             format="json",
