@@ -1,11 +1,13 @@
 import importlib
+import threading
 from datetime import timedelta
 from typing import ClassVar
 from uuid import uuid4
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.db import close_old_connections
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -20,6 +22,7 @@ from products.tasks.backend.facade import (
     warm as warm_facade,
 )
 from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     SandboxCustomImage,
     SandboxEnvironment,
@@ -55,6 +58,84 @@ class TestFacadeImports(TestCase):
         self.assertIs(facade.TaskRunEnvironment, TaskRun.Environment)
         self.assertIs(facade.TaskOriginProduct, Task.OriginProduct)
         self.assertIs(facade.SandboxNetworkAccessLevel, SandboxEnvironment.NetworkAccessLevel)
+
+
+class TestTaskHandoffConcurrency(TransactionTestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.owner = User.objects.create_user(email="owner@example.com", first_name="Owner", password="password")
+        self.recipient = User.objects.create_user(
+            email="recipient@example.com", first_name="Recipient", password="password"
+        )
+        self.organization.members.add(self.owner, self.recipient)
+        self.task = Task.objects.create(
+            team=self.team,
+            title="Race task",
+            description="Run later",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.owner,
+        )
+
+    def test_delayed_bootstrap_cannot_create_run_after_handoff(self) -> None:
+        create_reached = threading.Event()
+        handoff_finished = threading.Event()
+        results: list[contracts.TaskRunCreateResult | None] = []
+        errors: list[BaseException] = []
+        original_create_run = Task.create_run
+
+        def delayed_create_run(
+            task: Task,
+            environment: TaskRun.Environment | None = None,
+            mode: str = "background",
+            extra_state: dict | None = None,
+            branch: str | None = None,
+            *,
+            expected_created_by_id: int | None = None,
+            expected_ownership_version: str | None = None,
+            validate_task_ownership: bool = False,
+        ) -> TaskRun:
+            create_reached.set()
+            if not handoff_finished.wait(timeout=10):
+                raise TimeoutError("handoff did not finish")
+            return original_create_run(
+                task,
+                environment=environment,
+                mode=mode,
+                extra_state=extra_state,
+                branch=branch,
+                expected_created_by_id=expected_created_by_id,
+                expected_ownership_version=expected_ownership_version,
+                validate_task_ownership=validate_task_ownership,
+            )
+
+        def bootstrap() -> None:
+            close_old_connections()
+            try:
+                results.append(facade.bootstrap_task_run(self.task.id, self.team.id, self.owner.id, validated_data={}))
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                close_old_connections()
+
+        with patch.object(Task, "create_run", new=delayed_create_run):
+            thread = threading.Thread(target=bootstrap)
+            thread.start()
+            self.assertTrue(create_reached.wait(timeout=10))
+            handoff = facade.handoff_task(
+                self.task.id,
+                self.team.id,
+                self.owner.id,
+                target_user_id=self.recipient.id,
+            )
+            handoff_finished.set()
+            thread.join(timeout=10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(handoff)
+        self.assertEqual(results, [None])
+        self.assertFalse(TaskRun.objects.filter(task=self.task).exists())
 
 
 class TestFacadeReadsAndMappers(TestCase):
@@ -113,6 +194,20 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNotNone(facade.get_task_run(run.id, team_id=self.team.id))
         self.assertIsNone(facade.get_task_run(run.id, team_id=other_team.id))
         self.assertIsNone(facade.get_task_run("00000000-0000-0000-0000-000000000000"))
+
+    def test_resume_in_cloud_rejects_run_from_previous_owner(self):
+        task = self._make_task(state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"})
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={})
+
+        outcome, resumed_run, _ = facade.resume_task_run_in_cloud(
+            run.id,
+            task.id,
+            self.team.id,
+            self.user.id,
+        )
+
+        self.assertEqual(outcome, "ownership_changed")
+        self.assertIsNone(resumed_run)
 
     def test_task_exists_and_visibility(self):
         task = self._make_task()

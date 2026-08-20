@@ -68,6 +68,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.models import (
     AgentPeerMessage,
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     CodeInvite,
     CodeInviteRedemption,
@@ -9205,6 +9206,7 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertEqual(task.created_by_id, recipient.id)
         self.assertIsNone(task.github_user_integration_id)
+        self.assertIsInstance((task.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY), str)
         with team_scope(self.team.id):
             announcement = task.thread_messages.get(event="task_handed_off")
         self.assertEqual(announcement.author_kind, "system")
@@ -9236,6 +9238,89 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
                 "attr": "user",
             },
         )
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_keeps_previous_owner_runs_read_only(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        recipient_client = APIClient()
+        recipient_client.force_authenticate(recipient)
+        run_url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+        self.assertEqual(recipient_client.get(run_url).status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            recipient_client.patch(run_url, {"stage": "build"}, format="json").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_handoff_rejects_open_sandbox_session(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        now = django_timezone.now()
+        SandboxSession.objects.unscoped().create(
+            team=self.team,
+            task_run=run,
+            sandbox_id="sandbox-still-closing",
+            cpu_cores=1,
+            memory_gb=1,
+            ttl_seconds=3600,
+            created_at=now,
+            ttl_expires_at=now + timedelta(hours=1),
+        )
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["detail"],
+            "Wait for active sandboxes to shut down before handing off this task.",
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_revokes_task_bound_sandbox_oauth_tokens(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        self._sandbox_oauth_client(task.id)
+        access_token = OAuthAccessToken.objects.get(sandbox_task_id=task.id)
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token.id).exists())
+
+    def test_handoff_rejects_built_in_agent_oauth(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        application = OAuthApplication.objects.create(
+            name="Built-in agent sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=f"task:read task:write {MCP_BUILT_IN_AGENT_SCOPE}",
+            scoped_teams=[self.team.id],
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+
+        response = client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         task.refresh_from_db()
         self.assertEqual(task.created_by_id, self.user.id)
 

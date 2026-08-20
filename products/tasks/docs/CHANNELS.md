@@ -111,11 +111,13 @@ membership without adding permissions to Task.
   resolve GitHub authorship and notification recipients from them. A task in a
   private `#me` space (or with no channel) moves into the recipient's `#me`, so a
   handoff never strands a task the recipient can't open; a task in a shared space
-  stays there. All task runs must be terminal before a handoff. Finish or cancel
-  active runs first. The handoff clears the stored GitHub user-integration
-  preference and any borrowed MCP credential owner, posts a system
-  `task_handed_off` announcement into the task's thread, and notifies the
-  recipient.
+  stays there. All task runs must be terminal and every sandbox session must be
+  closed before a handoff. The handoff rotates the task's server-owned ownership
+  version, revokes task-bound sandbox OAuth tokens, and makes runs from the old
+  ownership version read-only. The recipient must start a fresh run. The handoff
+  also clears the stored GitHub user-integration preference and any borrowed MCP
+  credential owner, posts a system `task_handed_off` announcement into the task's
+  thread, and notifies the recipient.
 
 ### Canvas endpoints
 

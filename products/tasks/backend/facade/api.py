@@ -58,6 +58,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.utils import absolute_uri
 
 from products.tasks.backend.constants import (
@@ -90,6 +91,7 @@ from products.tasks.backend.logic.services.network_policy import (
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
@@ -107,6 +109,7 @@ from products.tasks.backend.models import (
     TaskArtifact,
     TaskClientProvenance,
     TaskCommentActivity,
+    TaskOwnershipChangedError,
     TaskPin,
     TaskRun,
     TaskSearchDocument,
@@ -276,6 +279,7 @@ __all__ = [
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
+    "task_run_matches_current_ownership",
     "task_runtime",
     "task_visible",
     "visible_tasks_q",
@@ -2107,6 +2111,7 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "github_credential_source",
+        TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
         "verified_pr_urls",
@@ -2246,6 +2251,14 @@ def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bo
         return TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id).exists()
     except (ValueError, TypeError, DjangoValidationError):
         return False
+
+
+def task_run_matches_current_ownership(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
+    try:
+        run = _task_run_queryset().filter(pk=run_id, team_id=team_id, task_id=task_id).first()
+    except (ValueError, TypeError, DjangoValidationError):
+        return False
+    return run is not None and run.matches_task_ownership()
 
 
 def task_accessible_for_run_view(
@@ -4109,6 +4122,8 @@ def bootstrap_task_run(
     task = _get_task_for_run_control(task_id, team_id, user_id)
     if task is None:
         return None
+    expected_created_by_id = task.created_by_id
+    expected_ownership_version = task.ownership_version
 
     mode = validated_data.get("mode", "background")
     environment = validated_data.get("environment", TaskRun.Environment.LOCAL)
@@ -4224,7 +4239,18 @@ def bootstrap_task_run(
     logger.info(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
-    run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+    try:
+        run = task.create_run(
+            environment=environment,
+            mode=mode,
+            branch=branch,
+            extra_state=extra_state,
+            expected_created_by_id=expected_created_by_id,
+            expected_ownership_version=expected_ownership_version,
+            validate_task_ownership=True,
+        )
+    except TaskOwnershipChangedError:
+        return None
 
     if imported_mcp_servers or relayed_mcp_servers:
         update_fields = ["updated_at"]
@@ -4349,12 +4375,14 @@ def start_task_run(
     previous_state = dict(run.state or {})
     try:
         with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
             run = (
                 TaskRun.objects.select_for_update(of=("self",))
                 .select_related("task", "task__team", "task__created_by")
-                .get(id=run.id)
+                .get(id=run.id, task_id=task.id, team_id=team_id)
             )
-            task = run.task
+            if not run.matches_task_ownership(task):
+                return "ownership_changed", None
             if state_updates:
                 TaskRun.update_state_atomic(run.id, updates=state_updates)
                 run.refresh_from_db()
@@ -4387,8 +4415,9 @@ def resume_task_run_in_cloud(
     """Resume a run in a cloud sandbox, terminating any prior workflow.
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
-    ``"already_active"`` (400), ``"auth_error:<detail>"`` (400, github auth), ``"workflow_failed"``
-    (502), or ``"resumed"`` (run_dto set). Mirrors ``TaskRunViewSet.resume_in_cloud``.
+    ``"already_active"`` (400), ``"ownership_changed"`` (400), ``"auth_error:<detail>"``
+    (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
+    Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
     from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415
     from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
@@ -4431,11 +4460,14 @@ def resume_task_run_in_cloud(
     )
 
     with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
         run = (
             TaskRun.objects.select_for_update(of=("self",))
             .select_related("task", "task__created_by", "task__github_integration", "task__github_user_integration")
-            .get(pk=run.pk)
+            .get(pk=run.pk, task_id=task.id, team_id=team_id)
         )
+        if not run.matches_task_ownership(task):
+            return "ownership_changed", None, None
 
         is_cloud_active = run.environment == TaskRun.Environment.CLOUD and run.status in (
             TaskRun.Status.QUEUED,
@@ -5362,8 +5394,10 @@ def handoff_task(
     task or no longer owns it. Raises ``TaskHandoffError`` for invalid targets
     (not a member with project access, or the current owner).
 
-    All task runs must be terminal before a handoff. This prevents work started
-    by the previous owner from later resolving credentials for the recipient.
+    All task runs must be terminal and every sandbox session must be closed
+    before a handoff. The transfer rotates a server-owned ownership version and
+    revokes task-bound sandbox OAuth tokens, so old runs cannot execute or refresh
+    credentials under the recipient's identity.
     """
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
@@ -5392,6 +5426,21 @@ def handoff_task(
             .exists()
         ):
             raise TaskHandoffError("Finish or cancel active runs before handing off this task.")
+        if (
+            SandboxSession.objects.for_team(team_id)
+            .filter(
+                task_run__task_id=locked.id,
+                ended_at__isnull=True,
+                ttl_expires_at__gt=django_timezone.now(),
+            )
+            .exists()
+        ):
+            raise TaskHandoffError("Wait for active sandboxes to shut down before handing off this task.")
+
+        bound_tokens = OAuthAccessToken.objects.filter(sandbox_task_id=locked.id)
+        OAuthRefreshToken.objects.filter(access_token__in=bound_tokens).delete()
+        bound_tokens.delete()
+
         channel = locked.channel
         if channel is None or channel.channel_type == Channel.ChannelType.PERSONAL:
             # Never widen: a task in one private space moves to the other private
@@ -5407,10 +5456,10 @@ def handoff_task(
         # A stamped built-in agent task may borrow its credential owner's MCP Store
         # grants. Handing ownership off while keeping that borrow would hand the old
         # owner's connected accounts to whoever drives the run now, so drop the borrow.
-        if (locked.state or {}).get(MCP_CREDENTIAL_OWNER_STATE_KEY) is not None:
-            locked.state = {
-                key: value for key, value in (locked.state or {}).items() if key != MCP_CREDENTIAL_OWNER_STATE_KEY
-            }
+        locked.state = {
+            key: value for key, value in (locked.state or {}).items() if key != MCP_CREDENTIAL_OWNER_STATE_KEY
+        }
+        locked.state[TASK_OWNERSHIP_VERSION_STATE_KEY] = str(uuid4())
         locked.save()
         message = TaskThreadMessage.objects.for_team(team_id).create(
             team_id=team_id,
@@ -5963,6 +6012,8 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    expected_created_by_id = task.created_by_id
+    expected_ownership_version = task.ownership_version
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
@@ -6083,6 +6134,13 @@ def run_task(
         if not previous_run:
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
+            )
+        if not previous_run.matches_task_ownership(task):
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail",
+                    detail="This run belongs to a previous task owner. Start a new run instead.",
+                )
             )
 
         prev_state = parse_run_state(previous_run.state)
@@ -6265,7 +6323,17 @@ def run_task(
             )
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
-    task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+    try:
+        task_run = task.create_run(
+            mode=mode,
+            branch=branch,
+            extra_state=extra_state,
+            expected_created_by_id=expected_created_by_id,
+            expected_ownership_version=expected_ownership_version,
+            validate_task_ownership=True,
+        )
+    except TaskOwnershipChangedError:
+        return None
     if is_pi_task and resume_from_run_id:
         task_run.active_task_session = previous_run.active_task_session
         task_run.save(update_fields=["active_task_session", "updated_at"])
