@@ -160,6 +160,34 @@ def _proxy_to_region(request: HttpRequest, target_domain: str) -> HttpResponse:
         raise
 
 
+# Sentinel for "the cache backend didn't answer", which is not the same as a
+# real ``None``: a miss is information, an outage is the absence of it.
+_CACHE_UNAVAILABLE = object()
+
+
+def _cache_get(key: str) -> Any:
+    """Read from the cache, returning ``_CACHE_UNAVAILABLE`` on a backend failure.
+
+    The proxy decides whether to forward before authentication or DRF's
+    exception handling run, so an unreachable Redis here would surface as a 500
+    outside this namespace's envelopes. Each caller decides what an outage means
+    for its own check instead.
+    """
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("stripe_provisioning.proxy.cache_unavailable", operation="get")
+        return _CACHE_UNAVAILABLE
+
+
+def _cache_set(key: str, value: Any, timeout: int) -> None:
+    """Best-effort memo: losing it costs the next request a DB lookup, nothing more."""
+    try:
+        cache.set(key, value, timeout=timeout)
+    except Exception:
+        logger.warning("stripe_provisioning.proxy.cache_unavailable", operation="set")
+
+
 def _should_proxy_body_region(request: HttpRequest, current_region: str) -> bool:
     configuration = _request_payload(request).get("configuration")
     if not isinstance(configuration, dict):
@@ -176,7 +204,14 @@ def _should_proxy_token_lookup(request: HttpRequest, current_region: str) -> boo
         code = payload.get("code", "")
         if not code:
             return False
-        return cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}") is None
+        cached = _cache_get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
+        # An unreachable cache can't confirm the code is local, and handling it
+        # here would need that same cache to succeed. Forwarding gives a code
+        # minted in the other region a working path, and turns one minted here
+        # into that region's invalid_grant rather than a 500.
+        if cached is _CACHE_UNAVAILABLE:
+            return True
+        return cached is None
 
     if grant_type == "refresh_token":
         refresh_token_value = payload.get("refresh_token", "")
@@ -188,22 +223,20 @@ def _should_proxy_token_lookup(request: HttpRequest, current_region: str) -> boo
 
 
 def _bearer_exists_locally(token_value: str) -> bool:
-    # TODO: latent bug - cache backend failures here (and in the token-lookup
-    # check above) propagate as 500s instead of falling back to the local DB
-    # lookup.
     # SHA-256 the token before using it as a cache key so raw bearer tokens
     # never appear in Redis keyspace dumps or logs. Tokens are already
     # high-entropy (256 bits from secrets.token_urlsafe), so an unsalted hash
     # is sufficient - rainbow tables against 2^256 random inputs are a non-issue.
     token_hash = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
     cache_key = f"{BEARER_EXISTS_CACHE_PREFIX}{token_hash}"
-    cached = cache.get(cache_key)
-    if cached is not None:
+    cached = _cache_get(cache_key)
+    if cached is not None and cached is not _CACHE_UNAVAILABLE:
         return bool(cached)
 
+    # The DB is authoritative, so it answers a miss and an outage alike.
     exists = find_oauth_access_token(token_value) is not None
     ttl = BEARER_EXISTS_POSITIVE_TTL if exists else BEARER_EXISTS_NEGATIVE_TTL
-    cache.set(cache_key, exists, timeout=ttl)
+    _cache_set(cache_key, exists, ttl)
     return exists
 
 
@@ -243,7 +276,14 @@ class RegionProxyThrottle(IPThrottle):
         """Count a request from the proxy's ``dispatch``, where DRF's ``Request``
         doesn't exist yet. The key comes from the IP alone, so the plain Django
         request carries everything this throttle reads."""
-        return self.allow_request(cast("Request", request), cast("APIView", None))
+        try:
+            return self.allow_request(cast("Request", request), cast("APIView", None))
+        except Exception:
+            # Fail open, matching StripeBucketThrottle and DRF's global
+            # throttles: an unreachable Redis must not take the namespace down.
+            # What gets forwarded still meets the other region's own limits.
+            logger.warning("stripe_provisioning.proxy.throttle_unavailable")
+            return True
 
 
 class RegionProxyMixin:

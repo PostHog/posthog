@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from django_redis.exceptions import ConnectionInterrupted
+
 from ee.partners.stripe.api.provisioning.region_proxy import RegionProxyThrottle
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
@@ -15,6 +17,13 @@ def _fake_upstream(payload: dict, status_code: int = 200) -> MagicMock:
     response.content = json.dumps(payload).encode()
     response.json.return_value = payload
     return response
+
+
+def _unreachable_cache() -> MagicMock:
+    cache = MagicMock()
+    cache.get.side_effect = ConnectionInterrupted("redis is down")
+    cache.set.side_effect = ConnectionInterrupted("redis is down")
+    return cache
 
 
 class TestRegionProxy(StripeProvisioningTestBase):
@@ -108,6 +117,68 @@ class TestRegionProxy(StripeProvisioningTestBase):
             res = self._post_signed(f"{BASE_PATH}/provisioning/account_requests", data=self._account_request("EU"))
         assert res.status_code == 502
         assert res.json() == {"error": {"code": "proxy_failed", "message": "Failed to route to correct region"}}
+
+    def test_forwarding_survives_an_unreachable_throttle_backend(self):
+        # The cap runs pre-authentication, outside DRF's exception handling, so a
+        # Redis outage used to surface as a 500 in the wrong shape. Forwarding
+        # instead leaves the request to the limits the other region enforces.
+        body = {
+            "id": "acctreq_cache_down",
+            "email": "cache-down@example.com",
+            "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
+            "configuration": {"region": "EU"},
+            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_test"}},
+        }
+
+        with (
+            patch("ee.partners.stripe.api.provisioning.region_proxy.get_instance_region", return_value="US"),
+            patch.object(RegionProxyThrottle, "cache", _unreachable_cache()),
+            patch(
+                "ee.partners.stripe.api.provisioning.region_proxy.requests.request",
+                return_value=_fake_upstream({"type": "oauth", "oauth": {"code": "eu_code"}}),
+            ) as proxied,
+        ):
+            res = self._post_signed(f"{BASE_PATH}/provisioning/account_requests", data=body)
+
+        assert res.status_code == 200
+        proxied.assert_called_once()
+
+    def test_unreachable_cache_routes_an_auth_code_it_cannot_look_up(self):
+        # The code lives only in the local cache, so an outage here can't rule it
+        # out and a local exchange would need that same cache anyway.
+        with (
+            patch("ee.partners.stripe.api.provisioning.region_proxy.get_instance_region", return_value="US"),
+            patch("ee.partners.stripe.api.provisioning.region_proxy.cache", _unreachable_cache()),
+            patch(
+                "ee.partners.stripe.api.provisioning.region_proxy.requests.request",
+                return_value=_fake_upstream({"token_type": "bearer", "access_token": "pha_eu"}),
+            ) as proxied,
+        ):
+            res = self._post_signed(
+                f"{BASE_PATH}/oauth/token",
+                data={"grant_type": "authorization_code", "code": "code_of_unknown_region"},
+                content_type="application/x-www-form-urlencoded",
+            )
+
+        assert res.status_code == 200
+        assert res.json()["access_token"] == "pha_eu"
+        proxied.assert_called_once()
+
+    def test_unreachable_cache_falls_back_to_the_db_for_a_local_bearer(self):
+        # A bearer that exists here must not be routed away on an outage: the
+        # other region would reject it. The DB answers the same question.
+        token = self._get_bearer_token()
+
+        with (
+            patch("ee.partners.stripe.api.provisioning.region_proxy.get_instance_region", return_value="US"),
+            patch("ee.partners.stripe.api.provisioning.region_proxy.cache", _unreachable_cache()),
+            patch("ee.partners.stripe.api.provisioning.region_proxy.requests.request") as proxied,
+        ):
+            res = self._get_signed_with_bearer(f"{BASE_PATH}/provisioning/resources/{self.team.id}", token=token)
+
+        assert res.status_code == 200
+        assert res.json()["status"] == "complete"
+        proxied.assert_not_called()
 
 
 class TestRegionProxyThrottle(StripeProvisioningTestBase):
