@@ -60,6 +60,11 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="Print the plan without writing anything.")
         parser.add_argument("--skip-events", action="store_true", help="Skip event generation (config/tables only).")
         parser.add_argument("--skip-flags", action="store_true", help="Skip enabling feature flags.")
+        parser.add_argument(
+            "--connect-all",
+            action="store_true",
+            help="Connect every ad platform, trading the events_only / connect_source case for full cost-table coverage.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         # Local-dev only: this seeder persists the deployment's OBJECT_STORAGE_*
@@ -83,7 +88,7 @@ class Command(BaseCommand):
         now = timezone.now()
 
         if options["dry_run"]:
-            self._print_plan(days_past, scale)
+            self._print_plan(days_past, scale, connect_all=options["connect_all"])
             return
 
         # Ahead of the event write: the per-table check in `register_table` fires too late to keep a
@@ -106,7 +111,9 @@ class Command(BaseCommand):
             builder = warehouse.CostTableBuilder(seed=options["seed"], days_past=days_past, now=now, out_dir=out_dir)
 
             self.stdout.write("Creating warehouse sources and staging Integration health states...")
-            sources = health.create_sources(team)
+            sources = health.create_sources(
+                team, unconnected=frozenset() if options["connect_all"] else health.UNCONNECTED_PLATFORMS
+            )
             credential = get_or_create_datawarehouse_credential(
                 team_id=team.pk,
                 access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -116,6 +123,8 @@ class Command(BaseCommand):
             self.stdout.write("Uploading cost tables for all native platforms...")
             table_map: dict[tuple[str, str], Any] = {}
             for platform, (builder_method, prefix, columns_by_schema) in warehouse.NATIVE_SPECS.items():
+                if platform not in sources:  # unconnected: spend with nowhere to hang it
+                    continue
                 for schema_name, csv_path in getattr(builder, builder_method)().items():
                     registered = warehouse.register_table(
                         team,
@@ -198,15 +207,23 @@ class Command(BaseCommand):
             "Kafka delivery is async: give ClickHouse a minute before expecting all events in the dashboard."
         )
 
-    def _print_plan(self, days_past: int, scale: float) -> None:
+    def _print_plan(self, days_past: int, scale: float, *, connect_all: bool) -> None:
         daily_sessions = sum(c.daily_sessions for c in CAMPAIGNS) + sum(c.daily_sessions for c in FREE_CHANNELS)
         self.stdout.write(f"Would generate ~{round(daily_sessions * scale)} sessions/day for {days_past} days:")
         for campaign in CAMPAIGNS:
             self.stdout.write(f"  [{campaign.platform}] {campaign.name}: {campaign.scenario or 'traffic'}")
         for channel in FREE_CHANNELS:
             self.stdout.write(f"  [free] {channel.key}: {channel.scenario or 'traffic'}")
-        native_tables = sum(len(columns) for _method, _prefix, columns in warehouse.NATIVE_SPECS.values())
+        # Mirror the real run's source of truth so the summary matches what --connect-all creates.
+        unconnected = frozenset() if connect_all else health.UNCONNECTED_PLATFORMS
+        native_tables = sum(
+            len(columns)
+            for platform, (_method, _prefix, columns) in warehouse.NATIVE_SPECS.items()
+            if platform not in unconnected
+        )
+        connected = len(health.PLATFORM_STATES) - len(unconnected)
         self.stdout.write(
-            f"Plus: health fixtures for {len(warehouse.NATIVE_SPECS)} platforms, "
-            f"{native_tables + 2} warehouse tables, 6 conversion goals, flags."
+            f"Plus: health fixtures for {connected} connected platforms, "
+            f"{len(unconnected)} left unconnected (events_only), "
+            f"{native_tables + 2} warehouse tables, conversion goals, flags."
         )
