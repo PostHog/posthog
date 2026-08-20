@@ -65,7 +65,7 @@ describe('featureFlagIntentWarningLogic', () => {
                 expectedUnreachable: [1],
             },
             {
-                name: 'partial-rollout unfiltered group shadows later same-target group',
+                name: 'partial-rollout unfiltered group does not shadow later same-target group',
                 groups: [
                     { properties: [], rollout_percentage: 20, variant: null },
                     {
@@ -81,7 +81,7 @@ describe('featureFlagIntentWarningLogic', () => {
                         variant: null,
                     },
                 ],
-                expectedUnreachable: [1],
+                expectedUnreachable: [],
             },
             {
                 name: 'zero-rollout unfiltered group does not shadow later group',
