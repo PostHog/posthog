@@ -541,6 +541,11 @@ export class PiAgentServer {
       cwd,
       model: this.config.model,
       sessionFile: restoredSessionFile,
+      enrichment: {
+        apiUrl: this.config.apiUrl,
+        projectId: this.config.projectId,
+        apiKey: this.config.apiKey,
+      },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
       providerOptions: {

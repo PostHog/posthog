@@ -4299,6 +4299,40 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
     def _config(self):
         return mock.MagicMock(user="u", password="p", database="db", schema="", ssh_tunnel=None)
 
+    def test_required_ssl_is_used_for_every_schema_discovery_connection(self, source):
+        tunnel_cm = mock.MagicMock()
+        tunnel_cm.__enter__.return_value = ("localhost", 5432)
+        tunnel_cm.__exit__.return_value = None
+        metadata_connection = mock.MagicMock()
+        metadata_connection.__enter__.return_value = mock.MagicMock()
+        metadata_connection.__exit__.return_value = None
+
+        with (
+            mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                return_value={},
+            ) as get_schemas,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                return_value={},
+            ) as get_foreign_keys,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
+                return_value={},
+            ) as get_row_count,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.pg_connection",
+                return_value=metadata_connection,
+            ) as pg_connection,
+        ):
+            source.get_schemas(self._config(), team_id=1, with_counts=True, require_ssl=True)
+
+        assert get_schemas.call_args.kwargs["require_ssl"] is True
+        assert get_foreign_keys.call_args.kwargs["require_ssl"] is True
+        assert get_row_count.call_args.kwargs["require_ssl"] is True
+        assert pg_connection.call_args.kwargs["require_ssl"] is True
+
     @pytest.mark.parametrize(
         "exc",
         [
@@ -4927,22 +4961,33 @@ class TestBuildXminQuery:
     def _render(self, composed: sql.Composed) -> str:
         return composed.as_string()
 
-    def _bounds(self, *, lower=0, upper=5000, num_wraparound=0, wraparound_or_range=False) -> XminBounds:
+    def _bounds(
+        self, *, lower=0, upper=5000, num_wraparound=0, wraparound_or_range=False, full_scan=False
+    ) -> XminBounds:
         return XminBounds(
             lower=lower,
             upper=upper,
             ceiling_xid8=(num_wraparound << 32) | upper,
             num_wraparound=num_wraparound,
             wraparound_or_range=wraparound_or_range,
+            full_scan=full_scan,
         )
 
-    def test_first_run_reads_below_ceiling(self):
-        query = _build_query("public", "users", False, "table", None, None, None, xmin_bounds=self._bounds(lower=0))
+    def test_full_scan_drops_the_xmin_window(self):
+        query = _build_query(
+            "public", "users", False, "table", None, None, None, xmin_bounds=self._bounds(full_scan=True)
+        )
         rendered = self._render(query)
         assert f'xmin::text::bigint AS "{XMIN_PROJECTED_COLUMN}"' in rendered
-        assert "xmin::text::bigint >= 0 AND xmin::text::bigint < 5000" in rendered
-        assert "OR xmin::text::bigint" not in rendered
+        assert "xmin::text::bigint >=" not in rendered
+        assert "xmin::text::bigint <" not in rendered
         assert rendered.rstrip().endswith("ORDER BY xmin::text::bigint ASC")
+
+    def test_full_scan_count_query_counts_every_row(self):
+        query = _build_count_query("public", "users", False, None, None, None, xmin_bounds=self._bounds(full_scan=True))
+        rendered = self._render(query)
+        assert "xmin::text::bigint >=" not in rendered
+        assert "xmin::text::bigint <" not in rendered
 
     def test_steady_state_single_range(self):
         query = _build_query(
@@ -5013,18 +5058,27 @@ class TestCaptureXminCeiling:
         with pytest.raises(XminUnsupportedError, match="PostgreSQL 13"):
             _capture_xmin_ceiling(cursor, None, None, MagicMock())
 
-    def test_first_run_seeds_zero_lower_bound(self):
-        cursor = self._cursor(server_version=150000, ceiling_xid8=5000, ceiling_xid=5000)
-        bounds = _capture_xmin_ceiling(cursor, None, None, MagicMock())
-        assert bounds.lower == 0
-        assert bounds.upper == 5000
-        assert bounds.wraparound_or_range is False
+    @parameterized.expand(
+        [
+            ("first_run", None, None),
+            ("multi_wrap", 4000000000, 0),
+        ]
+    )
+    def test_reads_whole_table_when_no_window_is_safe(self, _name, stored_last_value, stored_num_wraparound):
+        # Backfills and multi-wrap re-reads can't use a 32-bit window: `ceiling_xid` is only the low
+        # half of the ceiling, so tuples written in earlier epochs sit above it.
+        cursor = self._cursor(server_version=150000, ceiling_xid8=(12 << 32) | 500, ceiling_xid=500)
+        bounds = _capture_xmin_ceiling(cursor, stored_last_value, stored_num_wraparound, MagicMock())
+        assert bounds.full_scan is True
+        assert bounds.ceiling_xid8 == (12 << 32) | 500
+        assert bounds.num_wraparound == 12
 
     def test_steady_state_uses_stored_lower_bound(self):
         cursor = self._cursor(server_version=150000, ceiling_xid8=5000, ceiling_xid=5000)
         bounds = _capture_xmin_ceiling(cursor, 100, 0, MagicMock())
         assert bounds.lower == 100
         assert bounds.wraparound_or_range is False
+        assert bounds.full_scan is False
 
     def test_single_wrap_sets_or_range(self):
         # Epoch advanced by exactly 1 since last sync.
@@ -5033,12 +5087,36 @@ class TestCaptureXminCeiling:
         assert bounds.num_wraparound == 1
         assert bounds.wraparound_or_range is True
         assert bounds.lower == 4000000000
+        assert bounds.full_scan is False
 
-    def test_multi_wrap_forces_full_reread(self):
-        cursor = self._cursor(server_version=150000, ceiling_xid8=(3 << 32) | 500, ceiling_xid=500)
-        bounds = _capture_xmin_ceiling(cursor, 4000000000, 0, MagicMock())
-        assert bounds.lower == 0
-        assert bounds.wraparound_or_range is False
+
+class TestXminBackfillAgainstPostgres:
+    @pytest.mark.django_db
+    def test_backfill_reads_tuples_above_the_ceiling_remainder(self):
+        # Reproduces the reported silent data loss. On a cluster past a wraparound the ceiling's
+        # low 32 bits are a small remainder while every tuple written in an earlier epoch keeps a
+        # much larger raw `xmin`, so the old `[0, remainder)` backfill window matched no rows and
+        # the run still completed and advanced the cursor.
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE xmin_wraparound_probe (id int PRIMARY KEY)")
+            dj_cursor.execute("INSERT INTO xmin_wraparound_probe SELECT generate_series(1, 10)")
+            dj_cursor.execute("SELECT MIN(xmin::text::bigint) FROM xmin_wraparound_probe")
+            lowest_tuple_xmin = dj_cursor.fetchone()[0]
+
+            snapshot_cursor = MagicMock()
+            snapshot_cursor.connection.info.server_version = 150000
+            snapshot_cursor.fetchone.return_value = ((12 << 32) | lowest_tuple_xmin,)
+            bounds = _capture_xmin_ceiling(snapshot_cursor, None, None, MagicMock())
+
+            dj_cursor.execute(
+                _build_query("public", "xmin_wraparound_probe", False, "table", None, None, None, xmin_bounds=bounds)
+            )
+            assert len(dj_cursor.fetchall()) == 10
+
+            dj_cursor.execute(
+                _build_count_query("public", "xmin_wraparound_probe", False, None, None, None, xmin_bounds=bounds)
+            )
+            assert dj_cursor.fetchone()[0] == 10
 
 
 class TestXminCapableTablesFromConn:
