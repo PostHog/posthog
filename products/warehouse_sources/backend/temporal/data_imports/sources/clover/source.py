@@ -12,6 +12,8 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.clover.clover import (
     CloverResumeConfig,
     clover_source,
@@ -123,6 +125,13 @@ def _api_token_option() -> SourceFieldSelectConfigOption:
     )
 
 
+@frozen
+class CloverConnection:
+    region: str
+    merchant_id: str
+    auth: AuthConfigBase
+
+
 @SourceRegistry.register
 class CloverSource(ResumableSource[CloverSourceConfig, CloverResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -200,8 +209,8 @@ You need to grant read access for every entity you want to sync, such as orders,
         # windows share their boundary millisecond, so append mode would duplicate those rows.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
 
-    def _connection(self, config: CloverSourceConfig, team_id: int) -> tuple[str, str, AuthConfigBase]:
-        """Resolve (region, merchant id, transport auth) for the selected auth method.
+    def _connection(self, config: CloverSourceConfig, team_id: int) -> CloverConnection:
+        """Resolve the region, merchant id and transport auth for the selected auth method.
 
         On the OAuth path the region comes from the integration's kind rather than the form: the
         kind is what pins the Clover app and host the token was issued against, so trusting it keeps
@@ -213,7 +222,7 @@ You need to grant read access for every entity you want to sync, such as orders,
                 raise ValueError("Missing Clover API token")
             if not auth_type.merchant_id:
                 raise ValueError("Missing Clover merchant ID")
-            return auth_type.region, auth_type.merchant_id, BearerTokenAuth(auth_type.api_token)
+            return CloverConnection(auth_type.region, auth_type.merchant_id, BearerTokenAuth(auth_type.api_token))
 
         integration_id = auth_type.clover_integration_id
         if not integration_id:
@@ -227,7 +236,7 @@ You need to grant read access for every entity you want to sync, such as orders,
             raise ValueError("Clover integration is missing a merchant ID")
 
         token = resolve_clover_oauth_token(integration_id, team_id)
-        return region, merchant_id, CloverIntegrationAuth(integration_id, team_id, token)
+        return CloverConnection(region, merchant_id, CloverIntegrationAuth(integration_id, team_id, token))
 
     def validate_credentials(
         self,
@@ -237,7 +246,7 @@ You need to grant read access for every entity you want to sync, such as orders,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            region, merchant_id, auth = self._connection(config, team_id)
+            connection = self._connection(config, team_id)
         except ValueError as e:
             # These are deterministic config/credential errors whose developer wording is unhelpful
             # in the wizard and can carry a volatile integration ID. Reuse the curated messages from
@@ -249,9 +258,9 @@ You need to grant read access for every entity you want to sync, such as orders,
             return False, raw
 
         return validate_clover_credentials(
-            region=region,
-            merchant_id=merchant_id,
-            auth=auth,
+            region=connection.region,
+            merchant_id=connection.merchant_id,
+            auth=connection.auth,
             # At source-create a 403 only means the merchant hasn't granted that entity, which must
             # not block connecting; a per-schema check is asking about that entity specifically.
             accept_forbidden=schema_name is None,
@@ -265,17 +274,17 @@ You need to grant read access for every entity you want to sync, such as orders,
         api_version: str | None = None,
     ) -> dict[str, str | None]:
         try:
-            region, merchant_id, auth = self._connection(config, team_id)
+            connection = self._connection(config, team_id)
         except ValueError:
             # A misconfigured connection is reported by validate_credentials; per-table access must
             # never block the schema picker, so report everything reachable here.
             return dict.fromkeys(endpoints)
 
         return clover_endpoint_permissions(
-            region=region,
-            merchant_id=merchant_id,
+            region=connection.region,
+            merchant_id=connection.merchant_id,
             endpoints=endpoints,
-            auth=auth,
+            auth=connection.auth,
         )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CloverResumeConfig]:
@@ -287,15 +296,15 @@ You need to grant read access for every entity you want to sync, such as orders,
         resumable_source_manager: ResumableSourceManager[CloverResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        region, merchant_id, auth = self._connection(config, inputs.team_id)
+        connection = self._connection(config, inputs.team_id)
         return clover_source(
-            region=region,
-            merchant_id=merchant_id,
+            region=connection.region,
+            merchant_id=connection.merchant_id,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            auth=auth,
+            auth=connection.auth,
             incremental_field=inputs.incremental_field,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
