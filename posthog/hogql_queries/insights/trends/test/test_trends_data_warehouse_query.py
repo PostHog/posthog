@@ -1,3 +1,5 @@
+import csv
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -96,6 +98,57 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             timings=timings,
             modifiers=modifiers,
         )
+
+    def setup_epoch_data_warehouse(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            csv_path = Path(temp_dir) / "epoch_trends_data.csv"
+            with open(csv_path, "w", newline="") as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(["id", "created_s", "created_ms"])
+                writer.writerows(
+                    [
+                        ["1", 1672531200, 1672531200000],  # 2023-01-01 00:00:00 UTC
+                        ["2", 1672531200, 1672531200000],
+                        ["3", 1672617600, 1672617600000],  # 2023-01-02 00:00:00 UTC
+                        ["4", 1672704000, 1672704000000],  # 2023-01-03 00:00:00 UTC
+                    ]
+                )
+            table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+                csv_path=csv_path,
+                table_name="epoch_table",
+                table_columns={
+                    "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                    "created_s": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
+                    "created_ms": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
+                },
+                test_bucket=TEST_BUCKET,
+                team=self.team,
+            )
+
+        return table.name
+
+    @parameterized.expand([("seconds", "created_s"), ("milliseconds", "created_ms")])
+    def test_trends_data_warehouse_integer_timestamp_field(self, _name: str, timestamp_field: str) -> None:
+        table_name = self.setup_epoch_data_warehouse()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    timestamp_field=timestamp_field,
+                    distinct_id_field="id",
+                )
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert response.results[0]["data"] == [2, 1, 1, 0, 0, 0, 0]
 
     def setup_data_warehouse(self):
         table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(

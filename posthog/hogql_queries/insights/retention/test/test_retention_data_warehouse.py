@@ -277,20 +277,42 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("integer", "Int64", [1735722000, 1735725600, 1735815600, 1735905600]),
-            (
-                "string",
-                "String",
-                ["2025-01-01 09:00:00", "2025-01-01 10:00:00", "2025-01-02 12:00:00", "2025-01-03 12:00:00"],
-            ),
+            ("seconds", [1735722000, 1735725600, 1735815600, 1735905600]),
+            ("milliseconds", [1735722000000, 1735725600000, 1735815600000, 1735905600000]),
         ]
     )
-    def test_non_datetime_timestamp_field_is_rejected(self, _name: str, column_type: str, occurred_at: list[object]):
-        # Both types reach toStartOfInterval and fail inside ClickHouse without this check, quoting
-        # generated SQL rather than naming the column the user picked.
-        table = self._activity_table_with_timestamp_type(column_type, occurred_at)
+    def test_integer_timestamp_field_is_read_as_unix_epoch(self, _name: str, occurred_at: list[object]):
+        # Same instants as the datetime fixtures: signups on 2025-01-01, renewals on 01-02 and 01-03.
+        table = self._activity_table_with_timestamp_type("Int64", occurred_at)
 
-        with self.assertRaisesMessage(ValidationError, "isn't a date or datetime column"):
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": self._activity_retention_filter(table),
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [2, 1, 1, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_non_datetime_timestamp_field_is_rejected(self):
+        # A string reaches toStartOfInterval and fails inside ClickHouse without this check, quoting
+        # generated SQL rather than naming the column the user picked.
+        table = self._activity_table_with_timestamp_type(
+            "String", ["2025-01-01 09:00:00", "2025-01-01 10:00:00", "2025-01-02 12:00:00", "2025-01-03 12:00:00"]
+        )
+
+        with self.assertRaisesMessage(ValidationError, "isn't a date, datetime, or integer (Unix timestamp) column"):
             self.run_query(
                 query={
                     "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},

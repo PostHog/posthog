@@ -18,9 +18,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.epoch_timestamps import epoch_to_datetime_expr
 from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
+    IntegerDatabaseField,
     StringDatabaseField,
     UUIDDatabaseField,
 )
@@ -232,6 +234,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return ast.Call(
                 name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])]
             )
+        elif isinstance(field, IntegerDatabaseField):
+            return epoch_to_datetime_expr(ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field]))
         else:
             raise ValidationError(
                 detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"

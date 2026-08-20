@@ -27,6 +27,7 @@ from posthog.hogql.constants import (
     LimitContext,
     get_breakdown_limit_for_context,
 )
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import entity_to_expr, property_to_expr
@@ -152,6 +153,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             DisallowUnsupportedDataWarehouseSettings(),
             DisallowUnsupportedDataWarehouseTimestampField(),
         )
+
+    @cached_property
+    def warehouse_database(self) -> Database:
+        return Database.create_for(team=self.team, user=self.user, modifiers=self.modifiers)
 
     @cached_property
     def property_aggregation_expr(self) -> ast.Expr | None:

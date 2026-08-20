@@ -22,6 +22,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
+from posthog.hogql.database.epoch_timestamps import epoch_to_datetime_expr, is_integer_clickhouse_type
 from posthog.hogql.database.lazy_join_tags import (
     DATA_WAREHOUSE,
     DATA_WAREHOUSE_EXPERIMENTS,
@@ -2055,6 +2056,11 @@ class Database(BaseModel):
                 else:
                     if modifier_timestamp_field_is_timestamp:
                         table.fields["timestamp"] = UnknownDatabaseField(name="timestamp")
+                    elif is_integer_clickhouse_type(timestamp_field_type):
+                        table.fields["timestamp"] = ExpressionField(
+                            name="timestamp",
+                            expr=epoch_to_datetime_expr(ast.Field(chain=[warehouse_modifier.timestamp_field])),
+                        )
                     else:
                         table.fields["timestamp"] = ExpressionField(
                             name="timestamp",

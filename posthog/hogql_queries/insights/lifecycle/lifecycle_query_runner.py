@@ -21,6 +21,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.epoch_timestamps import epoch_to_datetime_expr
+from posthog.hogql.database.models import IntegerDatabaseField
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr, property_to_expr
@@ -303,11 +306,20 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             raise ValueError("Expected a data warehouse series")
         return series
 
+    @cached_property
+    def _warehouse_database(self) -> Database:
+        return Database.create_for(team=self.team, user=self.user, modifiers=self.modifiers)
+
     @property
     def timestamp_field(self) -> ast.Expr:
         if self.is_data_warehouse_series:
+            series = self.data_warehouse_series
+            field = self._warehouse_database.get_table(series.table_name).fields.get(series.timestamp_field)
+            if isinstance(field, IntegerDatabaseField):
+                return epoch_to_datetime_expr(ast.Field(chain=[series.timestamp_field]))
+            # Not a plain integer column, so parse as HogQL to keep expression timestamp fields working.
             tag_contains_user_hogql()
-            return parse_expr(self.data_warehouse_series.timestamp_field)
+            return parse_expr(series.timestamp_field)
         return ast.Field(chain=["events", "timestamp"])
 
     @cached_property

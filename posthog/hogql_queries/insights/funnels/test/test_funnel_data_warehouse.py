@@ -1,3 +1,5 @@
+import csv
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -210,6 +212,51 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
 
         results = response.results
         assert results[0]["count"] == 5
+        assert results[1]["count"] == 1
+
+    def test_funnels_data_warehouse_integer_timestamp_field(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            csv_path = Path(temp_dir) / "epoch_funnels_data.csv"
+            with open(csv_path, "w", newline="") as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(["uuid", "user_id", "created_ms"])
+                writer.writerows(
+                    [
+                        ["a-1", "user-1", 1762160400000],  # 2025-11-03 09:00:00 UTC
+                        ["a-2", "user-1", 1762246800000],  # 2025-11-04 09:00:00 UTC
+                        ["b-1", "user-2", 1762160400000],
+                    ]
+                )
+            table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+                csv_path=csv_path,
+                table_name="epoch_events",
+                table_columns={
+                    "uuid": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                    "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                    "created_ms": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
+                },
+                test_bucket=TEST_BUCKET,
+                team=self.team,
+            )
+
+        node = FunnelsDataWarehouseNode(
+            id=table.name,
+            table_name=table.name,
+            id_field="uuid",
+            aggregation_target_field="user_id",
+            timestamp_field="created_ms",
+        )
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[node, node],
+        )
+
+        with freeze_time("2025-11-07"):
+            response = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True).calculate()
+
+        results = response.results
+        assert results[0]["count"] == 2
         assert results[1]["count"] == 1
 
     def _days_of_week_trends_query(self, table_name: str, days_of_week: list[int] | None) -> FunnelsQuery:

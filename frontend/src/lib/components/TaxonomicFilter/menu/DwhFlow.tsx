@@ -76,7 +76,7 @@ import { CommitFn, MenuFilterEntry, TaxonomicFilterGroup } from './types'
  *  the dropdowns surface the same options as the funnel popover. */
 const ALLOWED_COLUMN_TYPES_BY_FIELD_KEY: Record<string, DatabaseSerializedFieldType[]> = {
     aggregation_target_field: ['string'],
-    timestamp_field: ['datetime', 'date', 'string'],
+    timestamp_field: ['datetime', 'date', 'string', 'integer'],
     id_field: ['string', 'integer', 'decimal', 'float'],
     distinct_id_field: ['string'],
 }
@@ -88,7 +88,7 @@ const ALLOWED_COLUMN_TYPES_BY_FIELD_KEY: Record<string, DatabaseSerializedFieldT
  *  `EDITABLE_FIELD_EXPLANATIONS` table. */
 const DEFAULT_FIELD_DESCRIPTIONS: Record<string, string> = {
     aggregation_target_field: 'Used to match people or groups across funnel steps.',
-    timestamp_field: 'Used to order step timing and apply the funnel date range.',
+    timestamp_field: 'Used to order step timing and apply the funnel date range. Integer columns are read as Unix timestamps.',
     id_field: 'Used as the unique row ID to detect duplicate records.',
     distinct_id_field: 'Used to associate this row with a person via distinct_id.',
 }

@@ -3,7 +3,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import AggregationType, EntityType, RetentionQuery
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DateDatabaseField, DateTimeDatabaseField
+from posthog.hogql.database.models import DateDatabaseField, DateTimeDatabaseField, IntegerDatabaseField
 
 from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
 from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import resolve_warehouse_field
@@ -72,8 +72,9 @@ class DisallowUnsupportedDataWarehouseTimestampField:
     cannot be a datetime fails deep inside ClickHouse, quoting generated SQL the user never wrote. Resolving
     the column type up front turns that into a 400 naming the column they picked.
 
-    An integer is rejected rather than converted because it could hold seconds, milliseconds or microseconds
-    since the epoch, and guessing wrong shifts every bucket instead of failing."""
+    Integer columns are accepted and read as Unix epochs: the query builder picks seconds, milliseconds,
+    microseconds, or nanoseconds per value by magnitude (see epoch_to_datetime_expr), so no single unit
+    has to be guessed."""
 
     code = "retention_data_warehouse_timestamp_field_unsupported"
 
@@ -93,11 +94,11 @@ class DisallowUnsupportedDataWarehouseTimestampField:
                 # A half-configured entity raises its own error while building the query.
                 continue
             field = resolve_warehouse_field(database, entity.table_name, entity.timestamp_field)
-            if not isinstance(field, DateTimeDatabaseField | DateDatabaseField):
+            if not isinstance(field, DateTimeDatabaseField | DateDatabaseField | IntegerDatabaseField):
                 raise ValidationError(
                     f"{entity.table_name}.{entity.timestamp_field} can't be used as the retention timestamp, "
-                    "because it isn't a date or datetime column. Pick a different column, "
-                    "or convert this one in a saved query first.",
+                    "because it isn't a date, datetime, or integer (Unix timestamp) column. Pick a different "
+                    "column, or convert this one in a saved query first.",
                     code=self.code,
                 )
 

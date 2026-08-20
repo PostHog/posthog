@@ -284,6 +284,92 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
 
                     self.assertEqual([[expected_name]], actors_response.results)
 
+    def test_lifecycle_data_warehouse_integer_timestamp_field(self):
+        person_ids = self._create_persons()
+
+        sent_messages_path = self._write_csv(
+            "sent_messages_epoch.csv",
+            ["user_id", "sent_at_ms", "text"],
+            [
+                [1, 1762506000000, "new"],  # 2025-11-07 09:00:00 UTC
+                [2, 1762419600000, "returning previous"],  # 2025-11-06 09:00:00 UTC
+                [2, 1762506000000, "returning current"],
+                [3, 1762506000000, "resurrecting"],
+                [4, 1762419600000, "dormant"],
+            ],
+        )
+        users_path = self._write_csv(
+            "users_epoch.csv",
+            ["id", "signed_up", "person_id"],
+            [
+                [1, "2025-11-07 08:00:00", person_ids[1]],
+                [2, "2025-11-06 08:00:00", person_ids[2]],
+                [3, "2025-11-06 08:00:00", person_ids[3]],
+                [4, "2025-11-06 08:00:00", person_ids[4]],
+            ],
+        )
+
+        sent_messages_table, source, credential, _df, sent_messages_cleanup = create_data_warehouse_table_from_csv(
+            csv_path=sent_messages_path,
+            table_name="sent_messages_epoch",
+            table_columns={
+                "user_id": "Int64",
+                "sent_at_ms": "Int64",
+                "text": "String",
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+        self.cleanup_fns.append(sent_messages_cleanup)
+
+        users_table, _source, _credential, _df, users_cleanup = create_data_warehouse_table_from_csv(
+            csv_path=users_path,
+            table_name="users_epoch",
+            table_columns={
+                "id": "Int64",
+                "signed_up": "DateTime64(3, 'UTC')",
+                "person_id": "UUID",
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+            source=source,
+            credential=credential,
+        )
+        self.cleanup_fns.append(users_cleanup)
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=sent_messages_table.name,
+            source_table_key="user_id",
+            joining_table_name=users_table.name,
+            joining_table_key="id",
+            field_name="users",
+        )
+
+        with freeze_time("2025-11-07T12:00:00Z"):
+            query = LifecycleQuery(
+                dateRange=DateRange(date_from="-1d"),
+                interval=IntervalType.DAY,
+                series=[
+                    LifecycleDataWarehouseNode(
+                        id=sent_messages_table.name,
+                        table_name=sent_messages_table.name,
+                        timestamp_field="sent_at_ms",
+                        aggregation_target_field="users.person_id",
+                        created_at_field="users.signed_up",
+                    )
+                ],
+            )
+            response = LifecycleQueryRunner(team=self.team, query=query).calculate()
+
+        results_by_status = {result["status"]: result for result in response.results}
+
+        self.assertEqual(["2025-11-06", "2025-11-07"], results_by_status["new"]["days"])
+        self.assertEqual([2.0, 1.0], results_by_status["new"]["data"])
+        self.assertEqual([0.0, 1.0], results_by_status["returning"]["data"])
+        self.assertEqual([0.0, 1.0], results_by_status["resurrecting"]["data"])
+        self.assertEqual([0.0, -1.0], results_by_status["dormant"]["data"])
+
     def test_lifecycle_data_warehouse_group_aggregation_target(self):
         """Data warehouse source matching a group aggregation target."""
         table_name = self._setup_group_data_warehouse()

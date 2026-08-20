@@ -30,7 +30,7 @@ export type FunnelFieldKey = 'id_field' | 'timestamp_field' | 'aggregation_targe
 export const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['aggregation_target_field', 'timestamp_field', 'id_field']
 const ALLOWED_COLUMN_TYPES_BY_FIELD_KEY: Record<FunnelFieldKey, DatabaseSerializedFieldType[]> = {
     aggregation_target_field: ['string'],
-    timestamp_field: ['datetime', 'date', 'string'],
+    timestamp_field: ['datetime', 'date', 'string', 'integer'],
     id_field: ['string', 'integer', 'decimal', 'float'],
 }
 const HIDDEN_FIELD_TYPES: DatabaseSerializedFieldType[] = ['lazy_table', 'virtual_table', 'view', 'materialized_view']
