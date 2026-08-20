@@ -93,6 +93,10 @@ export function DailyReportLimitSettings({
                 step={1}
                 inputMode="numeric"
                 placeholder="No limit"
+                aria-label="Daily report limit"
+                aria-describedby={
+                  error ? "daily-report-limit-error" : undefined
+                }
                 value={draft}
                 disabled={controlsDisabled}
                 data-attr="daily-report-limit-input"
@@ -131,7 +135,13 @@ export function DailyReportLimitSettings({
           </div>
 
           {error ? (
-            <Text className="text-(--red-11) text-[12.5px]">{error}</Text>
+            <Text
+              id="daily-report-limit-error"
+              role="alert"
+              className="text-(--red-11) text-[12.5px]"
+            >
+              {error}
+            </Text>
           ) : (
             <Text className="text-(--gray-11) text-[12.5px]">
               {status.usageText}
