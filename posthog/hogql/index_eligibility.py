@@ -30,6 +30,7 @@ from posthog.hogql.property_planner import (
 from posthog.hogql.type_system import ComparisonCompatibility, comparison_compatibility
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
 from posthog.schema_enums import QueryIndexUsage
 
 
@@ -252,7 +253,7 @@ def eligibility_from_plan(
     )
     semantic_type = plan.access.semantic_type.print_type()
     physical_type = source.physical_type.print_type()
-    message, fix, ai_fix_prompt = _copy_for(
+    copy = _copy_for(
         verdict=verdict,
         plan=plan,
         usable=usable,
@@ -274,9 +275,9 @@ def eligibility_from_plan(
         usable_indexes=usable,
         verdict=verdict,
         blocker=type_blocker,
-        message=message,
-        fix=fix,
-        ai_fix_prompt=ai_fix_prompt,
+        message=copy.message,
+        fix=copy.fix,
+        ai_fix_prompt=copy.ai_fix_prompt,
         start=start,
         end=end,
     )
@@ -342,6 +343,15 @@ def _verdict(
     return PredicateIndexVerdict.UNINDEXED_JSON
 
 
+@frozen
+class _PredicateCopy:
+    """What a reader is told about one predicate: the finding, the advice, the AI rewrite."""
+
+    message: str
+    fix: str | None = None
+    ai_fix_prompt: str | None = None
+
+
 def _copy_for(
     verdict: PredicateIndexVerdict,
     plan: PropertyComparisonPlan,
@@ -349,7 +359,7 @@ def _copy_for(
     type_blocker: PropertyMinmaxBlocker | None,
     semantic_type: str,
     physical_type: str,
-) -> tuple[str, str | None, str | None]:
+) -> _PredicateCopy:
     # Messages name the property, never the physical column behind it. A reader cannot select,
     # create or drop `mat_$browser`, so naming it spends words on something they cannot act on.
     # The column name stays on the structured `column_name` field for callers that want it.
@@ -359,11 +369,9 @@ def _copy_for(
 
     if verdict == PredicateIndexVerdict.INDEXED:
         index_names = ", ".join(sorted({_INDEX_LABELS[index] for index in usable}))
-        return (
-            f"{label} '{name}' has a {index_names} index that covers this comparison. How much data it "
+        return _PredicateCopy(
+            message=f"{label} '{name}' has a {index_names} index that covers this comparison. How much data it "
             "skips depends on how the values are spread across the table.",
-            None,
-            None,
         )
 
     if verdict == PredicateIndexVerdict.BLOCKED:
@@ -372,48 +380,40 @@ def _copy_for(
             # columns are String, so a numeric or datetime property is always converted at read time.
             # Correcting the definition only helps when the definition is the thing that is wrong.
             # No AI prompt: how the value is stored is not something a query rewrite can change.
-            return (
-                f"{label} '{name}' is stored as {_plain_type(physical_type)} but compared as "
+            return _PredicateCopy(
+                message=f"{label} '{name}' is stored as {_plain_type(physical_type)} but compared as "
                 f"{_plain_type(semantic_type)}, so every row is converted before the filter runs and the index on "
                 f"'{name}' cannot skip any data.",
-                f"If '{name}' does not really hold {_plain_type(semantic_type)}, correct its type in data management.",
-                None,
+                fix=f"If '{name}' does not really hold {_plain_type(semantic_type)}, correct its type in data management.",
             )
-        return (
-            f"{label} '{name}' is compared against a value of another type, so every row has to be "
+        return _PredicateCopy(
+            message=f"{label} '{name}' is compared against a value of another type, so every row has to be "
             f"converted and the index on '{name}' goes unused.",
-            f"Compare '{name}' against {_plain_type(physical_type)}.",
+            fix=f"Compare '{name}' against {_plain_type(physical_type)}.",
             # The AI prompt keeps the engine's type name: its reader is a model rewriting HogQL, not
             # someone looking for a setting in the UI.
-            f"Rewrite this filter so '{name}' is compared against a {physical_type} value.",
+            ai_fix_prompt=f"Rewrite this filter so '{name}' is compared against a {physical_type} value.",
         )
 
     if verdict == PredicateIndexVerdict.UNINDEXED_JSON:
         if source.restricted:
-            return (
-                f"{label} '{name}' is restricted for your role, so it is read from the properties JSON "
+            return _PredicateCopy(
+                message=f"{label} '{name}' is restricted for your role, so it is read from the properties JSON "
                 "and no index applies.",
-                None,
-                None,
             )
-        return (
-            f"{label} '{name}' is read out of the properties JSON on every row, with no index to skip data.",
-            f"Materialize '{name}' so this filter reads a dedicated column instead of parsing the JSON.",
-            None,
+        return _PredicateCopy(
+            message=f"{label} '{name}' is read out of the properties JSON on every row, with no index to skip data.",
+            fix=f"Materialize '{name}' so this filter reads a dedicated column instead of parsing the JSON.",
         )
 
     if verdict == PredicateIndexVerdict.UNINDEXED_COLUMN:
-        return (
-            f"{label} '{name}' has its own column, but no index on it covers '{plan.operator}'.",
-            None,
-            None,
+        return _PredicateCopy(
+            message=f"{label} '{name}' has its own column, but no index on it covers '{plan.operator}'.",
         )
 
-    return (
-        f"{label} '{name}' is filtered with '{plan.operator}', which reads every row because no index "
+    return _PredicateCopy(
+        message=f"{label} '{name}' is filtered with '{plan.operator}', which reads every row because no index "
         "can rule one out.",
-        None,
-        None,
     )
 
 
