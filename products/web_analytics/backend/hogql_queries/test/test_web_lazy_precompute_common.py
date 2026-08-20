@@ -613,6 +613,25 @@ class TestVolumeFloor(BaseTest):
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             assert is_team_above_volume_floor(self.team.pk) is True
 
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_empty_publish_enforces_below_floor_for_everyone(self):
+        publish_volume_floor_teams([self.team.pk])
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+        # No team above the floor is a valid verdict, not an error: the set is
+        # dropped, the sentinel stays, and every non-enrolled team reads below
+        # floor instead of the publish raising mid-pipeline.
+        publish_volume_floor_teams([])
+        assert is_team_above_volume_floor(self.team.pk) is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_lost_teams_set_fails_open_despite_sentinel(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+        # Eviction or TTL drift can lose the set while the sentinel survives;
+        # that must read as "state lost, fail open", not fleet-wide below-floor.
+        redis.get_client().delete(VOLUME_FLOOR_TEAMS_KEY)
+        assert is_team_above_volume_floor(self.team.pk) is True
+
     @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=0)
     def test_zero_floor_disables_the_check(self):
         publish_volume_floor_teams([self.team.pk + 1])

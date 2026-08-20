@@ -68,8 +68,8 @@ def _oom_pin_key(team_id: int) -> str:
 # marks-only fleet event count. Reads consult it fail-open: an unpublished or
 # expired set (sentinel absent, or Redis down) keeps current behavior, so the
 # floor can only narrow precompute when the warmer is actively maintaining it.
-VOLUME_FLOOR_TEAMS_KEY = "web_precompute_volume_floor:teams"
-VOLUME_FLOOR_READY_KEY = "web_precompute_volume_floor:ready"
+VOLUME_FLOOR_TEAMS_KEY = "{web_precompute_volume_floor}:teams"
+VOLUME_FLOOR_READY_KEY = "{web_precompute_volume_floor}:ready"
 VOLUME_FLOOR_TTL_SECONDS = 48 * 3600
 
 
@@ -78,6 +78,7 @@ VOLUME_FLOOR_TTL_SECONDS = 48 * 3600
 # and the dict is bounded per process by web analytics' active-team working set.
 _VOLUME_FLOOR_LOCAL_CACHE: dict[int, tuple[float, bool]] = {}
 _VOLUME_FLOOR_LOCAL_CACHE_SECONDS = 60.0
+_VOLUME_FLOOR_LOCAL_CACHE_MAX_ENTRIES = 50_000
 
 
 def is_team_above_volume_floor(team_id: int) -> bool:
@@ -93,15 +94,23 @@ def is_team_above_volume_floor(team_id: int) -> bool:
     try:
         client = redis.get_client()
         # Membership first: above-floor teams (the vast majority of gate
-        # traffic) resolve in one round trip; the sentinel is only consulted
-        # to distinguish "below floor" from "set not published" (fail open).
+        # traffic) resolve in one round trip. On a miss, the floor only
+        # enforces when BOTH keys exist: the sentinel alone is not trusted, so
+        # a lost or expired teams set (eviction, TTL drift) fails open instead
+        # of silently disabling precompute fleet-wide. Intentionally-empty
+        # publishes keep the set alive via a placeholder member.
+        # Accepted transient: a reader racing the very first publish can miss
+        # membership then see both keys, reading below-floor for up to the
+        # local cache window — it degrades to the live path, never breaks.
         if client.sismember(VOLUME_FLOOR_TEAMS_KEY, str(team_id)):
             result = True
         else:
-            result = not client.exists(VOLUME_FLOOR_READY_KEY)
+            result = not (client.exists(VOLUME_FLOOR_READY_KEY) and client.exists(VOLUME_FLOOR_TEAMS_KEY))
     except Exception:
         logger.exception("web_precompute_volume_floor_check_failed", team_id=team_id)
         result = True
+    if len(_VOLUME_FLOOR_LOCAL_CACHE) >= _VOLUME_FLOOR_LOCAL_CACHE_MAX_ENTRIES:
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
     _VOLUME_FLOOR_LOCAL_CACHE[team_id] = (time.monotonic(), result)
     return result
 
@@ -121,9 +130,19 @@ def publish_volume_floor_teams(above_floor: list[int], above_exit_floor: Optiona
         try:
             current = {m.decode() if isinstance(m, bytes) else str(m) for m in client.smembers(VOLUME_FLOOR_TEAMS_KEY)}
         except Exception:
+            # Degrading to no hysteresis evicts every between-floors member
+            # this pass; they re-enter next pass if they recover. Loud so a
+            # persistent Redis problem does not silently churn buckets.
+            logger.exception("web_precompute_volume_floor_hysteresis_read_failed")
             current = set()
         members |= {str(t) for t in above_exit_floor if str(t) in current}
     member_list = sorted(members)
+    if not member_list:
+        # An empty publish is a valid verdict (no team above the floor). A
+        # placeholder member keeps the set alive: RENAME from a never-written
+        # staging key would raise mid-transaction, and the gate reads a
+        # MISSING set as "lost, fail open" rather than "empty, enforce".
+        member_list = ["__none__"]
     tmp_key = f"{VOLUME_FLOOR_TEAMS_KEY}:staging"
     pipe = client.pipeline()
     pipe.delete(tmp_key)
@@ -717,16 +736,18 @@ def check_common_eligibility(
     if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
 
-    # Deliberately checked for background warming too: the floor exists to stop
-    # building buckets for teams whose live path already serves them better.
-    if not is_team_above_volume_floor(team.pk):
-        raise BelowVolumeFloor()
-
     # Precompute defaults ON for every enrolled team: an untouched toggle
     # (`None`) takes the precompute path; only an explicit `False` (the
     # "Allow precompute" toggle turned off) opts a query out.
     if use_web_analytics_precompute is False:
         raise PerQueryOptedOut()
+
+    # After the free local checks (this one costs a Redis round trip on local
+    # cache miss). Deliberately checked for background warming too: the floor
+    # exists to stop building buckets for teams whose live path already
+    # serves them better.
+    if not is_team_above_volume_floor(team.pk):
+        raise BelowVolumeFloor()
 
     if not is_integer_timezone(team.timezone):
         raise NonIntegerTimezone()

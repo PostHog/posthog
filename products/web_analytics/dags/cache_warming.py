@@ -25,7 +25,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity
@@ -623,12 +623,12 @@ def _write_cached_warmable_queries(days: int, minimum_query_count: int, max_shap
         logger.warning("web_analytics_warming_cache_write_failed", exc_info=True)
 
 
-@dagster.op(retry_policy=cache_warming_retry_policy)
+@dagster.op
 def publish_volume_floor_op(context: dagster.OpExecutionContext) -> bool:
     """Refresh the above-floor team set the shared eligibility gate reads.
 
-    A marks-only count over the events table is cheap (no data columns are
-    decompressed), and publishing before selection means this hour's warming
+    The count reads only the timestamp column over a 7-day window on the
+    OFFLINE workload; publishing before selection means this hour's warming
     pass and all reads share one fresh floor. Fail-open by design: on any
     error the previous set (or its expiry) governs and warming proceeds.
     """
@@ -640,7 +640,8 @@ def publish_volume_floor_op(context: dagster.OpExecutionContext) -> bool:
         # Scan down to the exit floor (half the entry floor) so hysteresis has
         # the candidates it needs: existing members stay until they fall below
         # the exit floor instead of flapping around the entry threshold.
-        exit_floor = floor // 2
+        exit_floor = max(1, floor // 2)
+        tag_queries(feature=Feature.CACHE_WARMUP, trigger="webAnalyticsQueryWarming", product=Product.WEB_ANALYTICS)
         rows = sync_execute(
             """
             SELECT team_id, count() AS ev7d
@@ -651,9 +652,16 @@ def publish_volume_floor_op(context: dagster.OpExecutionContext) -> bool:
             """,
             {"exit_floor": exit_floor},
             workload=Workload.OFFLINE,
+            settings={"max_execution_time": 300},
         )
         above_floor = [int(r[0]) for r in rows if int(r[1]) >= floor]
         above_exit_floor = [int(r[0]) for r in rows]
+        if not above_floor:
+            # On any real fleet an empty result means the scan broke, not that
+            # every team shrank below the floor at once. Skip the publish so
+            # the previous set (or its 48h expiry, which fails open) governs.
+            context.log.error("Volume floor scan returned no teams; skipping publish (previous set governs).")
+            return True
         publish_volume_floor_teams(above_floor, above_exit_floor=above_exit_floor)
         context.log.info(
             f"Published {len(above_floor)} teams at/above the {floor}-events/7d precompute floor "
@@ -679,26 +687,34 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext, floor_published
         )
         _write_cached_warmable_queries(days, minimum_query_count, max_shapes, queries)
 
-    team_count = len({q["team_id"] for q in queries})
+    selected_count = len(queries)
+    # `cap_reached` keys off the pre-floor selection: the cap bounds the
+    # selection query, and floor-dropped shapes still consumed cap slots.
+    cap_reached = selected_count >= max_shapes
+    queries = [q for q in queries if is_team_above_volume_floor(int(q["team_id"]))]
+    floor_dropped = selected_count - len(queries)
 
+    team_count = len({q["team_id"] for q in queries})
     WARMING_SHAPES_SELECTED_GAUGE.set(len(queries))
     source = "cached" if from_cache else "freshly selected"
-    context.log.info(f"Warming {len(queries)} {source} hot query shapes across {team_count} teams")
+    context.log.info(
+        f"Warming {len(queries)} {source} hot query shapes across {team_count} teams"
+        + (
+            f" (volume floor dropped {floor_dropped} shapes under "
+            f"{settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS} events/7d)"
+            if floor_dropped
+            else ""
+        )
+    )
     context.add_output_metadata(
         {
             "query_count": len(queries),
             "team_count": team_count,
-            "cap_reached": len(queries) >= max_shapes,
+            "floor_dropped": floor_dropped,
+            "cap_reached": cap_reached,
             "from_cache": from_cache,
         }
     )
-    below_floor = [q for q in queries if not is_team_above_volume_floor(int(q.get("team_id", 0)))]
-    if below_floor:
-        context.log.info(
-            f"Volume floor dropped {len(below_floor)} of {len(queries)} shapes "
-            f"(teams under {settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS} events/7d)."
-        )
-        queries = [q for q in queries if q not in below_floor]
     return queries
 
 
