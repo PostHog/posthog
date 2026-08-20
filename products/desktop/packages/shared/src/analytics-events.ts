@@ -305,6 +305,16 @@ export interface SidebarReorderedProperties {
   to_index: number;
 }
 
+export interface TaskListGroupingChangedProperties {
+  group_by: "repository" | "date";
+  sort_by: "updated" | "created";
+}
+
+export interface TaskListAppearanceChangedProperties {
+  secondary_fields: ("repository" | "branch" | "creator")[];
+  secondary_field_count: number;
+}
+
 export interface BrainrotActivatedProperties {
   /** Grid layout preset, e.g. "2x2". */
   layout: string;
@@ -1397,6 +1407,8 @@ export const ANALYTICS_EVENTS = {
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   SIDEBAR_CUSTOMIZED: "Sidebar customized",
   SIDEBAR_REORDERED: "Sidebar reordered",
+  TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
+  TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
 
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
@@ -1583,6 +1595,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_REORDERED]: SidebarReorderedProperties;
+  [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
+  [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
 
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;
