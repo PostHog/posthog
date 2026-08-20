@@ -198,21 +198,23 @@ tools:
         description: >
             List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the
             account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id,
-            hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, `churned_at` (null if not churned), and
-            creation/update metadata. User assignments (CSM, account executive, ...) live on account relationships — see
-            `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g. `["enterprise","priority"]`) to filter
-            to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The
-            `properties` above are the built-in fields only; teams also define their own typed attributes as custom
-            properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team
-            actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at
-            property names. To link a user to a specific account rather than the bare list, deep-link it with the path
-            `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of
-            notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that
-            account, expands it, and opens the tab. Churned accounts are hidden by default. Set `include_churned` to
-            true to include them.
+            hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, `churned_at` (null if not churned), `ignored_at`
+            (null if tracked), and creation/update metadata. User assignments (CSM, account executive, ...) live on
+            account relationships — see `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g.
+            `["enterprise","priority"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve`
+            for a single account by id. The `properties` above are the built-in fields only; teams also define their own
+            typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list`
+            first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole
+            schema or guessing at property names. To link a user to a specific account rather than the bare list,
+            deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is
+            optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the
+            list to that account, expands it, and opens the tab. Churned and ignored accounts are hidden by default. Set
+            `include_churned` or `include_ignored` to true to include them.
         param_overrides:
             include_churned:
                 description: Include churned accounts. Churned accounts are hidden by default.
+            include_ignored:
+                description: Include ignored accounts. Ignored accounts are hidden by default.
             tags:
                 description: >
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
@@ -375,14 +377,14 @@ tools:
         title: Get account
         description: >
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties`
-            (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers), `tags`, and
-            `churned_at` (null if the account has not churned). User assignments (CSM, account executive, ...) live on
-            account relationships — see `accounts-relationships-list`. These are the built-in fields only; a team's own
-            typed attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to
-            see what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a
-            user to this account rather than the bare list, deep-link it with the path
-            `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of
-            notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
+            (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers), `tags`,
+            `churned_at` (null if the account has not churned), and `ignored_at` (null if tracked). User assignments
+            (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. These are
+            the built-in fields only; a team's own typed attributes are custom properties and are not returned here.
+            Call `custom-property-definitions-list` to see what the team tracks, then
+            `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than
+            the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`;
+            tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
         feature_flag: customer-analytics-csp
     accounts-summaries-list:
         operation: accounts_summaries_list

@@ -2768,6 +2768,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "ignored_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ignored_at",
+                  "id": null,
+                  "name": "ignored_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "tags": {
                   "chain": null,
                   "fields": [
@@ -13043,6 +13053,16 @@
                   "hogql_value": "churned_at",
                   "id": null,
                   "name": "churned_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "ignored_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ignored_at",
+                  "id": null,
+                  "name": "ignored_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"

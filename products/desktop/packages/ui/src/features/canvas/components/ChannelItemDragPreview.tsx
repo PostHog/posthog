@@ -2,6 +2,7 @@ import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { cn } from "@posthog/quill";
 import { ChannelItemRowView } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
+import { DragBatchLabel } from "@posthog/ui/features/sidebar/components/DragBatchLabel";
 import { getPinDropAction } from "@posthog/ui/features/sidebar/taskListDragAndDrop";
 import type { PinDrag } from "@posthog/ui/features/sidebar/usePinDrag";
 import {
@@ -35,8 +36,9 @@ export function ChannelItemDragPreview({
     document.querySelector<HTMLElement>(".radix-themes") ?? document.body;
   // Skips the PR lookup: that is a query into git per row, and the row under
   // the pointer is already paying for it.
-  const status = useChannelTaskStatus(drag.item, { withPrStatus: false });
+  const status = useChannelTaskStatus(drag.items[0], { withPrStatus: false });
   const action = getPinDropAction(drag.sourcePinned, drag.overPinned);
+  const draggedCount = drag.items.length;
   const spring = prefersReducedMotion
     ? { duration: 0 }
     : ({ type: "spring", stiffness: 500, damping: 34 } as const);
@@ -46,13 +48,25 @@ export function ChannelItemDragPreview({
       style={{ x, y, width: drag.previewWidth }}
       className="pointer-events-none fixed top-0 left-0 z-50"
     >
-      <div className="overflow-hidden rounded-md border border-border bg-background shadow-lg">
-        <ChannelItemRowView
-          item={drag.item}
-          status={status}
-          isActive={false}
-          showPinBadge={false}
-        />
+      {/* Two offset layers behind the card, so a batch looks like a stack
+          before its label is read. */}
+      {draggedCount > 1 ? (
+        <>
+          <div className="absolute inset-x-2 top-2 h-full rounded-md border border-border bg-background shadow-sm" />
+          <div className="absolute inset-x-1 top-1 h-full rounded-md border border-border bg-background shadow-sm" />
+        </>
+      ) : null}
+      <div className="relative overflow-hidden rounded-md border border-border bg-background shadow-lg">
+        {draggedCount > 1 ? (
+          <DragBatchLabel count={draggedCount} />
+        ) : (
+          <ChannelItemRowView
+            item={drag.items[0]}
+            status={status}
+            isActive={false}
+            showPinBadge={false}
+          />
+        )}
       </div>
       <AnimatePresence>
         {action !== null ? (
