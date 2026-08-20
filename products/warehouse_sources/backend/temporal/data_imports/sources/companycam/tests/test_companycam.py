@@ -121,29 +121,29 @@ class TestConverters:
 
 class TestGetResource:
     def test_full_refresh_uses_replace_disposition(self) -> None:
-        resource = get_resource("Users", should_use_incremental_field=False)
+        resource = cast(dict[str, Any], get_resource("Users", should_use_incremental_field=False))
         assert resource["write_disposition"] == "replace"
         assert resource["endpoint"]["params"] == {"per_page": 100}
 
     def test_incremental_endpoint_sets_merge_disposition_and_incremental_param(self) -> None:
-        resource = get_resource("Projects", should_use_incremental_field=True)
+        resource = cast(dict[str, Any], get_resource("Projects", should_use_incremental_field=True))
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
         assert "modified_since" in resource["endpoint"]["params"]
         assert resource["endpoint"]["params"]["modified_since"]["type"] == "incremental"
 
     def test_incremental_endpoint_without_incremental_flag_has_no_incremental_param(self) -> None:
-        resource = get_resource("Projects", should_use_incremental_field=False)
+        resource = cast(dict[str, Any], get_resource("Projects", should_use_incremental_field=False))
         assert "modified_since" not in resource["endpoint"]["params"]
 
     def test_full_refresh_endpoint_never_gets_incremental_param(self) -> None:
         # Users has no incremental_query_param at all, regardless of should_use_incremental_field.
-        resource = get_resource("Users", should_use_incremental_field=True)
+        resource = cast(dict[str, Any], get_resource("Users", should_use_incremental_field=True))
         assert "modified_since" not in resource["endpoint"]["params"]
         assert "start_date" not in resource["endpoint"]["params"]
 
     def test_cursor_paginated_endpoint_has_no_static_per_page_param(self) -> None:
         # Photos' per_page is injected by CompanycamCursorPaginator itself.
-        resource = get_resource("Photos", should_use_incremental_field=False)
+        resource = cast(dict[str, Any], get_resource("Photos", should_use_incremental_field=False))
         assert "per_page" not in resource["endpoint"]["params"]
 
 
