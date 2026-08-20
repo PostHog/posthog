@@ -322,7 +322,8 @@ The SDK must include `$device_id` as a top-level field in `/flags` requests:
 
 A person-aggregated condition on a device-bucketed flag needs a `$device_id` in the request.
 When the request has none, `get_match` skips that condition, increments `FLAG_CONDITION_SKIPPED_COUNTER` with reason `missing_device_id`, and records `OutOfRolloutBound`.
-There is no silent fallback to `distinct_id` for a release condition, so a pure person device-bucketed flag with no `$device_id` matches nothing.
+There is no silent fallback to `distinct_id` for a release condition, so absent a holdout a pure person device-bucketed flag with no `$device_id` matches nothing.
+A holdout is the exception noted above: `get_match` checks it before the release conditions, and holdout hashing buckets on `distinct_id`, so such a flag can still match its holdout without a `$device_id`.
 Group-aggregated conditions on a mixed flag can still match without a `$device_id`.
 
 See the [flag evaluation engine doc](./flag-evaluation-engine.md) for the same behavior and its local-evaluation caveat.

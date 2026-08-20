@@ -234,7 +234,8 @@ Two caveats apply:
   A person-aggregated condition on a device-bucketed flag needs a `$device_id` in the request.
   When the request has none, `get_match` skips that condition and increments `FLAG_CONDITION_SKIPPED_COUNTER` with reason `missing_device_id` (`flag_matching.rs`).
   The condition does not fall back to `distinct_id`.
-  A pure person device-bucketed flag with no `$device_id` therefore matches nothing and reports `OutOfRolloutBound`.
+  Absent a holdout, a pure person device-bucketed flag with no `$device_id` therefore matches nothing and reports `OutOfRolloutBound`.
+  A holdout is the exception: `get_match` checks it before the release conditions, and holdout hashing (`get_holdout_hash`) buckets on `distinct_id` rather than `$device_id` (see [Holdout groups](#holdout-groups)), so such a flag can still match its holdout (`HoldoutConditionValue`) without a `$device_id`.
   Group-aggregated conditions on a mixed flag can still match without a `$device_id`.
 
 - **Local evaluation has no `$device_id`.**
