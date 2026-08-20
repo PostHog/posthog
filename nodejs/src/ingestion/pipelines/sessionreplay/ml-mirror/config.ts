@@ -85,22 +85,8 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
     /** A URL older than this is dropped, so a lane with a backlog sheds work rather than fetching stale work. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: number
-    /** Capacity of the per-pod seen-ref cache that sits in front of the shared crawl history. */
+    /** Capacity of the per-pod seen-ref cache that sits in front of the crawl history. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: number
-    /**
-     * TTL on each crawl history entry, so it is both the recrawl interval and the ledger's Redis
-     * footprint: the key count converges on the distinct-URL count of this window, which is the
-     * number that sizes the Redis. An env var because it is the main memory lever for that cluster,
-     * and memory pressure moves faster than a deploy.
-     *
-     * 7 days measures the dry-run dedup hit rate over a window the cluster can hold. Once fetching
-     * is on, this is also how often a recurring image is refetched from the customer's site, so
-     * raising it back up trades Redis memory for outbound politeness.
-     */
-    SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS: number
-    /** Bounds one round trip to the crawl history, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: number
-    /** An empty table name keeps the Redis crawl-history backend active. */
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
     /** Bounds one DynamoDB request so an unavailable store cannot hold the poll loop. */
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: number
@@ -257,8 +243,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: 6 * 60 * 60 * 1000,
         SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: 500_000,
-        SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS: 7 * 24 * 60 * 60,
-        SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
