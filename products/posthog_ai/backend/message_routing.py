@@ -41,7 +41,7 @@ from products.tasks.backend.facade import (
     warm as warm_facade,
 )
 from products.tasks.backend.facade.run_config import INITIAL_PERMISSION_MODE_CHOICES, InitialPermissionMode
-from products.tasks.backend.facade.temporal import execute_task_processing_workflow, signal_task_followup_message
+from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow, signal_task_followup_message
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -342,7 +342,7 @@ class SandboxSession(BaseSandboxService):
         # rather than a follow-up onto a run that never started; on a conversion, also revert the
         # runtime flip so the user is left on a clean idle LangGraph conversation.
         try:
-            execute_task_processing_workflow(
+            dispatch_task_processing_workflow(
                 task_id=str(created.task_id),
                 run_id=str(run_dto.id),
                 team_id=self.team.id,
@@ -477,7 +477,7 @@ class SandboxSession(BaseSandboxService):
 
         # Same write scopes as the first message — the resumed agent keeps creating
         # insights/dashboards/notebooks on follow-up turns.
-        execute_task_processing_workflow(
+        dispatch_task_processing_workflow(
             task_id=str(task.id),
             run_id=str(new_run.id),
             team_id=self.team.id,
