@@ -267,6 +267,7 @@ export function usePreviewConfig(
         adapter,
         getOptionByCategory(initial, "model"),
         lastUsedModel,
+        lastUsedReasoningEffort,
       );
       if (preferred) {
         initial = seedSelection(
@@ -404,12 +405,13 @@ export function usePreviewConfig(
     FAST_MODE_OPTION_CATEGORY,
   );
 
-  // lastUsedModel is passed as null: the question here is whether a preference
+  // The picks are passed as null: the question here is whether a preference
   // applies to this surface at all, not whether it outranks an explicit pick.
   const preferred = pickPreferredRunSelection(
     runDefaults,
     adapter,
     modelOption,
+    null,
     null,
   );
   const isDefaultSelection = matchesPreferredRunSelection(

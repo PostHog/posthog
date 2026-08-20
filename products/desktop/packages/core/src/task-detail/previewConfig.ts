@@ -148,8 +148,9 @@ export interface PreferredRunSelection {
  * user preference stored server-side. Returns null when the preference doesn't
  * apply, leaving the caller on its built-in fallback:
  *
- * - `lastUsedModel` is set — an explicit pick on this device outranks a
- *   preference, which must never silently move a model someone chose.
+ * - `lastUsedModel` or `lastUsedReasoningEffort` is set — an explicit pick on
+ *   this device outranks a preference, which must never silently move a model
+ *   or effort someone chose.
  * - no default is stored.
  * - the preference names a different harness, so its model is meaningless here.
  * - this adapter no longer offers the model (a de-listed id would fail the run
@@ -160,8 +161,9 @@ export function pickPreferredRunSelection(
   adapter: Adapter,
   modelOption: SessionConfigOption | undefined,
   lastUsedModel: string | null | undefined,
+  lastUsedReasoningEffort: string | null | undefined,
 ): PreferredRunSelection | null {
-  if (lastUsedModel) return null;
+  if (lastUsedModel || lastUsedReasoningEffort) return null;
   const model = defaults?.model;
   if (!model) return null;
   if (defaults?.runtime_adapter && defaults.runtime_adapter !== adapter) {

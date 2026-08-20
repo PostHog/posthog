@@ -251,6 +251,7 @@ describe("pickPreferredRunSelection", () => {
         reasoning_effort: "high",
       },
       lastUsedModel: null,
+      lastUsedReasoningEffort: null,
       expected: { model: "claude-opus-5", reasoningEffort: "high" },
     },
     {
@@ -261,6 +262,18 @@ describe("pickPreferredRunSelection", () => {
         reasoning_effort: "high",
       },
       lastUsedModel: "claude-sonnet-5",
+      lastUsedReasoningEffort: null,
+      expected: null,
+    },
+    {
+      label: "keeps an explicit local effort pick ahead of the preference",
+      defaults: {
+        runtime_adapter: "claude",
+        model: "claude-opus-5",
+        reasoning_effort: "high",
+      },
+      lastUsedModel: null,
+      lastUsedReasoningEffort: "medium",
       expected: null,
     },
     {
@@ -271,6 +284,7 @@ describe("pickPreferredRunSelection", () => {
         reasoning_effort: "medium",
       },
       lastUsedModel: null,
+      lastUsedReasoningEffort: null,
       expected: null,
     },
     {
@@ -281,6 +295,7 @@ describe("pickPreferredRunSelection", () => {
         reasoning_effort: "high",
       },
       lastUsedModel: null,
+      lastUsedReasoningEffort: null,
       expected: null,
     },
     {
@@ -291,6 +306,7 @@ describe("pickPreferredRunSelection", () => {
         reasoning_effort: null,
       },
       lastUsedModel: null,
+      lastUsedReasoningEffort: null,
       expected: { model: "claude-opus-5", reasoningEffort: null },
     },
     {
@@ -301,13 +317,23 @@ describe("pickPreferredRunSelection", () => {
         reasoning_effort: null,
       },
       lastUsedModel: null,
+      lastUsedReasoningEffort: null,
       expected: null,
     },
-  ])("$label", ({ defaults, lastUsedModel, expected }) => {
-    expect(
-      pickPreferredRunSelection(defaults, "claude", modelOption, lastUsedModel),
-    ).toEqual(expected);
-  });
+  ])(
+    "$label",
+    ({ defaults, lastUsedModel, lastUsedReasoningEffort, expected }) => {
+      expect(
+        pickPreferredRunSelection(
+          defaults,
+          "claude",
+          modelOption,
+          lastUsedModel,
+          lastUsedReasoningEffort,
+        ),
+      ).toEqual(expected);
+    },
+  );
 });
 
 describe("matchesPreferredRunSelection", () => {
