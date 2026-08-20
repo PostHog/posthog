@@ -194,6 +194,10 @@ export function ContextWikiPagePane({ path }: ContextWikiPagePaneProps) {
               setDraft(e.target.value);
               setHasDraft(true);
             }}
+            // Locked while the write is in flight: a successful save reseeds the
+            // draft from the saved content, so anything typed during the window
+            // would be silently discarded on success.
+            disabled={save.isPending}
             placeholder="Write markdown for this page…"
             className="min-h-0 flex-1 resize-none font-mono text-[13px]"
           />
