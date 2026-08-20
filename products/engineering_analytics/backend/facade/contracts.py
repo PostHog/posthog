@@ -1087,6 +1087,31 @@ class RepoOverview:
     # changes show up as their own delta instead of hiding inside the total.
     merge_queue_billable_minutes: float | None
     merge_queue_billable_minutes_prev: float | None
+    # Merge-queue landing stats, over merged PRs with at least one corroborated gate run
+    # (logic/merge_queue.py). All authors, bots included: these measure the queue's mechanics,
+    # not author behavior.
+    merge_queue_merged_pr_count: int
+    merge_queue_merged_pr_count_prev: int
+    # Median seconds from a PR's first observed gate run starting to its merge — named for what is
+    # measured: pending time before gate testing starts is not observable in the GitHub source.
+    merge_queue_median_gate_to_merge_seconds: float | None
+    merge_queue_median_gate_to_merge_seconds_prev: float | None
+    merge_queue_p90_gate_to_merge_seconds: float | None
+    merge_queue_p90_gate_to_merge_seconds_prev: float | None
+    # Mean distinct gate attempts per queue-landed merge (distinct gate branches, bisection collapsed).
+    merge_queue_avg_attempts_per_merge: float | None
+    merge_queue_avg_attempts_per_merge_prev: float | None
+    # Fraction (0-1) of queue-landed merges that needed more than one gate attempt.
+    merge_queue_multi_attempt_merge_share: float | None
+    merge_queue_multi_attempt_merge_share_prev: float | None
+    # Fraction (0-1) of queue-landed merges with at least one failed gate run before merging — a
+    # CI-outcome proxy, not the queue's own eviction record.
+    merge_queue_failed_gate_merge_share: float | None
+    merge_queue_failed_gate_merge_share_prev: float | None
+    # Median wall clock for a push round to settle fully green over the window — the window-level
+    # twin of time_to_green_series, same population and exclusions. None when no fully green rounds.
+    median_time_to_green_seconds: float | None
+    median_time_to_green_seconds_prev: float | None
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str
