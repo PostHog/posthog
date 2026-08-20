@@ -578,7 +578,10 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
                 "trigger_type": inputs.trigger_type,
                 "scheduled_at": scheduled_at,
                 "target_type": subscription.target_type,
-                "target_value": subscription.target_value,
+                # The snapshot is read-only history the API hands back in list responses, so a
+                # webhook target is recorded by host. The subscription's own target_value stays
+                # whole, because the edit form has to load the URL back.
+                "target_value": recipient_label(subscription),
                 "content_snapshot": content_snapshot,
                 "status": SubscriptionDelivery.Status.STARTING,
             },

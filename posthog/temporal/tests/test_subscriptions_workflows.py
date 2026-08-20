@@ -583,6 +583,8 @@ async def test_deliver_subscription_report_teams(
     delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription_id=subscription.id)
     assert delivery.status == DeliveryStatus.COMPLETED
     assert delivery.recipient_results == [{"recipient": "prod-25.westeurope.logic.azure.com", "status": "success"}]
+    # The delivery row is read-only history the API returns, so it keeps the host, not the URL.
+    assert delivery.target_value == "prod-25.westeurope.logic.azure.com"
 
 
 @patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
