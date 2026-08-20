@@ -192,6 +192,10 @@
                             description: None,
                             hidden: False
                           },
+                          issue_severity: {
+                            description: None,
+                            hidden: True
+                          },
                           issue_status: {
                             description: None,
                             hidden: False
@@ -419,6 +423,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -490,6 +498,10 @@
                               issue_name: {
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
                               },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -563,6 +575,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -634,6 +650,10 @@
                               issue_name: {
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
                               },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -707,6 +727,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -778,6 +802,10 @@
                               issue_name: {
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
                               },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -851,6 +879,10 @@
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
+                              },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
@@ -922,6 +954,10 @@
                               issue_name: {
                                 description: "Display name of the issue (latest version).",
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: "Assigned issue severity, or null when unassigned.",
+                                hidden: True
                               },
                               issue_status: {
                                 description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -2459,6 +2495,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -3199,6 +3239,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3289,6 +3333,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -3381,6 +3429,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3471,6 +3523,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -3563,6 +3619,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3653,6 +3713,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -3745,6 +3809,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -3835,6 +3903,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -5430,6 +5502,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: None,
+                                hidden: True
+                              },
                               issue_status: {
                                 description: None,
                                 hidden: False
@@ -5657,6 +5733,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -5728,6 +5808,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -5801,6 +5885,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -5872,6 +5960,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -5945,6 +6037,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6016,6 +6112,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -6089,6 +6189,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6160,6 +6264,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -6423,6 +6531,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              issue_severity: {
+                                description: None,
+                                hidden: True
+                              },
                               issue_status: {
                                 description: None,
                                 hidden: False
@@ -6650,6 +6762,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6721,6 +6837,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -6794,6 +6914,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -6865,6 +6989,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -6938,6 +7066,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -7009,6 +7141,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -7082,6 +7218,10 @@
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
+                                  },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
@@ -7153,6 +7293,10 @@
                                   issue_name: {
                                     description: "Display name of the issue (latest version).",
                                     hidden: False
+                                  },
+                                  issue_severity: {
+                                    description: "Assigned issue severity, or null when unassigned.",
+                                    hidden: True
                                   },
                                   issue_status: {
                                     description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -9583,6 +9727,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -10323,6 +10471,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10413,6 +10565,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -10505,6 +10661,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10595,6 +10755,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -10687,6 +10851,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10777,6 +10945,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -10869,6 +11041,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -10959,6 +11135,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -11237,6 +11417,10 @@
                     issue_name: {
                       description: None,
                       hidden: False
+                    },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
                     },
                     issue_status: {
                       description: None,
@@ -11979,6 +12163,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12069,6 +12257,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -12161,6 +12353,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12251,6 +12447,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -12343,6 +12543,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12433,6 +12637,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -12525,6 +12733,10 @@
                         description: "Display name of the issue (latest version).",
                         hidden: False
                       },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
+                      },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
@@ -12615,6 +12827,10 @@
                       issue_name: {
                         description: "Display name of the issue (latest version).",
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: "Assigned issue severity, or null when unassigned.",
+                        hidden: True
                       },
                       issue_status: {
                         description: "Current status of the issue, e.g. 'active', 'resolved'.",
@@ -12894,6 +13110,10 @@
                       issue_name: {
                         description: None,
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: None,
+                        hidden: True
                       },
                       issue_status: {
                         description: None,
@@ -13190,6 +13410,10 @@
                       issue_name: {
                         description: None,
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: None,
+                        hidden: True
                       },
                       issue_status: {
                         description: None,
@@ -13834,6 +14058,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -14165,6 +14393,10 @@
                     issue_name: {
                       description: None,
                       hidden: False
+                    },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
                     },
                     issue_status: {
                       description: None,
@@ -14501,6 +14733,10 @@
                       issue_name: {
                         description: None,
                         hidden: False
+                      },
+                      issue_severity: {
+                        description: None,
+                        hidden: True
                       },
                       issue_status: {
                         description: None,
@@ -14877,6 +15113,10 @@
                               issue_name: {
                                 description: None,
                                 hidden: False
+                              },
+                              issue_severity: {
+                                description: None,
+                                hidden: True
                               },
                               issue_status: {
                                 description: None,
@@ -15260,6 +15500,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -15610,6 +15854,10 @@
                     issue_name: {
                       description: None,
                       hidden: False
+                    },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
                     },
                     issue_status: {
                       description: None,
@@ -15963,6 +16211,10 @@
                     description: None,
                     hidden: False
                   },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
+                  },
                   issue_status: {
                     description: None,
                     hidden: False
@@ -16298,6 +16550,10 @@
                     issue_name: {
                       description: None,
                       hidden: False
+                    },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
                     },
                     issue_status: {
                       description: None,
@@ -16747,6 +17003,10 @@
                       description: None,
                       hidden: False
                     },
+                    issue_severity: {
+                      description: None,
+                      hidden: True
+                    },
                     issue_status: {
                       description: None,
                       hidden: False
@@ -17039,6 +17299,10 @@
                         issue_name: {
                           description: None,
                           hidden: False
+                        },
+                        issue_severity: {
+                          description: None,
+                          hidden: True
                         },
                         issue_status: {
                           description: None,
@@ -17354,6 +17618,10 @@
                   issue_name: {
                     description: None,
                     hidden: False
+                  },
+                  issue_severity: {
+                    description: None,
+                    hidden: True
                   },
                   issue_status: {
                     description: None,
