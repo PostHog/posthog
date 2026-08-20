@@ -623,7 +623,7 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 
 
 @pytest.mark.django_db
-def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
+def test_monthly_old_events_cleanup_job_is_registered(cluster: ClickhouseCluster):
     now = datetime.now()
     old_timestamp = now - timedelta(days=400)
     recent_timestamp = now - timedelta(days=30)
