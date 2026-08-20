@@ -39,16 +39,39 @@ export interface PostHogObjectReference {
   label: string;
 }
 
+// Remove inline code spans, matching CommonMark: an opening run of N backticks
+// closes on the next run of exactly N, so a tag inside `code` or ``co`de`` stays
+// literal.
+function stripInlineCode(line: string): string {
+  return line.replace(/(?<!`)(`+)(?!`)(.*?)(?<!`)\1(?!`)/g, "");
+}
+
+// Blank out fenced code blocks so the tag parser never reads a citation the
+// renderer shows as code. Mirrors the fence rules react-markdown applies:
+// backtick or tilde fences of three or more, up to three leading spaces, closed
+// only by a same-character run at least as long as the opener. Indented code
+// blocks are left alone on purpose — a line-based strip would also drop real
+// tags nested under list items; full parsing lives in the AST plugin instead.
 function stripCode(markdown: string): string {
-  let inFence = false;
+  let fence: { char: string; length: number } | null = null;
   return markdown
     .split("\n")
     .map((line) => {
-      if (/^\s*```/.test(line)) {
-        inFence = !inFence;
+      const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+      if (fence) {
+        const closes =
+          fenceMatch !== null &&
+          fenceMatch[1][0] === fence.char &&
+          fenceMatch[1].length >= fence.length &&
+          line.slice(fenceMatch[0].length).trim() === "";
+        if (closes) fence = null;
         return "";
       }
-      return inFence ? "" : line.replace(/`[^`\n]*`/g, "");
+      if (fenceMatch) {
+        fence = { char: fenceMatch[1][0], length: fenceMatch[1].length };
+        return "";
+      }
+      return stripInlineCode(line);
     })
     .join("\n");
 }

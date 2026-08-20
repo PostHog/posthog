@@ -34,6 +34,32 @@ describe("extractPostHogObjectReferences", () => {
     ).toEqual([{ kind: "insight", id: "9pQx3", label: "Checkout funnel" }]);
   });
 
+  it.each([
+    [
+      "tilde fence",
+      ["~~~", '<insight id="9pQx3">Checkout funnel</insight>', "~~~"],
+    ],
+    [
+      "nested longer backtick fence",
+      [
+        "````",
+        "```",
+        '<insight id="9pQx3">Checkout funnel</insight>',
+        "```",
+        "````",
+      ],
+    ],
+    [
+      "multi-backtick inline span",
+      ['``<insight id="9pQx3">Checkout funnel</insight>``'],
+    ],
+  ] as const)(
+    "ignores tags the renderer shows as code inside a %s",
+    (_label, lines) => {
+      expect(extractPostHogObjectReferences(lines.join("\n"))).toEqual([]);
+    },
+  );
+
   it("ignores partial, unknown, and oversized references", () => {
     expect(
       extractPostHogObjectReferences(
