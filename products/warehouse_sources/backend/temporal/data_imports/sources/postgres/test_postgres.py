@@ -5375,15 +5375,26 @@ class TestGetTableChunkSize:
         assert chunking.batch_rows == 1
         assert chunking.fetch_rows == 1
 
-    def test_a_sample_that_measured_nothing_falls_back(self):
+    def test_a_sample_that_measured_nothing_falls_back_under_the_byte_bound(self):
         # NULL percentiles mean no row was measured, not that rows are one byte wide. Reading
         # that as a size derives a 150-million-row chunk, and the page cap built from it then
         # licenses a single FETCH of the whole table.
         cursor = self._ProbeCursor((None, None, None))
 
-        chunking = _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), structlog.get_logger())
+        chunking = _get_table_chunk_size(
+            cast(Any, cursor), sql.SQL("SELECT 1").format(), structlog.get_logger(), byte_bounded=True
+        )
 
         assert chunking == _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
+
+    def test_a_sample_that_measured_nothing_keeps_the_old_chunk_off_the_bound(self):
+        # A never-analyzed table draws no pages from a 1% sample, which is the common case on a
+        # first sync. The gate has to leave those reads the size they have always been.
+        cursor = self._ProbeCursor((None, None, None))
+
+        chunking = _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), structlog.get_logger())
+
+        assert chunking.batch_rows == DEFAULT_TABLE_SIZE_BYTES
 
 
 class TestSizeSamplePercent:
