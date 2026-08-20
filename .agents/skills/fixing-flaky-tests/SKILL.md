@@ -25,6 +25,7 @@ Before any of these: **measure, don't assume.** Flaky-vs-deterministic, and the 
 
 For triaging a red CI run (finding and classifying the failure), use the `debugging-ci-failures` skill first — this skill takes over once the failure is classified as a flaky test.
 For writing new Playwright tests that aren't flaky, use the `playwright-test` skill.
+`investigating-ci-failures` (green/red boundary, who broke master) and `diagnosing-ci-and-merge-bottlenecks` (the `engineering-analytics-flaky-tests` tool and its caveats) are product skills under `products/engineering_analytics/skills/`, not invocable here: read their `SKILL.md` at that path.
 
 ## 1. Measure the failure rate — from GitHub, not from a digest
 
@@ -49,7 +50,7 @@ Read the timeline before you classify:
 
 - **Interleaved pass/fail on adjacent commits** — the same unchanged test verified passing in some runs, failing in others → genuinely **flaky**; continue here.
 - **A long unbroken failure streak** (say 30+ consecutive) is statistically incompatible with a flake — at any per-run rate below ~95%, `p^30 ≈ 0`. That is a **deterministic regression**: go to `debugging-ci-failures` and find the introducing commit (step 4).
-- **Both at once** is common: a latent flake whose rate jumped to ~100%. Find the transition (last green → first red); that boundary, not the digest's one-line verdict, is what tells you what tipped it. The `investigating-ci-failures` skill has the boundary query if the failure reached master.
+- **Both at once** is common: a latent flake whose rate jumped to ~100%. Find the transition (last green → first red); that boundary, not the digest's one-line verdict, is what tells you what tipped it. `products/engineering_analytics/skills/investigating-ci-failures/` has the boundary query if the failure reached master.
 
 If a failure is reported as (or you suspect it is) **consistent**, don't serialize — measure the rate and attempt a repro **in parallel**.
 

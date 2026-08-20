@@ -30,7 +30,11 @@ This skill triages and classifies. Once a failure is confirmed flaky, hand off
 to the `fixing-flaky-tests` skill, which owns local reproduction, root-cause
 fixing, and N-run validation. For "who broke master" — the culprit commit and
 the commit that fixed it — hand off to the `investigating-ci-failures` skill,
-which owns the green/red boundary analysis.
+which owns the green/red boundary analysis. For aggregate pipeline health (is CI
+getting slower, which workflow is the long pole, how long PRs take to merge),
+read `diagnosing-ci-and-merge-bottlenecks`. Both live under
+`products/engineering_analytics/skills/` and are product skills, so neither is
+invocable here: open the `SKILL.md` at that path and read it directly.
 
 ## Safety rules
 
