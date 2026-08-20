@@ -6291,6 +6291,7 @@ export namespace Schemas {
       CustomerioTrack: 'customerio-track',
       Apns: 'apns',
       Postgresql: 'postgresql',
+      Quickbooks: 'quickbooks',
       AwsS3: 'aws-s3',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
@@ -43922,6 +43923,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
+     * * `quickbooks` - Quickbooks
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -43974,6 +43976,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       Posthog: 'posthog',
+      Quickbooks: 'quickbooks',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
@@ -44026,6 +44029,7 @@ export namespace Schemas {
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
        * * `posthog` - Posthog
+       * * `quickbooks` - Quickbooks
        * * `reddit-ads` - Reddit Ads
        * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
@@ -90420,6 +90424,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
+     * * `quickbooks` - Quickbooks
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -90483,6 +90488,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       Posthog: 'posthog',
+      Quickbooks: 'quickbooks',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',

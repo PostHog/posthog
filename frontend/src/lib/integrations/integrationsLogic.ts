@@ -82,6 +82,7 @@ export interface integrationsLogicValues {
             | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
+            | 'quickbooks'
             | 'reddit-ads'
             | 's3-compatible'
             | 'salesforce'
@@ -165,6 +166,7 @@ export interface integrationsLogicActions {
             | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
+            | 'quickbooks'
             | 'reddit-ads'
             | 's3-compatible'
             | 'salesforce'
@@ -279,6 +281,7 @@ export interface integrationsLogicActions {
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
+                | 'quickbooks'
                 | 'reddit-ads'
                 | 's3-compatible'
                 | 'salesforce'
@@ -333,6 +336,7 @@ export interface integrationsLogicActions {
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
+                | 'quickbooks'
                 | 'reddit-ads'
                 | 's3-compatible'
                 | 'salesforce'
@@ -404,6 +408,7 @@ export interface integrationsLogicActions {
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
+                | 'quickbooks'
                 | 'reddit-ads'
                 | 's3-compatible'
                 | 'salesforce'
@@ -462,6 +467,7 @@ export interface integrationsLogicActions {
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
+                | 'quickbooks'
                 | 'reddit-ads'
                 | 's3-compatible'
                 | 'salesforce'
@@ -513,6 +519,7 @@ export interface integrationsLogicActions {
             | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
+            | 'quickbooks'
             | 'reddit-ads'
             | 's3-compatible'
             | 'salesforce'
@@ -575,6 +582,7 @@ export interface integrationsLogicActions {
             | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
+            | 'quickbooks'
             | 'reddit-ads'
             | 's3-compatible'
             | 'salesforce'
@@ -622,6 +630,7 @@ export interface integrationsLogicActions {
             | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
+            | 'quickbooks'
             | 'reddit-ads'
             | 's3-compatible'
             | 'salesforce'
@@ -688,6 +697,7 @@ export interface integrationsLogicMeta {
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
+                | 'quickbooks'
                 | 'reddit-ads'
                 | 's3-compatible'
                 | 'salesforce'
@@ -944,7 +954,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
-            const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
+            const { state, code, error, stripe_user_id, account_id, user_id, realmId } = searchParams
             const { next, token, source, server_id, team_id } = fromParamsGivenUrl(state)
             const resolvedKind = kind
             let replaceUrl: string = next || urls.settings('project-integrations')
@@ -1002,10 +1012,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     // lands on the project the user actually chose.
                     const parsedTeamId = Number(team_id)
                     const initiatingTeamId = Number.isFinite(parsedTeamId) ? parsedTeamId : undefined
+                    // Intuit names the authorized QuickBooks company only in the callback's realmId
+                    // param, and no API can look it up from the token later, so it rides along with
+                    // the code exchange. Other providers never send it and are unaffected.
                     const integration = await api.integrations.create(
                         {
                             kind: resolvedKind,
-                            config: { state, code },
+                            config: realmId ? { state, code, realmId: String(realmId) } : { state, code },
                         },
                         initiatingTeamId
                     )

@@ -21,6 +21,12 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
 
+# One Intuit app serves both production and sandbox QuickBooks companies — the environment only
+# changes the API host, not the client credentials. Empty defaults keep the app importable and the
+# QuickBooks OAuth kind dormant until the client is provisioned.
+QUICKBOOKS_APP_CLIENT_ID = get_from_env("QUICKBOOKS_APP_CLIENT_ID", "")
+QUICKBOOKS_APP_CLIENT_SECRET = get_from_env("QUICKBOOKS_APP_CLIENT_SECRET", "")
+
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 

@@ -255,6 +255,7 @@ class OauthIntegration:
         "stripe",
         "resend",
         "youtube-analytics",
+        "quickbooks",
     ]
     integration: model.Integration
 
@@ -739,6 +740,28 @@ class OauthIntegration:
                 id_path="resend_account_id",
                 name_path="resend_account_name",
             )
+        elif kind == "quickbooks":
+            if not settings.QUICKBOOKS_APP_CLIENT_ID or not settings.QUICKBOOKS_APP_CLIENT_SECRET:
+                raise NotImplementedError("QuickBooks app not configured")
+
+            # One Intuit app covers production and sandbox companies; only the API host differs, so
+            # the environment stays a source setting rather than a second OAuth kind. Access tokens
+            # last an hour and refresh tokens 100 days, rotating on refresh (the previous one stays
+            # valid for 24h, so the periodic refresh sweep can't lock a user out).
+            # The token response carries no account identifier — Intuit sends the authorized company
+            # as the `realmId` callback param, captured in integration_from_oauth_response below.
+            return OauthConfig(
+                authorize_url="https://appcenter.intuit.com/connect/oauth2",
+                token_url="https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+                # Intuit requires apps to revoke the grant when a user disconnects; without it the
+                # refresh token stays live for its full 100 days after a disconnect.
+                token_revoke_url="https://developer.api.intuit.com/v2/oauth2/tokens/revoke",
+                client_id=settings.QUICKBOOKS_APP_CLIENT_ID,
+                client_secret=settings.QUICKBOOKS_APP_CLIENT_SECRET,
+                scope="com.intuit.quickbooks.accounting",
+                id_path="quickbooks_realm_id",
+                name_path="quickbooks_realm_id",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -885,6 +908,20 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
                 timeout=10,
+            )
+        # Intuit authenticates the token endpoint with HTTP Basic client credentials and rejects
+        # client_id/client_secret in the body.
+        elif kind == "quickbooks":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+                timeout=10,
+                allow_redirects=False,
             )
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
@@ -1077,6 +1114,22 @@ class OauthIntegration:
             except Exception:
                 logger.exception("Failed to decode Resend JWT")
 
+        # Intuit identifies the authorized company with a realm ID that it only ever sends as a
+        # query param on the OAuth callback — the token response omits it and no API can look it up
+        # from an access token. Every Accounting API path embeds it, so capture it here; without it
+        # the integration can't address a company at all.
+        if kind == "quickbooks" and not integration_id:
+            realm_id = params.get("realmId", "")
+            # Realm IDs are numeric strings that land straight in the Accounting API request path,
+            # so anything else is rejected rather than sent onward.
+            if not realm_id or not realm_id.isdigit():
+                logger.error("QuickBooks OAuth callback missing a usable realmId", param_keys=list(params.keys()))
+                raise ValidationError(
+                    "QuickBooks did not tell us which company you authorized. Please try connecting again."
+                )
+            config["quickbooks_realm_id"] = realm_id
+            integration_id = realm_id
+
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
         if kind == "linkedin-ads" and not integration_id:
@@ -1251,6 +1304,24 @@ class OauthIntegration:
             if allowed_host:
                 revoke_url = f"{allowed_host}/services/oauth2/revoke"
 
+        # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
+        # resending the token to another host. raise_for_status surfaces a provider rejection
+        # to the caller's capture_exception instead of it passing silently as a revoke.
+        if self.integration.kind == "quickbooks":
+            # Intuit's revocation endpoint takes a JSON body and authenticates the app with HTTP
+            # Basic client credentials rather than form fields — a form-encoded, unauthenticated
+            # POST is rejected and the grant would survive the disconnect. Either token type is
+            # accepted and revoking one kills the whole grant.
+            quickbooks_response = requests.post(
+                revoke_url,
+                json={"token": token},
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                timeout=10,
+                allow_redirects=False,
+            )
+            quickbooks_response.raise_for_status()
+            return
+
         data = {"token": token}
         if self.integration.kind == "resend":
             # Resend registers PostHog as a confidential client (token_endpoint_auth_method=
@@ -1261,9 +1332,6 @@ class OauthIntegration:
             data["client_secret"] = oauth_config.client_secret
             data["token_type_hint"] = "refresh_token" if refresh_token else "access_token"
 
-        # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
-        # resending the token to another host. raise_for_status surfaces a provider rejection
-        # to the caller's capture_exception instead of it passing silently as a revoke.
         response = requests.post(
             revoke_url,
             data=data,
@@ -1361,6 +1429,15 @@ class OauthIntegration:
                 auth=HTTPBasicAuth(client_secret, ""),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
                 timeout=10,
+            )
+        # Intuit authenticates the token endpoint with HTTP Basic client credentials on refresh too.
+        elif kind == "quickbooks":
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_id, client_secret),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                timeout=10,
+                allow_redirects=False,
             )
         else:
             token_url = oauth_config.token_url

@@ -1582,3 +1582,122 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+@override_settings(QUICKBOOKS_APP_CLIENT_ID="qb-client-id", QUICKBOOKS_APP_CLIENT_SECRET="qb-client-secret")
+class TestQuickBooksIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("quickbooks")
+        assert config.authorize_url == "https://appcenter.intuit.com/connect/oauth2"
+        assert config.token_url == "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
+        assert config.token_revoke_url == "https://developer.api.intuit.com/v2/oauth2/tokens/revoke"
+        assert config.client_id == "qb-client-id"
+        assert config.client_secret == "qb-client-secret"
+        assert config.scope == "com.intuit.quickbooks.accounting"
+        assert config.id_path == "quickbooks_realm_id"
+
+    @override_settings(QUICKBOOKS_APP_CLIENT_ID="", QUICKBOOKS_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="QuickBooks app not configured"):
+            OauthIntegration.oauth_config_for_kind("quickbooks")
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_captures_the_realm_id(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at_1",
+            "refresh_token": "rt_1",
+            "expires_in": 3600,
+            "token_type": "Bearer",
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "quickbooks",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token", "realmId": "9130347"},
+        )
+
+        # The realm ID is the only company identifier Intuit ever gives us, and every Accounting
+        # API path embeds it, so it has to survive the callback.
+        assert integration.integration_id == "9130347"
+        assert integration.config["quickbooks_realm_id"] == "9130347"
+        assert integration.sensitive_config["access_token"] == "at_1"
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @parameterized.expand([("missing", {}), ("not_numeric", {"realmId": "../../evil"}), ("blank", {"realmId": ""})])
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_without_a_usable_realm_id_raises(self, _name, params, mock_post):
+        # The realm ID lands straight in the Accounting API request path.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "at_1", "refresh_token": "rt_1"}
+
+        with pytest.raises(ValidationError, match="which company you authorized"):
+            OauthIntegration.integration_from_oauth_response(
+                "quickbooks",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "token=state_token", **params},
+            )
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_authorization_code_exchange_authenticates_with_http_basic(self, mock_post):
+        # Intuit rejects client credentials in the token-exchange body.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "at_1", "refresh_token": "rt_1"}
+
+        OauthIntegration.integration_from_oauth_response(
+            "quickbooks",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token", "realmId": "9130347"},
+        )
+
+        auth = mock_post.call_args.kwargs["auth"]
+        assert (auth.username, auth.password) == ("qb-client-id", "qb-client-secret")
+        assert "client_secret" not in mock_post.call_args.kwargs["data"]
+        assert mock_post.call_args.kwargs["allow_redirects"] is False
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_refresh_authenticates_with_http_basic(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "at_2", "refresh_token": "rt_2", "expires_in": 3600}
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="quickbooks",
+            integration_id="9130347",
+            config={"quickbooks_realm_id": "9130347", "expires_in": 3600, "refreshed_at": int(time.time())},
+            sensitive_config={"access_token": "at_1", "refresh_token": "rt_1"},
+        )
+
+        OauthIntegration(integration).refresh_access_token()
+
+        auth = mock_post.call_args.kwargs["auth"]
+        assert (auth.username, auth.password) == ("qb-client-id", "qb-client-secret")
+        assert mock_post.call_args.kwargs["data"]["grant_type"] == "refresh_token"
+        assert integration.sensitive_config["access_token"] == "at_2"
+        # Intuit rotates the refresh token, so the new one has to be stored.
+        assert integration.sensitive_config["refresh_token"] == "rt_2"
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_revoke_token_revokes_the_grant_at_intuit(self, mock_post):
+        # Disconnecting has to kill the upstream grant: the refresh token lives 100 days, so a copy
+        # of it would otherwise keep minting access tokens long after the local rows are gone.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="quickbooks",
+            integration_id="9130347",
+            config={"quickbooks_realm_id": "9130347"},
+            sensitive_config={"access_token": "at_1", "refresh_token": "rt_1"},
+        )
+
+        OauthIntegration(integration).revoke_token()
+
+        assert mock_post.call_args.args[0] == "https://developer.api.intuit.com/v2/oauth2/tokens/revoke"
+        # Intuit's endpoint is JSON-bodied and authenticates the app with HTTP Basic — a
+        # form-encoded, unauthenticated POST is rejected and the grant would survive.
+        assert mock_post.call_args.kwargs["json"] == {"token": "rt_1"}
+        assert "data" not in mock_post.call_args.kwargs
+        auth = mock_post.call_args.kwargs["auth"]
+        assert (auth.username, auth.password) == ("qb-client-id", "qb-client-secret")
+        assert mock_post.call_args.kwargs["allow_redirects"] is False
