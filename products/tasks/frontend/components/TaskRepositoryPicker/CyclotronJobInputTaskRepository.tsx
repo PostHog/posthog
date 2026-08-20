@@ -8,7 +8,6 @@ import api from 'lib/api'
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { urls } from 'scenes/urls'
 
 export default function CyclotronJobInputTaskRepository({ value, onChange }: CustomInputRendererProps): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
@@ -33,7 +32,12 @@ export default function CyclotronJobInputTaskRepository({ value, onChange }: Cus
                 size="small"
                 type="secondary"
                 icon={<IconGithub />}
-                to={api.integrations.authorizeUrl({ kind: 'github', next: urls.workflows() })}
+                // Return to the current workflow editor after authorizing, not the workflows list,
+                // so the user keeps their place instead of having to find and reopen the step.
+                to={api.integrations.authorizeUrl({
+                    kind: 'github',
+                    next: window.location.pathname + window.location.search + window.location.hash,
+                })}
                 disableClientSideRouting
             >
                 Connect GitHub

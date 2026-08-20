@@ -1121,6 +1121,8 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("model_without_effort", "task_model", {"model": "claude-sonnet-5"}, True),
             ("model_not_dict", "task_model", "claude-sonnet-5", False),
             ("model_value_not_string", "task_model", {"model": 5}, False),
+            ("model_key_absent", "task_model", {"reasoning_effort": "high"}, False),
+            ("model_value_empty_string", "task_model", {"model": ""}, False),
             ("installations_string_list", "task_mcp_installations", ["id-1", "id-2"], True),
             ("installations_not_list", "task_mcp_installations", "id-1", False),
             ("installations_not_strings", "task_mcp_installations", [1, 2], False),
