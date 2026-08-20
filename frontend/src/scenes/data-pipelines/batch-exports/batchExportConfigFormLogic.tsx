@@ -568,7 +568,6 @@ export interface batchExportConfigFormLogicValues {
         | 'HTTP'
         | 'Postgres'
         | 'Redshift'
-        | 'S3'
         | 'S3Compatible'
         | 'Snowflake'
         | null
@@ -700,7 +699,6 @@ export interface batchExportConfigFormLogicMeta {
                 | 'HTTP'
                 | 'Postgres'
                 | 'Redshift'
-                | 'S3'
                 | 'S3Compatible'
                 | 'Snowflake'
                 | null
@@ -712,7 +710,6 @@ export interface batchExportConfigFormLogicMeta {
             | 'HTTP'
             | 'Postgres'
             | 'Redshift'
-            | 'S3'
             | 'S3Compatible'
             | 'Snowflake'
             | null
@@ -727,7 +724,6 @@ export interface batchExportConfigFormLogicMeta {
                 | 'HTTP'
                 | 'Postgres'
                 | 'Redshift'
-                | 'S3'
                 | 'S3Compatible'
                 | 'Snowflake'
                 | null
@@ -741,7 +737,6 @@ export interface batchExportConfigFormLogicMeta {
                 | 'HTTP'
                 | 'Postgres'
                 | 'Redshift'
-                | 'S3'
                 | 'S3Compatible'
                 | 'Snowflake'
                 | null,
@@ -956,7 +951,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     | 'HTTP'
                     | 'Postgres'
                     | 'Redshift'
-                    | 'S3'
                     | 'S3Compatible'
                     | 'Snowflake'
                     | null
@@ -979,7 +973,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     | 'HTTP'
                     | 'Postgres'
                     | 'Redshift'
-                    | 'S3'
                     | 'S3Compatible'
                     | 'Snowflake'
                     | null
@@ -997,7 +990,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     | 'HTTP'
                     | 'Postgres'
                     | 'Redshift'
-                    | 'S3'
                     | 'S3Compatible'
                     | 'Snowflake'
                     | null,
