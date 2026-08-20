@@ -22,7 +22,6 @@ from products.batch_exports.backend.tests.api.operations import (
     delete_batch_export,
     delete_batch_export_ok,
     get_batch_export,
-    wait_for_workflow_executions,
 )
 
 pytestmark = [
@@ -131,9 +130,12 @@ def test_delete_batch_export_cancels_backfills(
 
     backfill_workflow_id = f"{batch_export_id}-Backfill-{start_at}-{end_at}"
 
-    # In order for the backfill to be cancelable, it needs to be running and requesting backfills.
-    # We check this by waiting for executions scheduled by our BatchExport id to pop up.
-    _ = wait_for_workflow_executions(temporal, query=f'TemporalScheduledById="{batch_export_id}"')
+    workflow = wait_for_workflow_in_status(
+        temporal,
+        workflow_id=backfill_workflow_id,
+        status=temporalio.client.WorkflowExecutionStatus.RUNNING,
+    )
+    assert workflow.status == temporalio.client.WorkflowExecutionStatus.RUNNING
 
     delete_batch_export_ok(client, team.pk, batch_export_id)
 
