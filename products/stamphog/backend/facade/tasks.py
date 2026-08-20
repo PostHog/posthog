@@ -9,9 +9,19 @@ settings serializer imports on every request.
 
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.schedules import DAILY_DIGEST_CRONTAB
-from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
+from products.stamphog.backend.tasks.tasks import (
+    process_inbox_pr_review,
+    process_installation_event,
+    process_pull_request_event,
+)
 
-__all__ = ["DAILY_DIGEST_CRONTAB", "queue_inbox_pr_review", "send_daily_digests"]
+__all__ = [
+    "DAILY_DIGEST_CRONTAB",
+    "process_installation_event",
+    "process_pull_request_event",
+    "queue_inbox_pr_review",
+    "send_daily_digests",
+]
 
 
 def queue_inbox_pr_review(

@@ -11,6 +11,7 @@ import requests
 import structlog
 import tldextract
 
+from posthog.dataclasses import frozen
 from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation
@@ -371,7 +372,7 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> DcrClientRegistrat
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class PkcePair:
     code_verifier: str = dataclasses.field(repr=False)
     code_challenge: str
@@ -406,11 +407,11 @@ def _credential_auth_method(credentials: dict, auth_method_key: str, client_secr
     return DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if client_secret else "none"
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class InstallationOAuthContext:
     metadata: dict
     client_id: str
-    client_secret: str | None
+    client_secret: str | None = dataclasses.field(repr=False)
     token_endpoint_auth_method: str
 
 

@@ -16,7 +16,7 @@ class DataManagementViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         activity_page = load_all_activity(
             scope_list=["EventDefinition", "PropertyDefinition"],
-            team_id=request.user.team.id,  # type: ignore
+            team_id=self.team.id,
             limit=limit,
             page=page,
         )

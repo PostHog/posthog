@@ -8,6 +8,39 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `setup_tab` - setup_tab
+ * * `apply_all_safe` - apply_all_safe
+ * * `mcp` - mcp
+ */
+export type ApplySetupOpsSourceEnumApi = (typeof ApplySetupOpsSourceEnumApi)[keyof typeof ApplySetupOpsSourceEnumApi]
+
+export const ApplySetupOpsSourceEnumApi = {
+    SetupTab: 'setup_tab',
+    ApplyAllSafe: 'apply_all_safe',
+    Mcp: 'mcp',
+} as const
+
+export interface ApplySetupOpsApi {
+    /** Operations to apply, in order. Send `apply` payloads returned verbatim by setup_plan — never hand-craft one. Navigate-only ops (open_oauth, open_source_wizard, open_settings, fix_platform_urls) are rejected: they describe something a browser or a human does. */
+    ops: unknown[]
+    /** Where the request came from, recorded in the activity log
+     *
+     * * `setup_tab` - setup_tab
+     * * `apply_all_safe` - apply_all_safe
+     * * `mcp` - mcp */
+    source?: ApplySetupOpsSourceEnumApi
+}
+
+export interface ApplySetupOpsResponseApi {
+    /** The operations that were applied */
+    applied: unknown[]
+    /** Operations that reverse this batch, in the order they should be sent. Computed server-side from the pre-change state — POST them back to undo. */
+    undo_ops: unknown[]
+    /** The config as it now stands */
+    marketing_analytics_config: unknown
+}
+
+/**
  * * `EventsNode` - EventsNode
  * * `ActionsNode` - ActionsNode
  * * `DataWarehouseNode` - DataWarehouseNode
@@ -21,8 +54,8 @@ export const ConversionGoalKindEnumApi = {
 } as const
 
 export interface ConversionGoalSummaryApi {
-    /** Unique id of the goal (event name, action id, or DW goal id) */
-    id: string
+    /** Id of the goal. Pass this to the explain, update and delete endpoints. */
+    conversion_goal_id: string
     /** Display name of the conversion goal */
     name: string
     /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -404,6 +437,14 @@ export const CountPerActorMathTypeApi = {
     P99CountPerActor: 'p99_count_per_actor',
 } as const
 
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
 export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
 
 export const ExperimentMetricMathTypeApi = {
@@ -646,9 +687,9 @@ export interface ConversionGoalFilter1Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -742,9 +783,9 @@ export interface ConversionGoalFilter2Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -839,9 +880,9 @@ export interface ConversionGoalFilter3Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -957,9 +998,9 @@ export interface PartialConversionGoalFilter1Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1050,9 +1091,9 @@ export interface PartialConversionGoalFilter2Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1145,9 +1186,9 @@ export interface PartialConversionGoalFilter3Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1321,6 +1362,10 @@ export interface AttributionHealthEntryApi {
     matched_pct: number
     /** Sample of likely-yours unmatched utm_source values */
     sample_unmatched_utm_sources: UnmatchedUtmSampleApi[]
+    /** Of the matched events, how many look paid: a cost-bearing utm_medium (cpc, cpm, cpv, cpa, ppc, retargeting, or anything starting with 'paid') or a gclid/gad_source click id. */
+    events_matched_paid_last_7d: number
+    /** Of the matched events, how many carry any utm_medium. Zero paid with a non-zero count here means the traffic is tagged and organic; both zero means the team doesn't tag medium, which says nothing. */
+    events_matched_tagged_medium_last_7d: number
 }
 
 export interface RecommendedActionApi {
@@ -1407,8 +1452,8 @@ export interface GoalEventSampleApi {
 }
 
 export interface GoalExplanationApi {
-    /** Id of the explained conversion goal */
-    goal_id: string
+    /** conversion_goal_id of the explained goal */
+    conversion_goal_id: string
     /** Display name of the conversion goal */
     goal_name: string
     /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -1463,6 +1508,76 @@ export interface GoalExplanationApi {
     samples: GoalEventSampleApi[]
     /** Caveats about the breakdown (sampling, attribution, etc.) */
     notes: string[]
+}
+
+export interface SuggestionApi {
+    /** Stable identifier for this finding. Deterministic across scans, so clients can dedupe and remember dismissals by it. */
+    id: string
+    /** Suggestion kind, e.g. connect_source / add_source_mapping */
+    kind: string
+    /** 'deterministic' or 'ai' — how this suggestion was produced */
+    source: string
+    /** error/warning/info */
+    severity: string
+    /** 0-1. Never 1.0: these are inferences, not proofs. */
+    confidence: number
+    /** Short imperative title, e.g. 'Connect Meta Ads' */
+    title: string
+    /** The concrete numbers behind the suggestion, so a user can sanity-check it without taking it on faith */
+    evidence: string
+    /** Capabilities this unblocks: cost, attribution, roas, cac */
+    unlocks: string[]
+    /** The operation that applies this suggestion, or null when there's nothing to automate. An object with an 'op' discriminator — see the ApplyOp union in setup_types. Pass it verbatim to apply_setup_ops; never hand-craft one. */
+    apply: unknown
+    /** Advice shown alongside the action. Mapping suggestions always carry a 'fix_platform_urls' entry, because a mapping is a workaround and correcting the ad platform's tracking template is the real fix. */
+    also_recommended: unknown[]
+    /** True only for high-confidence, reversible operations — what an 'apply all safe' button may include */
+    safe_to_batch: boolean
+    /** Ranking score; higher first. Unblocking actions dominate. */
+    rank_score: number
+    /**
+     * Integration this concerns, if any
+     * @nullable
+     */
+    integration: string | null
+    /**
+     * In-app URL to resolve this manually, if any
+     * @nullable
+     */
+    deep_link: string | null
+    /**
+     * Documentation link, if any
+     * @nullable
+     */
+    docs_url: string | null
+    /** Ad spend currently mis- or un-attributed because of this */
+    spend_at_risk: number
+    /** Events affected in the window */
+    event_volume: number
+}
+
+export interface CapabilityReadinessApi {
+    /** cost/attribution/roas/cac */
+    capability: string
+    /** unlocked/partial/blocked */
+    status: string
+    /** Why it's in that state, in plain English */
+    explanation: string
+    /** Suggestion ids that unblock this capability — the link from a blocked metric to its fixes */
+    blocked_by: string[]
+}
+
+export interface SetupPlanResponseApi {
+    /** Ranked suggestions, most important first */
+    suggestions: SuggestionApi[]
+    /** Per-capability readiness, with the suggestions blocking each */
+    readiness: CapabilityReadinessApi[]
+    /** Sub-services that failed. Their suggestions are missing, so do NOT present the plan as a complete clean bill of health when this is non-empty. */
+    degraded: string[]
+    /** True when the campaign or UTM queries hit their row caps. Rates and totals are then top-N subtotals — present them as approximate rather than exact. */
+    truncated: boolean
+    /** One-line summary of the plan */
+    summary: string
 }
 
 export interface CandidateEventApi {
@@ -1780,6 +1895,11 @@ export type MarketingAnalyticsDiagnoseRetrieveParams = {
 
 export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
     /**
+     * conversion_goal_id of the goal to explain, as returned by the conversion_goals list endpoint.
+     * @minLength 1
+     */
+    conversion_goal_id: string
+    /**
      * ISO start; defaults to 30 days ago
      * @nullable
      */
@@ -1789,11 +1909,18 @@ export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
      * @nullable
      */
     date_to?: string | null
+}
+
+export type MarketingAnalyticsSetupPlanRetrieveParams = {
     /**
-     * Id of the conversion goal to explain (from list_conversion_goals).
+     * Window for campaign spend and the UTM catalogue, as a relative range (e.g. '-30d'); defaults to -30d
      * @minLength 1
      */
-    goal_id: string
+    date_from?: string
+    /**
+     * Re-run every check instead of serving a recent result. Use right after changing something.
+     */
+    refresh?: boolean
 }
 
 export type MarketingAnalyticsSuggestConversionGoalsRetrieveParams = {

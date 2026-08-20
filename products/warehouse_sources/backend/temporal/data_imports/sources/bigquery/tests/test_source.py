@@ -1291,13 +1291,27 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
             "bigquery.tables.create",
             "create",
         ),
+        # Querying a table/view that reads through a BigQuery connection (federated query or
+        # BigLake) the service account isn't authorized to use — denied with
+        # bigquery.connections.use on the connection resource, not the table/dataset.
+        (
+            str(
+                Forbidden(
+                    "Access Denied: Connection projects/proj/locations/us/connections/conn: User does not "
+                    "have bigquery.connections.use permission for connection "
+                    "projects/proj/locations/us/connections/conn."
+                )
+            ),
+            "bigquery.connections.use",
+            "connection",
+        ),
     ],
 )
-def test_temp_table_write_denial_surfaces_write_permission_guidance(observed_error, expected_key, expected_word):
-    # A temp-table write/create denial also contains "Access Denied:", so both that generic key and the
-    # write-specific key match. external_data_job surfaces the first matching key's message, so the
-    # write-specific key must sit above "Access Denied:" — otherwise the customer is told to grant read
-    # access to fix a write/create failure.
+def test_specific_permission_denial_outranks_generic_access_denied(observed_error, expected_key, expected_word):
+    # Each of these denials also contains "Access Denied:", so both the generic key and the
+    # more specific key match. external_data_job surfaces the first matching key's message, so the
+    # specific key must sit above "Access Denied:" — otherwise the customer is told to grant table
+    # read access to fix a failure that read access can't resolve.
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
     assert first_key == expected_key
@@ -1517,6 +1531,13 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
             "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
             "?maxResults=0&location=US&prettyPrint=false: The job encountered an error during execution. "
             "Retrying the job may solve the problem."
+        ),
+        # A second wording for the same transient `jobInternalError` condition, with no
+        # retry-recommendation suffix (volatile project/job id redacted).
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=US&prettyPrint=false: The job encountered an internal error during "
+            "execution and was unable to complete successfully."
         ),
         # The library default's own retryable reasons must still be honoured.
         BadRequest("query failed", errors=[{"reason": "backendError", "message": "internal error"}]),
@@ -1821,6 +1842,27 @@ def test_bigquery_unsupported_region_is_non_retryable(location):
     assert matching, "an unsupported-region 400 should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
     assert all(location not in key for key in matching), "match must not depend on the volatile location"
+
+
+def test_bigquery_dataset_not_found_during_sync_is_non_retryable():
+    """A dataset deleted/renamed after schema discovery surfaces from `get_table()` at sync time as a
+    google NotFound whose str() is "... Not found: Dataset <project>:<dataset>" — this REST GET path
+    carries no "was not found in location" suffix, unlike the query-job path covered by that pattern,
+    so it must be recognised as non-retryable via the "Not found: Dataset" pattern instead of retrying
+    a dataset that can't reappear within the run."""
+    error = NotFound(
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/datasets/my_dataset/"
+        "tables/my_table?prettyPrint=false: Not found: Dataset my-proj:my_dataset"
+    )
+
+    # Mirror the substring match in `update_external_data_job_model`.
+    error_msg = str(error)
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "a dataset-not-found 404 during sync should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+    assert "was not found in location" not in error_msg
 
 
 def test_bigquery_table_not_found_during_sync_is_non_retryable():

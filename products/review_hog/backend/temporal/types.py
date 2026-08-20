@@ -6,6 +6,8 @@ input without importing the workflow code (which pulls in the heavy activity dep
 
 from dataclasses import dataclass
 
+from posthog.dataclasses import frozen
+
 # How a review run was triggered. Gates are trigger-aware: label → `review_labeled_prs`,
 # inbox → `review_inbox_prs`, manual (CLI/eval) and ui (an explicit human ask from the Code review
 # scene) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
@@ -54,6 +56,15 @@ class ReviewPRWorkflowInputs:
     signal_report_id: str | None = None
     # Branch target (PR-less review): the pushed head branch to review when no PR URL is known.
     head_branch: str | None = None
+    # Per-run override for chaining the resolution stage after this turn (fire-and-forget
+    # `resolve-pr` dispatch once the turn finishes, when the target has a PR). None — the default,
+    # and what every trigger passes except the UI's explicit "review without resolving" — means the
+    # acting user's `resolve_comments` setting decides (snapshotted by `resolve_acting_user`, and
+    # only on publishing runs — an unpublished eval/CLI review must not write to the PR). Replay-safe
+    # both ways: pre-field payloads decode to None and their recorded snapshot lacks the setting
+    # (False), while payloads serialized under the old `bool = False` default decode to an explicit
+    # False — in both cases the dispatch never fires for old histories, exactly as they ran.
+    resolve_comments: bool | None = None
 
     @property
     def repository(self) -> str:
@@ -70,6 +81,39 @@ class ReviewPRWorkflowInputs:
         }
 
 
+@frozen
+class ResolvePRWorkflowInputs:
+    """Input for one `ResolvePRWorkflow` run (the resolution stage on one PR).
+
+    PR-only — review threads live on PRs, so there is no branch-target shape. `(team_id, user_id)`
+    are the explicit identity the sandbox session runs under; `acting_user_id` pins whose selected
+    resolution-criteria skill applies (None means the PR author: prepare maps the author login to a
+    PostHog user, and an unmapped author pins the canonical criteria — never `user_id`'s).
+    """
+
+    team_id: int
+    user_id: int
+    owner: str
+    repo: str
+    pr_number: int
+    pr_url: str = ""
+    acting_user_id: int | None = None
+    trigger_source: str = TRIGGER_MANUAL
+
+    @property
+    def repository(self) -> str:
+        return f"{self.owner}/{self.repo}"
+
+    @property
+    def properties_to_log(self) -> dict[str, object]:
+        return {
+            "team_id": self.team_id,
+            "repository": self.repository,
+            "pr_number": self.pr_number,
+            "trigger_source": self.trigger_source,
+        }
+
+
 def review_pr_workflow_id(*, team_id: int, owner: str, repo: str, pr_number: int) -> str:
     """Deterministic per-PR workflow id, so a re-trigger of the same PR review collapses by id.
 
@@ -82,3 +126,8 @@ def review_pr_workflow_id(*, team_id: int, owner: str, repo: str, pr_number: int
 def review_branch_workflow_id(*, team_id: int, owner: str, repo: str, head_branch: str) -> str:
     """Deterministic per-branch workflow id for PR-less targets, mirroring `review_pr_workflow_id`."""
     return f"review-branch:{team_id}:{owner}/{repo}:{head_branch}".lower()
+
+
+def resolve_pr_workflow_id(*, team_id: int, owner: str, repo: str, pr_number: int) -> str:
+    """Deterministic per-PR id for the resolution stage — one run per PR at a time, by construction."""
+    return f"resolve-pr:{team_id}:{owner}/{repo}:{pr_number}".lower()

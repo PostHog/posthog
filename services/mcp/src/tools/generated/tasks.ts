@@ -50,6 +50,9 @@ const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDT
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.star !== undefined) {
+            body['star'] = params.star
+        }
         const result = await context.api.request<Schemas.ChannelDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
@@ -454,7 +457,6 @@ const TasksCreateSchema = TasksCreateBody.omit({
     signal_report: true,
     signal_report_task_relationship: true,
     json_schema: true,
-    internal: true,
     archived: true,
     ci_prompt: true,
     branch: true,
@@ -525,12 +527,18 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
                 all_team_tasks: params.all_team_tasks,
                 archived: params.archived,
                 channel: params.channel,
+                ci_status: params.ci_status,
+                commented_by: params.commented_by,
                 created_by: params.created_by,
                 internal: params.internal,
                 limit: params.limit,
+                mentions: params.mentions,
                 offset: params.offset,
+                ordering: params.ordering,
                 organization: params.organization,
                 origin_product: params.origin_product,
+                pinned: params.pinned,
+                pr_state: params.pr_state,
                 repository: params.repository,
                 search: params.search,
                 stage: params.stage,
@@ -548,6 +556,11 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
                     'origin_product',
                     'repository',
                     'internal',
+                    'channel',
+                    'created_by.first_name',
+                    'created_by.last_name',
+                    'latest_run.id',
+                    'latest_run.status',
                     'created_at',
                     'updated_at',
                 ])

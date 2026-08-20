@@ -5,6 +5,7 @@ import {
   Scroll,
   SlackLogo,
 } from "@phosphor-icons/react";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { Box, Flex, IconButton } from "@radix-ui/themes";
 import { motion } from "framer-motion";
@@ -149,7 +150,7 @@ export const UserMessage = memo(function UserMessage({
                   icon={<FileText size={12} />}
                   label={`${
                     channelContext.mention.name
-                      ? `#${channelContext.mention.name} `
+                      ? `${channelDisplayLabel(channelContext.mention.name)} `
                       : ""
                   }CONTEXT.md`}
                   onClick={

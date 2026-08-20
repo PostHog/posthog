@@ -462,6 +462,19 @@ def test_lint_all_catches_missing_frontmatter(tmp_path: Path) -> None:
     assert builder.lint_all() is False
 
 
+def test_lint_all_catches_overlong_project_skill_description(tmp_path: Path) -> None:
+    skill_dir = tmp_path / ".agents" / "skills" / "bad-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(f"---\nname: bad-skill\ndescription: {'x' * 1025}\n---\n# Body\n")
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is False
+
+
 def test_lint_all_catches_bad_jinja2_syntax(tmp_path: Path) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "broken-j2"
     skill_dir.mkdir(parents=True)

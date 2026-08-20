@@ -279,6 +279,25 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('updateExperimentMetrics', () => {
+        it('keeps existing results when saving the metric definitions fails', async () => {
+            const existingResult = experimentMetricResultsSuccessJson.query_status
+                .results as unknown as CachedNewExperimentQueryResponse
+
+            logic.actions.setExperiment(experiment)
+            logic.actions.setPrimaryMetricsResults([existingResult])
+            logic.actions.setPrimaryMetricsResultsErrors([null])
+            jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('network down'))
+
+            await expectLogic(logic, () => logic.actions.updateExperimentMetrics())
+                .toDispatchActions(['updateExperimentFailure'])
+                .toFinishAllListeners()
+
+            expect(logic.values.primaryMetricsResults).toEqual([existingResult])
+            expect(logic.values.primaryMetricsResultsErrors).toEqual([null])
+        })
+    })
+
     describe('currentRefresh tracking', () => {
         it('marks the refresh as in_progress while running and completed when it succeeds', async () => {
             logic.actions.setExperiment(experiment)
@@ -1926,7 +1945,7 @@ describe('experimentLogic', () => {
         it('shows approval toast and suppresses error toast on 409', async () => {
             const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
                 status: 409,
-                data: { change_request_id: 'cr-123' },
+                data: { change_request_id: 'cr-123', code: 'approval_required' },
             })
             const errorMock = lemonToast.error as jest.Mock
             errorMock.mockClear()
@@ -1945,7 +1964,8 @@ describe('experimentLogic', () => {
             // Should show approval required toast with change request ID
             expect(mockShowApprovalRequiredToast).toHaveBeenCalledWith(
                 'cr-123',
-                'end this experiment and roll out the winning variant'
+                'end this experiment and roll out the winning variant',
+                'approval_required'
             )
             // Should NOT show the generic error toast
             expect(errorMock).not.toHaveBeenCalled()

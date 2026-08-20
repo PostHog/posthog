@@ -21,6 +21,7 @@ const PI_MODEL_LABELS: Record<string, string> = {
   "gpt-5.6-terra": "GPT-5.6 Terra",
   "gpt-5.6-luna": "GPT-5.6 Luna",
   "@cf/zai-org/glm-5.2": "GLM-5.2",
+  "zai-org/glm-5.3": "GLM-5.3",
   "moonshotai/kimi-k3": "Kimi K3",
 };
 
@@ -75,10 +76,11 @@ export async function fetchPosthogPiModelCatalog(
   gatewayUrl: string,
   region: CloudRegion,
   apiKey?: string,
+  projectId?: number,
 ): Promise<PiModelCatalogEntry[]> {
   const models =
     process.env.PI_OFFLINE || process.env.HARNESS_STATIC_MODELS
       ? []
-      : await fetchPosthogGatewayModels(gatewayUrl, apiKey);
+      : await fetchPosthogGatewayModels(gatewayUrl, apiKey, projectId);
   return resolvePosthogPiModelCatalog(models, region);
 }

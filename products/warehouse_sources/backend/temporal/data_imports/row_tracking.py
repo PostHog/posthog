@@ -45,6 +45,10 @@ async def _get_redis():
         await redis.ping()
     except Exception as e:
         capture_exception(e)
+        # get_async_client only builds a lazy client, so a failed ping means redis is
+        # still unreachable - reset it to None so callers' `if not redis: return` guard
+        # actually skips the real command instead of raising the same error uncaught.
+        redis = None
 
     yield redis
 
@@ -223,7 +227,6 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
 
         await logger.adebug(f"BillingLimits: rows_synced_in_billing_period = {rows_synced_in_billing_period}")
 
-        # Get all in-progress rows for all teams in org
         rows_per_team = await asyncio.gather(*[get_all_rows_for_team(t_id) for t_id in all_teams_in_org])
         existing_rows_in_progress = sum(rows_per_team)
 

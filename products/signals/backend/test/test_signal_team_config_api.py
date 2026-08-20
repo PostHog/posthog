@@ -1,9 +1,11 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 from rest_framework import status
 
-from products.signals.backend.models import SignalTeamConfig
+from products.signals.backend.models import SignalReport, SignalTeamConfig
 
 
 class TestSignalTeamConfigAPI(APIBaseTest):
@@ -139,6 +141,61 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert data["autostart_enabled"] is sent
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is sent
+
+    def test_get_config_defaults_daily_report_limit_fields(self):
+        response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["max_reports_per_day"] is None
+        assert data["reports_generated_today"] == 0
+        assert data["daily_report_limit_reached"] is False
+
+    @parameterized.expand(
+        [
+            ("set", None, 5, 5),
+            ("clear", 5, None, None),
+        ]
+    )
+    def test_update_max_reports_per_day(self, _name, initial, sent, expected):
+        if initial is not None:
+            self.config.max_reports_per_day = initial
+            self.config.save(update_fields=["max_reports_per_day"])
+        response = self.client.post(self._url(), data={"max_reports_per_day": sent}, format="json")
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["max_reports_per_day"] == expected
+        self.config.refresh_from_db()
+        assert self.config.max_reports_per_day == expected
+
+    @parameterized.expand([("zero", 0), ("negative", -3), ("above_int4", 2147483648)])
+    def test_update_max_reports_per_day_rejects_out_of_range(self, _name, sent):
+        response = self.client.post(self._url(), data={"max_reports_per_day": sent}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "max_reports_per_day"
+
+    def test_reports_generated_today_is_zero_without_a_limit(self):
+        # No limit set: the count is never shown, so the serializer reports 0 without counting even
+        # when visible reports exist today.
+        SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, first_visible_at=datetime.now(UTC)
+        )
+        response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["max_reports_per_day"] is None
+        assert data["reports_generated_today"] == 0
+
+    def test_daily_report_limit_reached_reflects_todays_visible_reports(self):
+        self.config.max_reports_per_day = 1
+        self.config.save(update_fields=["max_reports_per_day"])
+        SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, first_visible_at=datetime.now(UTC)
+        )
+        response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["reports_generated_today"] == 1
+        assert data["daily_report_limit_reached"] is True
 
     def test_partial_update_preserves_autostart_enabled(self):
         # A team that turned autostart off must not have it silently re-enabled when it later

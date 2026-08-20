@@ -48,7 +48,6 @@ class SignalSourceConfig(UUIDModel):
     # other configs and are deliberately absent).
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
-        EVALUATION = "evaluation", "Evaluation"
         EVALUATION_REPORT = "evaluation_report", "Evaluation report"
         ISSUE = "issue", "Issue"
         TICKET = "ticket", "Ticket"
@@ -80,9 +79,7 @@ class SignalSourceConfig(UUIDModel):
         """Check whether a given signal source is enabled for a team.
 
         Scout findings are on by default (see below). For everything else, the team must have a
-        SignalSourceConfig row with enabled=True. AI observability evaluation signals additionally
-        carry a per-evaluation allowlist in the config row, enforced upstream in the llma evals
-        workflows — the row check here is the team-level gate.
+        SignalSourceConfig row with enabled=True.
         """
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
@@ -141,6 +138,10 @@ class SignalTeamConfig(UUIDModel):
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
+    # Daily cap on reports surfacing to the inbox, counted against SignalReport.first_visible_at
+    # within the project-timezone day. Once reached, the whole generation pipeline pauses until
+    # local midnight (see daily_limit.py). Null means unlimited.
+    max_reports_per_day = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -252,6 +253,11 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    # When the report first became user-visible (entered READY or PENDING_INPUT, the statuses the
+    # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
+    # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
+    # field or never surfaced.
+    first_visible_at = models.DateTimeField(null=True, blank=True)
 
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
@@ -273,6 +279,12 @@ class SignalReport(UUIDModel):
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
             models.Index(fields=["team", "created_at"]),
+            # Partial: the daily-limit gate only ever counts stamped rows for one team and day.
+            models.Index(
+                fields=["team", "first_visible_at"],
+                condition=models.Q(first_visible_at__isnull=False),
+                name="signals_report_first_visible",
+            ),
         ]
 
     def transition_to(
@@ -403,6 +415,13 @@ class SignalReport(UUIDModel):
 
             case _:
                 raise InvalidStatusTransition(self.status, new_status)
+
+        # First arrival into a user-visible status (the inbox lists READY and PENDING_INPUT).
+        # Set-once: re-research and suppress/restore cycles keep the original timestamp, so a
+        # report only ever counts once toward SignalTeamConfig.max_reports_per_day.
+        if new_status in (S.READY, S.PENDING_INPUT) and self.first_visible_at is None:
+            self.first_visible_at = timezone.now()
+            updated_fields.add("first_visible_at")
 
         self.status = new_status
         updated_fields.update(["status", "updated_at"])
@@ -696,6 +715,97 @@ class SignalReport(UUIDModel):
         return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
 
 
+class SignalReportCanvas(TeamScopedRootMixin, UUIDModel):
+    class GenerationStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        GENERATING = "generating", "Generating"
+        READY = "ready", "Ready"
+        FAILED = "failed", "Failed"
+
+    class CollaborationMode(models.TextChoices):
+        MANAGED = "managed", "Managed"
+        COLLABORATIVE = "collaborative", "Collaborative"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    report = models.OneToOneField(SignalReport, on_delete=models.CASCADE, related_name="canvas_session")
+    canvas_id = models.UUIDField(unique=True)
+    discussion_task_id = models.UUIDField(unique=True)
+    generation_task_id = models.UUIDField(null=True, blank=True)
+    generated_fingerprint = models.CharField(max_length=64, blank=True, default="")
+    generation_status = models.CharField(
+        max_length=16,
+        choices=GenerationStatus,
+        default=GenerationStatus.PENDING,
+    )
+    collaboration_mode = models.CharField(
+        max_length=16,
+        choices=CollaborationMode,
+        default=CollaborationMode.MANAGED,
+    )
+    failure_reason = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["team", "generation_status"], name="signals_rpt_canvas_status_idx")]
+
+
+class SignalReportCanvasGeneration(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        GENERATING = "generating", "Generating"
+        READY = "ready", "Ready"
+        FAILED = "failed", "Failed"
+
+    class ValidationStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        VALID = "valid", "Valid"
+        INVALID = "invalid", "Invalid"
+
+    class ReviewStatus(models.TextChoices):
+        UNREVIEWED = "unreviewed", "Unreviewed"
+        USEFUL = "useful", "Useful"
+        UNUSABLE = "unusable", "Unusable"
+        EDITED = "edited", "Edited"
+        PUBLISHED = "published", "Published"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="canvas_generations")
+    status = models.CharField(max_length=16, choices=Status, default=Status.PENDING)
+    validation_status = models.CharField(
+        max_length=16,
+        choices=ValidationStatus,
+        default=ValidationStatus.PENDING,
+    )
+    review_status = models.CharField(
+        max_length=16,
+        choices=ReviewStatus,
+        default=ReviewStatus.UNREVIEWED,
+    )
+    trigger = models.CharField(max_length=64)
+    prompt_version = models.CharField(max_length=64)
+    input_fingerprint = models.CharField(max_length=64)
+    output_source = models.TextField(blank=True, default="")
+    output_storage_key = models.CharField(max_length=512, blank=True, default="")
+    model_metadata = models.JSONField(default=dict)
+    error_category = models.CharField(max_length=64, blank=True, default="")
+    failure_reason = models.TextField(blank=True, default="")
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    generation_task_id = models.UUIDField(null=True, blank=True)
+    generation_run_id = models.UUIDField(null=True, blank=True)
+    canvas_id = models.UUIDField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "status", "created_at"], name="signals_canvas_gen_status_idx"),
+            models.Index(fields=["report", "created_at"], name="signals_canvas_gen_report_idx"),
+        ]
+
+
 class SignalEmissionRecord(UUIDModel):
     """Tracks which source records have been emitted as signals.
 
@@ -974,10 +1084,22 @@ class SignalReportArtefact(UUIDModel):
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.
-        if isinstance(parsed, TaskRunArtefact) and str(parsed.task_id) != str(self.task_id):
-            raise ArtefactContentValidationError(
-                "task_run content.task_id must match the artefact's task and cannot be reassigned by editing"
-            )
+        if isinstance(parsed, TaskRunArtefact):
+            if str(parsed.task_id) != str(self.task_id):
+                raise ArtefactContentValidationError(
+                    "task_run content.task_id must match the artefact's task and cannot be reassigned by editing"
+                )
+            # (product, type) is the run's purpose and feeds the per-report task cap, which counts
+            # non-pipeline signals runs; letting an edit relabel a discussion as pipeline work
+            # would free its slot in the count.
+            existing = parse_artefact_content(self.type, self.content)
+            if isinstance(existing, TaskRunArtefact) and (parsed.product, parsed.type) != (
+                existing.product,
+                existing.type,
+            ):
+                raise ArtefactContentValidationError(
+                    "task_run content.product and content.type record what ran and cannot be changed by editing"
+                )
         self.content = parsed.model_dump_json()
         self.save(update_fields=["content", "updated_at"])
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
@@ -1414,6 +1536,15 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # describes ONE record; cardinality is the scout's call (one record per run, one per judged
     # entity, ...), so no separate mode enum is stored.
     structured_output_schema = models.JSONField(null=True, blank=True)
+    # MCP gateway servers (UUIDs as strings) this scout's runs may mount, chosen from the
+    # connections members shared to the whole team. Selection is per scout: the runner
+    # snapshots it onto the task, and provisioning mounts only the team-scoped grants on the
+    # listed servers, so an empty list mounts none. Personal grants never back a scout run,
+    # which keeps runs identical no matter who created or edits the scout. Stale or unknown
+    # ids simply never match a grant.
+    # Deliberately NOT excluded from activity logging, because changing which external tools
+    # a scout reaches is a security-relevant change, like `network_access`.
+    mcp_gateway_server_ids = models.JSONField(default=list, db_default=[])
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -1431,8 +1562,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
     # Failure-streak circuit breaker over this lane's run outcomes, maintained by the runner:
-    # bumped on a failed run, zeroed on a successful one. At `FAILURE_STREAK_PAUSE_THRESHOLD`
-    # the runner pauses the lane (`transition_status_by_system`, `repeated_failures`) and the
+    # bumped on a failed run, zeroed on a successful one. At the threshold
+    # `failure_streak_pause_threshold` derives from this lane's own schedule, the runner pauses it
+    # (`transition_status_by_system`, `repeated_failures`) and the
     # coordinator holds it to one probe per `AUTO_PAUSE_PROBE_INTERVAL_S`. Without it a lane
     # that can never succeed re-dispatches forever, taking a full-length sandbox lease per
     # interval to produce nothing. Written on every run, so it is excluded from activity
@@ -1756,6 +1888,15 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
+            # The per-scout run window ("last N runs of each scout") probes one scout at a time,
+            # constraining all three keys, so each probe reads only the entries it returns. The
+            # index above stops at the partition key, which leaves the planner sorting every one of
+            # a scout's runs to take the newest N — on a table that only ever grows, and a read the
+            # inbox repeats every 60 seconds.
+            models.Index(
+                fields=["team", "skill_name", "-created_at"],
+                name="signal_scout_run_recent_idx",
+            ),
             # "which run authored this report?" is a jsonb containment lookup (`@>`) that
             # `dismissal_notes` runs on the dismissal request path, batched into one OR'd query per
             # request. Without these the planner can only seq-scan the team's runs, and this table

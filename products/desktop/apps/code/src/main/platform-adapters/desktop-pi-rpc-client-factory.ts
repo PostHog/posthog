@@ -5,6 +5,7 @@ import {
 } from "@posthog/agent/pi/rpc-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   AGENT_AUTH,
   MCP_SERVER_CONNECTION_SOURCE,
@@ -22,9 +23,6 @@ const PROXY_API_KEY = "posthog-code-auth-proxy";
 
 @injectable()
 export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
-  private proxyRegion?: CloudRegion;
-  private proxyUrlPromise?: Promise<string>;
-
   constructor(
     @inject(AGENT_AUTH) private readonly auth: AgentAuth,
     @inject(AUTH_PROXY_SERVICE)
@@ -41,7 +39,15 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       throw new Error("Pi requires PostHog authentication");
     }
 
-    const baseUrl = await this.getProxyUrl(credentials.region);
+    const projectId = this.auth.getState().currentProjectId;
+    if (!projectId) {
+      throw new Error("Pi requires a selected PostHog project");
+    }
+    const access = await this.auth.getValidAccessToken();
+    const [baseUrl, enrichmentApiUrl] = await Promise.all([
+      this.getProxyUrl(credentials.region, projectId),
+      this.authProxy.start(access.apiHost),
+    ]);
 
     const mcpConfiguration =
       await this.mcpServerSource.getMcpRuntimeConfiguration();
@@ -52,6 +58,13 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       model: input.model,
       sessionFile: input.sessionFile,
       projectTrusted: input.projectTrusted,
+      enrichment: {
+        apiUrl: enrichmentApiUrl,
+        publicApiUrl: access.apiHost,
+        enableObjectReferences: true,
+        projectId,
+        apiKey: PROXY_API_KEY,
+      },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
       providerOptions: {
@@ -62,13 +75,11 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     });
   }
 
-  private getProxyUrl(region: CloudRegion): Promise<string> {
-    if (this.proxyRegion !== region || !this.proxyUrlPromise) {
-      this.proxyRegion = region;
-      const gatewayUrl = getLlmGatewayUrl(getCloudUrlFromRegion(region));
-      this.proxyUrlPromise = this.authProxy.start(gatewayUrl);
-    }
-
-    return this.proxyUrlPromise;
+  private getProxyUrl(region: CloudRegion, projectId: number): Promise<string> {
+    const gatewayUrl = getLlmGatewayUrl(getCloudUrlFromRegion(region));
+    return this.authProxy.start(
+      gatewayUrl,
+      buildPosthogProjectHeaderRecord(projectId),
+    );
   }
 }

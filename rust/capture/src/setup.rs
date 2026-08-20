@@ -13,7 +13,6 @@ use common_redis::RedisClient;
 use metrics::gauge;
 use tracing::{info, warn};
 
-use crate::ai_s3::AiBlobStorage;
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
@@ -23,7 +22,6 @@ use crate::quota_limiters::{
 };
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
-use crate::s3_client::{S3Client, S3Config};
 use crate::sinks::fallback::FallbackSink;
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
@@ -130,6 +128,7 @@ pub struct CaptureComponents {
     pub server_handle: lifecycle::Handle,
     pub sink: Arc<dyn Event + Send + Sync>,
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    pub event_restriction_service: Option<EventRestrictionService>,
     pub http1_header_read_timeout_ms: Option<u64>,
 }
 
@@ -273,49 +272,6 @@ pub async fn build_components(
     );
     let sink_for_flush = sink.clone();
 
-    // Create AI blob storage if S3 is configured
-    let ai_blob_storage: Option<Arc<dyn crate::ai_s3::BlobStorage>> =
-        if let Some(bucket) = &config.ai_s3_bucket {
-            let s3_config = S3Config {
-                bucket: bucket.clone(),
-                region: config.ai_s3_region.clone(),
-                endpoint: config.ai_s3_endpoint.clone(),
-                access_key_id: config.ai_s3_access_key_id.clone(),
-                secret_access_key: config.ai_s3_secret_access_key.clone(),
-            };
-            let s3_client = S3Client::new(s3_config).await;
-
-            if s3_client.check_health().await {
-                tracing::info!(bucket = bucket, "AI S3 bucket verified");
-            } else {
-                tracing::error!(bucket = bucket, "AI S3 bucket not accessible");
-            }
-
-            // Spawn background health check task (shutdown-aware via server handle)
-            let s3_client_clone = s3_client.clone();
-            let ai_shutdown = server.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(30));
-                loop {
-                    tokio::select! {
-                        _ = interval.tick() => {
-                            s3_client_clone.check_health().await;
-                        }
-                        _ = ai_shutdown.shutdown_recv() => {
-                            break;
-                        }
-                    }
-                }
-            });
-
-            Some(Arc::new(AiBlobStorage::new(
-                s3_client,
-                config.ai_s3_prefix.clone(),
-            )))
-        } else {
-            None
-        };
-
     let event_restriction_service = if let Some(handle) = event_restrictions_handle {
         create_event_restriction_service(
             &config,
@@ -392,7 +348,7 @@ pub async fn build_components(
         global_rate_limiter_token_distinctid,
         quota_limiter,
         token_dropper,
-        event_restriction_service,
+        event_restriction_service.clone(),
         recorder_handle,
         config.capture_mode,
         config.concurrency_limit,
@@ -402,7 +358,6 @@ pub async fn build_components(
         config.is_mirror_deploy,
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
-        ai_blob_storage,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
         config.capture_v1_max_compressed_body_bytes,
@@ -427,6 +382,7 @@ pub async fn build_components(
         server_handle: server,
         sink: sink_for_flush,
         v1_sink_router,
+        event_restriction_service,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
     }
 }

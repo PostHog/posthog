@@ -1,11 +1,12 @@
 import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.core.management import call_command
 from django.db import connection
 from django.test import override_settings
 
@@ -604,7 +605,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("seconds_as_input_shape", {"inputs": {"duration": {"value": 1800}}}),
             ("iso_8601_duration", {"delay_duration": "P30D"}),
             ("unit_and_duration_shape", {"unit": "days", "duration": 3}),
-            ("unsupported_unit", {"delay_duration": "30s"}),
+            ("unsupported_unit", {"delay_duration": "30w"}),
             ("empty_string", {"delay_duration": ""}),
         ]
     )
@@ -615,15 +616,15 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "actions__1__config",
             "code": "invalid_input",
             "detail": (
-                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
-                "(e.g. '30m', '2h', '1d'). ISO-8601 formats are not supported. "
-                "For seconds, use a fraction of a minute."
+                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
+                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
             ),
             "type": "validation_error",
         }
 
     @parameterized.expand(
         [
+            ("seconds", "30s"),
             ("minutes", "30m"),
             ("hours", "2h"),
             ("days", "1d"),
@@ -635,6 +636,59 @@ class TestHogFlowAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows",
             self._make_delay_flow({"delay_duration": delay_duration}),
         )
+        assert response.status_code == 201, response.json()
+
+    def _make_wait_flow(self, max_wait_duration: Any) -> dict:
+        flow = self._make_delay_flow({"delay_duration": "5m"})
+        flow["actions"][1] = {
+            "id": "w1",
+            "name": "w1",
+            "type": "wait_until_condition",
+            "config": {
+                "condition": {"filters": None},
+                "events": [
+                    {"filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}}
+                ],
+                "max_wait_duration": max_wait_duration,
+            },
+        }
+        return flow
+
+    @parameterized.expand(
+        [
+            ("no_unit", "5"),
+            ("unsupported_unit", "10x"),
+            ("iso_8601", "P30D"),
+            ("numeric", 1800),
+        ]
+    )
+    def test_hog_flow_wait_validation_rejects_malformed_max_wait_duration(self, _name, max_wait_duration):
+        # conditional_branch.ts hands max_wait_duration to the same parser as delay_duration, so a
+        # value that only fails at execution time has to be rejected at write time too
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": (
+                "max_wait_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
+                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
+            ),
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("seconds", "30s"),
+            ("minutes", "30m"),
+            ("fractional_days", "1.5d"),
+            # A falsy timeout is honoured as "wait indefinitely", so it stays valid to send
+            ("null", None),
+            ("empty_string", ""),
+        ]
+    )
+    def test_hog_flow_wait_validation_accepts_canonical_max_wait_duration(self, _name, max_wait_duration):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
         assert response.status_code == 201, response.json()
 
     @parameterized.expand(
@@ -4219,6 +4273,9 @@ class TestHogFlowSecretInputs(APIBaseTest):
         [
             ("resent_mask_preserves", {"secret": True}, "SUPER-SECRET"),
             ("new_value_replaces", {"value": "ROTATED"}, "ROTATED"),
+            # A client that merges its new value into the masked object it read back must win over
+            # the stored value - silently keeping the old token makes rotations appear to succeed.
+            ("mask_with_new_value_replaces", {"secret": True, "value": "ROTATED"}, "ROTATED"),
         ]
     )
     def test_secret_update(self, _name, api_key_input, expected_stored):
@@ -4549,3 +4606,210 @@ class TestHogFlowSecretInputs(APIBaseTest):
         rev_inputs = next(a for a in revision["content"]["actions"] if a["type"] == "function")["config"]["inputs"]
         assert "api_key" not in rev_inputs
         assert "LEGACY-SECRET" not in json.dumps(revision)
+
+    def _create_legacy_flow(self, status=HogFlow.State.DRAFT, trigger_secret: bool = False) -> HogFlow:
+        # A row written before encryption shipped: plaintext secret still inside actions (and the
+        # derived trigger, for a function-shaped trigger), encrypted_inputs never populated.
+        if trigger_secret:
+            trigger_config = {
+                "type": "webhook",
+                "template_id": _SECRET_TEMPLATE_ID,
+                "inputs": {"url": {"value": "https://example.com"}, "api_key": {"value": "LEGACY-SECRET"}},
+            }
+            actions = [
+                {"id": "trigger_node", "name": "trigger", "type": "trigger", "config": trigger_config},
+                {"id": "exit_node", "name": "exit", "type": "exit", "config": {}},
+            ]
+            edges = [{"from": "trigger_node", "to": "exit_node", "type": "continue"}]
+        else:
+            trigger_config = {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            }
+            actions = [
+                {"id": "trigger_node", "name": "trigger", "type": "trigger", "config": trigger_config},
+                {
+                    "id": "action_1",
+                    "name": "action_1",
+                    "type": "function",
+                    "config": {
+                        "template_id": _SECRET_TEMPLATE_ID,
+                        "inputs": {"url": {"value": "https://example.com"}, "api_key": {"value": "LEGACY-SECRET"}},
+                    },
+                },
+            ]
+            edges = [{"from": "trigger_node", "to": "action_1", "type": "continue"}]
+        return HogFlow.objects.create(
+            team=self.team,
+            name="Legacy flow",
+            status=status,
+            version=1,
+            actions=actions,
+            trigger=trigger_config,
+            edges=edges,
+        )
+
+    def test_legacy_plaintext_secret_survives_masked_resave(self):
+        # The client GETs the flow (secret masked), then PUTs the same graph back. The stored secret
+        # must migrate into encrypted_inputs, not be wiped because there was nothing to recover from.
+        flow = self._create_legacy_flow()
+        body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow.id}").json()
+        assert self._function_inputs(body)["api_key"] == {"secret": True}
+
+        resave = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"actions": body["actions"], "edges": body["edges"]},
+        )
+        assert resave.status_code == 200, resave.json()
+
+        flow.refresh_from_db()
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "LEGACY-SECRET"
+        stored_inputs = next(a for a in flow.actions if a["id"] == "action_1")["config"]["inputs"]
+        assert "api_key" not in stored_inputs
+
+    def test_legacy_plaintext_secret_survives_masked_graph_patch(self):
+        # The programmatic path: an MCP client edits one action via /graph, echoing back the masked
+        # marker it read. The stored plaintext secret must be recovered, not dropped.
+        flow = self._create_legacy_flow()
+        resave = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"api_key": {"secret": True}}}},
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert resave.status_code == 200, resave.json()
+
+        flow.refresh_from_db()
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "LEGACY-SECRET"
+        stored_inputs = next(a for a in flow.actions if a["id"] == "action_1")["config"]["inputs"]
+        assert "api_key" not in stored_inputs
+
+    def test_legacy_webhook_trigger_auth_survives_masked_resave(self):
+        # The incident shape: a pre-encryption webhook trigger whose auth secret lives in plaintext in
+        # actions and the derived trigger column. A masked re-save silently removed it from every
+        # column, leaving the webhook endpoint unauthenticated.
+        flow = self._create_legacy_flow(trigger_secret=True)
+        body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow.id}").json()
+        assert body["trigger"]["inputs"]["api_key"] == {"secret": True}
+
+        resave = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"actions": body["actions"], "edges": body["edges"]},
+        )
+        assert resave.status_code == 200, resave.json()
+
+        flow.refresh_from_db()
+        assert flow.encrypted_inputs["trigger_node"]["api_key"]["value"] == "LEGACY-SECRET"
+        assert "api_key" not in (flow.trigger.get("inputs") or {})
+        trigger_inputs = next(a for a in flow.actions if a["id"] == "trigger_node")["config"]["inputs"]
+        assert "api_key" not in trigger_inputs
+
+    def test_masked_secret_with_no_stored_value_is_rejected_for_strict_callers(self):
+        # A programmatic caller pasting a masked graph into a new flow (duplicate-by-hand) has no
+        # stored value to recover. Silently creating the flow without the secret turns an authed
+        # webhook into an open one - reject instead so the caller re-enters the value.
+        payload = self._flow_payload()
+        self._function_inputs(payload)["api_key"] = {"secret": True}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert response.status_code == 400, response.json()
+        assert "api_key" in json.dumps(response.json())
+
+    def test_lenient_draft_save_never_persists_marker_as_value(self):
+        # When a web draft save fails validation, the raw inputs are kept as-is. A masked marker in
+        # that raw payload must not be stored as the input's value - the worker would compare the
+        # marker object against the request header and reject every webhook call.
+        flow = self._create_legacy_flow()
+        body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow.id}").json()
+        inputs = self._function_inputs(body)
+        inputs["api_key"] = {"secret": True}
+        # An unterminated hog template makes input validation fail, forcing the lenient raw-keep path.
+        inputs["url"] = {"value": "{event.properties.url", "templating": "hog"}
+
+        resave = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"actions": body["actions"], "edges": body["edges"]},
+        )
+        assert resave.status_code == 200, resave.json()
+
+        flow.refresh_from_db()
+        stored = json.dumps({"actions": flow.actions, "trigger": flow.trigger, "draft": flow.draft})
+        assert '"secret": true' not in stored.lower()
+        for secret_map in (flow.encrypted_inputs, flow.draft_encrypted_inputs):
+            stored_value = ((secret_map or {}).get("action_1") or {}).get("api_key")
+            assert stored_value is None or stored_value.get("value") == "LEGACY-SECRET"
+
+    def test_legacy_secret_survives_stage_draft_and_publish(self):
+        # An active legacy flow edited through the web builder: the edit stages a draft (masked
+        # marker in the payload), then publish promotes it. The secret must end up encrypted on the
+        # live row, not dropped along the way.
+        flow = self._create_legacy_flow(status=HogFlow.State.ACTIVE)
+        body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow.id}").json()
+        assert self._function_inputs(body)["api_key"] == {"secret": True}
+
+        stage = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"actions": body["actions"], "edges": body["edges"], "stage_draft": True},
+        )
+        assert stage.status_code == 200, stage.json()
+        flow.refresh_from_db()
+        assert flow.draft is not None
+
+        self._publish_confirmed(flow.id)
+
+        flow.refresh_from_db()
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "LEGACY-SECRET"
+        assert "LEGACY-SECRET" not in json.dumps({"actions": flow.actions, "trigger": flow.trigger})
+
+    def test_migrate_command_moves_legacy_plaintext_to_encrypted(self):
+        flow = self._create_legacy_flow(trigger_secret=True)
+        untouched = self._create(api_key="ALREADY-ENCRYPTED")
+
+        call_command("migrate_hog_flow_secret_inputs", "--team-id", str(self.team.id))
+        flow.refresh_from_db()
+        assert flow.encrypted_inputs is None, "dry-run must not write"
+
+        call_command("migrate_hog_flow_secret_inputs", "--team-id", str(self.team.id), "--live")
+
+        flow = HogFlow.objects.get(id=flow.id)
+        assert flow.encrypted_inputs["trigger_node"]["api_key"]["value"] == "LEGACY-SECRET"
+        assert "LEGACY-SECRET" not in json.dumps({"actions": flow.actions, "trigger": flow.trigger})
+
+        already_encrypted = HogFlow.objects.get(id=untouched)
+        assert already_encrypted.encrypted_inputs["action_1"]["api_key"]["value"] == "ALREADY-ENCRYPTED"
+
+    def test_migrate_command_moves_draft_plaintext_and_keeps_encrypted_precedence(self):
+        # A legacy row can hold plaintext in its staged draft too, and can hold a stale plaintext
+        # copy of a secret that already moved to encrypted storage. The draft plaintext must land in
+        # draft_encrypted_inputs, and the already-encrypted value must win over the stale plaintext.
+        flow = self._create_legacy_flow()
+        flow.encrypted_inputs = {"action_1": {"api_key": {"value": "ENCRYPTED-WINS"}}}
+        flow.draft = {
+            "actions": [
+                {
+                    "id": "action_1",
+                    "name": "action_1",
+                    "type": "function",
+                    "config": {
+                        "template_id": _SECRET_TEMPLATE_ID,
+                        "inputs": {"url": {"value": "https://example.com"}, "api_key": {"value": "DRAFT-SECRET"}},
+                    },
+                }
+            ]
+        }
+        flow.save(update_fields=["encrypted_inputs", "draft"])
+
+        call_command("migrate_hog_flow_secret_inputs", "--team-id", str(self.team.id), "--live")
+
+        flow = HogFlow.objects.get(id=flow.id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "ENCRYPTED-WINS"
+        assert flow.draft_encrypted_inputs["action_1"]["api_key"]["value"] == "DRAFT-SECRET"
+        stored = json.dumps({"actions": flow.actions, "trigger": flow.trigger, "draft": flow.draft})
+        assert "LEGACY-SECRET" not in stored
+        assert "DRAFT-SECRET" not in stored

@@ -39,6 +39,8 @@ import {
   getBranchChangedFilesOutput,
   getChangedFilesHeadInput,
   getChangedFilesHeadOutput,
+  getCommitChangedFilesInput,
+  getCommitChangedFilesOutput,
   getCommitConventionsInput,
   getCommitConventionsOutput,
   getCurrentBranchInput,
@@ -626,6 +628,16 @@ export const gitRouter = router({
       getWorkspaceClient(ctx.container).git.getBranchChangedFiles.query({
         repo: input.repo,
         branch: input.branch,
+      }),
+    ),
+
+  getCommitChangedFiles: publicProcedure
+    .input(getCommitChangedFilesInput)
+    .output(getCommitChangedFilesOutput)
+    .query(({ ctx, input }) =>
+      getWorkspaceClient(ctx.container).git.getCommitChangedFiles.query({
+        repo: input.repo,
+        sha: input.sha,
       }),
     ),
 

@@ -54,6 +54,7 @@ import {
     WarehousePersonPropertiesSetting,
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
+import { CustomerEmailConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/email/CustomerEmailConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -128,7 +129,6 @@ import {
     ReplayNetworkCapture,
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
-import { SessionSummariesSettings } from './environment/SessionSummariesSettings'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import {
@@ -364,7 +364,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'mcp-servers',
         title: 'MCP servers',
         group: 'AI',
-        flag: 'MCP_SERVERS',
+        flag: 'MCP_GATEWAY',
         settings: [
             {
                 id: 'mcp-servers-manage',
@@ -456,12 +456,20 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'customer-analytics-calendar-sync',
-                title: 'Calendar sync',
+                title: 'Google account sync',
                 description:
-                    'Connect your Google Calendar to sync meetings with customers into their accounts. Each team member connects their own calendar.',
+                    'Connect your Google account to sync customer meetings and email to matching accounts. Each team member connects their own account.',
                 component: <CalendarSyncConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
-                keywords: ['calendar', 'meetings', 'google', 'sync', 'accounts'],
+                keywords: ['calendar', 'email', 'meetings', 'google', 'sync', 'accounts'],
+            },
+            {
+                id: 'customer-analytics-email-sync',
+                title: 'Email forwarding',
+                description: 'Manage existing email forwarding connections.',
+                component: <CustomerEmailConfig />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
+                keywords: ['email', 'inbox', 'forwarding', 'sync', 'accounts'],
             },
             {
                 id: 'customer-analytics-event-stream',
@@ -845,13 +853,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: (
                     <>
                         The log attributes PostHog reads to identify which session a log belongs to, checked in order
-                        with the first match winning. Defaults to <code>posthogSessionId</code>, the key the JavaScript
-                        and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under
-                        different attributes.
+                        with the first match winning, followed by other common session ID attributes. Defaults to{' '}
+                        <code>sessionId</code>, the key the JavaScript and React Native SDKs auto-attach. Add keys only
+                        if your pipeline emits the session ID under different attributes.
                     </>
                 ),
                 searchDescription:
-                    'The log attributes PostHog reads to identify which session a log belongs to, checked in order with the first match winning. Defaults to posthogSessionId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.',
+                    'The log attributes PostHog reads to identify which session a log belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.',
                 component: <LogsSessionIdAttributeKeys />,
                 flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'session', 'replay', 'attribute', 'link'],
@@ -867,7 +875,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </span>
                 ),
                 component: <LogsRetentionSettings />,
-                flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
             },
             {
@@ -876,7 +883,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Drop matching log lines before storage using ordered rules. Rules run in ingestion order (after optional scrub and JSON parse).',
                 component: <LogsSamplingSection />,
-                flag: LogsFeatureFlagKeys.dropRules,
                 keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
             },
             {
@@ -1163,22 +1169,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayIntegrations />,
                 keywords: ['integration', 'connect', 'third-party'],
             },
-            {
-                id: 'replay-ai-config',
-                title: (
-                    <>
-                        AI product context
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            New
-                        </LemonTag>
-                    </>
-                ),
-                description:
-                    'Team-wide context the AI uses when summarizing session replays (custom events, intentional behaviors, known friction, etc.)',
-                component: <SessionSummariesSettings />,
-                flag: 'REPLAY_VIDEO_BASED_SUMMARIZATION',
-                keywords: ['ai', 'summary', 'summaries', 'prompt', 'context', 'llm'],
-            },
         ],
     },
     {
@@ -1313,9 +1303,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'cookieless-server-hash-mode',
-                title: 'Cookieless server hash mode',
+                title: 'Cookieless tracking',
                 description:
-                    'Enable cookieless tracking using a privacy-preserving hash to count unique users without cookies. You must enable this here before enabling cookieless in posthog-js.',
+                    'Count unique users with a privacy-preserving hash instead of cookies. Enable this here, then enable cookieless mode in posthog-js.',
                 docsUrl: 'https://posthog.com/tutorials/cookieless-tracking',
                 component: <CookielessServerHashModeSetting />,
                 keywords: ['cookie', 'privacy', 'gdpr', 'tracking', 'consent'],
@@ -1580,7 +1570,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'GitHub integration',
                 description: 'Connect GitHub to link issues and pull requests with PostHog insights.',
                 docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
-                component: <GitHub.SettingsSection />,
+                component: <GitHub.SettingsSection connectSurface="settings" />,
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
             {

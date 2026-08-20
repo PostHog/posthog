@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from django.db.models import F
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
+from products.warehouse_sources.backend.facade.contracts import RevenueViewSyncInput
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     run_engineering_analytics_view_sync,
@@ -75,7 +76,7 @@ def build_table_name(source: ExternalDataSource, schema_name: str):
     return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ResolvedSchemaNames:
     table_storage_name: str
     folder_name: str
@@ -110,7 +111,14 @@ def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDat
     external_product_hooks (it depends on warehouse_sources, so we must not import it
     here). No-ops if revenue_analytics hasn't registered.
     """
-    run_revenue_view_sync(schema, source)
+    run_revenue_view_sync(
+        RevenueViewSyncInput(
+            team_id=schema.team_id,
+            source_id=source.id,
+            source_type=source.source_type,
+            schema_name=schema.name,
+        )
+    )
 
 
 def sync_engineering_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:

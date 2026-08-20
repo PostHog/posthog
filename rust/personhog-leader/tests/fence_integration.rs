@@ -772,6 +772,162 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
     }
 }
 
+/// A contender's FencePerson bouncing on a ghost must trigger the same
+/// lazy heal as a rejected write: on a low-traffic person no other
+/// caller ever observes the ghost, so the contending op would retry
+/// forever.
+#[tokio::test]
+async fn a_ghost_fence_heals_after_a_rejected_fence_attempt() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let ghost_op = Uuid::now_v7();
+    let contender_op = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(ghost_op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+    )
+    .bind(ghost_op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &ghost_op),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds");
+
+    // The op settles (release acked to the saga, mark rows cleaned up)
+    // without this leader hearing about it — the ghost scenario.
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(ghost_op)
+        .execute(&pool)
+        .await
+        .expect("settle the op");
+
+    let status = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &contender_op),
+            partition,
+        ))
+        .await
+        .expect_err("the first fence attempt still bounces on the ghost");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match harness
+            .client
+            .fence_person(with_partition(
+                fence_request(team_id, person_id, &contender_op),
+                partition,
+            ))
+            .await
+        {
+            Ok(_) => break,
+            Err(status) if status.code() == Code::FailedPrecondition => {
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "the ghost fence was never healed"
+                );
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(other) => panic!("unexpected rejection: {other}"),
+        }
+    }
+}
+
+/// The heal's safety half: a fence whose op holds a live mark is not a
+/// ghost, and heal checks triggered by a contender's rejected fence
+/// attempts must never clear it.
+#[tokio::test]
+async fn a_live_marked_fence_survives_heal_attempts() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let holder_op = Uuid::now_v7();
+    let contender_op = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(holder_op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+    )
+    .bind(holder_op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert live mark");
+
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &holder_op),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds");
+
+    // A wrong clear would let a later attempt succeed and fail the loop.
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    while tokio::time::Instant::now() < deadline {
+        let status = harness
+            .client
+            .fence_person(with_partition(
+                fence_request(team_id, person_id, &contender_op),
+                partition,
+            ))
+            .await
+            .expect_err("the live fence keeps rejecting the contender");
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// The fail-closed half of the committed release: the request — even with
 /// a fence the caller installed itself — is never enough to destroy a
 /// person. Without a live mark row vouching for the op, the release is
@@ -1307,7 +1463,8 @@ async fn a_fold_applies_precedence_and_scalars_and_lands_in_the_changelog() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"a": "target", "b": "target"}),
+            properties: serde_json::to_vec(&serde_json::json!({"a": "target", "b": "target"}))
+                .unwrap(),
             created_at: 1_700_000_000,
             version: 3,
             is_identified: false,
@@ -1426,7 +1583,7 @@ async fn event_set_overrides_and_set_once_respects_snapshot_contributed_keys() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"target_only": "t"}),
+            properties: serde_json::to_vec(&serde_json::json!({"target_only": "t"})).unwrap(),
             version: 2,
             ..test_cached_person()
         },
@@ -1473,7 +1630,7 @@ async fn fold_with_empty_target_properties_fills_from_snapshots_and_event() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({}),
+            properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
             created_at: 1_700_000_000,
             version: 10,
             ..test_cached_person()
@@ -1516,7 +1673,7 @@ async fn created_at_ignores_non_positive_snapshot_timestamps_and_target_can_be_e
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({}),
+            properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
             created_at: 1_500_000_000,
             version: 1,
             ..test_cached_person()
@@ -1861,7 +2018,8 @@ async fn an_oversized_fold_trims_the_contribution_not_the_targets_keys() {
     let target_value = "x".repeat(500_000);
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"aa_target": target_value.clone()}),
+            properties: serde_json::to_vec(&serde_json::json!({"aa_target": target_value.clone()}))
+                .unwrap(),
             version: 3,
             ..test_cached_person()
         },
@@ -1911,7 +2069,8 @@ async fn an_unremediable_fold_keeps_the_targets_document_untouched() {
     let target_value = "x".repeat(600_000);
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"tt_target": target_value.clone()}),
+            properties: serde_json::to_vec(&serde_json::json!({"tt_target": target_value.clone()}))
+                .unwrap(),
             version: 3,
             is_identified: false,
             ..test_cached_person()
@@ -1967,7 +2126,7 @@ async fn an_oversized_targets_fold_trims_to_the_hard_ceiling() {
         CachedPerson {
             // email is protected and alone overshoots the trim target;
             // tt_target is trimmable overflow above the ceiling.
-            properties: serde_json::json!({"email": email_value.clone(), "tt_target": "x".repeat(200_000)}),
+            properties: serde_json::to_vec(&serde_json::json!({"email": email_value.clone(), "tt_target": "x".repeat(200_000)})).unwrap(),
             version: 3,
             ..test_cached_person()
         },
@@ -2017,7 +2176,8 @@ async fn an_unapplyable_fold_completes_without_producing() {
     let email_value = "e".repeat(700_000);
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"email": email_value.clone()}),
+            properties: serde_json::to_vec(&serde_json::json!({"email": email_value.clone()}))
+                .unwrap(),
             version: 3,
             is_identified: false,
             ..test_cached_person()
@@ -2067,7 +2227,7 @@ async fn a_non_object_target_stays_an_object_through_the_unremediable_path() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!("legacy-scalar"),
+            properties: serde_json::to_vec(&serde_json::json!("legacy-scalar")).unwrap(),
             ..test_cached_person()
         },
         &op,
@@ -2110,7 +2270,7 @@ async fn precedence_follows_ordinals_not_request_order() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({}),
+            properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
             version: 1,
             ..test_cached_person()
         },
@@ -2168,7 +2328,7 @@ async fn a_folds_target_cache_dirt_is_sanitized() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"dirty": "a\u{0000}b"}),
+            properties: serde_json::to_vec(&serde_json::json!({"dirty": "a\u{0000}b"})).unwrap(),
             ..test_cached_person()
         },
         &op,
@@ -2198,4 +2358,126 @@ async fn a_folds_target_cache_dirt_is_sanitized() {
         person_properties(&folded),
         serde_json::json!({"dirty": "a\u{FFFD}b"})
     );
+}
+
+/// The saga's unmap writes the person tombstone straight to PG before the
+/// release runs, and cache pressure can evict the fenced victim in that
+/// window (nothing pins fenced entries). The release's cache miss must not
+/// mistake that direct tombstone for an already-emitted death document.
+/// Today this holds because the PG fallback load filters `is_deleted =
+/// false`, so the release sees no person and takes the cold-leader path,
+/// re-deriving the document from the sealed version — this test pins that
+/// composed behavior against either side changing (the load filter, or the
+/// duplicate-release absorb).
+#[tokio::test]
+async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let person_uuid = test_cached_person().uuid;
+    let op = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'unmapped', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, $4::uuid, 'victim', 'sealed')",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .bind(&person_uuid)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .unwrap();
+    let sealed_version = sealed.version;
+
+    // The unmap transaction's direct tombstone: scrubbed, parked at
+    // sealed + 1.
+    sqlx::query(
+        "INSERT INTO posthog_person \
+             (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
+         VALUES ($1, $2, $3::uuid, '{}'::jsonb, now(), $4, false, true)",
+    )
+    .bind(person_id)
+    .bind(team_id as i32)
+    .bind(&person_uuid)
+    .bind(sealed_version + 1)
+    .execute(&pool)
+    .await
+    .expect("insert unmap tombstone");
+
+    // The eviction: Foyer may drop any entry under capacity pressure, and
+    // nothing pins a fenced victim.
+    harness.cache.remove(
+        partition,
+        &personhog_leader::cache::PersonCacheKey { team_id, person_id },
+    );
+
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id,
+                person_uuid: person_uuid.clone(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(sealed_version),
+                created_at: sealed.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("committed release succeeds");
+
+    let records = changelog_records(&harness);
+    let death = records.last().expect("the death document must be produced");
+    assert!(death.is_deleted);
+    assert_eq!(death.uuid, person_uuid);
+    assert_eq!(
+        death.version,
+        sealed_version + 1,
+        "the death document confirms the direct tombstone at the same version"
+    );
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
+        .bind(team_id as i32)
+        .bind(person_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup person");
 }

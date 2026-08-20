@@ -265,7 +265,7 @@ the name already obviously matches; don't add noise.
 ## Self-driving Inbox candidacy (issues / tickets / conversations)
 
 Some sources are also candidates for the **Self-driving Inbox** — the feature that watches a synced
-table of _actionable records_ and emits findings into the PostHog Code Inbox. Shipped today: GitHub,
+table of _actionable records_ and emits findings into the PostHog Desktop Inbox. Shipped today: GitHub,
 Linear, Zendesk, pganalyze, and Jira.
 
 The signal is the **table you sync**, not the vendor: a source is an inbox candidate when one of its
@@ -621,6 +621,39 @@ Fan-out = iterate a parent resource, then query child endpoints per parent.
 **Path pre-formatting:** `process_parent_data_item` only does `str.format()` with the resolved param. Pre-format static placeholders with `.replace()` before passing to the resource config, so only the resolved placeholder remains.
 
 **Custom iterator only when fan-out is 2+ levels deep.** Reuse the same pagination/retry helpers as elsewhere.
+
+### Reading the fan-out parent from the warehouse (`parent_source="warehouse"`)
+
+> [!IMPORTANT]
+> **Not generally available — do not opt new sources in.** The flag is limited to dogfood rollouts and the only wired caller is Sentry's `issue_tag_values` custom iterator, gated on an incremental watermark.
+> This section is here because the shared fan-out builder carries the machinery either way, so anyone changing fan-out internals needs to know the constraints. Treat the caveats below (windowed parents, ordered parents, non-REST callers) as unproven outside Sentry, and ask the data warehouse team before opting another source in.
+
+By default a fan-out child re-fetches its parent endpoint on every sync — syncing `issue_hashes` re-pulls all of `issues` even when the `issues` schema already synced.
+A child endpoint opts into warehouse parent reuse with `parent_source="warehouse"` on its `DependentEndpointConfig`:
+the child then streams parent rows from the parent schema's already-synced Delta table (`iter_parent_pages_from_warehouse` in `common/rest_source/warehouse_parent.py`) instead of hitting the parent API.
+Reference implementation: Sentry's `issue_tag_values` custom iterator calling the reader directly, warehouse-mode only when an incremental watermark bounds the scan.
+
+Requirements and behavior:
+
+- **The parent must be a selectable schema of the same source** — it has to produce its own Delta table.
+- **Soft dependency — the child falls back to the parent API.** Declare the parents by overriding `get_required_parent_schemas` on the source (wire it to `required_parents_from_endpoint_configs(ENDPOINTS, schema_name)`; add explicit entries for custom-iterator endpoints). That override is the only declaration: nothing surfaces the relationship through the API, so don't add a schema-payload field for it while the feature is unvalidated.
+  Nothing in the API constrains the selection either: a child can be enabled without its parent, and a parent can be disabled or deleted while children sync. `_warehouse_parent_reuse_available` in `import_data_activity_sync` decides per run — a parent that is missing, disabled, not yet initially synced, or on any sync type other than merge or full refresh sends that run down the legacy parent-API path, so enabling the flag can never break a schema that syncs today. A parent that is merely mid-sync does not force the fallback, because `resolve_parent_table_ref` pins the read to the parent's last completed snapshot via Delta time travel.
+  Never enable a parent as a side effect of enabling a child: parent syncs count toward the customer's billed rows.
+- **Feature-flagged.** The whole path is gated by the `warehouse-fanout-parent-reuse` flag (`is_fanout_warehouse_reuse_enabled`); with the flag off, opted-in endpoints silently keep the legacy parent-API path, so rollback is a flag flip.
+- **Strictly streaming — never materialize the parent table.** The reader scans one projected batch at a time with column projection pushed down to the parquet read. Do not add `to_table`, global sorts, or seen-set dedupe to it — parents can be arbitrarily large, and the whole pipeline exists to avoid full-dataset memory. If a caller's semantics depend on parent order (the API returned sorted rows), rework them into per-row filters over the unordered stream (see Sentry's `issue_tag_values` cutoff handling) instead of sorting.
+- **The usable sync types are an allow-list, not a deny-list.** Only merge and full refresh hold one row per key; append accumulates a row per sync and CDC keeps change history, so streaming either would fan the child out once per duplicate, and dedupe would need unbounded state. A new sync type has to opt in deliberately in `_parent_unusable_reason`.
+- **Values carry Delta physical types, not the API's JSON types.** A timestamp comes back as a datetime rather than an ISO string, a nested object as a dict. Because the API fallback engages per run, projecting such a field through `include_from_parent` makes the child's column type flip between runs and trips the merge's type-drift guards. Only project fields whose physical type matches what the API returned (an id string is safe), or normalize in the caller.
+- **Stale parents 404.** The warehouse snapshot can contain parents deleted upstream since the parent's last sync; the builder adds a `404 → ignore` response action on the child (custom iterators must skip 404s themselves — see Sentry's `_skip_rows_on_stale_issue_404`).
+- **Freshness**: children fan out over the parent's last synced snapshot. Parents created after the parent's last sync appear once the parent re-syncs — same staleness class as independent schedules.
+- **Column names**: the reader takes API field names (e.g. `lastSeen`), maps them to the snake_case physical Delta columns, and re-keys rows back to API names. Request only the columns the fan-out needs (`resolve_field` + `include_from_parent`).
+- **The warehouse read must reproduce the API path's effective row set, and if it can't, the parent is disqualified.** The vendor's list endpoint usually bounds what it returns server-side, while an incremental parent table accumulates every row ever seen — an unbounded scan fans out over parents the API path never would, multiplying child rows, billed volume, and run time on aged snapshots. Classify the parent into one of three cases before opting it in:
+  - The parent API genuinely returns the full collection → no filter needed; ideal candidate.
+  - The bound is knowable and expressible → set `parent_row_filter` on the `DependentEndpointConfig` (`ParentRowFilter(field=..., not_older_than=..., not_before=...)`); the predicate is pushed into the parquet read, keeps NULL rows, adapts to string or timestamp physical columns, and an unfilterable table falls back to the API path via eager resolve validation. A per-run watermark (`not_before`) is the safest bound, because it is self-consistent with what the child already processed.
+  - The bound depends on state you cannot know → **do not opt the parent in.** The classic shape is a listing clamped by the customer's plan (event retention, seat tier, feature entitlements): per-account, applied silently server-side, exposed by no API, and overriding any explicit range you send. No snapshot filter can reproduce a bound like that.
+    The effective bound is usually invisible in our code, so classify empirically: run the listing against a real account with and without explicit bounds, compare counts, and check whether items outside the suspected bound still serve their child endpoints.
+- **Windowed parents must stay windowed.** If the source currently bounds its parent walk by the child watermark (e.g. Github's `_fan_out_get_rows`), a full warehouse read would _increase_ child fan-out — filter the warehouse read to the same window instead.
+- **Non-REST sources** (e.g. Stripe's SDK loop) can call `iter_parent_pages_from_warehouse` directly; project any fields their skip-checks inspect (e.g. customer `balance`). Resolve the table with `resolve_parent_table_ref(..., required_columns=[...])` eagerly in `source_for_pipeline` (sync context) — it does an ORM read, and the pipeline's iterator executor threads are the wrong place for ad-hoc DB connections. It also pins the parent's Delta version, so a parent that re-syncs mid-fan-out can't shift the rows underneath the child; pass the returned ref to the reader instead of re-deriving a URI.
+- **Catch `WarehouseParentTableNotFoundError` around that resolve call and take the API path.** A schema row can claim a completed sync while its table is unreadable (purged, renamed, or missing the fan-out columns), and the reader is a generator, so anything it validated lazily would raise deep inside the pipeline where no fallback is left. That is why `required_columns` is validated eagerly during resolution. When falling back, also turn off any behavior that only makes sense for a warehouse snapshot (the child's stale-parent `404 → ignore`, and resume checkpoints the warehouse scan skips), so the run matches the feature-off path exactly.
 
 ## OAuth configuration
 

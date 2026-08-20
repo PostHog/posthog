@@ -73,6 +73,13 @@ class TestSigNozSource:
     def test_non_retryable_errors(self, expected_key: str) -> None:
         assert expected_key in self.source.get_non_retryable_errors()
 
+    @pytest.mark.parametrize(
+        "expected_pattern",
+        ["SigNoz API error (retryable)", "Read timed out", "Max retries exceeded with url"],
+    )
+    def test_retryable_errors(self, expected_pattern: str) -> None:
+        assert expected_pattern in self.source.get_retryable_errors()
+
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)

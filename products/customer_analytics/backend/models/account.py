@@ -5,7 +5,7 @@ from django.db.models import JSONField, Q
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -27,6 +27,18 @@ class AccountProperties(BaseModel):
     # Individual addresses pinned to this account, checked before the domain
     # fallback. For contacts on personal/free domains a domain rule can't cover.
     known_emails: list[str] = []
+
+    @field_validator("email_domains")
+    @classmethod
+    def normalize_email_domains(cls, domains: list[str]) -> list[str]:
+        normalized = (domain.strip().lower().removeprefix("@") for domain in domains)
+        return list(dict.fromkeys(domain for domain in normalized if domain))
+
+    @field_validator("known_emails")
+    @classmethod
+    def normalize_known_emails(cls, emails: list[str]) -> list[str]:
+        normalized = (email.strip().lower() for email in emails)
+        return list(dict.fromkeys(email for email in normalized if email))
 
     # External connections
     stripe_customer_id: str | None = None
@@ -50,6 +62,8 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
 
     external_id = models.CharField(max_length=400, null=True, blank=True)
     name = models.CharField(max_length=400)
+    churned_at = models.DateTimeField(null=True, blank=True)
+    ignored_at = models.DateTimeField(null=True, blank=True)
     _properties = JSONField(default=dict, db_column="properties")
     # NULL = periodic Slack channel summaries off for this account.
     slack_summary_cadence = models.CharField(max_length=10, choices=SlackSummaryCadence.choices, null=True, blank=True)

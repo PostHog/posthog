@@ -5,6 +5,7 @@ from semantic_version import Version
 
 FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted version, just for backwards compat now
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
+POSTHOG_INTERNAL_EMAIL_SUFFIX = "@posthog.com"
 
 
 # N.B. Keep this in sync with frontend enum (types.ts)

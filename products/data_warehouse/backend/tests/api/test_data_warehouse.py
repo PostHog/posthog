@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.response import Response
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -22,6 +23,40 @@ from products.warehouse_sources.backend.facade.models import (
 
 
 class TestDataWarehouseAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("onboarded", True, True),
+            ("not_onboarded", False, False),
+        ]
+    )
+    def test_ready_warehouse_reconciles_only_onboarded_project(
+        self, _name: str, team_onboarded: bool, expected_schedule: bool
+    ) -> None:
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.status_for",
+                return_value=Response({"state": "ready"}, status=200),
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.team_backfill_state",
+                return_value={"has_backfill": team_onboarded, "table_suffix": "prod" if team_onboarded else None},
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.team_onboarding_state",
+                return_value={"team_onboarded": team_onboarded, "schema_name": "prod" if team_onboarded else None},
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.ensure_direct_connection_tables"
+            ) as ensure_tables,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if expected_schedule:
+            ensure_tables.assert_called_once_with(self.team.id, self.organization.id)
+        else:
+            ensure_tables.assert_not_called()
+
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.execute_hogql_query")
     def test_property_values_returns_results_with_cache_control(self, mock_execute_hogql_query):
         table = DataWarehouseTable.objects.create(

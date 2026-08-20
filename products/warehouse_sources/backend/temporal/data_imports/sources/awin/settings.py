@@ -19,6 +19,32 @@ DEFAULT_REPORT_LOOKBACK_DAYS = 30
 # the token can see (the publisherId is a path param).
 AwinEndpointKind = Literal["accounts", "publisher_fanout"]
 
+# Awin's aggregated report endpoints require a `region` query param naming the account's market
+# (there is no "all regions" value). Options and default ("GB") match Awin's own API docs.
+REGION_OPTIONS: list[tuple[str, str]] = [
+    ("GB", "United Kingdom"),
+    ("US", "United States"),
+    ("AT", "Austria"),
+    ("AU", "Australia"),
+    ("BE", "Belgium"),
+    ("BR", "Brazil (BRL)"),
+    ("BU", "Brazil (USD)"),
+    ("CA", "Canada"),
+    ("CH", "Switzerland"),
+    ("DE", "Germany"),
+    ("DK", "Denmark"),
+    ("ES", "Spain"),
+    ("FI", "Finland"),
+    ("FR", "France"),
+    ("IE", "Ireland"),
+    ("IT", "Italy"),
+    ("NL", "Netherlands"),
+    ("NO", "Norway"),
+    ("PL", "Poland"),
+    ("SE", "Sweden"),
+]
+DEFAULT_REGION = "GB"
+
 
 @dataclass
 class AwinEndpointConfig:
@@ -50,6 +76,9 @@ class AwinEndpointConfig:
     partition_key: Optional[str] = None
     # Trailing window (in days) for full-refresh report snapshots. `None` for non-report endpoints.
     report_lookback_days: Optional[int] = None
+    # Whether this endpoint needs the account's `region` in its query params. Only Awin's
+    # aggregated report endpoints require it; transactions and programmes don't.
+    requires_region: bool = False
     should_sync_default: bool = True
 
 
@@ -106,6 +135,7 @@ AWIN_ENDPOINTS: dict[str, AwinEndpointConfig] = {
         date_windowed=True,
         date_format="%Y-%m-%d",
         report_lookback_days=DEFAULT_REPORT_LOOKBACK_DAYS,
+        requires_region=True,
     ),
 }
 

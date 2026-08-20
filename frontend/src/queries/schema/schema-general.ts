@@ -183,6 +183,7 @@ export enum NodeKind {
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
     AccountsQuery = 'AccountsQuery',
+    AccountsTableQuery = 'AccountsTableQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -267,6 +268,7 @@ export type AnyDataNode =
     | VectorSearchQuery
     | UsageMetricsQuery
     | AccountsQuery
+    | AccountsTableQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
@@ -390,6 +392,7 @@ export type QuerySchema =
     // Customer analytics
     | UsageMetricsQuery
     | AccountsQuery
+    | AccountsTableQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -672,6 +675,13 @@ export type RecordingOrder = (typeof VALID_RECORDING_ORDERS)[number]
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
+export interface RecordingsQueryExperimentExposureFilter {
+    /** Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in. */
+    experiment_id: integer
+    /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
+    variant?: string
+}
+
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
     /**
@@ -697,6 +707,15 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     session_recording_id?: string
     person_uuid?: string
     distinct_ids?: string[]
+    /**
+     * Only sessions of persons exposed to this experiment, each ending at or after the person's
+     * first exposure as the experiment's exposure criteria count it. Resolved server-side from the
+     * experiment, so it links sessions even when the exposure events themselves carry no session id
+     * (e.g. server-side SDKs). Composes with the query's date range like any other filter, so set
+     * date_from to the experiment's start (or earlier) to cover the full run: the default window
+     * only reaches back a few days.
+     */
+    experiment_exposure?: RecordingsQueryExperimentExposureFilter
     /**
      * @default "start_time"
      * */
@@ -802,6 +821,11 @@ export interface AutocompleteCompletionItem {
      * an icon is chosen by the editor.
      */
     kind: AutocompleteCompletionItemKind
+    /**
+     * Overrides the editor's default ordering for this item. Set when the backend can rank a
+     * suggestion, for example a function whose return type fits the comparison being written.
+     */
+    sortText?: string
 }
 
 export interface HogQLAutocompleteResponse {
@@ -1144,6 +1168,7 @@ export type DataTableNodeSourceUnion =
     | SessionQuery
     | EndpointsUsageTableQuery
     | AccountsQuery
+    | AccountsTableQuery
 
 export type DataTableNodeSource = DataTableNodeSourceUnion
 
@@ -1178,6 +1203,7 @@ export interface DataTableNode
                     | SessionQuery
                     | EndpointsUsageTableQuery
                     | AccountsQuery
+                    | AccountsTableQuery
                 )['response']
             >
         >,
@@ -1261,6 +1287,16 @@ export interface PieChartSettings {
     showTotal?: boolean
 }
 
+export interface ScatterChartSettings {
+    /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
+    xScale?: 'linear' | 'logarithmic'
+    /** Whether the X axis should start at zero. Off by default, because pinning either axis of two
+     *  independent measures to zero squashes the correlation into a corner. */
+    xStartAtZero?: boolean
+    /** Whether to draw a least-squares fit line through each series' points. */
+    showBestFit?: boolean
+}
+
 export interface YAxisSettings {
     label?: string
     scale?: 'linear' | 'logarithmic'
@@ -1294,6 +1330,7 @@ export interface ChartSettings {
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
     pie?: PieChartSettings
+    scatter?: ScatterChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -1567,6 +1604,17 @@ export type TrendsFilter = {
      * @default false */
     stackBreakdownValues?: boolean
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero.
+     *  Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while
+     *  showing percentages.
+     * @default true */
+    yAxisStartAtZero?: boolean
+    /** Pins the bottom of the y-axis; unset means automatic. Ignored in the same cases as
+     *  `yAxisStartAtZero`, while it is on, and when not below `yAxisMax`. */
+    yAxisMin?: number
+    /** Pins the top of the y-axis; unset means automatic. Ignored in the same cases as
+     *  `yAxisStartAtZero`, and when `yAxisMin` is not below it. */
+    yAxisMax?: number
     /** @default false */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1590,7 +1638,10 @@ export type TrendsFilter = {
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
     /** @default true */
     excludeBoxPlotOutliers?: boolean
-    /** @default false */
+    /** Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days from the query
+     * instead of only hiding their buckets. Still accepted so existing API clients keep working.
+     * @deprecated Use dateRange.daysOfWeek instead.
+     * @default false */
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
@@ -1645,6 +1696,9 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'stackBreakdownValues',
     'yAxisScaleType',
+    'yAxisStartAtZero',
+    'yAxisMin',
+    'yAxisMax',
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',
     'hideWeekends',
@@ -2754,8 +2808,253 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean
     orderBy?: string[]
     limit?: integer
+    offset?: integer
+}
+
+export enum AccountsTableAccountField {
+    Name = 'name',
+    ExternalId = 'external_id',
+    CreatedAt = 'created_at',
+    UpdatedAt = 'updated_at',
+    ChurnedAt = 'churned_at',
+    IgnoredAt = 'ignored_at',
+    StripeCustomerId = 'stripe_customer_id',
+    HubspotDealId = 'hubspot_deal_id',
+    BillingId = 'billing_id',
+    SalesforceId = 'sfdc_id',
+    ZendeskId = 'zendesk_id',
+}
+
+export interface AccountsTableAccountFieldColumn {
+    kind: 'account_field'
+    field: AccountsTableAccountField
+}
+
+export interface AccountsTableTagsColumn {
+    kind: 'tags'
+}
+
+export interface AccountsTableNoteCountColumn {
+    kind: 'note_count'
+}
+
+export interface AccountsTableRelationshipColumn {
+    kind: 'relationship'
+    /** Team-scoped relationship definition to return for each account. */
+    definitionId: string
+}
+
+export interface AccountsTableCustomPropertyColumn {
+    kind: 'custom_property'
+    /** Team-scoped custom property definition to return for each account. */
+    definitionId: string
+}
+
+export interface AccountsTableCustomPropertyHistoryColumn {
+    kind: 'custom_property_history'
+    /** Team-scoped numeric custom property definition whose write history should be returned. */
+    definitionId: string
+    /** Number of days of history to return. The current value is included even when it is older. */
+    windowDays: 7 | 14 | 30 | 90
+}
+
+/**
+ * A typed column supported by the Postgres-backed Accounts table.
+ * @discriminator kind
+ */
+export type AccountsTableColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+    | AccountsTableCustomPropertyHistoryColumn
+
+/**
+ * A typed column that supports server-side sorting.
+ * @discriminator kind
+ */
+export type AccountsTableSortableColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+
+export enum AccountsTableSortDirection {
+    Ascending = 'asc',
+    Descending = 'desc',
+}
+
+export enum AccountsTableAggregation {
+    Sum = 'sum',
+    Average = 'avg',
+    Minimum = 'min',
+    Maximum = 'max',
+    Median = 'median',
+}
+
+export enum AccountsTableThresholdOperator {
+    GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
+    LessThan = 'lt',
+    LessThanOrEqual = 'lte',
+    Equal = 'exact',
+    NotEqual = 'is_not',
+}
+
+export interface AccountsTableCountMetric {
+    kind: 'count'
+}
+
+export interface AccountsTableAggregateMetric {
+    kind: 'aggregate'
+    aggregation: AccountsTableAggregation
+    column: AccountsTableCustomPropertyColumn
+    scale?: number
+}
+
+export interface AccountsTableCountThresholdMetric {
+    kind: 'count_threshold'
+    column: AccountsTableCustomPropertyColumn
+    operator: AccountsTableThresholdOperator
+    value: number
+}
+
+/**
+ * A typed aggregate evaluated against the filtered account set.
+ * @discriminator kind
+ */
+export type AccountsTableMetric =
+    | AccountsTableCountMetric
+    | AccountsTableAggregateMetric
+    | AccountsTableCountThresholdMetric
+
+export interface AccountsTableSort {
+    column: AccountsTableSortableColumn
+    direction: AccountsTableSortDirection
+}
+
+export interface AccountsTableSearchFilter {
+    kind: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilter {
+    kind: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilter {
+    kind: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: integer[]
+}
+
+export interface AccountsTableUnassignedFilter {
+    kind: 'unassigned'
+}
+
+export interface AccountsTableAccountIdFilter {
+    kind: 'account_id'
+    accountId: string
+}
+
+export enum AccountsTableCustomPropertyOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    Contains = 'icontains',
+    DoesNotContain = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+    GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
+    LessThan = 'lt',
+    LessThanOrEqual = 'lte',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+    DateExact = 'is_date_exact',
+    DateBefore = 'is_date_before',
+    DateAfter = 'is_date_after',
+}
+
+export interface AccountsTableCustomPropertyFilter {
+    kind: 'custom_property'
+    definitionId: string
+    operator: AccountsTableCustomPropertyOperator
+    /** Values interpreted according to the custom property definition's display type. */
+    values?: (string | number | boolean)[]
+}
+
+/**
+ * A typed filter applied to the Postgres-backed Accounts table.
+ * @discriminator kind
+ */
+export type AccountsTableFilter =
+    | AccountsTableSearchFilter
+    | AccountsTableTagsFilter
+    | AccountsTableAssignedToFilter
+    | AccountsTableUnassignedFilter
+    | AccountsTableAccountIdFilter
+    | AccountsTableCustomPropertyFilter
+
+export type AccountsTableCustomPropertyValue = string | number | boolean | null
+
+export interface AccountsTableCustomPropertyHistoryPoint {
+    /** @format date-time */
+    timestamp: string
+    value: number
+}
+
+export interface AccountsTableRow {
+    id: string
+    name: string
+    externalId?: string | null
+    /** Requested direct Account fields, keyed by their typed field reference. */
+    accountFields: Record<string, string | null>
+    /** Sorted tag names. Omitted when the request does not select tags. */
+    tags?: string[]
+    /** Number of linked internal notes. Omitted when the request does not select the note count. */
+    noteCount?: integer
+    /** Active assignee user IDs keyed by requested relationship definition ID. */
+    relationships: Record<string, integer[]>
+    /** Current values keyed by requested custom property definition ID. */
+    customProperties: Record<string, AccountsTableCustomPropertyValue>
+    /** Numeric write history keyed by requested custom property definition ID. */
+    customPropertyHistory: Record<string, AccountsTableCustomPropertyHistoryPoint[]>
+}
+
+export type CachedAccountsTableQueryResponse = CachedQueryResponse<AccountsTableQueryResponse>
+
+export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
+    kind: NodeKind.AccountsTableQuery
+    results: AccountsTableRow[]
+    hasMore: boolean
+    limit: integer
+    offset: integer
+    /** Aggregated values in the same order as the requested metrics. */
+    metricsResults?: (number | null)[]
+}
+
+export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse> {
+    kind: NodeKind.AccountsTableQuery
+    /** Include churned accounts. Churned accounts are hidden by default. */
+    includeChurned?: boolean
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean
+    /** Columns to load for each account. Account identity fields are always returned. */
+    columns: AccountsTableColumn[]
+    /** Filters are combined with AND. Values within tag and assignment filters use OR. */
+    filters?: AccountsTableFilter[]
+    /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
+    metrics?: AccountsTableMetric[]
+    sort?: AccountsTableSort
+    limit?: positive_integer
     offset?: integer
 }
 
@@ -3538,6 +3837,7 @@ export interface ErrorTrackingBreakdownsQuery extends DataNode<ErrorTrackingBrea
     issueId: ErrorTrackingIssue['id']
     breakdownProperties: string[]
     dateRange?: DateRange
+    filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     maxValuesPerProperty?: integer
 }
@@ -5547,6 +5847,10 @@ export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryRespons
     kind: NodeKind.DatabaseSchemaQuery
     /** Optional direct external data source id for schema introspection */
     connectionId?: string
+    /** Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables. */
+    tables?: string[]
+    /** When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true. */
+    includeFields?: boolean
 }
 
 export type DatabaseSerializedFieldType =
@@ -7192,6 +7496,7 @@ export function getEffectiveExcludedColumns(
 export enum MarketingAnalyticsConstants {
     Goal = 'Goal',
     CostPer = 'Cost per',
+    Roas = 'ROAS',
     ConstantValuePrefix = 'const:',
 }
 
@@ -7300,6 +7605,8 @@ export interface SourceFieldSelectConfig {
     options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
     caption?: string
+    /** Allow selecting multiple values; the field's payload value becomes string[]. */
+    multiple?: boolean
 }
 
 export interface SourceFieldSwitchGroupConfig {
@@ -7608,7 +7915,8 @@ export const externalDataSources = [
     'Pingdom',
     'Cloudflare',
     'CosmosDB',
-    'PlanetScale',
+    'PlanetScaleMySQL',
+    'PlanetScalePostgres',
     'SapHana',
     'Rippling',
     'HiBob',
@@ -8699,6 +9007,23 @@ export const externalDataSources = [
     'Sevalla',
     'Motion',
     'Framer',
+    'Cloudinary',
+    'Uploadcare',
+    'WHMCS',
+    'MSG91',
+    'Depot',
+    'Schematic',
+    'Dokploy',
+    'RakutenAdvertising',
+    'Zitadel',
+    'DeelFlows',
+    'Hootsuite',
+    'WisprFlow',
+    'SamCart',
+    'IronSourceAds',
+    'MicrosoftExcel',
+    'Profound',
+    'Airwallex',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8723,8 +9048,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'campaign_id',
         campaignTableName: 'campaign',
         statsTableName: 'campaign_overview_stats',
-        tableKeywords: ['campaign'] as const,
-        tableExclusions: ['stats'] as const,
         defaultSources: [
             'google',
             'adwords',
@@ -8752,8 +9075,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaign_groups',
         statsTableName: 'campaign_group_stats',
-        tableKeywords: ['campaign_groups'] as const,
-        tableExclusions: ['stats'] as const,
         defaultSources: ['linkedin', 'li'] as const,
         primarySource: 'linkedin',
         // LinkedIn API hierarchy: Account → CampaignGroup → Campaign → Creative.
@@ -8771,8 +9092,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_stats',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['stats'] as const,
         defaultSources: [
             'meta',
             'facebook',
@@ -8817,8 +9136,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'campaign_id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_report',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['report'] as const,
         defaultSources: ['tiktok'] as const,
         primarySource: 'tiktok',
         adsetTableName: 'ad_groups' as const,
@@ -8832,8 +9149,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_report',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['report'] as const,
         defaultSources: ['reddit'] as const,
         primarySource: 'reddit',
         adsetTableName: 'ad_groups' as const,
@@ -8847,8 +9162,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_performance_report',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['performance'] as const,
         defaultSources: ['bing', 'microsoft', 'msads', 'bing_video'] as const,
         primarySource: 'bing',
         // At ad-group / ad level Bing's data import only ships performance *reports* —
@@ -8868,8 +9181,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_stats_daily',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['stats_daily'] as const,
         defaultSources: ['snapchat'] as const,
         primarySource: 'snapchat',
         adsetTableName: 'ad_squads' as const,
@@ -8889,8 +9200,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_analytics',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['analytics'] as const,
         defaultSources: ['pinterest'] as const,
         primarySource: 'pinterest',
         adsetTableName: 'ad_groups' as const,
@@ -8911,27 +9220,6 @@ export type BingAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['Bing
 export type SnapchatAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['defaultSources'][number]
 export type PinterestAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['defaultSources'][number]
-
-export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
-export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
-export type MetaAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableKeywords'][number]
-export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableKeywords'][number]
-export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
-export type BingAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableKeywords'][number]
-export type SnapchatAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableKeywords'][number]
-export type PinterestAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableKeywords'][number]
-
-export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
-export type LinkedinAdsTableExclusions =
-    (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableExclusions'][number]
-export type MetaAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableExclusions'][number]
-export type TikTokAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableExclusions'][number]
-export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableExclusions'][number]
-export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
-export type SnapchatAdsTableExclusions =
-    (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableExclusions'][number]
-export type PinterestAdsTableExclusions =
-    (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableExclusions'][number]
 
 // Conversion fields for Snapchat Ads - extracted as types so they generate as StrEnum in Python
 export type SnapchatAdsConversionFields =
@@ -8957,16 +9245,6 @@ export const MARKETING_INTEGRATION_FIELD_MAP = Object.fromEntries(
     ])
 ) as unknown as Record<NativeMarketingSource, { nameField: string; idField: string }>
 
-export const MARKETING_CAMPAIGN_TABLE_PATTERNS = Object.fromEntries(
-    VALID_NATIVE_MARKETING_SOURCES.map((source) => [
-        source,
-        {
-            keywords: [...MARKETING_INTEGRATION_CONFIGS[source].tableKeywords],
-            exclusions: [...MARKETING_INTEGRATION_CONFIGS[source].tableExclusions],
-        },
-    ])
-) as unknown as Record<NativeMarketingSource, { keywords: string[]; exclusions: string[] }>
-
 export const MARKETING_DEFAULT_SOURCE_MAPPINGS = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [source, [...MARKETING_INTEGRATION_CONFIGS[source].defaultSources]])
 ) as unknown as Record<NativeMarketingSource, string[]>
@@ -8977,8 +9255,6 @@ export interface MarketingIntegrationConfigType {
     idField: string
     campaignTableName: string
     statsTableName: string
-    tableKeywords: string[]
-    tableExclusions: string[]
     defaultSources: string[]
     primarySource: string
 }

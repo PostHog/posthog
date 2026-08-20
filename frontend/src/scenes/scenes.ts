@@ -516,6 +516,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Product tours',
         description: 'Guide users through your product with interactive tours',
+        iconType: 'product_tour',
     },
     [Scene.ProductTour]: {
         projectBased: true,
@@ -540,6 +541,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeCanvasLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.CodeTaskLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
@@ -646,6 +648,7 @@ export const redirects: Record<
         const params = new URLSearchParams(searchParams as Record<string, string>).toString()
         return urls.marketingAnalyticsApp() + (params ? `?${params}` : '')
     },
+    '/web/ai-search': urls.webAnalyticsPagePerformance(),
 
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }) => {
@@ -755,6 +758,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
+    [urls.webAnalyticsPagePerformance()]: [Scene.WebAnalytics, 'webAnalyticsPagePerformance'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
     [urls.webAnalyticsRecap()]: [Scene.WebAnalyticsRecap, 'webAnalyticsRecap'],
@@ -882,6 +886,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.codeCanvasLink(':channelId', ':dashboardId')]: [Scene.CodeCanvasLink, 'codeCanvasLink'],
     [urls.codeChannelLink(':channelId')]: [Scene.CodeChannelLink, 'codeChannelLink'],
     [urls.codeChannelLink(':channelId', ':taskId')]: [Scene.CodeChannelLink, 'codeChannelThreadLink'],
+    [urls.codeTaskLink(':taskId')]: [Scene.CodeTaskLink, 'codeTaskLink'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.integration(':slug')]: [Scene.IntegrationsLanding, 'integrationsLanding'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],

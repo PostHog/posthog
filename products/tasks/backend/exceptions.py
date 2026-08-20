@@ -5,6 +5,8 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 
+from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
+
 
 class ProcessTaskError(ApplicationError):
     def __init__(
@@ -94,6 +96,29 @@ class SandboxProvisionError(ProcessTaskTransientError):
     pass
 
 
+class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
+    def __init__(self, context: dict[str, Any], reason: str = "posthog_code_billing_limit_exceeded"):
+        from products.tasks.backend.logic.services.compute_quota import ORGANIZATION_DEACTIVATED_DENIAL_CODE
+
+        self.reason = reason
+        message = (
+            "Your organization has been deactivated."
+            if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE
+            else "Your organization reached its PostHog Desktop usage limit."
+        )
+        super().__init__(
+            message,
+            {**context, "reason": reason},
+            None,
+            capture=False,
+            non_retryable=True,
+        )
+
+
+class SandboxNetworkPolicyError(ProcessTaskFatalError):
+    pass
+
+
 class SandboxNotFoundError(ProcessTaskFatalError):
     """Sandbox does not exist."""
 
@@ -116,6 +141,13 @@ class SandboxMissingRepositoryError(ProcessTaskFatalError):
     """
 
     pass
+
+
+class RequiredMcpUnavailableError(ProcessTaskFatalError):
+    """A task that cannot run without PostHog MCP cannot reach its configured server."""
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
 
 
 class SandboxNotRunningError(SandboxExecutionError):

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class PlaylistInfo:
+class PlaylistToCount:
     playlist_id: int
 
 

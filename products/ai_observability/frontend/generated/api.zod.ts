@@ -264,7 +264,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .enum(['llm_judge', 'hog', 'sentiment'])
         .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
         .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
+            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
         ),
     evaluation_config: zod
         .union([
@@ -284,7 +284,9 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                 source: zod
                     .enum(['user_messages'])
                     .default(evaluationsCreateBodyEvaluationConfigThreeSourceDefault)
-                    .describe('Classify sentiment from user messages in the generation input.'),
+                    .describe(
+                        "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents."
+                    ),
             }),
         ])
         .optional()
@@ -457,7 +459,7 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
         .enum(['llm_judge', 'hog', 'sentiment'])
         .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
         .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
+            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
         ),
     evaluation_config: zod
         .union([
@@ -477,7 +479,9 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                 source: zod
                     .enum(['user_messages'])
                     .default(evaluationsUpdateBodyEvaluationConfigThreeSourceDefault)
-                    .describe('Classify sentiment from user messages in the generation input.'),
+                    .describe(
+                        "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents."
+                    ),
             }),
         ])
         .optional()
@@ -651,7 +655,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
         .optional()
         .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
+            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
         ),
     evaluation_config: zod
         .union([
@@ -671,7 +675,9 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 source: zod
                     .enum(['user_messages'])
                     .default(evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault)
-                    .describe('Classify sentiment from user messages in the generation input.'),
+                    .describe(
+                        "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents."
+                    ),
             }),
         ])
         .optional()
@@ -1287,49 +1293,6 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
             'Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.'
         ),
 })
-
-/**
- *
- * Generate an AI-powered summary of evaluation results.
- *
- * This endpoint analyzes evaluation runs and identifies patterns in passing
- * and failing evaluations, providing actionable recommendations.
- *
- * Data is fetched server-side by evaluation ID to ensure data integrity.
- *
- * **Use Cases:**
- * - Understand why evaluations are passing or failing
- * - Identify systematic issues in LLM responses
- * - Get recommendations for improving response quality
- * - Review patterns across many evaluation runs at once
- *
- */
-export const llmAnalyticsEvaluationSummaryCreateBodyFilterDefault = `all`
-export const llmAnalyticsEvaluationSummaryCreateBodyGenerationIdsMax = 250
-
-export const llmAnalyticsEvaluationSummaryCreateBodyForceRefreshDefault = false
-
-export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
-    .object({
-        evaluation_id: zod.uuid().describe('UUID of the evaluation config to summarize'),
-        filter: zod
-            .enum(['all', 'pass', 'fail', 'na'])
-            .describe('\* `all` - all\n\* `pass` - pass\n\* `fail` - fail\n\* `na` - na')
-            .default(llmAnalyticsEvaluationSummaryCreateBodyFilterDefault)
-            .describe(
-                "Filter type to apply ('all', 'pass', 'fail', or 'na')\n\n\* `all` - all\n\* `pass` - pass\n\* `fail` - fail\n\* `na` - na"
-            ),
-        generation_ids: zod
-            .array(zod.uuid())
-            .max(llmAnalyticsEvaluationSummaryCreateBodyGenerationIdsMax)
-            .optional()
-            .describe('Optional: specific generation IDs to include in summary (max 250)'),
-        force_refresh: zod
-            .boolean()
-            .default(llmAnalyticsEvaluationSummaryCreateBodyForceRefreshDefault)
-            .describe('If true, bypass cache and generate a fresh summary'),
-    })
-    .describe('Request serializer for evaluation summary - accepts IDs only, fetches data server-side.')
 
 export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PURE__ */ zod.object({
     experiment_id: zod.string().describe('`$ai_experiment_id` whose offline-evaluation items to return.'),

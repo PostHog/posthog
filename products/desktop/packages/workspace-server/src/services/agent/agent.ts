@@ -65,6 +65,7 @@ import {
 import {
   type AcpMessage,
   type Adapter,
+  type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
   type CloudRegion,
   type ExecutionMode,
@@ -74,6 +75,7 @@ import {
   serializeError,
   TypedEventEmitter,
 } from "@posthog/shared";
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
@@ -295,6 +297,8 @@ interface SessionConfig {
   rtkEnabled?: boolean;
   /** The user's spoken-narration setting at session start. */
   spokenNarration?: boolean;
+  /** Matched `bedrock-llm-gateway` variant at session start. */
+  bedrockGatewayVariant?: BedrockGatewayVariant;
 }
 
 /** Pull the adapter's `agentCapabilities._meta.posthog.steering` from initialize. */
@@ -306,6 +310,9 @@ function extractSteeringCapability(init: unknown): string | undefined {
   )?.agentCapabilities?._meta?.posthog?.steering;
   return typeof steering === "string" ? steering : undefined;
 }
+
+/** A streaming turn emits many events a second; warn once a minute, not per event. */
+const NO_LISTENER_WARN_INTERVAL_MS = 60_000;
 
 interface ManagedSession {
   taskRunId: string;
@@ -392,6 +399,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   private sessions = new Map<string, ManagedSession>();
   private pendingPermissions = new Map<string, PendingPermission>();
+  /** Live renderer session-event subscriptions per taskRunId. */
+  private sessionEventSubscribers = new Map<string, number>();
+  private lastNoListenerWarnAt = new Map<string, number>();
   private idleTimeouts = new Map<
     string,
     { handle: ReturnType<typeof setTimeout>; deadline: number }
@@ -630,7 +640,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 Do NOT use Claude Code's default attribution (no "Co-Authored-By" trailers, no "Generated with [Claude Code]" lines).
 
 Instead, add the following trailers to EVERY commit message (after a blank line at the end):
-  Generated-By: PostHog Code
+  Generated-By: PostHog Desktop
   Task-Id: ${taskId}
 
 Example:
@@ -638,18 +648,18 @@ Example:
 git commit -m "$(cat <<'EOF'
 fix: resolve login redirect loop
 
-Generated-By: PostHog Code
+Generated-By: PostHog Desktop
 Task-Id: ${taskId}
 EOF
 )"
 \`\`\`
 
-When creating new branches, prefix them with \`posthog-code/\` (e.g. \`posthog-code/fix-login-redirect\`).
+When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
 
 When creating pull requests, add the following footer at the end of the PR description:
 \`\`\`
 ---
-*Created with [PostHog Code](https://posthog.com/code?ref=pr)*
+*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*
 \`\`\`
 
 When you mention a pull request in any reply or summary, always hyperlink it to its full URL (e.g. a Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain text, so readers can open it directly.
@@ -662,7 +672,10 @@ Optimize for the fewest shell round trips.
 - Batch related commands into one Bash invocation using \`&&\` (e.g. \`npm run typecheck && npm run lint && npm test\`).
 - Emit all independent tool calls in the same response.
 - Read multiple files at once.
-- Never rerun a command solely to reproduce output you already have.`;
+- Never rerun a command solely to reproduce output you already have.
+
+## Rich output in replies
+${RICH_OUTPUT_TAGS_PROMPT}`;
 
     if (channelMode) {
       prompt += `
@@ -1025,6 +1038,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
               ...(config.spokenNarration !== undefined && {
                 spokenNarration: config.spokenNarration,
               }),
+              ...(config.bedrockGatewayVariant !== undefined && {
+                bedrockGatewayVariant: config.bedrockGatewayVariant,
+              }),
               mcpToolApprovals: toolApprovals,
               ...(permissionMode && { permissionMode }),
               ...(model != null && { model }),
@@ -1110,6 +1126,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
             ...(config.spokenNarration !== undefined && {
               spokenNarration: config.spokenNarration,
             }),
+            ...(config.bedrockGatewayVariant !== undefined && {
+              bedrockGatewayVariant: config.bedrockGatewayVariant,
+            }),
             mcpToolApprovals: toolApprovals,
             ...(permissionMode && { permissionMode }),
             ...(model != null && { model }),
@@ -1140,6 +1159,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
             ...(channelMode && { channelMode }),
             ...(config.spokenNarration !== undefined && {
               spokenNarration: config.spokenNarration,
+            }),
+            ...(config.bedrockGatewayVariant !== undefined && {
+              bedrockGatewayVariant: config.bedrockGatewayVariant,
             }),
             mcpToolApprovals: toolApprovals,
             ...(permissionMode && { permissionMode }),
@@ -1755,6 +1777,7 @@ For git operations while detached:
       );
 
       this.sessions.delete(taskRunId);
+      this.lastNoListenerWarnAt.delete(taskRunId);
 
       const timeout = this.idleTimeouts.get(taskRunId);
       if (timeout) {
@@ -1771,6 +1794,63 @@ For git operations while detached:
     }
   }
 
+  /**
+   * Streams a run's session events to one renderer subscriber. Tracks the
+   * subscriber count per run so a turn that streams with nobody listening
+   * (a dead renderer subscription) shows up in the log instead of only as a
+   * transcript that never updates.
+   */
+  async *subscribeSessionEvents(
+    taskRunId: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<unknown> {
+    this.sessionEventSubscribers.set(
+      taskRunId,
+      (this.sessionEventSubscribers.get(taskRunId) ?? 0) + 1,
+    );
+    const startedAt = Date.now();
+    let delivered = 0;
+    this.log.info("Renderer subscribed to session events", { taskRunId });
+    try {
+      for await (const event of this.toIterable(
+        AgentServiceEvent.SessionEvent,
+        { signal },
+      )) {
+        if (event.taskRunId !== taskRunId) continue;
+        delivered += 1;
+        yield event.payload;
+      }
+    } finally {
+      const remaining = (this.sessionEventSubscribers.get(taskRunId) ?? 1) - 1;
+      if (remaining > 0) {
+        this.sessionEventSubscribers.set(taskRunId, remaining);
+      } else {
+        this.sessionEventSubscribers.delete(taskRunId);
+      }
+      this.log.info("Renderer session event subscription closed", {
+        taskRunId,
+        delivered,
+        durationMs: Date.now() - startedAt,
+        remainingSubscribers: Math.max(remaining, 0),
+        promptPending: this.sessions.get(taskRunId)?.promptPending ?? false,
+      });
+    }
+  }
+
+  private warnIfNoRendererListening(taskRunId: string): void {
+    if (this.sessionEventSubscribers.has(taskRunId)) return;
+    const session = this.sessions.get(taskRunId);
+    if (!session?.promptPending) return;
+    const now = Date.now();
+    const lastWarnedAt = this.lastNoListenerWarnAt.get(taskRunId) ?? 0;
+    if (now - lastWarnedAt < NO_LISTENER_WARN_INTERVAL_MS) return;
+    this.lastNoListenerWarnAt.set(taskRunId, now);
+    this.log.warn(
+      "Session events emitted while a prompt is pending but no renderer is subscribed",
+      { taskRunId, taskId: session.taskId },
+    );
+  }
+
   private createClientConnection(
     taskRunId: string,
     _channel: string,
@@ -1785,6 +1865,7 @@ For git operations while detached:
         taskRunId,
         payload,
       });
+      this.warnIfNoRendererListening(taskRunId);
     };
 
     const onAcpMessage = (message: unknown) => {
@@ -2126,6 +2207,10 @@ For git operations while detached:
       rtkEnabled: "rtkEnabled" in params ? params.rtkEnabled : undefined,
       spokenNarration:
         "spokenNarration" in params ? params.spokenNarration : undefined,
+      bedrockGatewayVariant:
+        "bedrockGatewayVariant" in params
+          ? params.bedrockGatewayVariant
+          : undefined,
     };
   }
 
@@ -2345,6 +2430,7 @@ For git operations while detached:
       gatewayUrl,
       region,
       (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
+      this.agentAuthAdapter.gatewayProjectId() ?? undefined,
     );
   }
 
@@ -2356,6 +2442,7 @@ For git operations while detached:
     const gatewayModels = await fetchGatewayModels({
       gatewayUrl,
       authToken: (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
+      projectId: this.agentAuthAdapter.gatewayProjectId() ?? undefined,
     });
     const configOptions = buildCloudTaskConfigOptions(
       gatewayModels,

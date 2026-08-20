@@ -820,7 +820,7 @@ export type EvaluationApiEvaluationConfig =
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
@@ -886,7 +886,7 @@ export interface EvaluationApi {
      * @nullable
      */
     readonly status_reason_detail: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -949,7 +949,7 @@ export type PatchedEvaluationApiEvaluationConfig =
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
@@ -1015,7 +1015,7 @@ export interface PatchedEvaluationApi {
      * @nullable
      */
     readonly status_reason_detail?: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -1442,6 +1442,13 @@ export interface EvaluationReportApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1511,6 +1518,13 @@ export interface EvaluationReportUpdateApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1571,6 +1585,13 @@ export interface PatchedEvaluationReportUpdateApi {
     readonly deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count?: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at?: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1619,9 +1640,10 @@ export interface EvaluationReportCitationApi {
  * * `completed` - completed
  * * `metrics_unavailable` - metrics_unavailable
  */
-export type GenerationStatusEnumApi = (typeof GenerationStatusEnumApi)[keyof typeof GenerationStatusEnumApi]
+export type EvaluationReportRunContentGenerationStatusEnumApi =
+    (typeof EvaluationReportRunContentGenerationStatusEnumApi)[keyof typeof EvaluationReportRunContentGenerationStatusEnumApi]
 
-export const GenerationStatusEnumApi = {
+export const EvaluationReportRunContentGenerationStatusEnumApi = {
     Completed: 'completed',
     MetricsUnavailable: 'metrics_unavailable',
 } as const
@@ -1705,7 +1727,7 @@ export interface EvaluationReportRunContentApi {
      *
      * * `completed` - completed
      * * `metrics_unavailable` - metrics_unavailable */
-    generation_status?: GenerationStatusEnumApi
+    generation_status?: EvaluationReportRunContentGenerationStatusEnumApi
     /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
     metrics?: EvaluationReportMetricsApi | null
 }
@@ -1761,80 +1783,6 @@ export interface PaginatedEvaluationReportRunListApi {
     /** @nullable */
     previous?: string | null
     results: EvaluationReportRunApi[]
-}
-
-/**
- * * `all` - all
- * * `pass` - pass
- * * `fail` - fail
- * * `na` - na
- */
-export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
-
-export const FilterEnumApi = {
-    All: 'all',
-    Pass: 'pass',
-    Fail: 'fail',
-    Na: 'na',
-} as const
-
-/**
- * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
- */
-export interface EvaluationSummaryRequestApi {
-    /** UUID of the evaluation config to summarize */
-    evaluation_id: string
-    /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-     *
-     * * `all` - all
-     * * `pass` - pass
-     * * `fail` - fail
-     * * `na` - na */
-    filter?: FilterEnumApi
-    /**
-     * Optional: specific generation IDs to include in summary (max 250)
-     * @maxItems 250
-     */
-    generation_ids?: string[]
-    /** If true, bypass cache and generate a fresh summary */
-    force_refresh?: boolean
-}
-
-export interface EvaluationPatternApi {
-    title: string
-    description: string
-    frequency: string
-    example_generation_ids: string[]
-}
-
-export interface EvaluationSummaryStatisticsApi {
-    total_analyzed: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-}
-
-export interface EvaluationSummaryResponseApi {
-    overall_assessment: string
-    pass_patterns: EvaluationPatternApi[]
-    fail_patterns: EvaluationPatternApi[]
-    na_patterns: EvaluationPatternApi[]
-    recommendations: string[]
-    statistics: EvaluationSummaryStatisticsApi
-}
-
-export interface EvaluationSummaryThrottleResponseApi {
-    /** Error category */
-    type: string
-    /** Machine-readable error code */
-    code: string
-    /** Why the request was throttled */
-    detail: string
-    /**
-     * Related request field, when applicable
-     * @nullable
-     */
-    attr: string | null
 }
 
 export interface LLMModelInfoApi {
@@ -3289,14 +3237,6 @@ export type LlmAnalyticsEvaluationReportsRunsListParams = {
      */
     offset?: number
 }
-
-export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsModelsRetrieveParams = {
     /**

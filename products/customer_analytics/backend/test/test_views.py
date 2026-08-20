@@ -1,3 +1,4 @@
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -14,12 +15,22 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.conversations.backend.models import (
+    EMAIL_THREAD_COMMENT_SCOPE,
+    EmailThread,
+    EmailThreadAccountLink,
+    EmailThreadMessage,
+    EmailThreadMessageDirection,
+    EmailThreadParticipant,
+    EmailThreadParticipantKind,
+)
 from products.conversations.backend.models.ticket import Ticket
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import (
@@ -458,6 +469,21 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["name"], "Bare Account")
         self.assertIsNone(data["external_id"])
         self.assertEqual(data["properties"], {})
+        self.assertIsNone(data["churned_at"])
+        self.assertIsNone(data["ignored_at"])
+
+    def test_create_with_churned_at(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"name": "Former customer", "churned_at": "2026-08-01T12:30:00Z"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        self.assertEqual(response.json()["churned_at"], "2026-08-01T12:30:00Z")
+        account = Account.objects.unscoped().get(id=response.json()["id"])  # nosemgrep: idor-lookup-without-team
+        assert account.churned_at is not None
+        self.assertEqual(account.churned_at.isoformat(), "2026-08-01T12:30:00+00:00")
 
     def test_list(self):
         a1 = self._create_account(name="Account 1")
@@ -474,10 +500,42 @@ class TestAccountViewSet(APIBaseTest):
         ids = {r["id"] for r in data["results"]}
         self.assertEqual(ids, {str(a1.id), str(a2.id)})
 
+    @parameterized.expand(
+        [
+            ("default", {}, {"Active"}),
+            ("include_churned", {"include_churned": "true"}, {"Active", "Churned"}),
+        ]
+    )
+    def test_list_churned_visibility(self, _name: str, params: dict[str, str], expected_names: set[str]) -> None:
+        self._create_account(name="Active")
+        self._create_account(name="Churned", churned_at=timezone.now())
+
+        response = self.client.get(self.endpoint_base, data=params)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual({account["name"] for account in response.json()["results"]}, expected_names)
+
+    @parameterized.expand(
+        [
+            ("default", {}, {"Tracked"}),
+            ("include_ignored", {"include_ignored": "true"}, {"Tracked", "Ignored"}),
+        ]
+    )
+    def test_list_ignored_visibility(self, _name: str, params: dict[str, str], expected_names: set[str]) -> None:
+        self._create_account(name="Tracked")
+        self._create_account(name="Ignored", ignored_at=timezone.now())
+
+        response = self.client.get(self.endpoint_base, data=params)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual({account["name"] for account in response.json()["results"]}, expected_names)
+
     def test_retrieve(self):
+        ignored_at = timezone.now()
         account = self._create_account(
             external_id="ext-1",
             properties={"stripe_customer_id": "cus_123"},
+            ignored_at=ignored_at,
         )
 
         response = self.client.get(f"{self.endpoint_base}{account.id}/")
@@ -488,6 +546,7 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["name"], "Acme Corp")
         self.assertEqual(data["external_id"], "ext-1")
         self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
+        self.assertEqual(data["ignored_at"], ignored_at.isoformat().replace("+00:00", "Z"))
 
     def test_retrieve_hides_retired_role_keys_in_stored_rows(self):
         # Rows not yet cleaned by backfill_account_relationships must not leak role keys:
@@ -516,6 +575,58 @@ class TestAccountViewSet(APIBaseTest):
         account.refresh_from_db()
         self.assertEqual(account.name, "Renamed")
         self.assertEqual(account.properties.sfdc_id, "001xx")
+
+    def test_update_does_not_accept_ignored_at(self):
+        ignored_at = timezone.now()
+        account = self._create_account(ignored_at=ignored_at)
+
+        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"ignored_at": None}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        account.refresh_from_db()
+        self.assertEqual(account.ignored_at, ignored_at)
+
+    def test_update_and_clear_churned_at(self):
+        account = self._create_account()
+        url = f"{self.endpoint_base}{account.id}/"
+
+        response = self.client.patch(url, {"churned_at": "2026-08-02T09:00:00Z"}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["churned_at"], "2026-08-02T09:00:00Z")
+        account.refresh_from_db()
+        self.assertEqual(account.churned_at.isoformat(), "2026-08-02T09:00:00+00:00")
+
+        response = self.client.patch(url, {"churned_at": None}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertIsNone(response.json()["churned_at"])
+        account.refresh_from_db()
+        self.assertIsNone(account.churned_at)
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, status.HTTP_403_FORBIDDEN),
+            ("admin", OrganizationMembership.Level.ADMIN, status.HTTP_200_OK),
+        ]
+    )
+    def test_matching_update_requires_project_admin(
+        self, _name: str, membership_level: OrganizationMembership.Level, expected_status: int
+    ) -> None:
+        self.organization_membership.level = membership_level
+        self.organization_membership.save(update_fields=["level"])
+        account = self._create_account()
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{account.id}/",
+            {"properties": {"known_emails": ["jane@acme.com"]}},
+            format="json",
+        )
+
+        self.assertEqual(expected_status, response.status_code, response.json())
+        account.refresh_from_db()
+        expected_emails = ["jane@acme.com"] if expected_status == status.HTTP_200_OK else []
+        self.assertEqual(expected_emails, account.properties.known_emails)
 
     def test_delete(self):
         account = self._create_account()
@@ -1942,6 +2053,38 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert body["column_property_map"] == {"plan": "plan_tier"}
         assert body["saved_query"] is None
 
+    @patch("products.customer_analytics.backend.presentation.views.views.report_user_action")
+    def test_mapping_lifecycle_emits_usage_events(self, report_user_action):
+        definition, schema = self._person_definition_and_schema()
+
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(definition.id),
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
+                "key_column": "distinct_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        source_id = created.json()["id"]
+
+        patched = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
+        assert patched.status_code == status.HTTP_200_OK
+        deleted = self.client.delete(f"{self.endpoint}{source_id}/")
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+
+        assert [call.args[1] for call in report_user_action.call_args_list] == [
+            "warehouse property mapping created",
+            "warehouse property mapping updated",
+            "warehouse property mapping deleted",
+        ]
+        create_properties = report_user_action.call_args_list[0].args[2]
+        assert create_properties["target_type"] == TargetType.PERSON.value
+        assert create_properties["mapped_column_count"] == 2
+        assert create_properties["reads_warehouse_table"] is True
+
     def test_create_person_source_with_account_binding_is_rejected(self):
         definition, _schema = self._person_definition_and_schema()
 
@@ -2666,6 +2809,124 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(self.endpoint).status_code)
 
 
+class TestAccountEmailThreadViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-1")
+        first_message_at = timezone.now() - timedelta(hours=1)
+        last_message_at = timezone.now()
+        self.thread = EmailThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            canonical_thread_key="<account-email@example.com>",
+            subject="Renewal planning",
+            first_message_at=first_message_at,
+            last_message_at=last_message_at,
+            message_count=2,
+            preview="Latest reply",
+        )
+        EmailThreadAccountLink.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=self.thread,
+            account_id=str(self.account.id),
+            account_external_id=self.account.external_id,
+            match_source="email_domain",
+        )
+        EmailThreadParticipant.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=self.thread,
+            email="customer@example.com",
+            display_name="Customer",
+            kind=EmailThreadParticipantKind.CUSTOMER,
+        )
+        for index, sent_at in enumerate([last_message_at, first_message_at], start=1):
+            comment = Comment.objects.create(
+                team=self.team,
+                scope=EMAIL_THREAD_COMMENT_SCOPE,
+                item_id=str(self.thread.id),
+                content=f"Message {index}",
+            )
+            EmailThreadMessage.objects.for_team(self.team.id).create(
+                team=self.team,
+                thread=self.thread,
+                comment=comment,
+                message_id=f"<message-{index}@example.com>",
+                sent_at=sent_at,
+                sender_email="customer@example.com",
+                sender_name="Customer",
+                to_recipients=[{"name": "CSM", "email": "csm@example.com"}],
+                cc_recipients=[],
+                direction=EmailThreadMessageDirection.INBOUND,
+                source_type="mailgun",
+                source_id=f"message-{index}",
+            )
+        self.endpoint = f"/api/environments/{self.team.id}/accounts/{self.account.id}/email_threads/"
+
+    def test_list_keeps_messages_out_and_detail_paginates_by_source_time(self):
+        list_response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, list_response.status_code, list_response.json())
+        payload = list_response.json()
+        self.assertEqual(payload["count"], 1)
+        summary = payload["results"][0]
+        self.assertEqual(summary["subject"], "Renewal planning")
+        self.assertEqual(summary["message_count"], 2)
+        self.assertNotIn("messages", summary)
+
+        detail_response = self.client.get(f"{self.endpoint}{self.thread.id}/?limit=1&offset=0")
+
+        self.assertEqual(status.HTTP_200_OK, detail_response.status_code, detail_response.json())
+        self.assertEqual(detail_response.json()["count"], 2)
+        self.assertEqual(
+            [message["content"] for message in detail_response.json()["results"]],
+            ["Message 2"],
+        )
+
+        second_page_response = self.client.get(f"{self.endpoint}{self.thread.id}/?limit=1&offset=1")
+        self.assertEqual(status.HTTP_200_OK, second_page_response.status_code, second_page_response.json())
+        self.assertEqual(
+            [message["content"] for message in second_page_response.json()["results"]],
+            ["Message 1"],
+        )
+
+        with patch(
+            "products.customer_analytics.backend.presentation.views.views.AccountEmailThreadMessagePagination.max_limit",
+            1,
+        ):
+            capped_response = self.client.get(f"{self.endpoint}{self.thread.id}/?limit=10000")
+        self.assertEqual(status.HTTP_200_OK, capped_response.status_code, capped_response.json())
+        self.assertEqual(capped_response.json()["count"], 2)
+        self.assertEqual(len(capped_response.json()["results"]), 1)
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, self.client.get(f"{self.endpoint}not-a-uuid/").status_code)
+
+    def test_user_without_ticket_access_cannot_read_email_summaries_or_bodies(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "email-denied@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(viewer)
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(self.endpoint).status_code)
+        self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(f"{self.endpoint}{self.thread.id}/").status_code)
+
+
 class TestCalendarSyncViewSet(APIBaseTest):
     def _become_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2751,7 +3012,6 @@ class TestCalendarSyncViewSet(APIBaseTest):
 
 
 def _immediate_future():
-
     async def _done():
         return None
 

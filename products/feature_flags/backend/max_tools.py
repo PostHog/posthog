@@ -267,7 +267,6 @@ class CreateFeatureFlagTool(MaxTool):
                 "active": flag_schema.active,
                 "filters": filters,
                 "tags": flag_schema.tags,
-                "_should_create_usage_dashboard": False,
             }
 
             # Unspecified (None) falls back to the project defaults; an explicit empty list is left as-is.

@@ -563,6 +563,8 @@ account_relationship_definitions: PostgresTable = PostgresTable(
     postgres_table_name="customer_analytics_accountrelationshipdefinition",
     # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
     access_scope="account",
+    # Team-level definitions shared by every account, so a per-account grant never keys these rows.
+    resource_level_access_only=True,
     description="Customer analytics account relationship definitions: team-defined relationship types between PostHog users and accounts (CSM, Account executive, ...), one row per definition. Per-account assignments live in system.account_relationships and via the system.accounts.relationships lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Relationship definition UUID."),
@@ -629,6 +631,7 @@ accounts: PostgresTable = PostgresTable(
     # `account` here (where the per-object grants are stored) instead of the
     # `customer_analytics` umbrella. Resource-level gating still works via RESOURCE_INHERITANCE_MAP.
     access_scope="account",
+    access_control_creator_id_field="created_by_id",
     description="Customer analytics accounts (companies/organizations being tracked); one row per account, with CRM identifiers extracted from properties.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Account UUID."),
@@ -668,6 +671,12 @@ accounts: PostgresTable = PostgresTable(
         "updated_at": DateTimeDatabaseField(
             name="updated_at", nullable=True, description="When the account record was last updated."
         ),
+        "churned_at": DateTimeDatabaseField(
+            name="churned_at", nullable=True, description="When the account churned; NULL if it has not churned."
+        ),
+        "ignored_at": DateTimeDatabaseField(
+            name="ignored_at", nullable=True, description="When Track Rules ignored the account; NULL if tracked."
+        ),
         "tags": account_tags_lazy_join,
         "notebooks": account_notebooks_lazy_join,
         "custom_properties": account_custom_properties_lazy_join,
@@ -682,6 +691,8 @@ custom_property_definitions: PostgresTable = PostgresTable(
     postgres_table_name="customer_analytics_custompropertydefinition",
     # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
     access_scope="account",
+    # Team-level definitions shared by every account, so a per-account grant never keys these rows.
+    resource_level_access_only=True,
     description="Customer analytics custom property definitions: team-scoped attribute shapes (the property's name and type), one row per definition. Per-account values are exposed via the system.accounts.custom_properties lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Custom property definition UUID."),

@@ -70,7 +70,7 @@ class Series:
 
 
 @dataclass
-class SeriesTestData:
+class PersonSeriesFixture:
     distinct_id: str
     events: list[Series]
     properties: dict[str, str | int]
@@ -104,7 +104,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     default_date_from = "2020-01-11"
     default_date_to = "2020-01-20"
 
-    def _create_events(self, data: list[SeriesTestData]):
+    def _create_events(self, data: list[PersonSeriesFixture]):
         person_result = []
         properties_to_create: dict[str, str] = {}
         for person in data:
@@ -204,7 +204,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_test_events(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -238,7 +238,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -532,7 +532,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_interval_2_day_filtering(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -557,7 +557,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -804,7 +804,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # 2020-01-13 is a Monday; p1 is active Mon, Tue, and Sat
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -837,7 +837,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # 20:00 UTC Sunday = 05:00 Monday in Asia/Tokyo
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T20:00:00Z"])],
                     properties={},
@@ -854,12 +854,12 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # would list people whose only events fall on deselected days
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p_weekday",
                     events=[Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"])],  # Wednesday
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p_weekend",
                     events=[Series(event="$pageview", timestamps=["2020-01-18T12:00:00Z"])],  # Saturday
                     properties={},
@@ -877,7 +877,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Current period 2020-01-13..19, previous period 2020-01-06..12; 2020-01-06 is a Monday
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -912,7 +912,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_criteria(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -933,7 +933,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1059,7 +1059,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_cumulative_stickiness(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1073,7 +1073,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1086,7 +1086,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(
@@ -1117,7 +1117,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_cumulative_stickiness_with_intervals(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1131,7 +1131,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1163,7 +1163,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_cumulative_stickiness_with_property_filter(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1177,7 +1177,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"browser": "Chrome"},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1223,7 +1223,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_cumulative_stickiness_with_criteria(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1239,7 +1239,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1253,7 +1253,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(
@@ -1290,7 +1290,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_actor_query_cumulative(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1304,7 +1304,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1317,7 +1317,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(
@@ -1371,7 +1371,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_actor_query_non_cumulative(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1385,7 +1385,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1398,7 +1398,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(
@@ -1450,7 +1450,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_actor_query_with_operator(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1464,7 +1464,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1477,7 +1477,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(

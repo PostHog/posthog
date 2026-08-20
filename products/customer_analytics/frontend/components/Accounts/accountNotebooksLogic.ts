@@ -220,6 +220,7 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
                 controlled: true,
                 pageSize: NOTES_PER_PAGE,
                 currentPage: page,
+                useUrl: false,
                 entryCount: count,
                 onBackward: () => actions.setPage(page - 1),
                 onForward: () => actions.setPage(page + 1),

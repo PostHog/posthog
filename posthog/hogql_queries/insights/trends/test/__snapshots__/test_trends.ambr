@@ -159,20 +159,20 @@
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT source.actor_id AS actor_id
-                                                    FROM
-                                                      (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events, max(timestamp) AS last_seen
-                                                       FROM
-                                                         (SELECT e.person_id AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
-                                                          FROM events AS e
-                                                          LEFT JOIN
-                                                            (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
-                                                             FROM groups
-                                                             WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                                                             GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                                                          WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
-                                                       GROUP BY actor_id) AS source)))
+     WHERE and(equals(person.team_id, 99999), globalIn(id,
+                                                         (SELECT source.actor_id AS actor_id
+                                                          FROM
+                                                            (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events, max(timestamp) AS last_seen
+                                                             FROM
+                                                               (SELECT e.person_id AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
+                                                                FROM events AS e
+                                                                LEFT JOIN
+                                                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
+                                                                   FROM groups
+                                                                   WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+                                                                   GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                                                                WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(leftUTF8(toString(e__group_0.properties___industry), 400), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
+                                                             GROUP BY actor_id) AS source)))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY source.event_count DESC
@@ -1107,25 +1107,25 @@
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
             person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT source.actor_id AS actor_id
-                                                    FROM
-                                                      (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events, max(timestamp) AS last_seen
-                                                       FROM
-                                                         (SELECT e.person_id AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
-                                                          FROM events AS e
-                                                          LEFT JOIN
-                                                            (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name, groups.group_type_index AS index, groups.group_key AS key
-                                                             FROM groups
-                                                             WHERE and(equals(groups.team_id, 99999), equals(index, 2))
-                                                             GROUP BY groups.group_type_index, groups.group_key) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
-                                                          LEFT JOIN
-                                                            (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
-                                                             FROM groups
-                                                             WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                                                             GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                                                          WHERE and(equals(e.team_id, 99999), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up')))
-                                                       GROUP BY actor_id) AS source)))
+     WHERE and(equals(person.team_id, 99999), globalIn(id,
+                                                         (SELECT source.actor_id AS actor_id
+                                                          FROM
+                                                            (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events, max(timestamp) AS last_seen
+                                                             FROM
+                                                               (SELECT e.person_id AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
+                                                                FROM events AS e
+                                                                LEFT JOIN
+                                                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name, groups.group_type_index AS index, groups.group_key AS key
+                                                                   FROM groups
+                                                                   WHERE and(equals(groups.team_id, 99999), equals(index, 2))
+                                                                   GROUP BY groups.group_type_index, groups.group_key) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
+                                                                LEFT JOIN
+                                                                  (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
+                                                                   FROM groups
+                                                                   WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+                                                                   GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                                                                WHERE and(equals(e.team_id, 99999), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up')))
+                                                             GROUP BY actor_id) AS source)))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY source.event_count DESC
