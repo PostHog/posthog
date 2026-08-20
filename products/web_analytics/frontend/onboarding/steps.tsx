@@ -1,3 +1,5 @@
+import { LemonBanner, Link } from '@posthog/lemon-ui'
+
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { OnboardingProductConfiguration } from 'scenes/onboarding/legacy/OnboardingProductConfiguration'
@@ -122,7 +124,26 @@ export const webAnalyticsOnboarding: ProductOnboardingProvider = {
                 productKey: ProductKey.WEB_ANALYTICS,
                 stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
                 role: ctx.role,
-                render: () => <OnboardingProductConfiguration options={options} />,
+                render: () => (
+                    <>
+                        <OnboardingProductConfiguration options={options} />
+                        {/* Dogfooding gate: the HTTP log sources stay flag-only while the surface is reviewed.
+                            Read from ctx so the flow recomputes when flags are delivered after first render. */}
+                        {ctx.featureFlags[FEATURE_FLAGS.CDP_HTTP_LOG_SOURCES] ? (
+                            <LemonBanner type="info" className="mt-4">
+                                Bots, crawlers, and AI agents rarely run JavaScript, so they won't appear in your web
+                                analytics. To see them, forward your server's HTTP logs as <code>$http_log</code>{' '}
+                                events:{' '}
+                                <Link to={urls.hogFunctionNew('template-source-http-server-logs')}>
+                                    set up an HTTP server logs source
+                                </Link>{' '}
+                                or{' '}
+                                <Link to="https://posthog.com/docs/web-analytics/sending-http-logs">read the docs</Link>
+                                . You can do this any time after onboarding.
+                            </LemonBanner>
+                        ) : null}
+                    </>
+                ),
             },
         ]
     },
