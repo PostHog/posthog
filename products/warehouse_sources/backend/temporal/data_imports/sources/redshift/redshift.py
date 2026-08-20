@@ -391,6 +391,59 @@ def _recover_after_failed_probe(connection: psycopg.Connection) -> None:
         pass
 
 
+def _reads_primary_keys(cursor: psycopg.Cursor, schema: str) -> bool | None:
+    """Can this connection read primary-key constraints in `schema` at all?
+
+    `information_schema.table_constraints` exposes only the objects the role holds privileges on,
+    so an empty result for one table means either "no key is declared" or "no privilege to see the
+    one that is", and the two need opposite advice. Finding a key on any table in the schema
+    settles it: the role can read the view, so an empty per-table result is a real absence.
+
+    `None` when the probe itself fails, which settles nothing either way.
+    """
+    query = sql.SQL("""
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = {schema} AND constraint_type = 'PRIMARY KEY'
+        LIMIT 1""").format(schema=sql.Literal(schema))
+    try:
+        return cursor.execute(query).fetchone() is not None
+    except Exception:
+        _recover_after_failed_probe(cursor.connection)
+        return None
+
+
+def _no_primary_key_warning(
+    cursor: psycopg.Cursor,
+    schema: str,
+    table_name: str,
+    table_type: Literal["table", "view", "materialized_view"] | None,
+) -> str:
+    """The warning for a table whose primary-key lookup came back empty.
+
+    Each branch states only what the empty result actually establishes, so the operator is never
+    sent after a key that cannot exist or that we merely failed to read.
+    """
+    if table_type in ("view", "materialized_view"):
+        relation = "materialized view" if table_type == "materialized_view" else "view"
+        return (
+            f"No primary keys found for {table_name}. A {relation} cannot have a primary key. "
+            "Select a primary key manually to enable incremental sync, or use full table replication instead."
+        )
+
+    if _reads_primary_keys(cursor, schema):
+        return (
+            f"No primary key is set on {table_name}. Select one manually to enable incremental sync, "
+            "or use full table replication instead."
+        )
+
+    return (
+        f"Could not determine a primary key for {table_name}. Either none is set, or PostHog's role "
+        f"cannot read constraints in schema {schema}. Check the role has SELECT on the table. You can "
+        "also select a primary key manually, or use full table replication instead."
+    )
+
+
 def _is_materialized_view(cursor: psycopg.Cursor, schema: str, table_name: str) -> bool:
     """Is this relation a materialized view?
 
@@ -767,11 +820,17 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         config: RedshiftSourceConfig,
         tables: list[str],
     ) -> dict[str, list[str] | None]:
-        """Detect primary keys for all tables in a single query.
+        """Detect primary keys for all tables in a single query, each in declared column order.
 
         Permission-sensitive — some Redshift deployments restrict access
         to `information_schema.table_constraints`. Swallow and log any
         failure so schema discovery keeps working without PKs.
+
+        A swallowed failure returns every table as `None`, which the base
+        contract cannot distinguish from "declares no key". The sync path
+        re-runs the lookup per table and says which it is
+        (`_no_primary_key_warning`); surfacing the difference at discovery
+        needs a channel on `SourceSchema` that does not exist yet.
         """
         result: dict[str, list[str] | None] = dict.fromkeys(tables)
         if not tables:
@@ -793,11 +852,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         WHERE tc.table_schema = ANY({schemas})
                         AND tc.table_name = ANY({names})
                         AND tc.constraint_type = 'PRIMARY KEY'
+                        ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position
                     """).format(schemas=sql.Literal(index.schemas), names=sql.Literal(index.bare_tables))
                 )
                 rows = cursor.fetchall()
         except Exception as e:
-            structlog.get_logger().warning("Failed to detect primary keys for Redshift schemas", exc_info=e)
+            structlog.get_logger().warning(
+                "Primary keys for Redshift schemas are undetermined, not absent: the detection query failed",
+                exc_info=e,
+            )
             return result
 
         pks: dict[str, list[str]] = collections.defaultdict(list)
@@ -1051,11 +1114,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         logger: FilteringBoundLogger | None = None,
         table_type: Literal["table", "view", "materialized_view"] | None = None,
     ) -> list[str] | None:
-        """Return the primary-key column names for a single table, or None.
+        """Return the primary-key column names for a single table in declared order, or None.
 
-        `table_type` only shapes the warning on an empty result: on a view or materialized view a
-        primary key cannot exist, so the message names the remedies instead of asking the operator
-        to go looking for a key.
+        `table_type` only shapes the warning on an empty result, which is ambiguous on its own:
+        see `_no_primary_key_warning` for what each case establishes.
         """
         query = sql.SQL("""
             SELECT
@@ -1069,9 +1131,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             WHERE
                 tc.table_schema = {schema}
                 AND tc.table_name = {table}
-                AND tc.constraint_type = 'PRIMARY KEY'""").format(
-            schema=sql.Literal(schema), table=sql.Literal(table_name)
-        )
+                AND tc.constraint_type = 'PRIMARY KEY'
+            ORDER BY
+                kcu.ordinal_position""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
         if logger is not None:
             _explain_query(cursor, query, logger)
@@ -1082,16 +1144,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return [row[0] for row in rows]
 
         if logger is not None:
-            if table_type in ("view", "materialized_view"):
-                relation = "materialized view" if table_type == "materialized_view" else "view"
-                logger.warning(
-                    f"No primary keys found for {table_name}. A {relation} cannot have a primary key. "
-                    "Select a primary key manually to enable incremental sync, or use full table replication instead."
-                )
-            else:
-                logger.warning(
-                    f"No primary keys found for {table_name}. Check that the table has a primary key set, and that querying information_schema returns it."
-                )
+            logger.warning(_no_primary_key_warning(cursor, schema, table_name, table_type))
         return None
 
     def has_duplicate_primary_keys(
