@@ -20,7 +20,9 @@ from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, h
 from products.mcp_store.backend.facade.api import get_installations_for_sandbox
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
+    CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    INITIAL_PERMISSION_MODE_CHOICES,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     InitialPermissionMode,
@@ -281,9 +283,11 @@ def apply_runtime_adapter_run_state(
     to launch with.
 
     The agent server derives the provider from the adapter, and Codex defaults to `auto`
-    so a headless run doesn't stall on a prompt. A mode the caller already chose is
-    returned untouched. Shared so the explicitly-pinned and resolved-default paths can't
-    drift on what an adapter implies.
+    so a headless run doesn't stall on a prompt. A mode the caller already chose is kept
+    when this adapter's vocabulary offers it; one named in the other runtime's terms —
+    the caller may not know which runtime the stored defaults resolve to — falls to the
+    adapter's baseline rather than failing the run downstream. Shared so the
+    explicitly-pinned and resolved-default paths can't drift on what an adapter implies.
     """
     if not runtime_adapter:
         return initial_permission_mode
@@ -291,8 +295,16 @@ def apply_runtime_adapter_run_state(
     provider = get_provider_for_runtime_adapter(runtime_adapter)
     if provider is not None:
         state["provider"] = provider.value
-    if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
+    if runtime_adapter == RuntimeAdapter.CODEX.value:
+        if initial_permission_mode in CODEX_INITIAL_PERMISSION_MODE_CHOICES:
+            return initial_permission_mode
         return "auto"
+    if (
+        runtime_adapter == RuntimeAdapter.CLAUDE.value
+        and initial_permission_mode is not None
+        and initial_permission_mode not in INITIAL_PERMISSION_MODE_CHOICES
+    ):
+        return "default"
     return initial_permission_mode
 
 

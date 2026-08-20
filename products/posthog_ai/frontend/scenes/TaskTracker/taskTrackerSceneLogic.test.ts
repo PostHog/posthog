@@ -12,7 +12,6 @@ import { attachedContextLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
-import { DEFAULT_COMPOSER_MODEL } from '../../utils/composerModels'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
 const buildTask = (overrides: Partial<Task> = {}): Task => ({
@@ -214,12 +213,13 @@ describe('taskTrackerSceneLogic', () => {
         consent.unmount()
         jest.restoreAllMocks()
     })
-    // A run launches on the resolved default whatever runtime it names — a Codex default used to be
-    // discarded here and the run fell back to the built-in Claude model, which reads as the setting being
-    // ignored. The built-in only applies when no level configured one, and an explicit pick always wins.
+    // An untouched selection pins nothing: the server resolves the stored team/user default
+    // (or its own fallback), so the run can never freeze a client-side guess — a failed or
+    // in-flight defaults fetch used to pin the built-in model over the configured default.
+    // An explicit pick still sends the full selection.
     it.each([
         {
-            description: 'launches on a Claude server default',
+            description: 'omits the runtime selection when nothing is picked and a default exists',
             resolved: {
                 runtime_adapter: 'claude',
                 model: 'claude-sonnet-4-6',
@@ -227,32 +227,13 @@ describe('taskTrackerSceneLogic', () => {
                 source: 'team',
             },
             pick: null,
-            expectModel: 'claude-sonnet-4-6',
         },
         {
-            description: 'launches on the built-in model when no server default exists',
+            description: 'omits the runtime selection when nothing is picked and no default exists',
             resolved: null,
             pick: null,
-            expectModel: DEFAULT_COMPOSER_MODEL,
         },
-        {
-            description: 'launches on a Codex server default rather than the built-in Claude model',
-            resolved: { runtime_adapter: 'codex', model: 'gpt-5.5', reasoning_effort: 'medium', source: 'user' },
-            pick: null,
-            expectModel: 'gpt-5.5',
-        },
-        {
-            description: 'sends an explicit pick even when a server default exists',
-            resolved: {
-                runtime_adapter: 'claude',
-                model: 'claude-sonnet-4-6',
-                reasoning_effort: 'high',
-                source: 'team',
-            },
-            pick: 'claude-opus-4-8',
-            expectModel: 'claude-opus-4-8',
-        },
-    ])('$description', async ({ resolved, pick, expectModel }) => {
+    ])('$description', async ({ resolved, pick }) => {
         useMocks({ get: { '/api/projects/:team/tasks/@me/config/': myConfigResponse(resolved) } })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -261,11 +242,34 @@ describe('taskTrackerSceneLogic', () => {
         logic.actions.submitNewTask()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(runBody?.model).toEqual(expectModel)
-        // The create endpoint rejects a launch mode sent without the runtime it belongs to, so the two
-        // always travel together — the run 400s before any of the above matters otherwise.
+        expect(runBody?.model).toBeUndefined()
+        expect(runBody?.runtime_adapter).toBeUndefined()
+        // The launch mode is still the composer's to state; the server clamps it to whichever
+        // runtime the default resolves to.
         expect(runBody?.initial_permission_mode).not.toBeUndefined()
-        expect(runBody?.runtime_adapter).not.toBeUndefined()
+    })
+
+    it('sends the full selection for an explicit pick even when a server default exists', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/tasks/@me/config/': myConfigResponse({
+                    runtime_adapter: 'claude',
+                    model: 'claude-sonnet-4-6',
+                    reasoning_effort: 'high',
+                    source: 'team',
+                }),
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setNewTaskData({ description: 'do the thing', model: 'claude-opus-4-8' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runBody?.model).toEqual('claude-opus-4-8')
+        expect(runBody?.runtime_adapter).toEqual('claude')
+        expect(runBody?.initial_permission_mode).not.toBeUndefined()
         // The one-off pick resets after submit, back to "use default".
         expect(logic.values.newTaskData.model).toBeNull()
     })

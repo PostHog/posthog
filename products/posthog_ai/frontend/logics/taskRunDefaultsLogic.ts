@@ -14,6 +14,7 @@ export interface taskRunDefaultsLogicValues {
     currentProjectId: number | null // projectLogic
     defaultEffort: string | null
     defaultModel: string | null
+    defaultRuntimeAdapter: string | null
     myConfig: TasksUserConfigResponseApi | null
     myConfigLoading: boolean
     resolvedDefaults: TasksResolvedAIRunDefaultsApi | null
@@ -44,6 +45,7 @@ export interface taskRunDefaultsLogicMeta {
         resolvedDefaults: (myConfig: TasksUserConfigResponseApi | null) => TasksResolvedAIRunDefaultsApi | null
         defaultModel: (resolvedDefaults: TasksResolvedAIRunDefaultsApi | null) => string | null
         defaultEffort: (resolvedDefaults: TasksResolvedAIRunDefaultsApi | null) => string | null
+        defaultRuntimeAdapter: (resolvedDefaults: TasksResolvedAIRunDefaultsApi | null) => string | null
     }
 }
 
@@ -102,6 +104,12 @@ export const taskRunDefaultsLogic = kea<taskRunDefaultsLogicType>([
         defaultEffort: [
             (s) => [s.resolvedDefaults],
             (defaults: TasksResolvedAIRunDefaultsApi | null): string | null => defaults?.reasoning_effort ?? null,
+        ],
+        // The server already resolved which runtime the default belongs to; carrying it beats
+        // re-deriving from the client catalogue, which can be stale and mislabel the harness.
+        defaultRuntimeAdapter: [
+            (s) => [s.resolvedDefaults],
+            (defaults: TasksResolvedAIRunDefaultsApi | null): string | null => defaults?.runtime_adapter ?? null,
         ],
     }),
 

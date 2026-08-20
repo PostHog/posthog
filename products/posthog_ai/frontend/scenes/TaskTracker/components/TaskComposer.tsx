@@ -40,11 +40,11 @@ export function TaskComposer(): JSX.Element {
         displayModel,
         displayEffort,
         isDefaultSelection,
+        // Permission modes belong to the harness, so they follow the model actually shown — the
+        // server-resolved default's own runtime when nothing is picked, the pick's otherwise.
+        composerAdapter,
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
-    // Permission modes belong to the harness, so they follow the model actually shown — which with no
-    // explicit pick is the resolved default, not the empty selection.
-    const composerAdapter = getRuntimeAdapterForModel(catalogue, displayModel)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.

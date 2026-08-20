@@ -19,6 +19,7 @@ from products.tasks.backend.logic.services.ai_run_defaults import (
     update_user_ai_run_preferences,
 )
 from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
+from products.tasks.backend.presentation.serializers import TaskRunCreateRequestSerializer
 
 FACADE = "products.tasks.backend.facade.api"
 
@@ -140,6 +141,21 @@ class TestResolveAIRunDefaults(APIBaseTest):
         )
 
 
+class TestRunCreateSerializerModeWithoutAdapter(APIBaseTest):
+    # A composer that pins nothing must still be able to state the launch mode — the
+    # server resolves the runtime from the stored default and clamps the mode to it.
+    def test_mode_without_adapter_is_accepted(self):
+        serializer = TaskRunCreateRequestSerializer(data={"initial_permission_mode": "plan"})
+        assert serializer.is_valid(), serializer.errors
+
+    def test_mode_outside_the_pinned_adapters_vocabulary_is_still_rejected(self):
+        serializer = TaskRunCreateRequestSerializer(
+            data={"runtime_adapter": "codex", "model": "gpt-5.5", "initial_permission_mode": "acceptEdits"}
+        )
+        assert not serializer.is_valid()
+        assert "initial_permission_mode" in serializer.errors
+
+
 class TestModelAccessGating(APIBaseTest):
     GATED = "claude-opus-4-8"
 
@@ -234,6 +250,23 @@ class TestCreateRunAppliesDefaults(APIBaseTest):
         update_team_ai_run_preferences(self.team.id, **TEAM_TRIPLE)
         run = self._task(internal=True).create_run()
         assert "model" not in run.state
+
+    # The composer states the launch mode even when it pins no runtime, deferring the
+    # model to the stored default — the mode must then be clamped to whichever
+    # runtime's vocabulary the default resolves to, not fail the run downstream.
+    @parameterized.expand(
+        [
+            ("claude_mode_on_codex_default", USER_TRIPLE, "acceptEdits", "auto"),
+            ("codex_mode_on_claude_default", TEAM_TRIPLE, "read-only", "default"),
+            ("shared_mode_survives", TEAM_TRIPLE, "plan", "plan"),
+        ]
+    )
+    def test_permission_mode_clamps_to_the_resolved_runtime(
+        self, _name: str, default_triple: dict[str, Any], sent_mode: str, expected_mode: str
+    ):
+        update_team_ai_run_preferences(self.team.id, **default_triple)
+        run = self._task().create_run(extra_state={"initial_permission_mode": sent_mode})
+        assert run.state["initial_permission_mode"] == expected_mode
 
     def test_acting_user_preference_wins_over_task_creators(self):
         update_user_ai_run_preferences(self.team.id, self.user.id, **TEAM_TRIPLE)

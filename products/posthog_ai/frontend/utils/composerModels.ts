@@ -174,6 +174,22 @@ export function resolveEffortForModel(
 }
 
 /**
+ * A run-create request that pins no runtime selection at all: the backend resolves the model
+ * triple from the stored team/user default (or its own fallback), and the permission mode
+ * rides along, clamped server-side to whichever runtime the default names. Used whenever the
+ * composer's selection is untouched — pinning the displayed fallback instead would freeze a
+ * value the server could have resolved better (and would go stale the moment the default
+ * changes or a fetch fails). The generated request types are discriminated on
+ * `runtime_adapter`, so this shape deliberately steps outside them.
+ */
+export function buildServerResolvedRunCreateRequest(
+    permissionMode: PermissionMode,
+    rest: Partial<TaskRunCreateRequestSchemaApi>
+): TaskRunCreateRequestSchemaApi {
+    return { ...rest, initial_permission_mode: permissionMode } as unknown as TaskRunCreateRequestSchemaApi
+}
+
+/**
  * Build a run-create request for the picked model.
  *
  * The request schema is discriminated on `runtime_adapter`, and each runtime names its permission modes

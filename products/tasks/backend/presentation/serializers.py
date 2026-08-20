@@ -349,8 +349,11 @@ def get_initial_permission_mode_error(initial_permission_mode: str | None, runti
     """
     if initial_permission_mode is None:
         return None
+    # With no runtime pinned the mode rides along and is clamped to whichever runtime the
+    # stored defaults resolve to at run creation — requiring the adapter here would force
+    # composers to pin the model just to state a mode, blocking server-side default resolution.
     if runtime_adapter is None:
-        return "This field requires runtime_adapter to be set."
+        return None
     allowed_permission_modes = (
         list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
         if runtime_adapter == RuntimeAdapter.CODEX.value
