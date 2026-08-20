@@ -201,7 +201,7 @@ export function clampSyncFrequency(requested: DataWarehouseSyncInterval): DataWa
 }
 
 export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchemaStatus, LemonTagType> = {
-    [ExternalDataJobStatus.Running]: 'primary',
+    [ExternalDataJobStatus.Running]: 'completion',
     [ExternalDataJobStatus.Completed]: 'success',
     [ExternalDataJobStatus.Failed]: 'danger',
     [ExternalDataJobStatus.BillingLimits]: 'danger',

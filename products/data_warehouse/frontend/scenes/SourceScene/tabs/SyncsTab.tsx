@@ -17,7 +17,7 @@ import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
-    Running: 'primary',
+    Running: 'completion',
     Completed: 'success',
     Failed: 'danger',
     [ExternalDataJobStatus.BillingLimits]: 'danger',
