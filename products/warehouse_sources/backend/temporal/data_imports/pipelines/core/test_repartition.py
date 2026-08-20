@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
     append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    REWRITE_BATCH_READAHEAD,
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
@@ -559,6 +560,38 @@ class TestRewriteIntoTemp:
         sample = json.loads(redis.get(run_key("repartition:rw-test")))
         assert sample["peak_buffer_bytes"] > 0
 
+    def test_scanner_bounds_readahead_so_the_scan_cannot_outrun_the_buffer(self, tmp_path):
+        # The default 16-batch prefetch is invisible to the coalescing buffer.
+        rows = [(i, datetime.datetime(2024, 1, 1 + (i % 28))) for i in range(40)]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        captured: dict = {}
+        real_scanner = old_delta.to_pyarrow_dataset().scanner
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return real_scanner(**kwargs)
+
+        with patch.object(deltalake.DeltaTable, "to_pyarrow_dataset") as dataset:
+            dataset.return_value = SimpleNamespace(scanner=spy)
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=old_delta,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    batch_size=10,
+                    logger=logger,
+                )
+            )
+
+        assert captured["batch_readahead"] == REWRITE_BATCH_READAHEAD
+        assert "fragment_readahead" not in captured
+
     def test_stops_mid_stream_once_the_deadline_passes(self, tmp_path):
         rows = [
             (1, datetime.datetime(2024, 1, 5)),
@@ -830,7 +863,7 @@ class TestRewriteIntoTemp:
 
         old_delta = SimpleNamespace(
             to_pyarrow_dataset=lambda: SimpleNamespace(
-                scanner=lambda batch_size: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
+                scanner=lambda **kwargs: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
             ),
             schema=lambda: deltalake.Schema.from_arrow(live_pa_schema),
         )
