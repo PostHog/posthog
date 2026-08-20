@@ -2502,15 +2502,21 @@ jobs:
                       # instead of every selected test landing in a single job that then
                       # overruns the job timeout.
                       #
-                      # seconds_per_shard comes from turbo-discover, so the target wall clock,
-                      # the per-segment overhead and the safety factor stay defined in one
-                      # place. Missing data (turbo-discover failed, selector wrote no seconds)
-                      # keeps the previous single shard, which is the safe direction.
+                      # work_seconds_per_shard comes from turbo-discover and is the recorded
+                      # test work one shard of that segment may carry, so the target wall
+                      # clock, the per-segment overhead and the safety factor stay defined in
+                      # one place. Missing data (turbo-discover failed, selector wrote no
+                      # seconds) keeps the previous single shard, which is the safe direction.
+                      #
+                      # This sizes the selected *sum*. It does not model skew: a single test
+                      # near the budget still lands on one shard. Today the largest recorded
+                      # test is far below a shard budget, so packing the selected tests gives
+                      # the same count as this division does.
                       selected_shards() {
                           local seconds=$1 segment=$2 budget cap shards_json
                           shards_json="${DJANGO_SHARDS_JSON:-}"
                           [[ -z "$shards_json" ]] && shards_json='{}'
-                          budget=$(jq -r --arg s "$segment" '.[$s].seconds_per_shard // empty' <<< "$shards_json")
+                          budget=$(jq -r --arg s "$segment" '.[$s].work_seconds_per_shard // empty' <<< "$shards_json")
                           cap=$(jq -r --arg s "$segment" '.[$s].shards // empty' <<< "$shards_json")
                           if [[ -z "$seconds" || -z "$budget" || -z "$cap" ]]; then
                               echo 1

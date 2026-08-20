@@ -582,16 +582,17 @@ function buildDjangoShards(durations) {
         // calculateShards applies DJANGO_SAFETY_FACTOR — mirror it in the
         // wall estimate so the diagnostic matches the budget the shard count
         // actually targets (was previously under-reporting by ~30%).
-        const secondsPerShard = (duration * DJANGO_SAFETY_FACTOR) / shards
-        const wall = overhead + secondsPerShard
-        // seconds_per_shard is the per-shard test-work budget this segment settled on.
-        // A narrowed run divides its own selected seconds by it, so both modes aim at
-        // the same shard length and a target/overhead/safety change reaches both.
+        const wall = overhead + (duration * DJANGO_SAFETY_FACTOR) / shards
+        // The recorded test work one shard of this segment may carry. calculateShards is
+        // exactly ceil(duration / work_seconds_per_shard), so a narrowed run that divides
+        // its own selected seconds by it lands on the same rule — safety factor included —
+        // without copying the target or the overhead into the matrix shell.
+        const workSecondsPerShard = (DJANGO_TARGET_WALL_SECONDS - overhead) / DJANGO_SAFETY_FACTOR
         result[segment] = {
             duration_seconds: duration,
             shards,
             estimated_wall_seconds: wall,
-            seconds_per_shard: secondsPerShard,
+            work_seconds_per_shard: workSecondsPerShard,
         }
         const source = durations ? 'auto' : 'fallback'
         console.error(
