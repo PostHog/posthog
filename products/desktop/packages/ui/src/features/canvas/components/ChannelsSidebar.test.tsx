@@ -95,6 +95,7 @@ import {
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
+  keepListForRoute,
   showChannelList,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
@@ -226,6 +227,35 @@ describe("ChannelsSidebar", () => {
       renderSidebar();
       expect(listIsInteractive()).toBe(true);
       expect(screen.queryByTestId("channel-sidebar")).toBeNull();
+    });
+
+    // A deep link back to the channel is a request to see it, so a latch armed
+    // before an intervening channel-less route must not strand it on the list.
+    it("does not hold the list for a deep link after a channel-less route", () => {
+      mocks.routeChannelId = ENG.id;
+      const { rerender } = renderSidebar();
+      act(() => {
+        showChannelList();
+        keepListForRoute(ENG.id);
+      });
+      expect(listIsInteractive()).toBe(true);
+
+      mocks.routeChannelId = undefined;
+      rerender(
+        <Theme>
+          <ChannelsSidebar />
+        </Theme>,
+      );
+
+      mocks.routeChannelId = ENG.id;
+      rerender(
+        <Theme>
+          <ChannelsSidebar />
+        </Theme>,
+      );
+
+      expect(listIsInteractive()).toBe(false);
+      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ENG.id);
     });
 
     // A trackpad swipe reaches the panes as a horizontal wheel. Right (negative
