@@ -180,6 +180,7 @@ export interface RoleLookupResponseApi {
  * * `jira` - Jira
  * * `linear` - Linear
  * * `linkedin-ads` - Linkedin Ads
+ * * `mercado-pago` - Mercado Pago
  * * `meta-ads` - Meta Ads
  * * `pardot` - Pardot
  * * `pinterest-ads` - Pinterest Ads
@@ -231,6 +232,7 @@ export const IntegrationKindEnumApi = {
     Jira: 'jira',
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
+    MercadoPago: 'mercado-pago',
     MetaAds: 'meta-ads',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
@@ -500,6 +502,7 @@ export interface IntegrationAccessRequestApi {
      * * `jira` - Jira
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
+     * * `mercado-pago` - Mercado Pago
      * * `meta-ads` - Meta Ads
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
@@ -663,6 +666,7 @@ export type IntegrationsListParams = {
      * * `jira` - Jira
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
+     * * `mercado-pago` - Mercado Pago
      * * `meta-ads` - Meta Ads
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
@@ -725,6 +729,7 @@ export const IntegrationsListKind = {
     Jira: 'jira',
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
+    MercadoPago: 'mercado-pago',
     MetaAds: 'meta-ads',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',

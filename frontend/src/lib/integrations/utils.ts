@@ -26,6 +26,7 @@ import IconJira from 'public/services/jira.svg'
 import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
+import IconMercadoPago from 'public/services/mercado_pago.png'
 import IconMetaAds from 'public/services/meta-ads.png'
 import IconPardot from 'public/services/pardot.png'
 import IconPinterest from 'public/services/pinterest_ads.png'
@@ -87,6 +88,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     gitlab: IconGitLab,
     'meta-ads': IconMetaAds,
     instagram: IconInstagram,
+    'mercado-pago': IconMercadoPago,
     twilio: IconTwilio,
     clickup: IconClickUp,
     'reddit-ads': IconReddit,
@@ -142,6 +144,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Azure Blob Storage'
         case 'pinterest-ads':
             return 'Pinterest Ads'
+        case 'mercado-pago':
+            return 'Mercado Pago'
         case 'email':
             return 'email'
         case 'github':

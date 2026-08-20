@@ -5509,6 +5509,7 @@ export const INTEGRATION_KINDS = [
     'gitlab',
     'meta-ads',
     'instagram',
+    'mercado-pago',
     'clickup',
     'reddit-ads',
     'databricks',

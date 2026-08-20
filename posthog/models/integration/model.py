@@ -149,6 +149,7 @@ class Integration(models.Model):
         JIRA = "jira"
         LINEAR = "linear"
         LINKEDIN_ADS = "linkedin-ads"
+        MERCADO_PAGO = "mercado-pago"
         META_ADS = "meta-ads"
         PARDOT = "pardot"
         PINTEREST_ADS = "pinterest-ads"
