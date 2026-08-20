@@ -66,6 +66,15 @@ export const freePlacementCompactor: Compactor = noCompactor
 
 export const makeRoomInRowCompactor: Compactor = horizontalCompactor
 
+export interface DashboardGridCompactor extends Compactor {
+    compactInteraction: (
+        cols: number,
+        activeTileId: string,
+        restoredLayout: Layout,
+        resizedLayout: Layout
+    ) => Layout
+}
+
 export function resolveFreePlacementCollisions(layout: Layout, cols: number, activeTileId?: string | null): Layout {
     const items = layout.map((item) => ({
         ...cloneLayoutItem(item),
@@ -98,13 +107,30 @@ export function getDashboardTileSpacingGap(tileSpacing?: string): number {
     return DASHBOARD_TILE_SPACING_GAPS[tileSpacing as DashboardTileSpacing] ?? DASHBOARD_TILE_SPACING_GAPS.standard
 }
 
-export function getDashboardGridCompactor(layoutCompaction?: DashboardGridCompaction): Compactor {
-    switch (layoutCompaction) {
-        case DashboardGridCompaction.Horizontal:
-            return makeRoomInRowCompactor
-        case DashboardGridCompaction.Stable:
-            return freePlacementCompactor
-        default:
-            return fastVerticalCompactor
+export function getDashboardGridCompactor(layoutCompaction?: DashboardGridCompaction): DashboardGridCompactor {
+    const selectedCompaction = layoutCompaction ?? DashboardGridCompaction.Vertical
+    const compactor = (() => {
+        switch (selectedCompaction) {
+            case DashboardGridCompaction.Horizontal:
+                return makeRoomInRowCompactor
+            case DashboardGridCompaction.Stable:
+                return freePlacementCompactor
+            default:
+                return fastVerticalCompactor
+        }
+    })()
+
+    return {
+        ...compactor,
+        compactInteraction: (cols, activeTileId, restoredLayout, resizedLayout): Layout => {
+            switch (selectedCompaction) {
+                case DashboardGridCompaction.Stable:
+                    return resolveFreePlacementCollisions(restoredLayout, cols, activeTileId)
+                case DashboardGridCompaction.Vertical:
+                    return compactor.compact(resizedLayout, cols)
+                default:
+                    return compactor.compact(restoredLayout, cols)
+            }
+        },
     }
 }
