@@ -1,9 +1,9 @@
 """Curated query: merge-queue landing stats for the repo hub landing page.
 
 Gate-run attribution rides the runs builder's gate detection (SPEC §6, ``logic/merge_queue.py``):
-``is_merge_queue`` marks actor-corroborated gate runs and ``pr_number`` is already re-keyed to the
-source PR. The only branch parsing here is collapsing Trunk's ``-bisection`` suffix so a probe run
-groups with the attempt it investigates. The population is merged PRs with at
+``is_merge_queue`` marks actor-corroborated gate runs, ``pr_number`` is already re-keyed to the
+source PR, and ``gate_attempt_expr`` names the attempt a run belongs to, so this module adds no
+branch parsing of its own. The population is merged PRs with at
 least one corroborated gate run: all authors, bots included, because these figures measure the
 queue's mechanics, not author behavior (the locked bots/drafts recipe governs cycle-time medians,
 a different question). ``had_failed_gate`` is a CI-outcome proxy for eviction: the queue's own
@@ -15,10 +15,12 @@ from datetime import datetime, timedelta
 
 from posthog.hogql import ast
 
+from products.engineering_analytics.backend.logic.merge_queue import gate_attempt_expr
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     date_to_filter_clause,
     run_started_floor_constant,
+    window_pair_predicates,
 )
 
 # Gate runs start minutes-to-hours before their merge; reach this far behind the previous window so
@@ -57,11 +59,8 @@ _MERGE_QUEUE_SELECT = """
                 r.pr_number AS pr_number,
                 any(pr.merged_at) AS merged_at,
                 min(r.run_started_at) AS first_gate_started_at,
-                -- One attempt = one gate branch; Trunk's flake-bisection branches collapse into the
-                -- attempt they investigate rather than inflating the count.
-                count(DISTINCT replaceRegexpOne(r.head_branch, '-bisection$', '')) AS attempts,
-                max(r.status = 'completed' AND coalesce(r.conclusion, '') IN ('failure', 'timed_out'))
-                    AS had_failed_gate
+                count(DISTINCT __GATE_ATTEMPT__) AS attempts,
+                max(r.status = 'completed' AND r.conclusion IN ('failure', 'timed_out')) AS had_failed_gate
             FROM __RUNS_SOURCE__ AS r
             INNER JOIN __PR_SOURCE__ AS pr ON pr.number = r.pr_number
             WHERE r.is_merge_queue
@@ -83,10 +82,10 @@ class MergeQueueWindowStats:
 
     merged_pr_count: int
     merged_pr_count_prev: int
-    median_gate_to_merge_seconds: float | None
-    median_gate_to_merge_seconds_prev: float | None
-    p90_gate_to_merge_seconds: float | None
-    p90_gate_to_merge_seconds_prev: float | None
+    median_first_gate_to_merge_seconds: float | None
+    median_first_gate_to_merge_seconds_prev: float | None
+    p90_first_gate_to_merge_seconds: float | None
+    p90_first_gate_to_merge_seconds_prev: float | None
     avg_attempts_per_merge: float | None
     avg_attempts_per_merge_prev: float | None
     multi_attempt_merge_share: float | None
@@ -98,10 +97,10 @@ class MergeQueueWindowStats:
 _EMPTY_STATS = MergeQueueWindowStats(
     merged_pr_count=0,
     merged_pr_count_prev=0,
-    median_gate_to_merge_seconds=None,
-    median_gate_to_merge_seconds_prev=None,
-    p90_gate_to_merge_seconds=None,
-    p90_gate_to_merge_seconds_prev=None,
+    median_first_gate_to_merge_seconds=None,
+    median_first_gate_to_merge_seconds_prev=None,
+    p90_first_gate_to_merge_seconds=None,
+    p90_first_gate_to_merge_seconds_prev=None,
     avg_attempts_per_merge=None,
     avg_attempts_per_merge_prev=None,
     multi_attempt_merge_share=None,
@@ -125,8 +124,7 @@ def query_merge_queue_overview(
     attempts.
     """
     gate_from = prev_from - _GATE_LOOKBACK
-    cur = "(merged_at >= {date_from}" + (" AND merged_at <= {date_to})" if date_to is not None else ")")
-    prev = "(merged_at >= {prev_from} AND merged_at < {date_from})"
+    cur, prev = window_pair_predicates("merged_at", date_to=date_to)
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
@@ -139,6 +137,7 @@ def query_merge_queue_overview(
         .replace("__PREV__", prev)
         .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__PR_SOURCE__", curated.pr_source())
+        .replace("__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch"))
         .replace("__DATE_TO_MERGED__", date_to_merged_clause)
     )
     response = curated.run(sql, query_type="engineering_analytics.merge_queue_overview", placeholders=placeholders)
@@ -161,10 +160,10 @@ def query_merge_queue_overview(
     return MergeQueueWindowStats(
         merged_pr_count=int(merged_cur or 0),
         merged_pr_count_prev=int(merged_prev or 0),
-        median_gate_to_merge_seconds=opt_float(median_cur),
-        median_gate_to_merge_seconds_prev=opt_float(median_prev),
-        p90_gate_to_merge_seconds=opt_float(p90_cur),
-        p90_gate_to_merge_seconds_prev=opt_float(p90_prev),
+        median_first_gate_to_merge_seconds=opt_float(median_cur),
+        median_first_gate_to_merge_seconds_prev=opt_float(median_prev),
+        p90_first_gate_to_merge_seconds=opt_float(p90_cur),
+        p90_first_gate_to_merge_seconds_prev=opt_float(p90_prev),
         avg_attempts_per_merge=opt_float(avg_attempts_cur),
         avg_attempts_per_merge_prev=opt_float(avg_attempts_prev),
         multi_attempt_merge_share=opt_float(multi_share_cur),

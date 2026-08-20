@@ -51,6 +51,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     date_to_filter_clause,
     merge_queue_branch_predicate,
     run_scope_filter_clause,
+    window_pair_predicates,
 )
 
 # The billable-tier predicate over the cost source's classified columns — defined once in logic.cost
@@ -380,9 +381,7 @@ def query_workflow_window_costs_with_prev(
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
     }
-    cur = "(c.run_started_at >= {date_from}" + (" AND c.run_started_at <= {date_to})" if date_to else ")")
-    # Half-open: a run starting exactly at date_from is current, not both windows.
-    prev = "(c.run_started_at >= {prev_from} AND c.run_started_at < {date_from})"
+    cur, prev = window_pair_predicates("c.run_started_at", date_to=date_to)
     date_to_clause = ""
     if date_to is not None:
         date_to_clause = "AND c.run_started_at <= {date_to}"

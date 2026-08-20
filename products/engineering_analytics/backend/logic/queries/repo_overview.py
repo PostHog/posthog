@@ -34,7 +34,10 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     window_buckets,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
-from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    run_started_floor_constant,
+    window_pair_predicates,
+)
 from products.engineering_analytics.backend.logic.queries.merge_queue_overview import query_merge_queue_overview
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_cost_per_merge_series,
@@ -331,8 +334,7 @@ def query_repo_overview(
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
     date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
-    cur = "(run_started_at >= {date_from}" + (" AND run_started_at <= {date_to})" if date_to is not None else ")")
-    prev = "(run_started_at >= {prev_from} AND run_started_at < {date_from})"
+    cur, prev = window_pair_predicates("run_started_at", date_to=date_to)
 
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
@@ -357,8 +359,7 @@ def query_repo_overview(
     run_count, run_count_prev, success_rate, success_rate_prev, reruns, reruns_prev, master_runs, main_runs = row
     default_branch = "main" if (main_runs or 0) > (master_runs or 0) else "master"
 
-    pr_cur = "(merged_at >= {date_from}" + (" AND merged_at <= {date_to})" if date_to is not None else ")")
-    pr_prev = "(merged_at >= {prev_from} AND merged_at < {date_from})"
+    pr_cur, pr_prev = window_pair_predicates("merged_at", date_to=date_to)
     ready = curated.ready_to_merge_sql()
     pr_sql = ready.with_clause + (
         _PR_SELECT.replace("__READY_MEDIAN_CUR__", ready.median(scope=f"{pr_cur} AND {_HUMAN_MERGES}"))
@@ -390,6 +391,8 @@ def query_repo_overview(
     # The queue slice mirrors billable_minutes' null gating so both go null together.
     queue_minutes = costs.merge_queue_billable_seconds / 60 if cost_cur else None
     queue_minutes_prev = costs.merge_queue_billable_seconds_prev / 60 if cost_prev else None
+    cost_per_merge = cost_usd / int(merged_cur) if cost_usd is not None and merged_cur else None
+    cost_per_merge_prev = cost_usd_prev / int(merged_prev) if cost_usd_prev is not None and merged_prev else None
 
     return RepoOverview(
         run_count=run_count,
@@ -408,14 +411,16 @@ def query_repo_overview(
         billable_minutes_prev=billable_seconds_prev / 60 if billable_seconds_prev is not None else None,
         estimated_cost_usd=opt_float(cost_usd),
         estimated_cost_usd_prev=opt_float(cost_usd_prev),
+        cost_per_merge_usd=opt_float(cost_per_merge),
+        cost_per_merge_usd_prev=opt_float(cost_per_merge_prev),
         merge_queue_billable_minutes=queue_minutes,
         merge_queue_billable_minutes_prev=queue_minutes_prev,
         merge_queue_merged_pr_count=queue.merged_pr_count,
         merge_queue_merged_pr_count_prev=queue.merged_pr_count_prev,
-        merge_queue_median_gate_to_merge_seconds=queue.median_gate_to_merge_seconds,
-        merge_queue_median_gate_to_merge_seconds_prev=queue.median_gate_to_merge_seconds_prev,
-        merge_queue_p90_gate_to_merge_seconds=queue.p90_gate_to_merge_seconds,
-        merge_queue_p90_gate_to_merge_seconds_prev=queue.p90_gate_to_merge_seconds_prev,
+        merge_queue_median_first_gate_to_merge_seconds=queue.median_first_gate_to_merge_seconds,
+        merge_queue_median_first_gate_to_merge_seconds_prev=queue.median_first_gate_to_merge_seconds_prev,
+        merge_queue_p90_first_gate_to_merge_seconds=queue.p90_first_gate_to_merge_seconds,
+        merge_queue_p90_first_gate_to_merge_seconds_prev=queue.p90_first_gate_to_merge_seconds_prev,
         merge_queue_avg_attempts_per_merge=queue.avg_attempts_per_merge,
         merge_queue_avg_attempts_per_merge_prev=queue.avg_attempts_per_merge_prev,
         merge_queue_multi_attempt_merge_share=queue.multi_attempt_merge_share,

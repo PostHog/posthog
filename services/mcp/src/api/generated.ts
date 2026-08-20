@@ -71480,6 +71480,16 @@ export namespace Schemas {
          */
       estimated_cost_usd_prev: number | null;
       /**
+         * estimated_cost_usd divided by merged_pr_count — the window's CI cost per merged PR. Null when the job-level source isn't synced or nothing merged.
+         * @nullable
+         */
+      cost_per_merge_usd: number | null;
+      /**
+         * The same ratio over the previous window. Null when the job-level source isn't synced or nothing merged.
+         * @nullable
+         */
+      cost_per_merge_usd_prev: number | null;
+      /**
          * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
          * @nullable
          */
@@ -71497,22 +71507,22 @@ export namespace Schemas {
          * Median seconds from a PR's first observed merge-queue gate run starting to the PR merging. Pending time before gate testing starts is not included. Null when no queue-landed merges.
          * @nullable
          */
-      merge_queue_median_gate_to_merge_seconds: number | null;
+      merge_queue_median_first_gate_to_merge_seconds: number | null;
       /**
          * The same median over the previous window. Null when no queue-landed merges.
          * @nullable
          */
-      merge_queue_median_gate_to_merge_seconds_prev: number | null;
+      merge_queue_median_first_gate_to_merge_seconds_prev: number | null;
       /**
          * p90 of the same first-gate-run-to-merge measure — the tail, where queue pain concentrates. Null when no queue-landed merges.
          * @nullable
          */
-      merge_queue_p90_gate_to_merge_seconds: number | null;
+      merge_queue_p90_first_gate_to_merge_seconds: number | null;
       /**
          * The same p90 over the previous window. Null when no queue-landed merges.
          * @nullable
          */
-      merge_queue_p90_gate_to_merge_seconds_prev: number | null;
+      merge_queue_p90_first_gate_to_merge_seconds_prev: number | null;
       /**
          * Mean distinct gate attempts (distinct gate branches, flake-bisection branches collapsed) per queue-landed merge. Null when no queue-landed merges.
          * @nullable
