@@ -1623,7 +1623,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       // Drop the late completion of an already-interrupted turn (else it cancels the follow-up).
       if (this.turns.shouldDropCompletion(turn?.id)) return;
       if (turn?.status === "failed") {
-        this.deferFailedTurnFinalization(turn?.id);
+        this.deferFailedTurnFinalization(
+          turn?.id,
+          this.turns.currentGeneration,
+        );
         return;
       }
       void this.finalizeTurn(mapTurnStopReason(turn?.status));
@@ -2028,8 +2031,12 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     void this.emitUsageBreakdown(this.usage.contextTokens());
   }
 
-  private deferFailedTurnFinalization(turnId: string | undefined): void {
+  private deferFailedTurnFinalization(
+    turnId: string | undefined,
+    generation: number,
+  ): void {
     setTimeout(() => {
+      if (generation !== this.turns.currentGeneration) return;
       if (
         turnId &&
         this.turns.activeTurnId &&

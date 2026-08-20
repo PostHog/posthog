@@ -2330,6 +2330,41 @@ describe("CodexAppServerAgent", () => {
     vi.useRealTimers();
   });
 
+  it("does not let an ID-less failed completion refuse a later prompt", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const first = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "first" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", {
+      turn: { status: "failed" },
+    });
+    stub.emit("error", { willRetry: false, error: { message: "boom" } });
+    await expect(first).rejects.toThrow(
+      "The agent stopped before completing this request. Please try again.",
+    );
+
+    const second = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "second" }],
+    } as unknown as PromptRequest);
+    await vi.advanceTimersByTimeAsync(250);
+    stub.emit("turn/completed", {
+      turn: { status: "completed" },
+    });
+
+    await expect(second).resolves.toMatchObject({ stopReason: "end_turn" });
+    vi.useRealTimers();
+  });
+
   it("rejects a malformed fatal error payload", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client } = makeFakeClient();
