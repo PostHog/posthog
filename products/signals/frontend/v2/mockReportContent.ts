@@ -241,6 +241,12 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
             },
             liveRange: [11, 17],
         },
+        screenshot: {
+            kind: 'usage-banner',
+            urlHint: 'us.posthog.com/organization/billing',
+            caption:
+                'The banner a non-admin sees. The sentence about upgrading is plain text, so people click the words.',
+        },
         evidence: [
             {
                 label: 'Autocapture',
@@ -328,6 +334,12 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
                 baselineLabel: 'expected ~1/hr',
             },
             liveRange: [3, 6],
+        },
+        screenshot: {
+            kind: 'ai-error-card',
+            urlHint: 'us.posthog.com/max',
+            caption:
+                'The answer replaces its chart with a dead-end error card. There is no retry, so people rephrase the question instead.',
         },
         evidence: [
             {
@@ -500,6 +512,12 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
                 annotations: [{ index: 21, label: 'detected', color: 'accent', labelAnchor: 'end' }],
             },
             liveRange: [70, 88],
+        },
+        screenshot: {
+            kind: 'dashboard-tile',
+            urlHint: 'us.posthog.com/dashboard/214',
+            caption:
+                'What a viewer sees on a failed tile: no error code, no query id, and a Try again that cannot help.',
         },
         evidence: [
             {

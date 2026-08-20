@@ -53,6 +53,8 @@ export const Report: Story = { render: () => <V2ReportScene id="RPT-1042" /> }
 
 export const ReportDisputed: Story = { render: () => <V2ReportScene id="RPT-1023" /> }
 
+export const ReportWithScreenshot: Story = { render: () => <V2ReportScene id="RPT-1031" /> }
+
 export const Resolved: Story = { render: () => <V2ResolvedScene id="RPT-1019" /> }
 
 export const Monitor: Story = { render: () => <V2MonitorScene id="RPT-1028" /> }

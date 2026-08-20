@@ -12,6 +12,7 @@ import { CreatePrModal } from './components/CreatePrModal'
 import { createPrModalLogic } from './components/createPrModalLogic'
 import { DemoBarStrip } from './components/DemoBarStrip'
 import { DemoDiffBlock, diffLinesFromSnippet } from './components/DemoDiffBlock'
+import { EvidenceScreenshot } from './components/EvidenceScreenshot'
 import { ReportStateTag } from './components/ReportStateTag'
 import { SendToAgentMenu } from './components/SendToAgentMenu'
 import { DEMO_REPORT_ID } from './mockData'
@@ -270,6 +271,7 @@ export function V2ReportScene({ id = DEMO_REPORT_ID }: V2ReportSceneProps = {}):
 
                     <div className="flex flex-col gap-2.5">
                         <Microlabel>Evidence</Microlabel>
+                        {content.screenshot ? <EvidenceScreenshot screenshot={content.screenshot} /> : null}
                         {visibleEvidence.map((card) => (
                             <EvidenceCard key={card.title} card={card} />
                         ))}

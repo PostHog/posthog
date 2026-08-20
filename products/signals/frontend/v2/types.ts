@@ -72,6 +72,17 @@ export interface DemoChartData {
     annotations?: DemoChartAnnotation[]
 }
 
+/** Which micro-mock the evidence screenshot frame renders. */
+export type DemoScreenshotKind = 'dashboard-tile' | 'usage-banner' | 'ai-error-card'
+
+/** A mock screenshot of the error UI, drawn with tokens instead of an image asset. */
+export interface DemoScreenshot {
+    kind: DemoScreenshotKind
+    /** Address-bar hint in the frame, e.g. "us.posthog.com/dashboard/214" */
+    urlHint: string
+    caption: string
+}
+
 export interface ReportEvidenceCard {
     /** Micro label, e.g. "ERROR TRACKING" */
     label: string
@@ -133,6 +144,8 @@ export interface DemoReportContent {
     }
     /** Occurrence bar strip under the observation chart */
     occurrences?: { label: string; values: number[]; alarmFromIndex: number }
+    /** Mock screenshot of the error UI, shown at the top of the evidence rail */
+    screenshot?: DemoScreenshot
     evidence: ReportEvidenceCard[]
     /** Pre-fix history; the fix lifecycle appends its own rows */
     timeline: ReportTimelineEntry[]
