@@ -346,6 +346,11 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
     })),
     listeners(({ actions, values }) => ({
         openModal: ({ rowIndex, breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) => {
+            // Backstop for render surfaces that don't check canOpenPersonModal before dispatching:
+            // custom aggregation targets can't resolve actors, so don't fire the query.
+            if (!values.canOpenPersonModal) {
+                return
+            }
             actions.loadPeople(rowIndex, breakdownValue)
         },
         saveAsCohort: async ({ cohortName }) => {

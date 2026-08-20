@@ -215,10 +215,19 @@ describe('retentionModalLogic', () => {
             aggregationTargetLabel: AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE,
         })
 
+        // Backstop: even when a render surface dispatches openModal anyway, no actors query fires
+        await expectLogic(logic, () => {
+            logic.actions.openModal(0)
+        }).toNotHaveDispatchedActions(['loadPeople'])
+
         await expectLogic(logic, () => {
             retentionLogic(insightProps).actions.updateQuerySource(retentionQuery)
         }).toMatchValues({
             canOpenPersonModal: true,
         })
+
+        await expectLogic(logic, () => {
+            logic.actions.openModal(0)
+        }).toDispatchActions(['loadPeople'])
     })
 })
