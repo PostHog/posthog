@@ -1,5 +1,7 @@
 import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
 import type { SignalReport } from "@posthog/shared/types";
+import { ReportRestoreButton } from "@posthog/ui/features/inbox/components/ReportRestoreButton";
 import { ReportStateMonogram } from "@posthog/ui/features/inbox/components/ReportStateMonogram";
 import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
@@ -36,7 +38,11 @@ export function ReportRow({
                 aria-label="Has a pull request"
               />
             )}
-            {actionButton}
+            {isDismissedReport(report) ? (
+              <ReportRestoreButton report={report} />
+            ) : (
+              actionButton
+            )}
           </span>
         }
       />

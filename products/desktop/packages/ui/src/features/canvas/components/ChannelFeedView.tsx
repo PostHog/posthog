@@ -1354,6 +1354,8 @@ export function ChannelFeedView({
   reportFilters,
   onReportFiltersChange,
   reportStatusCounts,
+  reportUnseenCount,
+  onReportsViewed,
   isLoading,
   emptyState,
   intro,
@@ -1379,6 +1381,10 @@ export function ChannelFeedView({
   onReportFiltersChange?: (filters: ChannelReportsFilters) => void;
   /** Per-bucket counts for the status chips on the Reports tab. */
   reportStatusCounts?: ReportStatusCounts;
+  /** Unread badge on the Reports kind tab: reports newer than the last look. */
+  reportUnseenCount?: number;
+  /** Called while the Reports kind tab is showing, to stamp reports seen. */
+  onReportsViewed?: () => void;
   isLoading: boolean;
   emptyState?: React.ReactNode;
   /** Rendered pinned above the first entry — the Slack-style channel intro
@@ -1409,6 +1415,14 @@ export function ChannelFeedView({
   }>({ channelId, value: "all" });
   const activeKindFilter =
     kindFilter.channelId === channelId ? kindFilter.value : "all";
+
+  // Looking at the Reports tab reads this space's reports: the identity of
+  // onReportsViewed advances with the newest arrival, so a report landing
+  // while the tab is open re-stamps it (same convention as useMarkChannelSeen).
+  useEffect(() => {
+    if (activeKindFilter !== "reports") return;
+    onReportsViewed?.();
+  }, [activeKindFilter, onReportsViewed]);
 
   const entries = useMemo<FeedEntry[]>(
     () =>
@@ -1482,6 +1496,11 @@ export function ChannelFeedView({
               className="rounded-sm px-1 py-0.5 text-[13px]"
             >
               {label}
+              {value === "reports" && (reportUnseenCount ?? 0) > 0 && (
+                <span className="ml-1 rounded-full bg-(--amber-3) px-1 font-semibold text-[10px] text-(--amber-11) tabular-nums">
+                  {reportUnseenCount}
+                </span>
+              )}
             </TabsTrigger>
           ))}
         </TabsList>

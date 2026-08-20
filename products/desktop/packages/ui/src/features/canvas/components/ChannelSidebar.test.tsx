@@ -41,6 +41,32 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
 // The row menu's spaces list reaches for a QueryClient the unit test has no
 // stack for. Stubbed at the module boundary, as WebsiteLayout.test.tsx does for
 // the same reason.
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelReports", () => ({
+  EMPTY_CHANNEL_REPORTS_FILTERS: {
+    search: "",
+    relevantToMeOnly: false,
+    priorities: [],
+    status: "all",
+  },
+  useChannelReports: () => ({
+    reports: [],
+    statusCounts: {
+      all: 0,
+      "needs-review": 0,
+      ready: 0,
+      running: 0,
+      archived: 0,
+    },
+    unseenCount: 0,
+    markSeen: () => {},
+    isLoading: false,
+    isError: false,
+    forMeCount: 0,
+    fetchNextPage: () => {},
+    hasNextPage: false,
+    isFetchingNextPage: false,
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
 }));

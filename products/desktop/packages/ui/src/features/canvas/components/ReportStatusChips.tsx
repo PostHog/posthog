@@ -11,6 +11,9 @@ const CHIPS: readonly { value: ReportStatusFilter; label: string }[] = [
   { value: "needs-review", label: "Needs review" },
   { value: "ready", label: "Ready" },
   { value: "running", label: "Running" },
+  // Archived rows are a separate lazy fetch, so this chip's count only exists
+  // while it is selected — it renders without a number otherwise.
+  { value: "archived", label: "Archived" },
 ];
 
 /**
@@ -39,7 +42,11 @@ export function ReportStatusChips({
           className={`${cnHeaderButton(filters.status === value)} gap-1 px-1.5 text-[11px]`}
         >
           {label}
-          <span className="text-(--gray-9) tabular-nums">{counts[value]}</span>
+          {(value !== "archived" || counts[value] > 0) && (
+            <span className="text-(--gray-9) tabular-nums">
+              {counts[value]}
+            </span>
+          )}
         </Button>
       ))}
     </div>

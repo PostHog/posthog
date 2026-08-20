@@ -54,6 +54,10 @@ import {
   channelPageLabel,
 } from "@posthog/ui/features/canvas/components/channelPages";
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
+import {
+  EMPTY_CHANNEL_REPORTS_FILTERS,
+  useChannelReports,
+} from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTasksRunState } from "@posthog/ui/features/canvas/hooks/useChannelTasksRunState";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
@@ -92,7 +96,11 @@ const log = logger.scope("channel-sidebar");
 /** The list holds two kinds of thing, and shows one of them at a time. */
 type ChannelTab = ChannelItemModel["kind"] | "report";
 
-const CHANNEL_TABS: readonly { value: ChannelTab; label: string }[] = [
+const CHANNEL_TABS: readonly {
+  value: ChannelTab;
+  label: string;
+  badge?: number;
+}[] = [
   { value: "task", label: "Sessions" },
   { value: "canvas", label: "Canvases" },
 ];
@@ -117,7 +125,7 @@ function RecentSectionHeader({
   showItemControls = true,
 }: {
   tab: ChannelTab;
-  tabs: readonly { value: ChannelTab; label: string }[];
+  tabs: readonly { value: ChannelTab; label: string; badge?: number }[];
   onTabChange: (tab: ChannelTab) => void;
   searchOpen: boolean;
   onToggleSearch: () => void;
@@ -157,13 +165,18 @@ function RecentSectionHeader({
             variant="line"
             className="quill-tabs-fill h-auto gap-0.5 border-b-0"
           >
-            {tabs.map(({ value, label }) => (
+            {tabs.map(({ value, label, badge }) => (
               <TabsTrigger
                 key={value}
                 value={value}
                 className="rounded-sm px-1 py-0.5 text-[13px]"
               >
                 {label}
+                {(badge ?? 0) > 0 && (
+                  <span className="ml-1 rounded-full bg-(--amber-3) px-1 font-semibold text-[10px] text-(--amber-11) tabular-nums">
+                    {badge}
+                  </span>
+                )}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -345,12 +358,25 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     !isGeneralChannel({ channel_type: channel.channelType, name: channel.name })
       ? channelReportView(channelId)
       : generalReportView();
+  // Shares the section's query key, so the badge costs no extra fetch.
+  const { unseenCount: unseenReportCount } = useChannelReports(
+    reportView,
+    EMPTY_CHANNEL_REPORTS_FILTERS,
+    { enabled: reportsEnabled },
+  );
   const visibleTabs = useMemo(
     () =>
       reportsEnabled
-        ? [...CHANNEL_TABS, { value: "report" as ChannelTab, label: "Reports" }]
+        ? [
+            ...CHANNEL_TABS,
+            {
+              value: "report" as ChannelTab,
+              label: "Reports",
+              badge: unseenReportCount,
+            },
+          ]
         : CHANNEL_TABS,
-    [reportsEnabled],
+    [reportsEnabled, unseenReportCount],
   );
   // The tab is the list, so everything below it — the filters, the empty state,
   // the sections — is about one kind of thing at a time.

@@ -16,7 +16,7 @@ import {
   useChannelReports,
 } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 /**
  * A space's Reports list. The general space shows every report; any other space
@@ -35,7 +35,16 @@ export function ChannelReportsSection({
     EMPTY_CHANNEL_REPORTS_FILTERS,
   );
   const openReport = useOpenInboxReport();
-  const { reports, isLoading, isError } = useChannelReports(view, filters);
+  const { reports, isLoading, isError, markSeen } = useChannelReports(
+    view,
+    filters,
+  );
+
+  // Looking at the list reads this space's reports; markSeen's identity
+  // advances with the newest arrival, so new reports re-stamp while open.
+  useEffect(() => {
+    markSeen();
+  }, [markSeen]);
 
   const filtersActive =
     filters.relevantToMeOnly || filters.priorities.length > 0;

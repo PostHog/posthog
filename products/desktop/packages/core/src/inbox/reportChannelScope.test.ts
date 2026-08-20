@@ -6,7 +6,9 @@ import {
   channelReportView,
   countChannelReportsByStatus,
   countChannelReportsForMe,
+  countUnseenReports,
   generalReportView,
+  latestReportArrival,
 } from "./reportChannelScope";
 
 function report(overrides: Partial<SignalReport>): SignalReport {
@@ -130,6 +132,36 @@ describe("reportChannelScope", () => {
     expect(ids).toEqual(expected);
   });
 
+  it("archived bucket keeps only suppressed and resolved reports", () => {
+    const reports = [
+      report({ id: "ready" }),
+      report({ id: "suppressed", status: "suppressed" }),
+      report({ id: "resolved", status: "resolved" }),
+      report({ id: "deleted", status: "deleted" }),
+    ];
+    const ids = buildChannelReportList(reports, {
+      view: generalReportView(),
+      status: "archived",
+    }).map((r) => r.id);
+    expect(ids).toEqual(["suppressed", "resolved"]);
+  });
+
+  it("unseen count only counts active reports newer than the stamp, none without one", () => {
+    const reports = [
+      report({ id: "old", created_at: "2026-01-01T00:00:00Z" }),
+      report({ id: "new", created_at: "2026-06-01T00:00:00Z" }),
+      report({
+        id: "archived",
+        status: "suppressed",
+        created_at: "2026-06-02T00:00:00Z",
+      }),
+    ];
+    const view = generalReportView();
+    expect(countUnseenReports(reports, view, undefined)).toBe(0);
+    expect(countUnseenReports(reports, view, "2026-03-01T00:00:00Z")).toBe(1);
+    expect(latestReportArrival(reports, view)).toBe("2026-06-01T00:00:00Z");
+  });
+
   it("status counts bucket every non-archived report exactly once and ignore the status filter", () => {
     const reports = [
       report({ id: "pr", implementation_pr_url: "https://example.com/pr/1" }),
@@ -146,6 +178,7 @@ describe("reportChannelScope", () => {
       "needs-review": 1,
       ready: 1,
       running: 2,
+      archived: 0,
     });
   });
 

@@ -1,6 +1,7 @@
 import type { SignalReport, SignalReportPriority } from "@posthog/shared/types";
 
 import {
+  isDismissedReport,
   isExcludedFromInbox,
   isLiveRunReport,
   isQueuedRunReport,
@@ -38,13 +39,19 @@ function reportMatchesChannelView(
  * without a PR is ready; everything still moving (queued, live) plus failed
  * runs is running — the same population the inbox's Runs tab held.
  */
-export type ReportStatusFilter = "all" | "needs-review" | "ready" | "running";
+export type ReportStatusFilter =
+  | "all"
+  | "needs-review"
+  | "ready"
+  | "running"
+  | "archived";
 
 export function matchesReportStatusFilter(
   report: SignalReport,
   filter: ReportStatusFilter,
 ): boolean {
   if (filter === "all") return true;
+  if (filter === "archived") return isDismissedReport(report);
   if (filter === "needs-review") return !!report.implementation_pr_url;
   if (filter === "ready") {
     return report.status === "ready" && !report.implementation_pr_url;
@@ -75,22 +82,21 @@ function reportTimestampMs(report: SignalReport): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-/**
- * The ordered list the sidebar Reports tab renders. Suppressed, resolved, and
- * deleted reports drop out (they live in the archive); the rest are narrowed by
- * the space scope and the active filters, then sorted newest-first. Pure so the
- * ordering the user sees is testable without a render.
- */
 function matchesChannelReportOptions(
   report: SignalReport,
   options: ChannelReportListOptions,
 ): boolean {
-  if (isExcludedFromInbox(report)) return false;
+  const status = options.status ?? "all";
+  // "archived" is the one bucket made of the statuses every other bucket
+  // excludes, so it swaps the exclusion instead of stacking on it.
+  if (status === "archived") {
+    if (!isDismissedReport(report)) return false;
+  } else {
+    if (isExcludedFromInbox(report)) return false;
+    if (!matchesReportStatusFilter(report, status)) return false;
+  }
   if (!reportMatchesChannelView(report, options.view)) return false;
   if (options.relevantToMeOnly && report.is_suggested_reviewer !== true) {
-    return false;
-  }
-  if (!matchesReportStatusFilter(report, options.status ?? "all")) {
     return false;
   }
   if (options.priorities && options.priorities.length > 0) {
@@ -106,6 +112,12 @@ function matchesChannelReportOptions(
   return true;
 }
 
+/**
+ * The ordered list the Reports surfaces render. Suppressed, resolved, and
+ * deleted reports drop out (they live behind the Archived bucket); the rest are
+ * narrowed by the space scope and the active filters, then sorted newest-first.
+ * Pure so the ordering the user sees is testable without a render.
+ */
 export function buildChannelReportList(
   reports: SignalReport[],
   options: ChannelReportListOptions,
@@ -131,6 +143,9 @@ export function countChannelReportsByStatus(
     "needs-review": 0,
     ready: 0,
     running: 0,
+    // Archived rows come from a separate fetch, so their count is stamped by
+    // the caller once that list is loaded.
+    archived: 0,
   };
   for (const report of reports) {
     if (!matchesChannelReportOptions(report, { ...options, status: "all" })) {
@@ -146,6 +161,37 @@ export function countChannelReportsByStatus(
     }
   }
   return counts;
+}
+
+/**
+ * How many active reports in this space arrived after the user last looked at
+ * its Reports surface — the Slack-style unread badge. No stamp yet (first run)
+ * counts as caught-up rather than flooding the badge with history.
+ */
+export function countUnseenReports(
+  reports: SignalReport[],
+  view: ReportChannelView,
+  seenAt: string | undefined,
+): number {
+  if (!seenAt) return 0;
+  return reports.filter(
+    (report) =>
+      matchesChannelReportOptions(report, { view }) &&
+      report.created_at > seenAt,
+  ).length;
+}
+
+/** Newest active report's arrival, the stamp `countUnseenReports` compares against. */
+export function latestReportArrival(
+  reports: SignalReport[],
+  view: ReportChannelView,
+): string | null {
+  let latest: string | null = null;
+  for (const report of reports) {
+    if (!matchesChannelReportOptions(report, { view })) continue;
+    if (!latest || report.created_at > latest) latest = report.created_at;
+  }
+  return latest;
 }
 
 /** Count for the tab badge: reports in this space the user should notice. */

@@ -26,6 +26,7 @@ const STATUS_FILTERS: readonly {
   { value: "needs-review", label: "Needs review" },
   { value: "ready", label: "Ready" },
   { value: "running", label: "Running" },
+  { value: "archived", label: "Archived" },
 ];
 
 /**
