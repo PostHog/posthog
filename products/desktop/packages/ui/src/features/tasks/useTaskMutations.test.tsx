@@ -1,6 +1,10 @@
 import type { Schemas } from "@posthog/api-client";
 import type { Task } from "@posthog/shared/domain-types";
 import { channelFeedQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
+import {
+  type SpaceTaskPage,
+  spaceTreeTasksQueryRoot,
+} from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook } from "@testing-library/react";
 import { act, type ReactNode } from "react";
@@ -25,6 +29,7 @@ import { useRenameTask } from "./useTaskMutations";
 
 const TASK_ID = "task-1";
 const OTHER_TASK_ID = "task-2";
+const SPACE_TREE_KEY = [...spaceTreeTasksQueryRoot, "space-1"] as const;
 
 function createTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -82,6 +87,10 @@ describe("useRenameTask", () => {
     ]);
     queryClient.setQueryData<Task>(detailKey, createTask());
     queryClient.setQueryData<Task[]>(channelFeedKey, [createTask()]);
+    queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
+      tasks: [createTask()],
+      count: 7,
+    });
 
     await act(async () => {
       await result.current.renameTask({
@@ -116,6 +125,12 @@ describe("useRenameTask", () => {
         title_manually_set: true,
       },
     );
+    expect(
+      queryClient.getQueryData<SpaceTaskPage>(SPACE_TREE_KEY),
+    ).toMatchObject({
+      tasks: [{ title: "Renamed", title_manually_set: true }],
+      count: 7,
+    });
 
     expect(mockUpdateTask).toHaveBeenCalledWith(TASK_ID, {
       title: "Renamed",
@@ -139,6 +154,10 @@ describe("useRenameTask", () => {
     ]);
     queryClient.setQueryData<Task>(detailKey, createTask());
     queryClient.setQueryData<Task[]>(channelFeedKey, [createTask()]);
+    queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
+      tasks: [createTask()],
+      count: 7,
+    });
 
     let caught: unknown;
     await act(async () => {
@@ -169,6 +188,9 @@ describe("useRenameTask", () => {
     expect(queryClient.getQueryData<Task[]>(channelFeedKey)?.[0].title).toBe(
       "Original title",
     );
+    expect(
+      queryClient.getQueryData<SpaceTaskPage>(SPACE_TREE_KEY)?.tasks[0].title,
+    ).toBe("Original title");
 
     expect(mockUpdateSessionTaskTitle).toHaveBeenNthCalledWith(
       1,
@@ -195,6 +217,10 @@ describe("useRenameTask", () => {
       createSummary(),
     ]);
     queryClient.setQueryData<Task>(detailKey, createTask());
+    queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
+      tasks: [createTask()],
+      count: 7,
+    });
 
     const renamePromise = result.current.renameTask({
       taskId: TASK_ID,
@@ -212,6 +238,10 @@ describe("useRenameTask", () => {
       detailKey,
       createTask({ title: "Second rename", title_manually_set: true }),
     );
+    queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
+      tasks: [createTask({ title: "Second rename", title_manually_set: true })],
+      count: 7,
+    });
 
     let caught: unknown;
     await act(async () => {
@@ -232,6 +262,9 @@ describe("useRenameTask", () => {
     expect(queryClient.getQueryData<Task>(detailKey)?.title).toBe(
       "Second rename",
     );
+    expect(
+      queryClient.getQueryData<SpaceTaskPage>(SPACE_TREE_KEY)?.tasks[0].title,
+    ).toBe("Second rename");
 
     expect(mockUpdateSessionTaskTitle).not.toHaveBeenCalledWith(
       TASK_ID,

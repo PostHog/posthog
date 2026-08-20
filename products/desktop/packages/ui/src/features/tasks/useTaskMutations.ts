@@ -6,16 +6,22 @@ import {
 import {
   applyRenameToDetail,
   applyRenameToList,
+  applyRenameToPage,
   applyRenameToSummaries,
   getTaskTitle,
   rollbackDetailData,
   rollbackListData,
+  rollbackPageData,
   rollbackSummaryData,
   shouldRollbackSessionTitle,
 } from "@posthog/core/tasks/taskRename";
 import { useService } from "@posthog/di/react";
 import type { Task } from "@posthog/shared/domain-types";
 import { channelFeedQueryRoot } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
+import {
+  type SpaceTaskPage,
+  spaceTreeTasksQueryRoot,
+} from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -44,6 +50,7 @@ export function useUpdateTask() {
         queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
         queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
         queryClient.invalidateQueries({ queryKey: taskKeys.allSummaries() });
+        queryClient.invalidateQueries({ queryKey: spaceTreeTasksQueryRoot });
       },
     },
   );
@@ -75,6 +82,10 @@ export function useRenameTask() {
       >({
         queryKey: taskKeys.allSummaries(),
       });
+      const previousSpaceTreeQueries =
+        queryClient.getQueriesData<SpaceTaskPage>({
+          queryKey: spaceTreeTasksQueryRoot,
+        });
       const previousDetail = queryClient.getQueryData<Task>(
         taskKeys.detail(taskId),
       );
@@ -90,6 +101,10 @@ export function useRenameTask() {
       queryClient.setQueriesData<Schemas.TaskSummary[]>(
         { queryKey: taskKeys.allSummaries() },
         (old) => applyRenameToSummaries(old, taskId, newTitle),
+      );
+      queryClient.setQueriesData<SpaceTaskPage>(
+        { queryKey: spaceTreeTasksQueryRoot },
+        (old) => applyRenameToPage(old, taskId, newTitle),
       );
 
       if (previousDetail) {
@@ -113,10 +128,13 @@ export function useRenameTask() {
         const channelFeedTitles = queryClient
           .getQueriesData<Task[]>({ queryKey: channelFeedQueryRoot })
           .map(([, tasks]) => getTaskTitle(tasks, taskId));
+        const spaceTreeTitles = queryClient
+          .getQueriesData<SpaceTaskPage>({ queryKey: spaceTreeTasksQueryRoot })
+          .map(([, page]) => getTaskTitle(page?.tasks, taskId));
         const rollbackSession = shouldRollbackSessionTitle({
           detailTitle: queryClient.getQueryData<Task>(taskKeys.detail(taskId))
             ?.title,
-          listTitles: [...listTitles, ...channelFeedTitles],
+          listTitles: [...listTitles, ...channelFeedTitles, ...spaceTreeTitles],
           newTitle,
         });
 
@@ -135,6 +153,14 @@ export function useRenameTask() {
             queryKey,
             (current) =>
               rollbackSummaryData(current, data ?? [], taskId, newTitle),
+          );
+        }
+        for (const [queryKey, data] of previousSpaceTreeQueries) {
+          if (!data) continue;
+          queryClient.setQueryData<SpaceTaskPage | undefined>(
+            queryKey,
+            (current) =>
+              rollbackPageData<SpaceTaskPage>(current, data, taskId, newTitle),
           );
         }
         if (previousDetail) {
