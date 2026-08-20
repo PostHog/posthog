@@ -5437,7 +5437,7 @@ def handoff_task(
         notify_task_handoff,  # noqa: PLC0415 — optional push dep stays off the import path
     )
 
-    notify_task_handoff(locked, recipient=target, actor=actor)
+    notify_task_handoff(locked, recipient=target, actor=actor, message_id=message.id)
     # Task.capture_event would attribute to the new owner (it keys on created_by);
     # the actor initiated the handoff, so capture under their identity instead.
     try:
