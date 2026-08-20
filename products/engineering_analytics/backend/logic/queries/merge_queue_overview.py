@@ -124,7 +124,7 @@ def query_merge_queue_overview(
     attempts.
     """
     gate_from = prev_from - _GATE_LOOKBACK
-    cur, prev = window_pair_predicates("merged_at", date_to=date_to)
+    windows = window_pair_predicates("merged_at", date_to=date_to)
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
@@ -133,8 +133,8 @@ def query_merge_queue_overview(
     }
     date_to_merged_clause = date_to_filter_clause(date_to, placeholders, column="pr.merged_at")
     sql = (
-        _MERGE_QUEUE_SELECT.replace("__CUR__", cur)
-        .replace("__PREV__", prev)
+        _MERGE_QUEUE_SELECT.replace("__CUR__", windows.current)
+        .replace("__PREV__", windows.previous)
         .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__PR_SOURCE__", curated.pr_source())
         .replace("__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch"))
