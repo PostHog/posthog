@@ -180,9 +180,9 @@ class CuratedGitHubSource:
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
-        opt-in merge-queue endpoint synced — the normal state; consumers degrade to the
-        GitHub-derived proxy."""
-        table = resolve_trunk_merge_queue_table(self._team)
+        opt-in merge-queue endpoint synced (the normal state) or the requesting user can't access
+        one; either way consumers degrade to the GitHub-derived proxy."""
+        table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
         if table is None:
             return None
         return f"({trunk_merge_queue.build_query(table)})"

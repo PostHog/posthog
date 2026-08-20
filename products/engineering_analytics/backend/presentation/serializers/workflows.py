@@ -521,12 +521,12 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "merge_queue_skip_the_line_count": {
-                "help_text": "Queue entries prioritized past the queue order (urgent merges) in the window. "
-                "Null when the Trunk source isn't synced.",
+                "help_text": "Queue entries flagged skip-the-line (prioritized past the queue order) in the "
+                "window, whatever state they reached. Null when the Trunk source isn't synced.",
                 "allow_null": True,
             },
             "merge_queue_skip_the_line_count_prev": {
-                "help_text": "Urgent merges over the previous window. Null when the Trunk source isn't synced.",
+                "help_text": "Skip-the-line entries over the previous window. Null when the Trunk source isn't synced.",
                 "allow_null": True,
             },
             "median_time_to_green_seconds": {
