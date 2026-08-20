@@ -1,4 +1,4 @@
-import { ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import { ApiError, isTransientServerError, shouldReportApiFailure, TRANSIENT_GATEWAY_MESSAGE } from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -15,12 +15,23 @@ describe('api-error', () => {
         })
 
         it('uses the fallback for a response without a recognized message', async () => {
-            const response = new Response('Bad gateway', { status: 502 })
+            const response = new Response('Internal error', { status: 500 })
 
             const error = await ApiError.fromResponse(response, 'Request failed')
 
-            expect(error).toMatchObject({ message: 'Request failed', status: 502, data: null })
+            expect(error).toMatchObject({ message: 'Request failed', status: 500, data: null })
         })
+
+        it.each([502, 503, 504])(
+            'gives a %s gateway response with a non-JSON body a try-again message',
+            async (status) => {
+                const response = new Response('upstream request timeout', { status })
+
+                const error = await ApiError.fromResponse(response, 'Request failed')
+
+                expect(error).toMatchObject({ message: TRANSIENT_GATEWAY_MESSAGE, status, data: null })
+            }
+        )
 
         it('preserves response metadata and prioritizes error messages consistently', async () => {
             const body = {

@@ -23,6 +23,13 @@ function isTransientGatewayStatus(status: number | undefined): boolean {
 }
 
 /**
+ * What a user sees when a 502/503/504 gives no JSON body. A gateway returns plain text on these
+ * (for a 504, the raw "upstream request timeout"), which `response.json()` cannot parse, so no
+ * usable message reaches the user. This message tells them the failure is temporary and what to do.
+ */
+export const TRANSIENT_GATEWAY_MESSAGE = 'The server is temporarily unavailable. Try again in a moment.'
+
+/**
  * A transient gateway failure (502/503/504) rather than anything the caller did wrong. These
  * often arrive with an empty body (so `detail` is null) and usually succeed on retry, so a
  * listener that has already shown a toast should stop here instead of rethrowing into
@@ -128,7 +135,10 @@ export class ApiError extends Error {
             (value): value is string => typeof value === 'string'
         )
 
-        return new ApiError(responseMessage || fallbackMessage, response.status, response.headers, data)
+        const gatewayMessage = isTransientGatewayStatus(response.status) ? TRANSIENT_GATEWAY_MESSAGE : undefined
+        const message = responseMessage || gatewayMessage || fallbackMessage
+
+        return new ApiError(message, response.status, response.headers, data)
     }
 
     /**
