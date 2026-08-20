@@ -1,1 +1,1 @@
-0148_repin_qualys_vmdr_api_version_4_0
+0149_repin_bloomerang_api_version
