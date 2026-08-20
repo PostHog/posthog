@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { IconGithub } from '@posthog/icons'
 import { Button } from '@posthog/quill-primitives'
 
 import { DEFAULT_ONBOARDING_STEPS, DEFAULT_STARTER_PROMPTS } from './onboardingSteps'
@@ -55,9 +56,9 @@ export const ConnectStep: Story = {
         stepActions: {
             connect: (
                 <div className="flex flex-wrap items-center gap-2">
-                    <Button variant="primary">Connect GitHub</Button>
-                    <Button variant="link-muted" size="sm">
-                        I'll do this later
+                    <Button variant="outline">
+                        <IconGithub />
+                        Connect GitHub
                     </Button>
                 </div>
             ),

@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { IconGithub } from '@posthog/icons'
 import { Badge, Button, Text } from '@posthog/quill-primitives'
 
 import api from 'lib/api'
@@ -13,8 +14,8 @@ import { OnboardingTakeover } from './OnboardingTakeover'
 const GITHUB_AUTHORIZE_URL = api.integrations.authorizeUrl({ kind: 'github', next: urls.ai() })
 
 function ConnectGithubAction(): JSX.Element {
-    const { githubConnected, repositoryCount, stepIndex } = useValues(aiOnboardingLogic)
-    const { clickGithubCta, setStepIndex } = useActions(aiOnboardingLogic)
+    const { githubConnected, repositoryCount } = useValues(aiOnboardingLogic)
+    const { clickGithubCta } = useActions(aiOnboardingLogic)
 
     if (githubConnected) {
         return (
@@ -32,7 +33,7 @@ function ConnectGithubAction(): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
             <Button
-                variant="primary"
+                variant="outline"
                 onClick={() => {
                     clickGithubCta()
                     // A full navigation rather than a link: this leaves the app for GitHub's OAuth consent
@@ -41,15 +42,8 @@ function ConnectGithubAction(): JSX.Element {
                 }}
                 data-attr="posthog-ai-onboarding-connect-github"
             >
+                <IconGithub />
                 Connect GitHub
-            </Button>
-            <Button
-                variant="link-muted"
-                size="sm"
-                onClick={() => setStepIndex(stepIndex + 1)}
-                data-attr="posthog-ai-onboarding-connect-later"
-            >
-                I'll do this later
             </Button>
         </div>
     )
