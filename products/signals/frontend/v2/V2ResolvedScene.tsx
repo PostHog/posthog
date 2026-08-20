@@ -89,8 +89,8 @@ export function V2ResolvedScene({ id = RESOLVED_DEMO_REPORT_ID }: V2ResolvedScen
     }
 
     return (
-        <div className="flex flex-col gap-4 p-4 lg:p-7">
-            <InboxBackButton />
+        <div className="flex flex-col gap-4">
+            <InboxBackButton className="self-start -ml-[var(--button-padding-x-base)]" />
             <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4">
                 <div className="flex flex-wrap items-center gap-3.5">
                     <span className="text-[15px] font-bold">{id}</span>

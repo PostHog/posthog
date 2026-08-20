@@ -83,7 +83,7 @@ export function V2MonitorScene({ id = MONITOR_DEMO_REPORT_ID }: V2MonitorScenePr
 
     return (
         <div className="flex flex-col gap-4">
-            <InboxBackButton />
+            <InboxBackButton className="self-start -ml-[var(--button-padding-x-base)]" />
             <div className="max-w-[1160px] mx-auto flex w-full flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                     <div className="flex flex-wrap items-center gap-3">
