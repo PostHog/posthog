@@ -307,7 +307,7 @@ class LoginSerializer(serializers.Serializer):
 
         # Check if axes has locked out this IP/user before attempting authentication
         if handler.is_locked(axes_request, credentials=axes_credentials):
-            report_user_login_failed("account_locked", existing_distinct_id)
+            report_user_login_failed("too_many_failed_attempts", existing_distinct_id)
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
         user = cast(
@@ -323,7 +323,7 @@ class LoginSerializer(serializers.Serializer):
             # Axes tracks failed attempts via authentication signals. If this failure triggered a
             # lockout, surface the lockout response instead of the generic credential error.
             if handler.is_locked(axes_request, credentials=axes_credentials):
-                report_user_login_failed("account_locked", existing_distinct_id)
+                report_user_login_failed("too_many_failed_attempts", existing_distinct_id)
                 raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
             report_user_login_failed("invalid_credentials", existing_distinct_id)
