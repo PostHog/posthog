@@ -293,7 +293,7 @@ class TestFormatToolCalls:
             {"function": {"name": "func1", "arguments": '{"arg": "val"}'}},
             {"function": {"name": "func2", "arguments": ""}},  # Empty string, not "{}"
         ]
-        lines = format_tool_calls(tool_calls)  # type: ignore[arg-type]
+        lines = format_tool_calls(tool_calls)
         result = "\n".join(lines)
         assert "Tool calls: 2" in result
         assert "func1(" in result
@@ -305,7 +305,7 @@ class TestFormatToolCalls:
             {"name": "func1", "args": {"arg": "val"}},
             {"name": "func2", "args": None},
         ]
-        lines = format_tool_calls(tool_calls)  # type: ignore[arg-type]
+        lines = format_tool_calls(tool_calls)
         result = "\n".join(lines)
         assert "Tool calls: 2" in result
         assert "func1(" in result
@@ -316,6 +316,14 @@ class TestFormatToolCalls:
         lines = format_tool_calls([])
         # Empty list still shows "Tool calls: 0"
         assert len(lines) > 0 or lines == []
+
+    def test_tolerates_string_and_malformed_entries(self):
+        """A string entry, or a non-dict `function`, must not raise `'str' has no attribute 'get'`."""
+        tool_calls = ["raw string call", {"function": "not a dict"}, {"name": "func", "args": {"a": 1}}]
+        lines = format_tool_calls(tool_calls)
+        result = "\n".join(lines)
+        assert "raw string call" in result
+        assert "func(a=1)" in result
 
 
 class TestFormatInputMessages:

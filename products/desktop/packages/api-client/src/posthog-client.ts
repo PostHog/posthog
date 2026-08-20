@@ -68,6 +68,7 @@ import type {
   NoteArtefact,
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
+  ProvisionedTaskChannels,
   RepoSelectionArtefact,
   SafetyJudgmentArtefact,
   SandboxCustomImage,
@@ -730,6 +731,13 @@ export class FolderInstructionsConflictError extends Error {
     super(message);
     this.name = "FolderInstructionsConflictError";
   }
+}
+
+export interface PostHogObjectReferenceInput {
+  name: string;
+  object_kind: string;
+  object_id: string;
+  source_message_id: string;
 }
 
 export interface TaskArtifactUploadRequest {
@@ -1597,7 +1605,6 @@ export class PostHogAPIClient {
   private api: ReturnType<typeof createApiClient>;
   private _teamId: number | null = null;
   private githubConnectFrom: string;
-  private readonly fetch: FetchImplementation;
   private readonly apiHost: string;
 
   constructor(
@@ -1610,7 +1617,6 @@ export class PostHogAPIClient {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
     this.apiHost = baseUrl;
     this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
-    this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.api = createApiClient(
       buildApiFetcher({
         getAccessToken,
@@ -2548,6 +2554,25 @@ export class PostHogAPIClient {
     return data.pinned;
   }
 
+  // Handoff is absent from the Desktop-generated client, so use the same raw-fetch path as pin.
+  async handoffTask(taskId: string, userId: number): Promise<Task> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/tasks/${taskId}/handoff/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ user: userId }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to hand off task: ${response.statusText}`);
+    }
+    const data = (await response.json()) as Parameters<
+      typeof normalizeTaskResponse
+    >[0];
+    return normalizeTaskResponse(data, { teamId });
+  }
+
   async createTask(
     options: Pick<Task, "description"> &
       Partial<
@@ -2603,6 +2628,18 @@ export class PostHogAPIClient {
     );
 
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  /**
+   * Mirror this device's archive state onto the task, so every client agrees on
+   * what is archived — and so the list endpoint, which hides archived tasks,
+   * counts what the app actually shows. `archived` is on the write serializer
+   * but not yet in the generated schema.
+   */
+  async setTaskArchived(taskId: string, archived: boolean): Promise<void> {
+    await this.updateTask(taskId, {
+      archived,
+    } as unknown as Partial<Schemas.Task>);
   }
 
   async deleteTask(taskId: string) {
@@ -2680,6 +2717,22 @@ export class PostHogAPIClient {
       throw new Error(`Failed to rename task channel: ${response.statusText}`);
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  async provisionDefaultTaskChannels(): Promise<ProvisionedTaskChannels> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/provision_defaults/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to provision default spaces: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ProvisionedTaskChannels;
   }
 
   async updateTaskChannelRepositories(
@@ -3396,6 +3449,29 @@ export class PostHogAPIClient {
     return data.artifacts ?? [];
   }
 
+  async registerTaskRunPostHogReferences(
+    taskId: string,
+    runId: string,
+    references: PostHogObjectReferenceInput[],
+  ): Promise<TaskRunArtifact[]> {
+    if (references.length === 0) return [];
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/artifacts/references/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: { body: JSON.stringify({ references }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to register references: ${response.statusText}`);
+    }
+    const data = (await response.json()) as {
+      artifacts?: TaskRunArtifactDTO[];
+    };
+    return (data.artifacts ?? []).map(normalizeTaskRunArtifact);
+  }
+
   async presignTaskRunArtifact(
     taskId: string,
     runId: string,
@@ -3718,15 +3794,6 @@ export class PostHogAPIClient {
     }
   }
 
-  async getTaskRunSessionLogs(
-    taskId: string,
-    runId: string,
-    options?: { limit?: number; after?: string },
-  ): Promise<StoredLogEntry[]> {
-    return (await this.getTaskRunSessionLogsResult(taskId, runId, options))
-      .entries;
-  }
-
   // AbortController + setTimeout because Hermes, which runs this client on
   // mobile, has no AbortSignal.timeout.
   private async fetchSessionLogsPage(
@@ -3850,39 +3917,6 @@ export class PostHogAPIClient {
     } catch (err) {
       log.warn("Failed to fetch task run session logs", err);
       return { entries, complete: false, truncatedHeadCount };
-    }
-  }
-
-  async getTaskLogs(taskId: string): Promise<StoredLogEntry[]> {
-    try {
-      const task = await this.getTask(taskId);
-      const logUrl = task?.latest_run?.log_url;
-
-      if (!logUrl) {
-        return [];
-      }
-
-      const response = await this.fetch(logUrl);
-
-      if (!response.ok) {
-        log.warn(
-          `Failed to fetch logs: ${response.status} ${response.statusText}`,
-        );
-        return [];
-      }
-
-      const content = await response.text();
-
-      if (!content.trim()) {
-        return [];
-      }
-      return content
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as StoredLogEntry);
-    } catch (err) {
-      log.warn("Failed to fetch task logs from latest run", err);
-      return [];
     }
   }
 

@@ -13,13 +13,18 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
+    APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
+    APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
     BASE_URL,
     JWT_AUDIENCE,
     JWT_LIFETIME_SECONDS,
     AppStoreConnectAuthError,
+    AppStoreConnectPermissionError,
     AppStoreConnectResumeConfig,
     AppStoreConnectTokenProvider,
     AppStoreConnectUrlError,
+    _ensure_report_request,
     _find_analytics_report,
     _flatten_resource,
     _get,
@@ -1347,3 +1352,50 @@ class TestSourceResponse:
         else:
             assert response.partition_keys is None
             assert response.partition_mode is None
+
+
+def _forbidden_response(**fields: str) -> MagicMock:
+    return _json_response({"errors": [fields]}, status_code=403)
+
+
+class TestForbiddenErrors:
+    def test_read_403_carries_apples_words_and_the_read_message(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _forbidden_response(
+            code="FORBIDDEN_ERROR", detail="The role of this API key cannot read this resource"
+        )
+
+        with pytest.raises(AppStoreConnectPermissionError) as exc:
+            _get(session, f"{BASE_URL}/v1/salesReports", token_provider=_FakeTokenProvider(), logger=MagicMock())
+
+        message = str(exc.value)
+        assert APP_STORE_CONNECT_READ_FORBIDDEN_ERROR in message
+        assert "FORBIDDEN_ERROR" in message
+        assert "The role of this API key cannot read this resource" in message
+
+    @parameterized.expand(
+        [
+            ("fresh_create", [], APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR),
+            (
+                "stopped_for_inactivity",
+                [_resource("analyticsReportRequests", "REQ1", accessType="ONGOING", stoppedDueToInactivity=True)],
+                APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+            ),
+        ]
+    )
+    def test_create_403_reports_the_create_role_not_a_read_role(
+        self, _name: str, requests_page: list[dict[str, Any]], expected: str
+    ) -> None:
+        session = MagicMock()
+        session.get.return_value = _json_response(_page(requests_page))
+        session.post.return_value = _forbidden_response(code="FORBIDDEN_ERROR", detail="Admin role required")
+
+        with pytest.raises(AppStoreConnectPermissionError) as exc:
+            _ensure_report_request(session, _FakeTokenProvider(), MagicMock(), "A1")
+
+        message = str(exc.value)
+        assert expected in message
+        # Apple's own words reach the raised message, and the create case never blames Finance or
+        # Sales — the read roles the key demonstrably uses on the sales_reports table.
+        assert "Admin role required" in message
+        assert "Finance" not in message and "Sales" not in message

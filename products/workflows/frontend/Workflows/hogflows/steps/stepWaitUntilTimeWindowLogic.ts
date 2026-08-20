@@ -145,6 +145,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   type: 'event'
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
                   condition: {
                       filters?:
                           | {
@@ -238,6 +244,9 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -391,6 +400,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
+                  filters: {
                       actions?: any[] | undefined
                       events?: any[] | undefined
                       filter_test_accounts?: boolean | undefined
@@ -510,6 +525,9 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string

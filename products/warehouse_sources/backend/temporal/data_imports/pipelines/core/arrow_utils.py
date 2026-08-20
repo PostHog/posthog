@@ -1236,11 +1236,14 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
-        # If str and dict are shared - then turn everything into a json string
+        # If str and dict are shared - then turn everything into a json string. A column can also
+        # carry a third type alongside them (e.g. an int, as with a free-form field that varies per
+        # row) — JSON-dump anything that isn't already a string rather than only dict/list, so that
+        # third type doesn't reach pa.array() unconverted and raise ArrowTypeError.
         if len(unique_types_in_column) > 1 and str in unique_types_in_column and dict in unique_types_in_column:
             json_array = pa.array(
                 [
-                    None if s is None else _json_dumps(s) if isinstance(s, dict | list) else s
+                    None if s is None else s if isinstance(s, str) else _json_dumps(s)
                     for s in _to_list_array(columnar_table_data[field_name])
                 ]
             )

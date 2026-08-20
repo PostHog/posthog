@@ -376,6 +376,12 @@ export const metricsSamplesCreateBodyQueryOneMetricNameMax = 255
 
 export const metricsSamplesCreateBodyQueryOneTraceIdMax = 255
 
+export const metricsSamplesCreateBodyQueryOneFiltersItemKeyMax = 255
+
+export const metricsSamplesCreateBodyQueryOneFiltersItemOpDefault = `eq`
+export const metricsSamplesCreateBodyQueryOneFiltersItemValueMax = 1024
+
+export const metricsSamplesCreateBodyQueryOneFiltersItemScopeDefault = `auto`
 export const metricsSamplesCreateBodyQueryOneLimitDefault = 100
 export const metricsSamplesCreateBodyQueryOneLimitMax = 1000
 
@@ -399,6 +405,52 @@ export const MetricsSamplesCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.'
+                ),
+            metricType: zod
+                .union([
+                    zod
+                        .enum(['gauge', 'sum', 'histogram', 'exponential_histogram', 'summary'])
+                        .describe(
+                            '\* `gauge` - gauge\n\* `sum` - sum\n\* `histogram` - histogram\n\* `exponential_histogram` - exponential_histogram\n\* `summary` - summary'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Constrain the emissions to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, emissions of every type sharing the name are listed together. Pass the same value used for the chart so both describe the same series.\n\n\* `gauge` - gauge\n\* `sum` - sum\n\* `histogram` - histogram\n\* `exponential_histogram` - exponential_histogram\n\* `summary` - summary'
+                ),
+            filters: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .max(metricsSamplesCreateBodyQueryOneFiltersItemKeyMax)
+                            .describe(
+                                "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env')."
+                            ),
+                        op: zod
+                            .enum(['eq', 'neq', 'regex', 'not_regex'])
+                            .describe('\* `eq` - eq\n\* `neq` - neq\n\* `regex` - regex\n\* `not_regex` - not_regex')
+                            .default(metricsSamplesCreateBodyQueryOneFiltersItemOpDefault)
+                            .describe(
+                                "Comparison operator. 'regex'\/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n\* `eq` - eq\n\* `neq` - neq\n\* `regex` - regex\n\* `not_regex` - not_regex"
+                            ),
+                        value: zod
+                            .string()
+                            .max(metricsSamplesCreateBodyQueryOneFiltersItemValueMax)
+                            .describe('Value to compare against. For regex operators this is the pattern.'),
+                        scope: zod
+                            .enum(['resource', 'attribute', 'auto'])
+                            .describe('\* `resource` - resource\n\* `attribute` - attribute\n\* `auto` - auto')
+                            .default(metricsSamplesCreateBodyQueryOneFiltersItemScopeDefault)
+                            .describe(
+                                "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n\* `resource` - resource\n\* `attribute` - attribute\n\* `auto` - auto"
+                            ),
+                    })
+                )
+                .optional()
+                .describe(
+                    "Label predicates ANDed together, matched against each emission's series. Pass the same filters used for the chart so the emissions listed are the ones behind it."
                 ),
             limit: zod
                 .number()

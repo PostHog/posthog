@@ -1,7 +1,9 @@
+import json
 import uuid
 import asyncio
 import datetime
 import tempfile
+import contextlib
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,11 +25,15 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.temporal.data_imports import workload_report
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller as ctrl
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionSupersededError,
     RepartitionUnpartitionableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    MAX_REPARTITION_ATTEMPTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import repartition_table
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
@@ -106,6 +112,30 @@ class TestRepartitionDetection:
         assert pending["partition_count"] > 2
         assert pending["trigger_reason"] == "proactive_threshold"
         assert capture.call_args.args[0] == "warehouse_repartition_flagged"
+
+    def test_transient_db_error_during_measurement_save_is_not_captured(self, team):
+        # A pgbouncer pooler drop (or its server_login_retry cooldown outliving the single retry in
+        # retry_on_db_connection_drop) must not mint an error-tracking issue for a condition nobody
+        # can act on — only a genuine detection bug should reach capture_exception.
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
+        )
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "0", "1", "1"])
+            with (
+                patch.object(
+                    ExternalDataSchema,
+                    "record_partition_measurement",
+                    side_effect=OperationalError(
+                        "server login has been failing, cached error: server conn crashed? (server_login_retry)"
+                    ),
+                ),
+                patch.object(ctrl, "capture_exception") as mock_capture_exception,
+            ):
+                self._detect(team, schema, delta)
+
+        mock_capture_exception.assert_not_called()
 
     def test_unpartitioned_table_flags_auto_target_scheme(self, team):
         # An unpartitioned table's target legitimately has mode None (auto-detect at rewrite time),
@@ -711,6 +741,122 @@ class TestRepartitionActivity:
         emitted = [c.args[0] for c in capture.call_args_list]
         assert "warehouse_repartition_started" in emitted
         assert "warehouse_repartition_completed" in emitted
+
+    def test_rewrite_reports_workload_under_its_own_run_key(self, team):
+        # The import activity reports under the bare job id on this same pod; sharing that key would
+        # let a death during the import read the rewrite's report as its own last words.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "test",
+                "attempts": 0,
+            }
+        )
+        inputs = self._inputs(team, schema)
+        samples: list[dict] = []
+
+        async def rewrite_reading_own_report(**kwargs):
+            reporter = workload_report._current_reporter.get()
+            assert reporter is not None, "rewrite must run inside a workload reporting span"
+            redis = workload_report._redis_client()
+            assert redis is not None
+            reporter._write_sample(redis)
+            samples.append(json.loads(redis.get(workload_report.run_key(f"repartition:{inputs.job_id}"))))
+            return {"outcome": "completed", "row_count": 6, "partition_mode_after": "md5"}
+
+        self._run(inputs, AsyncMock(side_effect=rewrite_reading_own_report))
+
+        assert samples and samples[0]["phase"] == "repartition"
+        assert samples[0]["schema_id"] == str(schema.id)
+
+    def test_a_rewrite_whose_worker_dies_still_burns_an_attempt(self, team):
+        # A worker OOM-killed mid-rewrite records nothing, so the cap never moved and these retried
+        # forever.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+
+        def killed_mid_rewrite(**kwargs):
+            raise KeyboardInterrupt("worker killed")
+
+        # Three attempts run and die; the next evaluation finds the cap spent and gives up.
+        for _ in range(MAX_REPARTITION_ATTEMPTS + 1):
+            with contextlib.suppress(BaseException):
+                self._run(self._inputs(team, schema), AsyncMock(side_effect=killed_mid_rewrite))
+            schema.refresh_from_db()
+
+        assert schema.repartition_pending is None
+
+    def test_an_overlapping_attempt_charge_survives_another_attempts_refund(self, team):
+        # Overlapping attempts must not erase each other's charge, or the cap never counts up and the
+        # retry loop this change exists to stop comes back.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 2,
+            }
+        )
+        # This attempt charged 0 -> 1; a concurrent one then charged 1 -> 2. Refunding to 0 here would
+        # erase that second charge.
+        repartition_table._refund_attempt(schema, 0, logger)
+
+        schema.refresh_from_db()
+        pending = schema.repartition_pending
+        assert pending is not None and pending["attempts"] == 2
+
+    def test_a_staged_swap_is_never_abandoned_by_the_attempt_cap(self, team):
+        # An interrupted swap may already have deleted live, leaving temp the only intact copy. Giving
+        # up clears the marker that points at it, so the next sync would bootstrap an empty table.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": MAX_REPARTITION_ATTEMPTS,
+            }
+        )
+        schema.set_repartition_swap({"state": "ready", "temp_uri": "s3://t/__repartitioned", "live_uri": "s3://t"})
+
+        mocked = AsyncMock(return_value={"outcome": "completed"})
+        self._run(self._inputs(team, schema), mocked)
+
+        # The rewrite runs and resumes the swap, rather than the cap short-circuiting it.
+        mocked.assert_awaited_once()
+
+    def test_a_superseded_attempt_costs_no_attempt(self, team):
+        # A zombie displaced by a newer claim is not evidence the rewrite is doomed.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+
+        self._run(self._inputs(team, schema), AsyncMock(side_effect=RepartitionSupersededError("newer claim")))
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["attempts"] == 0
 
     def test_unpartitionable_clears_pending(self, team):
         schema = _make_schema(team, {})
