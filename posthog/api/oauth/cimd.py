@@ -1024,9 +1024,10 @@ def enqueue_cimd_refresh_if_stale(url: str) -> None:
 def find_cimd_application(url: str) -> OAuthApplication | None:
     """Resolve a CIMD URL-form client_id to its application, or None.
 
-    ``client_id`` is the canonical column for the URL. The ``cimd_metadata_url``
-    fallback covers rows written before the client_id backfill (migration 1312)
-    ran, and rows created by pre-backfill code still serving during a deploy."""
+    Reads ``client_id``, which is where a CIMD client's URL now lands on registration,
+    and falls back to ``cimd_metadata_url`` for the rows registered before that. Both
+    columns are written on create, so the fallback only ever serves older rows, until
+    the backfill moves them over."""
     return (
         OAuthApplication.objects.filter(client_id=url).first()
         or OAuthApplication.objects.filter(cimd_metadata_url=url).first()
