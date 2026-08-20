@@ -4,8 +4,11 @@ Table-driven: every table's columns, DDL, transform behavior, and watermark expr
 TableConfig entry. Adding a table means authoring one config entry plus its DDL function.
 
 How correctness is shared with the storage engine:
-- Incremental windows overlap by ``backward_lookback_seconds`` so a row committed after its
-  timestamp slot passed the prior high-watermark is still picked up next run.
+- Incremental windows overlap by ``TableConfig.lookback_seconds`` (falling back to the job-level
+  ``backward_lookback_seconds``) so a row committed after its timestamp slot passed the prior
+  high-watermark is still picked up next run. Because re-emitted versions dedupe in ClickHouse,
+  the turn-around cost of a wide overlap is writes, not correctness — so flags, the largest
+  mirror, rewinds one hourly cycle while orgs and teams absorb a day of missed runs.
 - Re-emitted rows inside that overlap are deduped by the ReplicatedReplacingMergeTree engine at
   merge time (``_inserted_at`` as the version column). Readers of the mirror use FINAL / argMax,
   as every other ClickHouse consumer of these tables already must.
@@ -71,6 +74,11 @@ class TableConfig:
       None-filtering).
     - ``ddl``: callable producing the ``CREATE TABLE IF NOT EXISTS`` SQL for the ClickHouse mirror.
     - ``post_transform``: table-specific row fixups applied after the generic type adaptations.
+    - ``lookback_seconds``: how far below the mirror's high-watermark the hourly sync rewinds each
+      run, to catch rows that committed after their timestamp slot passed the prior watermark.
+      Default 86400; a table overrides it when the rewrite cost of a wide overlap outweighs the
+      outage backlog a missing run would leave. re-emitted versions dedupe in ClickHouse, so the
+      overlap only costs writes.
     """
 
     key: tuple[str, ...]
@@ -84,6 +92,7 @@ class TableConfig:
     array_fields: list[str] = field(default_factory=list)
     watermark_expr: Optional[str] = None
     post_transform: Optional[Callable[[dict], dict]] = None
+    lookback_seconds: int = 86400
 
     def select_clause(self) -> str:
         return ", ".join(f"{col}::text AS {col}" if col in self.jsonb_text_cast else col for col in self.select_columns)
@@ -592,8 +601,11 @@ TABLE_CONFIGS: dict[str, TableConfig] = {
         order_by=_FEATURE_FLAG_ORDER_BY,
         select_columns=_FEATURE_FLAG_COLS,
         bool_fields=_FEATURE_FLAG_BOOL_FIELDS,
+        # Flags re-emit the largest mirror, so one hourly cycle of overlap is enough; orgs and
+        # teams keep the outsized 24h outage window from the default.
         ddl=_feature_flag_ddl,
         post_transform=_finalize_feature_flag_row,
+        lookback_seconds=3600,
     ),
 }
 
@@ -601,8 +613,8 @@ TABLE_CONFIGS: dict[str, TableConfig] = {
 class PostgresToClickHouseETLConfig(Config):
     full_refresh: bool = False
     batch_size: int = 10000
-    # Overlap the incremental window by this much to catch rows that committed after their
-    # timestamp slot passed the prior high-watermark. The engine dedupes the overlap at merge time.
+    # Fallback overlap for tables whose TableConfig leaves lookback_seconds at its default. A
+    # table's own lookback_seconds (posthog_featureflag) wins over this when set non-default.
     backward_lookback_seconds: int = 86400
 
 
@@ -704,7 +716,8 @@ def _sync_table(
             # nosemgrep: clickhouse-fstring-param-audit - table_name is a TABLE_CONFIGS key from the job config allowlist; watermark_column is code-controlled
             result = sync_execute(f"SELECT max({cfg.watermark_column}) FROM models.{table_name}")
             if result and result[0][0]:
-                last_sync = result[0][0] - timedelta(seconds=config.backward_lookback_seconds)
+                lookback = cfg.lookback_seconds if cfg.lookback_seconds != 86400 else config.backward_lookback_seconds
+                last_sync = result[0][0] - timedelta(seconds=lookback)
                 context.log.info(f"Last sync for {table_name}: {last_sync}")
         else:
             context.log.info(f"Full refresh: truncating models.{table_name}")

@@ -392,6 +392,33 @@ class TestSyncTable:
     @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
     @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
     @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
+    def test_flags_use_per_table_lookback_not_job_config(self, mock_create_tables, mock_get_pg, mock_sync_execute):
+        """posthog_featureflag's watermark wraps by its TableConfig lookback even when the job-level lookback is 0."""
+        mock_sync_execute.return_value = [[datetime(2024, 3, 10, 12, 0, 0)]]
+        mock_get_pg.return_value = MagicMock()
+        with (
+            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch,
+            patch("posthog.dags.postgres_to_clickhouse_etl.insert_rows_to_clickhouse"),
+        ):
+            mock_fetch.return_value = iter([])
+            context = build_op_context()
+
+            _sync_table(context, _config(backward_lookback_seconds=0), "posthog_featureflag")
+
+            last_sync_arg = mock_fetch.call_args[0][2]
+            assert last_sync_arg == datetime(2024, 3, 10, 12, 0, 0) - timedelta(
+                seconds=TABLE_CONFIGS["posthog_featureflag"].lookback_seconds
+            )
+
+    def test_flags_lookback_defaults_to_one_hour(self):
+        """Flags re-emit one hourly cycle; orgs and teams keep the 24h outage window."""
+        assert TABLE_CONFIGS["posthog_featureflag"].lookback_seconds == 3600
+        assert TABLE_CONFIGS["posthog_organization"].lookback_seconds == 86400
+        assert TABLE_CONFIGS["posthog_team"].lookback_seconds == 86400
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
     def test_full_refresh_truncates_table(self, mock_create_tables, mock_get_pg, mock_sync_execute):
         mock_sync_execute.return_value = None
         mock_get_pg.return_value = MagicMock()
@@ -579,4 +606,5 @@ class TestDagsterWiring:
         assert params[1].replace(tzinfo=None).isoformat() == "2024-01-15T15:00:00"
 
     def test_backward_lookback_default_is_one_day(self):
+        """Job-level lookback stays at 86400 as the fallback for orgs and teams; flags override on TableConfig."""
         assert _config().backward_lookback_seconds == 86400
