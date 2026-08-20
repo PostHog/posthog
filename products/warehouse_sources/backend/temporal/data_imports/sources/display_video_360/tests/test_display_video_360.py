@@ -12,6 +12,7 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import TrackedHTTPAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.display_video_360 import display_video_360 as dv
 from products.warehouse_sources.backend.temporal.data_imports.sources.display_video_360.display_video_360 import (
@@ -229,6 +230,51 @@ class TestCredentials:
     def test_secrets_are_redacted_from_the_transport(self) -> None:
         assert set(dv.redact_values(_oauth_config(), _integration())) == {"access-token", "refresh-token"}
         assert dv.redact_values(_service_account_config()) == (SERVICE_ACCOUNT_KEY,)
+
+    def test_service_account_credentials_are_built_from_the_pinned_key(self) -> None:
+        with mock.patch.object(dv.service_account.Credentials, "from_service_account_info") as from_info:
+            credentials = dv._credentials(_service_account_config())
+
+        assert credentials is from_info.return_value
+        info, kwargs = from_info.call_args[0][0], from_info.call_args[1]
+        # The key is the parsed one, so the token exchange stays pinned to Google.
+        assert info["token_uri"] == dv.GOOGLE_TOKEN_URI
+        assert info["client_email"] == "sa@example.iam.gserviceaccount.com"
+        # Both APIs are needed: entity reads and Bid Manager reports.
+        assert kwargs["scopes"] == list(dv.DISPLAY_VIDEO_SCOPES)
+
+    @pytest.mark.parametrize(
+        "error", [ValueError("bad key"), dv.GoogleAuthError("bad key")], ids=["value-error", "google-auth-error"]
+    )
+    def test_a_key_google_auth_refuses_is_reported_as_a_credentials_error(self, error: Exception) -> None:
+        with mock.patch.object(dv.service_account.Credentials, "from_service_account_info", side_effect=error):
+            with pytest.raises(DisplayVideo360CredentialsError, match="service account key could not be loaded"):
+                dv._credentials(_service_account_config())
+
+
+class TestSessions:
+    def test_the_authorized_session_rides_the_tracked_adapter_on_both_schemes(self) -> None:
+        with override_settings(
+            DISPLAY_VIDEO_360_APP_CLIENT_ID="posthog-client-id",
+            DISPLAY_VIDEO_360_APP_CLIENT_SECRET="posthog-client-secret",
+        ):
+            session = dv.display_video_360_session(_oauth_config(), _integration())
+
+        assert isinstance(session, dv.AuthorizedSession)
+        for scheme in ("https://", "http://"):
+            adapter = session.adapters[scheme]
+            assert isinstance(adapter, TrackedHTTPAdapter)
+            # The refresh token must never reach a log line or a captured sample.
+            assert "refresh-token" in adapter._redact_values
+
+    def test_the_report_download_session_carries_no_credential(self) -> None:
+        session = dv.report_download_session()
+
+        # Bid Manager hands back a pre-signed Cloud Storage URL: sending the bearer token there
+        # would leak it to a host that has no need for it.
+        assert not isinstance(session, dv.AuthorizedSession)
+        assert "Authorization" not in session.headers
+        assert isinstance(session.adapters["https://"], TrackedHTTPAdapter)
 
 
 class TestAdvertiserIds:

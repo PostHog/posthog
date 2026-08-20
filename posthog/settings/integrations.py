@@ -1,5 +1,11 @@
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
+# Integration service. Both unset (the default) means credential reads fall back to the
+# local environment; see posthog/integration_secrets/client.py for the contract.
+INTEGRATION_SERVICE_URL = get_from_env("INTEGRATION_SERVICE_URL", "")
+# Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
+INTEGRATION_SERVICE_JWT_SECRET = get_from_env("INTEGRATION_SERVICE_JWT_SECRET", "")
+
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
 
@@ -33,6 +39,11 @@ GOOGLE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("GOOGLE_ANALYTICS_APP_CLIENT_S
 
 GOOGLE_CALENDAR_APP_CLIENT_ID = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_ID", "")
 GOOGLE_CALENDAR_APP_CLIENT_SECRET = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_SECRET", "")
+
+# Registered in the Google Cloud console with the YouTube Analytics API and the YouTube Data API
+# enabled. Empty defaults keep the app importable and the connector dormant until the client exists.
+YOUTUBE_ANALYTICS_APP_CLIENT_ID = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT_ID", "")
+YOUTUBE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT_SECRET", "")
 
 # Display & Video 360 uses its own Google Cloud OAuth client so the display-video and
 # doubleclickbidmanager scopes stay off the other Google apps' consent screens. Empty defaults keep
@@ -74,6 +85,15 @@ STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
 # PyPI, the LLM gateway host, the PostHog capture host). Comma-separated; an ops escape hatch for
 # when a legitimate dependency host is missing — never a way to open the sandbox wide.
 STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS", ""))
+# Installation id of the GitHub App on the PostHog/community-skills repo, used by the in-product
+# "Publish to community" flow to open skill PRs. Empty (the default) disables publishing → the
+# endpoint returns 503 and the UI falls back to the manual-PR path.
+COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID = get_from_env("COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID", "")
+# Bare repo name (no owner prefix) — the owner is the App installation's account. Defaults to the
+# PostHog/community-skills repo. Publish-only: the hourly catalog sync reads its registry from the
+# repo pinned in community_skill_sync.py, so pointing this elsewhere sends pull requests to a repo the
+# sync does not read back.
+COMMUNITY_SKILLS_GITHUB_REPO = get_from_env("COMMUNITY_SKILLS_GITHUB_REPO", "community-skills")
 
 META_ADS_APP_CLIENT_ID = get_from_env("META_ADS_APP_CLIENT_ID", "")
 META_ADS_APP_CLIENT_SECRET = get_from_env("META_ADS_APP_CLIENT_SECRET", "")
