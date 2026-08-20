@@ -1,6 +1,5 @@
 import { DateTime } from 'luxon'
 import { Pool, PoolClient } from 'pg'
-import { Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
@@ -15,15 +14,6 @@ import {
     CyclotronV2RescheduleOptionsSchema,
     CyclotronV2WorkerConfig,
 } from './types'
-
-// Buckets range from "dequeued immediately" to "sat behind an hour-plus backlog":
-// the low end validates transactional-class latency, the high end sizes broadcast drain time.
-const emailDequeueLagMs = new Histogram({
-    name: 'cdp_cyclotron_email_dequeue_lag_ms',
-    help: 'Time between an email job becoming due and being dequeued, by priority class',
-    labelNames: ['priority'] as const,
-    buckets: [100, 500, 1000, 5000, 15000, 60000, 300000, 900000, 3600000],
-})
 
 export interface RawJobRow {
     id: string
@@ -412,12 +402,6 @@ export class CyclotronV2Worker {
                 cyclotron_jobs.lock_id`,
             [this.config.queueName, limit, lockId]
         )
-        // Lag is measured from `scheduled` rather than `created`, so intentional
-        // waits (delays, throttle retries) don't count as queue wait time.
-        const now = Date.now()
-        for (const row of result.rows) {
-            emailDequeueLagMs.labels(String(row.priority)).observe(Math.max(0, now - Date.parse(row.scheduled)))
-        }
         // Within-batch order is undefined (UPDATE...RETURNING doesn't preserve
         // the CTE's ORDER BY), but the fairness guarantee is *across* batches:
         // the CTE picks the rows with the lowest dequeue_seq values, so a
