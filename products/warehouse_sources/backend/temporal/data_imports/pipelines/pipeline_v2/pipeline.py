@@ -450,6 +450,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             logger=self._logger,
             last_incremental_field_value=self._last_incremental_field_value,
             resource=self._resource,
+            allow_zero_row_skip=True,
         )
 
 
