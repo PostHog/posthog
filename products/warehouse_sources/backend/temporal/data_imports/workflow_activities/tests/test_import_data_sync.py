@@ -562,13 +562,15 @@ def _inputs_no_reset() -> ImportDataActivityInputs:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "is_incremental,expected_last_value",
+    "is_incremental,expected_last_value,expected_before_lookback",
     [
-        (True, datetime(2026, 6, 14, 14, 33, 31, 802833)),
-        (False, datetime(2026, 6, 14, 15, 33, 31, 802833)),
+        (True, datetime(2026, 6, 14, 14, 33, 31, 802833), datetime(2026, 6, 14, 15, 33, 31, 802833)),
+        (False, datetime(2026, 6, 14, 15, 33, 31, 802833), None),
     ],
 )
-async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_incremental, expected_last_value):
+async def test_incremental_lookback_shifts_query_value_not_stored_watermark(
+    is_incremental, expected_last_value, expected_before_lookback
+):
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
@@ -580,6 +582,10 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_i
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.db_incremental_field_last_value == expected_last_value
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
+    # The unshifted cursor travels alongside the shifted one. A consumer needs both to tell overlap
+    # from new ground, and capturing it after the shift would make them equal and silently disarm
+    # that rule with every test still passing.
+    assert source_inputs.db_incremental_field_last_value_before_lookback == expected_before_lookback
 
 
 @pytest.mark.asyncio

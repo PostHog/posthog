@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import requests
@@ -29,7 +29,11 @@ from posthog.egress.github.transport import (
 )
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
+from posthog.models.github_integration_base import (
+    GITHUB_BRANCH_CACHE_TTL_SECONDS,
+    GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
+    GitHubIntegrationBase,
+)
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
     CONFIG_LEGACY_OAUTH_CLIENT,
@@ -198,6 +202,58 @@ class TestLinearIntegrationModel(BaseTest):
             config={"data": {"viewer": {"organization": {"urlKey": "posthog"}}}},
             sensitive_config={"access_token": "ACCESS_TOKEN"},
         )
+
+    def test_search_issues_raises_on_graphql_errors(self):
+        # An expired token or GraphQL error must not be reported as a valid empty result.
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value={"errors": [{"message": "unauthorized"}]}):
+            with self.assertRaises(ValidationError):
+                linear.search_issues("boom")
+
+    @parameterized.expand(
+        [
+            ("top_level_errors", {"errors": [{"message": "forbidden"}]}),
+            ("mutation_failure", {"data": {"attachmentCreate": {"success": False}}}),
+        ]
+    )
+    def test_create_attachment_raises_on_failure(self, _name, response_body):
+        # Linear reports failures in a 200 body; treating them as success would let callers
+        # persist references whose promised back-link was never created.
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value=response_body):
+            with self.assertRaises(ValidationError):
+                linear.create_attachment("LIN-123", "https://us.posthog.com/error_tracking/issue-id")
+
+    def test_create_issue_raises_when_issue_creation_fails(self):
+        # A failed issueCreate must not fall through to an attachment attempt and a
+        # persisted {"id": None} reference.
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value={"errors": [{"message": "forbidden"}]}) as mock_query:
+            with self.assertRaises(ValidationError):
+                linear.create_issue(
+                    "https://us.posthog.com/error_tracking/issue-id",
+                    {"team_id": "team-id", "title": "Title", "description": "Description"},
+                )
+        assert mock_query.call_count == 1
+
+    def test_create_issue_succeeds_when_attachment_fails(self):
+        # The Linear issue already exists when the attachment fires, so a failed back-link
+        # must not fail the create (retrying would duplicate the issue).
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(
+            linear,
+            "query",
+            side_effect=[
+                {"data": {"issueCreate": {"issue": {"identifier": "LIN-123"}}}},
+                {"errors": [{"message": "rate limited"}]},
+            ],
+        ):
+            result = linear.create_issue(
+                "https://us.posthog.com/error_tracking/issue-id",
+                {"team_id": "team-id", "title": "Title", "description": "Description"},
+            )
+
+        assert result == {"id": "LIN-123"}
 
     def test_create_issue_passes_user_fields_as_graphql_variables(self):
         linear = LinearIntegration(self.create_integration())
@@ -1756,6 +1812,40 @@ class TestGoogleCloudIntegrationModel(BaseTest):
         assert "access_token" not in integration.config
 
 
+class TestExtractFailingChecks(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("failure", "FAILURE", True),
+            ("timed_out", "TIMED_OUT", True),
+            ("action_required", "ACTION_REQUIRED", True),
+            ("startup_failure", "STARTUP_FAILURE", True),
+            ("cancelled", "CANCELLED", True),
+            ("stale", "STALE", True),
+            ("success", "SUCCESS", False),
+            ("neutral", "NEUTRAL", False),
+            ("skipped", "SKIPPED", False),
+        ]
+    )
+    def test_check_run_is_reported_only_when_its_conclusion_blocks_merge(self, _name, conclusion, expected_reported):
+        rollup = {
+            "contexts": {
+                "nodes": [
+                    {
+                        "__typename": "CheckRun",
+                        "conclusion": conclusion,
+                        "name": "unit tests",
+                        "checkSuite": {"workflowRun": {"workflow": {"name": "CI"}}},
+                        "detailsUrl": "https://ci/1",
+                    }
+                ]
+            }
+        }
+
+        failing = GitHubIntegrationBase._extract_failing_checks(rollup)
+
+        assert (failing == [{"key": "CI/unit tests", "details_url": "https://ci/1"}]) is expected_reported
+
+
 class TestGitHubIntegrationModel(BaseTest):
     def setUp(self):
         super().setUp()
@@ -2226,6 +2316,46 @@ class TestGitHubIntegrationModel(BaseTest):
             result = github.close_pull_request_from_url("https://github.com/PostHog/posthog/issues/42")
         assert result["success"] is False
         mock_patch.assert_not_called()
+
+    def test_search_issues_drops_results_from_other_repositories(self):
+        # Search-syntax operators in the query (e.g. "foo OR bar") can escape the repo:
+        # qualifier, so results must be filtered by the repository they actually belong to.
+        integration = self.create_integration(
+            config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
+        )
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {
+            "items": [
+                {
+                    "number": 1,
+                    "title": "In repo",
+                    "html_url": "https://github.com/PostHog/posthog/issues/1",
+                    "repository_url": "https://api.github.com/repos/PostHog/posthog",
+                },
+                {
+                    "number": 2,
+                    "title": "Other repo",
+                    "html_url": "https://github.com/PostHog/other/issues/2",
+                    "repository_url": "https://api.github.com/repos/PostHog/other",
+                },
+                {
+                    "number": 3,
+                    "title": "A pull request",
+                    "html_url": "https://github.com/PostHog/posthog/pull/3",
+                    "repository_url": "https://api.github.com/repos/PostHog/posthog",
+                    "pull_request": {"url": "https://api.github.com/repos/PostHog/posthog/pulls/3"},
+                },
+            ]
+        }
+        with patch.object(github, "api_request", return_value=mock_response) as mock_request:
+            results = github.search_issues("posthog", 'crash" repo:microsoft/vscode "')
+        assert [result["id"] for result in results] == ["1"]
+        assert results[0]["external_context"] == {"repository": "posthog", "number": 1}
+        # The user's text is quoted so its qualifiers and operators match literally instead of
+        # rewriting the query and filling the result page with foreign matches.
+        sent_query = mock_request.call_args.kwargs["params"]["q"]
+        assert sent_query == 'repo:PostHog/posthog "crash  repo:microsoft/vscode" in:title type:issue'
 
     def test_comment_on_pull_request_posts_to_issues_endpoint(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
@@ -3228,17 +3358,21 @@ class TestGitHubIntegrationModel(BaseTest):
             github.get_access_token()
 
 
+def _create_github_integration(team) -> Integration:
+    # integration_id mirrors production (set from config on install) — the egress gate and
+    # tier store key on it; without it every call is identity-blind and skips both.
+    return Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="INSTALL",
+        config={"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+        sensitive_config={"access_token": "ACCESS_TOKEN"},
+    )
+
+
 class TestGitHubIntegrationGhApiGet(BaseTest):
     def _create_integration(self) -> Integration:
-        # integration_id mirrors production (set from config on install) — the egress gate and
-        # tier store key on it; without it every call is identity-blind and skips both.
-        return Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="INSTALL",
-            config={"installation_id": "INSTALL", "account": {"name": "PostHog"}},
-            sensitive_config={"access_token": "ACCESS_TOKEN"},
-        )
+        return _create_github_integration(self.team)
 
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
@@ -3349,13 +3483,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
 
 class TestGitHubIntegrationGraphQL(BaseTest):
     def _create_integration(self) -> Integration:
-        return Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="INSTALL",
-            config={"installation_id": "INSTALL", "account": {"name": "PostHog"}},
-            sensitive_config={"access_token": "ACCESS_TOKEN"},
-        )
+        return _create_github_integration(self.team)
 
     @staticmethod
     def _graphql_response(body: dict) -> MagicMock:
@@ -3423,6 +3551,180 @@ class TestGitHubIntegrationGraphQL(BaseTest):
         data = github._gh_graphql("query {}", {}, endpoint="/graphql:test")
         assert data == {"repository": {"name": "posthog"}}
         assert mock_request.call_count == 1
+
+
+BABYSIT_PR_URL = "https://github.com/acme/widgets/pull/7"
+
+
+def _babysit_thread(thread_id: str, *, is_resolved: bool = False, author: str = "reviewer", body: str = "fix this"):
+    return {
+        "id": thread_id,
+        "isResolved": is_resolved,
+        "path": "posthog/api.py",
+        "comments": {
+            "nodes": [
+                {
+                    "id": f"{thread_id}-C1",
+                    "url": f"{BABYSIT_PR_URL}#discussion_{thread_id}",
+                    "body": body,
+                    "author": {"login": author},
+                    "authorAssociation": "MEMBER",
+                }
+            ]
+        },
+    }
+
+
+def _babysit_feedback(node_id: str, *, author: str = "reviewer", body: str = "please rename"):
+    return {
+        "id": node_id,
+        "url": f"{BABYSIT_PR_URL}#issuecomment-{node_id}",
+        "body": body,
+        "author": {"login": author},
+        "authorAssociation": "MEMBER",
+    }
+
+
+class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
+    def _github(self) -> GitHubIntegration:
+        return GitHubIntegration(_create_github_integration(self.team))
+
+    @staticmethod
+    def _payload(**overrides) -> dict:
+        pull_request: dict = {
+            "url": BABYSIT_PR_URL,
+            "state": "OPEN",
+            "isDraft": False,
+            "mergeable": "MERGEABLE",
+            "headRefOid": "head1",
+            "author": {"login": "posthog-bot"},
+            "reviewThreads": {"nodes": []},
+            "comments": {"nodes": []},
+            "reviews": {"nodes": []},
+            "commits": {"nodes": [{"commit": {"statusCheckRollup": None}}]},
+        }
+        pull_request.update(overrides)
+        return {"repository": {"pullRequest": pull_request}}
+
+    _FAILING_CONTEXT = {
+        "__typename": "CheckRun",
+        "name": "backend",
+        "conclusion": "FAILURE",
+        "detailsUrl": "https://ci.example.com/1",
+        "checkSuite": None,
+    }
+
+    def test_resolved_threads_and_self_or_empty_feedback_are_dropped(self):
+        payload = self._payload(
+            reviewThreads={"nodes": [_babysit_thread("T1", is_resolved=True), _babysit_thread("T2")]},
+            comments={
+                "nodes": [
+                    _babysit_feedback("M1", author="posthog-bot"),
+                    _babysit_feedback("M2", body="   "),
+                    _babysit_feedback("M3"),
+                ]
+            },
+            reviews={"nodes": [_babysit_feedback("R1", author="posthog-bot"), _babysit_feedback("R2")]},
+        )
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert [thread["id"] for thread in result["unresolved_threads"]] == ["T2"]
+        assert [comment["id"] for comment in result["comments"]] == ["M3", "R2"]
+
+    @parameterized.expand(
+        [
+            ("MERGED", False, "merged"),
+            ("CLOSED", False, "closed"),
+            ("OPEN", True, "draft"),
+            ("OPEN", False, "open"),
+        ]
+    )
+    def test_pr_state_mapping(self, gql_state, is_draft, expected):
+        payload = self._payload(state=gql_state, isDraft=is_draft)
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert result["state"] == expected
+
+    @parameterized.expand(
+        [
+            ("CONFLICTING", True),
+            ("MERGEABLE", False),
+            ("UNKNOWN", False),
+        ]
+    )
+    def test_only_a_conflicting_merge_state_flags_a_conflict(self, gql_mergeable, expected):
+        payload = self._payload(mergeable=gql_mergeable)
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert result["has_conflict"] is expected
+
+    def test_extracts_only_failing_checks_with_workflow_scoped_keys(self):
+        rollup = {
+            "contexts": {
+                "nodes": [
+                    {
+                        "__typename": "CheckRun",
+                        "name": "backend",
+                        "conclusion": "FAILURE",
+                        "detailsUrl": "https://ci.example.com/1",
+                        "checkSuite": {"workflowRun": {"workflow": {"name": "CI"}}},
+                    },
+                    {"__typename": "CheckRun", "name": "frontend", "conclusion": "SUCCESS", "checkSuite": None},
+                    {"__typename": "CheckRun", "name": "flaky", "conclusion": "TIMED_OUT", "checkSuite": None},
+                    {
+                        "__typename": "StatusContext",
+                        "context": "vercel",
+                        "state": "ERROR",
+                        "targetUrl": "https://vercel.example.com/1",
+                    },
+                    {"__typename": "StatusContext", "context": "netlify", "state": "SUCCESS"},
+                ]
+            },
+        }
+        payload = self._payload(commits={"nodes": [{"commit": {"statusCheckRollup": rollup}}]})
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert [check["key"] for check in result["failing_checks"]] == ["CI/backend", "flaky", "vercel"]
+        assert result["failing_checks"][0]["details_url"] == "https://ci.example.com/1"
+
+    @parameterized.expand(
+        [
+            ("FAILURE", [], [("ci-rollup-failing", f"{BABYSIT_PR_URL}/checks")]),
+            ("ERROR", [], [("ci-rollup-failing", f"{BABYSIT_PR_URL}/checks")]),
+            ("FAILURE", [_FAILING_CONTEXT], [("backend", "https://ci.example.com/1")]),
+            ("SUCCESS", [], []),
+            ("PENDING", [], []),
+        ]
+    )
+    def test_rollup_state_backstops_checks_missing_from_the_context_page(self, rollup_state, context_nodes, expected):
+        rollup = {"state": rollup_state, "contexts": {"nodes": context_nodes}}
+        payload = self._payload(commits={"nodes": [{"commit": {"statusCheckRollup": rollup}}]})
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert [(check["key"], check["details_url"]) for check in result["failing_checks"]] == expected
+
+    def test_invalid_pull_request_url_is_reported_as_failure_without_calling_github(self):
+        with patch.object(GitHubIntegration, "_gh_graphql") as mock_graphql:
+            result = self._github().get_pull_request_babysit_snapshot("https://example.com/not/a/pull-request")
+
+        assert result["success"] is False
+        mock_graphql.assert_not_called()
+
+    def test_missing_pull_request_is_reported_as_failure(self):
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value={"repository": {"pullRequest": None}}):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert result["success"] is False
 
 
 class TestDatabricksIntegrationModel(BaseTest):

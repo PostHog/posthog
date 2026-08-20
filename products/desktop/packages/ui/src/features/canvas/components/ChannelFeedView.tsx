@@ -25,6 +25,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Skeleton,
   Spinner,
 } from "@posthog/quill";
 import {
@@ -39,6 +40,11 @@ import type {
 } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { TaskTabIcon } from "@posthog/ui/features/browser-tabs/TaskTabIcon";
+import {
+  type FeedEntry,
+  mergeFeedEntries,
+  stripContextBlocks,
+} from "@posthog/ui/features/canvas/components/channelFeedDisplay";
 import { buildRows } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import { useChannelTaskData } from "@posthog/ui/features/canvas/hooks/useChannelTaskData";
@@ -78,20 +84,6 @@ import {
 // Feed rows poll their reply counts slower than the open thread panel — the
 // shared query key means an open panel naturally speeds the row up too.
 const FEED_REPLIES_POLL_INTERVAL_MS = 15_000;
-
-// Injected context wrappers a prompt may carry (Slack thread history, a
-// channel's CONTEXT.md, canvas instructions, saved personalization). The feed
-// shows what the user actually asked, so these are stripped — the timeline
-// renders them as their own collapsible surfaces.
-const CONTEXT_BLOCK_REGEX =
-  /<(slack_thread_context|channel_context|canvas_generation_instructions|user_custom_instructions)\b[^>]*>[\s\S]*?<\/\1>/g;
-
-export function stripContextBlocks(text: string): string {
-  return text
-    .replace(CONTEXT_BLOCK_REGEX, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
 
 // Once a PR exists its GitHub state is the truest top-line status — more
 // accurate than the run status, which routinely lingers on "in_progress"
@@ -1093,48 +1085,6 @@ function SystemFeedRow({ message }: { message: ChannelFeedSystemMessage }) {
   );
 }
 
-// A single feed entry, either a real task card or a synthetic system row, tagged
-// with the timestamp used to interleave the two.
-export type FeedEntry =
-  | { kind: "task"; id: string; createdAt: string; task: Task }
-  | {
-      kind: "system";
-      id: string;
-      createdAt: string;
-      message: ChannelFeedSystemMessage;
-    };
-
-// Merge tasks + system rows into one newest-first list. ISO timestamps sort
-// lexically, so a plain string compare is chronological. Announcements are
-// posted 1ms before the task they describe; if the backend truncates that
-// sub-second offset the timestamps tie, so break ties task-first to keep the
-// announcement directly under its card.
-export function mergeFeedEntries(
-  tasks: Task[],
-  systemMessages: ChannelFeedSystemMessage[],
-): FeedEntry[] {
-  const merged: FeedEntry[] = [
-    ...tasks.map((task) => ({
-      kind: "task" as const,
-      id: task.id,
-      createdAt: task.created_at,
-      task,
-    })),
-    ...systemMessages.map((message) => ({
-      kind: "system" as const,
-      id: message.id,
-      createdAt: message.createdAt,
-      message,
-    })),
-  ];
-  merged.sort(
-    (a, b) =>
-      b.createdAt.localeCompare(a.createdAt) ||
-      (a.kind === b.kind ? 0 : a.kind === "task" ? -1 : 1),
-  );
-  return merged;
-}
-
 const DAY_MS = 86_400_000;
 
 // "Today" / "Yesterday" / "Aug 8" (with the year once it differs) for the
@@ -1151,6 +1101,62 @@ function feedDayLabel(iso: string, now: Date): string {
     day: "numeric",
     ...(date.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
   });
+}
+
+/**
+ * The loading stand-in for one feed card: the card frame with the title,
+ * prompt lines, and footer facepile as pulsing bars, so the page keeps the
+ * feed's shape while the query runs instead of collapsing to a spinner.
+ */
+function FeedRowSkeleton({ wide }: { wide?: boolean }) {
+  return (
+    <Card
+      size="sm"
+      className="mx-auto my-1.5 w-full max-w-[660px] rounded-xl py-0"
+    >
+      <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
+        <div className="flex items-start gap-3">
+          <Skeleton className={cn("h-4", wide ? "w-3/5" : "w-2/5")} />
+          <Skeleton className="ml-auto h-5 w-16 shrink-0 rounded-full" />
+        </div>
+        <div className="mt-2 flex flex-col gap-1.5">
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className={cn("h-3", wide ? "w-1/2" : "w-3/4")} />
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <Skeleton className="size-5 rounded-full" />
+          <Skeleton className="h-3 w-24" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The loading feed: a faded stack of card skeletons under a separator-shaped
+ * bar. Each card fainter than the one above, so the stack reads as content
+ * arriving rather than a wall of grey.
+ */
+function FeedSkeleton() {
+  return (
+    <div aria-hidden className="flex flex-col">
+      <div className="mx-auto flex w-full max-w-[660px] items-center gap-3 pt-5 pb-2">
+        <span className="h-px flex-1 bg-(--gray-5)" />
+        <Skeleton className="h-3 w-12" />
+        <span className="h-px flex-1 bg-(--gray-5)" />
+      </div>
+      <FeedRowSkeleton wide />
+      <div className="opacity-70">
+        <FeedRowSkeleton />
+      </div>
+      <div className="opacity-40">
+        <FeedRowSkeleton wide />
+      </div>
+      <div className="opacity-15">
+        <FeedRowSkeleton />
+      </div>
+    </div>
+  );
 }
 
 function DaySeparator({ label }: { label: string }) {
@@ -1246,13 +1252,16 @@ export function ChannelFeedView({
   );
 
   if (isLoading && pending.length === 0) {
+    // Everything already known renders now. The skeleton cards hold the
+    // feed's shape while keeping the intro and composer available.
+    // feed's shape where the results are about to land.
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full flex-col px-4 pt-4">
+      <div className="min-h-0 flex-1 overflow-y-auto" aria-busy="true">
+        <output className="sr-only">Loading tasks</output>
+        <div className="mx-auto w-full px-4 pt-4 pb-10">
+          {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
           {composerBlock}
-          <div className="flex justify-center py-16">
-            <Spinner />
-          </div>
+          <FeedSkeleton />
         </div>
       </div>
     );

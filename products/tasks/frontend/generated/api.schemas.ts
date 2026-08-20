@@ -1062,126 +1062,6 @@ export interface TaskActivityMarkReadResponseApi {
 }
 
 /**
- * Detail/create/update/run response for a task automation.
- */
-export interface TaskAutomationDTOApi {
-    id: string
-    name: string
-    prompt: string
-    /** @nullable */
-    repository: string | null
-    /** @nullable */
-    github_integration: number | null
-    cron_expression: string
-    timezone: string
-    /** @nullable */
-    template_id: string | null
-    enabled: boolean
-    /** @nullable */
-    last_run_at: string | null
-    /** @nullable */
-    last_run_status: string | null
-    last_task_id: string
-    /** @nullable */
-    last_task_run_id: string | null
-    /** @nullable */
-    last_error: string | null
-    created_at: string
-    updated_at: string
-}
-
-export interface PaginatedTaskAutomationDTOListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskAutomationDTOApi[]
-}
-
-/**
- * Request body for creating or updating a task automation.
- */
-export interface TaskAutomationWriteApi {
-    /**
-     * Display name (stored as the backing task's title).
-     * @maxLength 255
-     */
-    name: string
-    /** The automation prompt (stored as the backing task's description). */
-    prompt: string
-    /**
-     * Target repository in the format organization/repository.
-     * @maxLength 255
-     */
-    repository: string
-    /**
-     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-     * @nullable
-     */
-    github_integration?: number | null
-    /**
-     * Standard 5-field cron expression (minute hour day month weekday).
-     * @maxLength 100
-     */
-    cron_expression: string
-    /**
-     * IANA timezone the schedule runs in.
-     * @maxLength 128
-     */
-    timezone?: string
-    /**
-     * Optional template identifier this automation was created from.
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    /** Whether the schedule is active; paused when false. */
-    enabled?: boolean
-}
-
-/**
- * Request body for creating or updating a task automation.
- */
-export interface PatchedTaskAutomationWriteApi {
-    /**
-     * Display name (stored as the backing task's title).
-     * @maxLength 255
-     */
-    name?: string
-    /** The automation prompt (stored as the backing task's description). */
-    prompt?: string
-    /**
-     * Target repository in the format organization/repository.
-     * @maxLength 255
-     */
-    repository?: string
-    /**
-     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-     * @nullable
-     */
-    github_integration?: number | null
-    /**
-     * Standard 5-field cron expression (minute hour day month weekday).
-     * @maxLength 100
-     */
-    cron_expression?: string
-    /**
-     * IANA timezone the schedule runs in.
-     * @maxLength 128
-     */
-    timezone?: string
-    /**
-     * Optional template identifier this automation was created from.
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    /** Whether the schedule is active; paused when false. */
-    enabled?: boolean
-}
-
-/**
  * Response shape for a task channel, read from a frozen ``ChannelDTO``.
  */
 export interface ChannelDTOApi {
@@ -1656,7 +1536,6 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
- * * `automation` - Automation
  * * `slack` - Slack
  * * `support_queue` - Support Queue
  * * `session_summaries` - Session Summaries
@@ -1671,6 +1550,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `loop` - Loop
  * * `mcp_analytics` - MCP Analytics
  * * `signals_chat` - Signals Chat
+ * * `workflow` - Workflow
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -1679,7 +1559,6 @@ export const OriginProductEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
-    Automation: 'automation',
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
@@ -1694,6 +1573,7 @@ export const OriginProductEnumApi = {
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     SignalsChat: 'signals_chat',
+    Workflow: 'workflow',
 } as const
 
 /**
@@ -1719,7 +1599,6 @@ export interface TaskCreateApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -1733,7 +1612,8 @@ export interface TaskCreateApi {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
-     * * `signals_chat` - Signals Chat */
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1763,14 +1643,12 @@ export interface TaskCreateApi {
      */
     signal_report?: string | null
     /**
-     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
      * @maxLength 200
      */
     signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
-    /** If true, this task is for internal use and should not be exposed to end users. */
-    internal?: boolean
     /** If true, the task is hidden from default list responses. */
     archived?: boolean
     /**
@@ -1863,7 +1741,6 @@ export interface TaskWriteApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -1877,7 +1754,8 @@ export interface TaskWriteApi {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
-     * * `signals_chat` - Signals Chat */
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1907,14 +1785,12 @@ export interface TaskWriteApi {
      */
     signal_report?: string | null
     /**
-     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
      * @maxLength 200
      */
     signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
-    /** If true, this task is for internal use and should not be exposed to end users. */
-    internal?: boolean
     /** If true, the task is hidden from default list responses. */
     archived?: boolean
     /**
@@ -1992,7 +1868,6 @@ export interface PatchedTaskWriteApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -2006,7 +1881,8 @@ export interface PatchedTaskWriteApi {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
-     * * `signals_chat` - Signals Chat */
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2036,14 +1912,12 @@ export interface PatchedTaskWriteApi {
      */
     signal_report?: string | null
     /**
-     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
      * @maxLength 200
      */
     signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
-    /** If true, this task is for internal use and should not be exposed to end users. */
-    internal?: boolean
     /** If true, the task is hidden from default list responses. */
     archived?: boolean
     /**
@@ -4260,17 +4134,6 @@ export type TaskActivityListParams = {
      * @maximum 500
      */
     limit?: number
-}
-
-export type TaskAutomationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type TaskChannelsListParams = {
