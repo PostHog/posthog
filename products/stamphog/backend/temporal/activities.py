@@ -43,6 +43,7 @@ from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
+from products.stamphog.backend.logic.review_trigger import derive_review_trigger
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
     ReviewerVerdict,
@@ -459,6 +460,12 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
         # from the run's inbox provenance, stamped after the PR is linked to a signals run.
         self_driving_review=bool(output.get("inbox_review")),
+        # Same two inputs, read as a description rather than a permission: the reviewer is told why
+        # it was asked, and decides for itself what that means for this diff.
+        review_trigger=derive_review_trigger(
+            has_inbox_review=bool(output.get("inbox_review")),
+            review_mode=run.pull_request.repo_config.review_mode,
+        ).value,
     )
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
