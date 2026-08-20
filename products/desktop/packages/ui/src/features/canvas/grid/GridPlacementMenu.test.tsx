@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { GridPlacementMenu } from "./GridPlacementMenu";
-import type { PlacementTileActions } from "./GridPlacementTile";
+import type { PlacementActions } from "./placementActions";
 
 const placement: GridPlacement = {
   id: "placement-1",
@@ -16,7 +16,7 @@ const placement: GridPlacement = {
   h: 2,
 };
 
-function actions(): PlacementTileActions {
+function actions(): PlacementActions {
   return {
     describe: vi.fn(),
     reset: vi.fn(),

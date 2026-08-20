@@ -23,18 +23,16 @@ import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/use
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GridCardChrome } from "./GridCardChrome";
 import { GridChatPanel, type GridChatTarget } from "./GridChatPanel";
-import { GridPlacementMenu } from "./GridPlacementMenu";
-import {
-  GridPlacementTile,
-  type PlacementTileActions,
-} from "./GridPlacementTile";
+import { GridPlacementTile } from "./GridPlacementTile";
 import {
   collides,
   type GridRect,
   rectFromCells,
   surfaceRows,
 } from "./gridGeometry";
+import type { PlacementActions } from "./placementActions";
 import { type GridDragOutcome, useGridDrag } from "./useGridDrag";
 import { useGridLayout, usePatchLayout } from "./useGridLayout";
 
@@ -274,12 +272,10 @@ export function GridCanvasView({
     [setCollapsed],
   );
 
-  const actions: PlacementTileActions = {
-    describe,
-    reset,
-    remove,
-    discuss,
-  };
+  const actions = useMemo<PlacementActions>(
+    () => ({ describe, reset, remove, discuss }),
+    [describe, reset, remove, discuss],
+  );
 
   if (isLoading || !layout || !placements || !dashboard) {
     return (
@@ -411,27 +407,19 @@ export function GridCanvasView({
                   className="group relative overflow-hidden rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)"
                   style={gridItemStyle(dragged)}
                 >
-                  {interactive ? (
-                    <div
-                      className="absolute inset-x-0 top-0 z-10 h-5 cursor-move bg-(--gray-3) opacity-0 transition-opacity group-hover:opacity-100"
-                      onPointerDown={startMove(placement)}
-                    />
-                  ) : null}
                   <GridPlacementTile
                     placement={placement}
                     interactive={interactive}
                     patching={isPatching}
                     actions={actions}
                   />
-                  <GridPlacementMenu
-                    placement={placement}
-                    patching={isPatching}
-                    actions={actions}
-                  />
                   {interactive ? (
-                    <div
-                      className="absolute right-0 bottom-0 z-10 h-4 w-4 cursor-nwse-resize bg-(--gray-6) opacity-0 transition-opacity group-hover:opacity-100"
-                      onPointerDown={startResize(placement)}
+                    <GridCardChrome
+                      placement={placement}
+                      patching={isPatching}
+                      actions={actions}
+                      onMovePointerDown={startMove(placement)}
+                      onResizePointerDown={startResize(placement)}
                     />
                   ) : null}
                 </div>

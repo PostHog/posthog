@@ -16,11 +16,12 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { useState } from "react";
-import type { PlacementTileActions } from "./GridPlacementTile";
+import type { PlacementActions } from "./placementActions";
 
 /**
- * Actions for one grid card. The menu stays in the card's outer chrome so it is
- * available for live component frames as well as pending and generating cards.
+ * Actions for one grid card, rendered only while the canvas is editable. The
+ * menu stays in the card's outer chrome so it is available for live component
+ * frames as well as pending and generating cards.
  */
 export function GridPlacementMenu({
   placement,
@@ -29,9 +30,8 @@ export function GridPlacementMenu({
 }: {
   placement: GridPlacement;
   patching: boolean;
-  actions: PlacementTileActions;
+  actions: PlacementActions;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const hasConversation = !!placement.generationTaskId;
 
@@ -42,14 +42,12 @@ export function GridPlacementMenu({
 
   return (
     <div
-      className={
-        menuOpen
-          ? "absolute top-1 right-1 z-20 opacity-100"
-          : "absolute top-1 right-1 z-20 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
-      }
+      // An open menu keeps its trigger visible after the pointer leaves the
+      // card, which the trigger already states as data-popup-open.
+      className="absolute top-1 right-1 z-20 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 has-[[data-popup-open]]:opacity-100"
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+      <DropdownMenu>
         <DropdownMenuTrigger
           render={
             <Button variant="outline" size="icon-sm" aria-label="Card options">
@@ -83,11 +81,8 @@ export function GridPlacementMenu({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete card?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this card? It will be removed from
-              this canvas.
-              {placement.component
-                ? " The reusable component will not be deleted."
-                : null}
+              This removes the card from the canvas.
+              {placement.component ? " The reusable component stays." : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

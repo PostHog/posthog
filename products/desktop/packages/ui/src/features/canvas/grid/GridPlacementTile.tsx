@@ -7,21 +7,11 @@ import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ComponentFrame } from "./ComponentFrame";
+import type { PlacementActions } from "./placementActions";
 
 // Poll cadence for the fill task's run status while a tile is generating —
 // matches the canvas generation poll elsewhere.
 const FILL_TASK_POLL_MS = 5_000;
-
-export interface PlacementTileActions {
-  /** Dispatch an agent task to fill this placement with the given ask. */
-  describe: (placement: GridPlacement, prompt: string) => Promise<void>;
-  /** Put a stalled placement back to pending so it can be re-described. */
-  reset: (placement: GridPlacement) => void;
-  /** Remove this placement from the layout. */
-  remove: (placement: GridPlacement) => void;
-  /** Open this placement's task conversation in the canvas's side panel. */
-  discuss: (placement: GridPlacement) => void;
-}
 
 /**
  * One placement on the grid, rendered by lifecycle status: a live widget, a
@@ -39,7 +29,7 @@ export function GridPlacementTile({
   /** A layout write is in flight; the tile's edit buttons stay disabled until
    * it lands, so a second click can't fire a patch against the same head. */
   patching: boolean;
-  actions: PlacementTileActions;
+  actions: PlacementActions;
 }) {
   if (placement.status === "live" && placement.component) {
     return <ComponentFrame placement={placement} />;
@@ -73,7 +63,7 @@ function GeneratingTile({
   placement: GridPlacement;
   interactive: boolean;
   patching: boolean;
-  actions: PlacementTileActions;
+  actions: PlacementActions;
 }) {
   const taskId = placement.generationTaskId ?? null;
   const { data: task } = useQuery({
@@ -170,7 +160,7 @@ function DescribeTile({
   placement: GridPlacement;
   failed: boolean;
   interactive: boolean;
-  actions: PlacementTileActions;
+  actions: PlacementActions;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
