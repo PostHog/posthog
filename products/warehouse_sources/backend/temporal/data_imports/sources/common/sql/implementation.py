@@ -154,10 +154,6 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
     ) -> dict[str, list[str] | None]:
         return {}
 
-    def has_new_rows(self, config: Any, inputs: SourceInputs) -> bool | None:
-        """Driver-side existence check behind `SQLSource.probe_new_data`; `None` means unknown."""
-        return None
-
     def get_row_counts(
         self,
         conn: ConnT,

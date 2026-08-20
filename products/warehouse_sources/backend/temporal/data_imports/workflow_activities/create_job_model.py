@@ -18,7 +18,6 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_external_data_schedule
-from products.managed_warehouse.backend.facade.feature_flags import is_ducklake_data_imports_copy_enabled
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -202,7 +201,6 @@ FAST_RETURN_FULL_RUN_INTERVAL = dt.timedelta(hours=24)
 def _fast_return_eligible(
     *,
     schema: ExternalDataSchema,
-    team: "Team | None",
     team_id: int,
     enrichment_needed: bool,
     statistics_needed: bool,
@@ -242,10 +240,6 @@ def _fast_return_eligible(
     if enrichment_needed or statistics_needed:
         return False
     if data_quality_checks_needed_for(team_id, schema.table_id):
-        return False
-    # The DuckLake copy is the sync path's own retry for a failed copy, so a team using it never
-    # fast-returns until that gate moves behind a "copy outstanding" hook.
-    if team is None or is_ducklake_data_imports_copy_enabled(team):
         return False
 
     last_full_run_at = schema.last_full_run_at
@@ -376,7 +370,6 @@ def create_external_data_job_model_activity(
 
         fast_return_eligible = _fast_return_eligible(
             schema=schema,
-            team=team,
             team_id=inputs.team_id,
             enrichment_needed=enrichment_needed,
             statistics_needed=statistics_needed,

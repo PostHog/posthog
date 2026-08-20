@@ -41,23 +41,13 @@ def _schema(**config_overrides) -> ExternalDataSchema:
     )
 
 
-def _run(
-    schema: ExternalDataSchema,
-    *,
-    enrichment=False,
-    statistics=False,
-    data_quality=False,
-    ducklake=False,
-    flag_enabled=True,
-):
+def _run(schema: ExternalDataSchema, *, enrichment=False, statistics=False, data_quality=False, flag_enabled=True):
     with (
         patch(f"{_MODULE}.data_quality_checks_needed_for", return_value=data_quality),
-        patch(f"{_MODULE}.is_ducklake_data_imports_copy_enabled", return_value=ducklake),
         patch(f"{_MODULE}.is_fast_return_enabled", return_value=flag_enabled),
     ):
         return _fast_return_eligible(
             schema=schema,
-            team=object(),
             team_id=1,
             enrichment_needed=enrichment,
             statistics_needed=statistics,
@@ -109,7 +99,6 @@ class TestFastReturnEligibility:
             ("enrichment", {"enrichment": True}),
             ("statistics", {"statistics": True}),
             ("data_quality", {"data_quality": True}),
-            ("ducklake_copy", {"ducklake": True}),
         ]
     )
     def test_outstanding_repair_work_blocks_eligibility(self, _name: str, gates: dict):
@@ -117,19 +106,3 @@ class TestFastReturnEligibility:
 
     def test_rollout_flag_off_is_not_eligible(self):
         assert _run(_schema(), flag_enabled=False) is False
-
-    def test_missing_team_is_not_eligible(self):
-        with (
-            patch(f"{_MODULE}.data_quality_checks_needed_for", return_value=False),
-            patch(f"{_MODULE}.is_ducklake_data_imports_copy_enabled", return_value=False),
-            patch(f"{_MODULE}.is_fast_return_enabled", return_value=True),
-        ):
-            eligible = _fast_return_eligible(
-                schema=_schema(),
-                team=None,
-                team_id=1,
-                enrichment_needed=False,
-                statistics_needed=False,
-            )
-
-        assert eligible is False
