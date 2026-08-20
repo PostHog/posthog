@@ -18,6 +18,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dataColorVars } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -165,6 +166,7 @@ export interface tracingDataLogicValues {
         traceCount: number
     }
     matchingCountsAbortController: AbortController | null
+    matchingCountsError: string | null
     matchingCountsLoading: boolean
     nextCursor: string | null
     rawDurationHistogram: DurationHistogramRow[]
@@ -570,6 +572,9 @@ export interface tracingDataLogicActions {
     setMatchingCountsAbortController: (controller: AbortController | null) => {
         controller: AbortController | null
     }
+    setMatchingCountsError: (error: string | null) => {
+        error: string | null
+    }
     setNextCursor: (cursor: string | null) => {
         cursor: string | null
     }
@@ -699,6 +704,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         setSpansAbortController: (controller: AbortController | null) => ({ controller }),
         setSparklineAbortController: (controller: AbortController | null) => ({ controller }),
         setMatchingCountsAbortController: (controller: AbortController | null) => ({ controller }),
+        setMatchingCountsError: (error: string | null) => ({ error }),
         setDurationHistogramAbortController: (controller: AbortController | null) => ({ controller }),
         setLatencyHeatmapAbortController: (controller: AbortController | null) => ({ controller }),
         setAggregationAbortController: (controller: AbortController | null) => ({ controller }),
@@ -732,6 +738,15 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         matchingCountsAbortController: [
             null as AbortController | null,
             { setMatchingCountsAbortController: (_, { controller }) => controller },
+        ],
+        // Holds the endpoint's actionable message when the count pre-flight refuses to run, so the
+        // display bar can show it where the count sits. Cleared when the next fetch starts.
+        matchingCountsError: [
+            null as string | null,
+            {
+                setMatchingCountsError: (_, { error }) => error,
+                fetchMatchingCounts: () => null,
+            },
         ],
         durationHistogramAbortController: [
             null as AbortController | null,
@@ -1126,21 +1141,30 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
-                    const response = await api.tracing.sparkline(
-                        {
-                            dateRange: values.utcDateRange,
-                            serviceNames:
-                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            rootSpans: values.filters.viewMode === 'traces',
-                        },
-                        controller.signal
-                    )
+                    try {
+                        const response = await api.tracing.sparkline(
+                            {
+                                dateRange: values.utcDateRange,
+                                serviceNames:
+                                    values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                                filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                                rootSpans: values.filters.viewMode === 'traces',
+                            },
+                            controller.signal
+                        )
 
-                    actions.setSparklineAbortController(null)
-                    // Record the scope only after a successful fetch, so a failed/aborted request retries.
-                    cache.sparklineScope = scopeKey
-                    return response.results
+                        actions.setSparklineAbortController(null)
+                        // Record the scope only after a successful fetch, so a failed/aborted request retries.
+                        cache.sparklineScope = scopeKey
+                        return response.results
+                    } catch (error) {
+                        // A real failure still owns this controller (an abort would be superseded), so
+                        // clear it here; then re-throw for the failure listener.
+                        if (!isUserInitiatedError(error)) {
+                            actions.setSparklineAbortController(null)
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -1164,20 +1188,37 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressMatchingCounts(controller)
 
-                    const response = await api.tracing.count(
-                        {
-                            dateRange: values.utcDateRange,
-                            serviceNames:
-                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                        },
-                        controller.signal
-                    )
+                    try {
+                        const response = await api.tracing.count(
+                            {
+                                dateRange: values.utcDateRange,
+                                serviceNames:
+                                    values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                                filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                            },
+                            controller.signal
+                        )
 
-                    actions.setMatchingCountsAbortController(null)
-                    // Record the scope only after a successful fetch, so a failed/aborted request retries.
-                    cache.matchingCountsScope = scopeKey
-                    return response
+                        actions.setMatchingCountsAbortController(null)
+                        // Record the scope only after a successful fetch, so a failed/aborted request retries.
+                        cache.matchingCountsScope = scopeKey
+                        return response
+                    } catch (error) {
+                        // A superseded or unmounted request hands its controller to the newer fetch, so
+                        // leave it be and let the abort flow through untouched.
+                        if (isUserInitiatedError(error)) {
+                            throw error
+                        }
+                        // The count is a bounded pre-flight that returns an actionable 400 when it would
+                        // scan too much data. Show that message where the count sits instead of a toast
+                        // plus a captured exception, and clear this request's own controller.
+                        actions.setMatchingCountsAbortController(null)
+                        actions.setMatchingCountsError(
+                            (error instanceof ApiError && error.detail) ||
+                                'The matching count could not be loaded. Add a filter or pick a shorter date range, then retry.'
+                        )
+                        return values.matchingCounts
+                    }
                 },
             },
         ],
@@ -1201,23 +1242,32 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressLatencyHeatmap(controller)
 
-                    const response = await api.tracing.latencyHeatmap(
-                        {
-                            dateRange: values.utcDateRange,
-                            serviceNames:
-                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            // Match the population the list shows: root spans in Traces view,
-                            // every matching span in Spans view.
-                            rootSpans: values.filters.viewMode === 'traces',
-                        },
-                        controller.signal
-                    )
+                    try {
+                        const response = await api.tracing.latencyHeatmap(
+                            {
+                                dateRange: values.utcDateRange,
+                                serviceNames:
+                                    values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                                filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                                // Match the population the list shows: root spans in Traces view,
+                                // every matching span in Spans view.
+                                rootSpans: values.filters.viewMode === 'traces',
+                            },
+                            controller.signal
+                        )
 
-                    actions.setLatencyHeatmapAbortController(null)
-                    // Record the scope only after a successful fetch, so a failed/aborted request retries.
-                    cache.latencyHeatmapScope = scopeKey
-                    return response.results
+                        actions.setLatencyHeatmapAbortController(null)
+                        // Record the scope only after a successful fetch, so a failed/aborted request retries.
+                        cache.latencyHeatmapScope = scopeKey
+                        return response.results
+                    } catch (error) {
+                        // A real failure still owns this controller (an abort would be superseded), so
+                        // clear it here; then re-throw for the failure listener.
+                        if (!isUserInitiatedError(error)) {
+                            actions.setLatencyHeatmapAbortController(null)
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -1544,11 +1594,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             if (!isUserInitiatedError(error)) {
                 lemonToast.error(`Failed to load traces: ${error}`)
                 posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
-            }
-        },
-        fetchMatchingCountsFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
-                lemonToast.error(`Failed to load the matching count: ${error}`)
             }
         },
         fetchAggregationFailure: ({ error }) => {

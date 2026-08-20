@@ -19,7 +19,8 @@ import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
  *  - right: Compare, hidden on the Operations view where it doesn't apply.
  */
 export function TracingDisplayBar(): JSX.Element {
-    const { totalMatchingFilters, compareActive, displayMode, operationsViewEnabled } = useValues(tracingSceneLogic())
+    const { totalMatchingFilters, matchingCountsError, compareActive, displayMode, operationsViewEnabled } =
+        useValues(tracingSceneLogic())
     const { setDisplayMode } = useActions(tracingSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
@@ -27,7 +28,9 @@ export function TracingDisplayBar(): JSX.Element {
 
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const inTracesView = displayMode !== 'operations'
-    const showCount = inTracesView && !compareActive && totalMatchingFilters > 0
+    const showCountArea = inTracesView && !compareActive
+    const showCount = showCountArea && !matchingCountsError && totalMatchingFilters > 0
+    const showCountError = showCountArea && !!matchingCountsError
 
     // data-attrs keep the names from the two controls this one replaced, for analytics continuity.
     const displayModeOptions: LemonSegmentedButtonOption<TracingDisplayMode>[] = [
@@ -88,6 +91,7 @@ export function TracingDisplayBar(): JSX.Element {
                         matching filters
                     </span>
                 )}
+                {showCountError && <span className="text-warning text-xs">{matchingCountsError}</span>}
             </div>
             {inTracesView && (
                 <div className="flex items-center gap-1.5 flex-wrap">

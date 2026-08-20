@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
@@ -282,14 +283,31 @@ describe('tracingDataLogic', () => {
             countSpy.mockRestore()
         })
 
-        it('toasts on a real count failure', async () => {
-            silenceKeaLoadersErrors()
+        it('surfaces the endpoint message inline on a real count failure, without a toast', async () => {
             const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
-            jest.spyOn(api.tracing, 'count').mockRejectedValue(new Error('boom'))
+            const countSpy = jest
+                .spyOn(api.tracing, 'count')
+                .mockRejectedValue(
+                    new ApiError('too much data', 400, undefined, { detail: 'Add a filter, then retry.' })
+                )
             logic = mountWithSpans([])
-            await logic.asyncActions.fetchMatchingCounts().catch(() => {})
-            expect(toastSpy).toHaveBeenCalled()
+            // The loader must resolve, not reject: a rejection escapes as an autocaptured exception.
+            await logic.asyncActions.fetchMatchingCounts()
+            expect(logic.values.matchingCountsError).toBe('Add a filter, then retry.')
+            expect(logic.values.matchingCountsAbortController).toBeNull()
+            expect(toastSpy).not.toHaveBeenCalled()
             toastSpy.mockRestore()
+            countSpy.mockRestore()
+        })
+
+        it('clears the count error once a later fetch starts', async () => {
+            const countSpy = jest.spyOn(api.tracing, 'count').mockResolvedValue({ count: 10, traceCount: 3 })
+            logic = mountWithSpans([])
+            logic.actions.setMatchingCountsError('stale message')
+            expect(logic.values.matchingCountsError).toBe('stale message')
+            await logic.asyncActions.fetchMatchingCounts()
+            expect(logic.values.matchingCountsError).toBeNull()
+            countSpy.mockRestore()
         })
     })
 
