@@ -823,8 +823,20 @@ FROM
     SELECT
       team_id,
       toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
-      service_name,
-      resource_attributes['k8s.namespace.name'] AS namespace,
+      if(
+        service_name != '',
+        service_name,
+        if(
+          (resource_attributes['k8s.deployment.name']) != '',
+          resource_attributes['k8s.deployment.name'],
+          resource_attributes['k8s.container.name']
+        )
+      ) AS service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
       if(
         (resource_attributes['deployment.environment.name']) != '',
         resource_attributes['deployment.environment.name'],

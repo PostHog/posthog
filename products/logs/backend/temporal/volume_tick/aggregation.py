@@ -22,8 +22,14 @@ TABLE_NAME = "logs_volume_buckets"
 # cannot reproduce locally.
 _SOURCE_TABLE = "logs_distributed"
 
-# `k8s.*.name` keys were never renamed, so namespace needs no fallback.
-_NAMESPACE_KEY = "k8s.namespace.name"
+# `k8s.*.name` keys were never renamed, but non-Kubernetes senders carry the
+# namespace in `service.namespace`, the semconv disambiguator for service.name.
+_NAMESPACE_KEYS = ("k8s.namespace.name", "service.namespace")
+
+# service_name is promoted from `service.name` at ingest, so when it is empty
+# the attribute is too; k8s senders without it still identify the workload
+# through the deployment (stable across pods) and then the container name.
+_SERVICE_FALLBACK_KEYS = ("k8s.deployment.name", "k8s.container.name")
 
 # The one resource attribute OTel has renamed: `deployment.environment` became
 # `deployment.environment.name` in semantic conventions 1.27. `env` is not a
@@ -78,6 +84,8 @@ def _rollup_sql() -> str:
     the grouping and the cost do not change.
     """
     environment = _first_non_empty_map_key("resource_attributes", "env_key_", len(_ENVIRONMENT_KEYS))
+    namespace = _first_non_empty_map_key("resource_attributes", "ns_key_", len(_NAMESPACE_KEYS))
+    service_fallback = _first_non_empty_map_key("resource_attributes", "svc_key_", len(_SERVICE_FALLBACK_KEYS))
     # The grid pins UTC explicitly. Without it the bucket edges follow the session
     # timezone, so the same log would land in different buckets depending on who
     # ran the query — and bucket identity has to be stable across ticks, backfills
@@ -94,8 +102,8 @@ def _rollup_sql() -> str:
         SELECT
             team_id,
             toStartOfInterval(timestamp, INTERVAL %(bucket_seconds)s SECOND, 'UTC') AS time_bucket,
-            service_name,
-            resource_attributes[%(namespace_key)s] AS namespace,
+            if(service_name != '', service_name, {service_fallback}) AS service_name,
+            {namespace} AS namespace,
             {environment} AS environment,
             lower(severity_text) AS severity_text,
             count() AS log_count
@@ -113,9 +121,10 @@ def _rollup_parameters(team_ids: Sequence[int], start: datetime, end: datetime) 
         "start": start,
         "end": end,
         "bucket_seconds": BUCKET_SECONDS,
-        "namespace_key": _NAMESPACE_KEY,
     }
     parameters.update({f"env_key_{index}": key for index, key in enumerate(_ENVIRONMENT_KEYS)})
+    parameters.update({f"ns_key_{index}": key for index, key in enumerate(_NAMESPACE_KEYS)})
+    parameters.update({f"svc_key_{index}": key for index, key in enumerate(_SERVICE_FALLBACK_KEYS)})
     return parameters
 
 
