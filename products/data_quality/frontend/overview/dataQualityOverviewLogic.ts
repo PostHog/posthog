@@ -191,6 +191,9 @@ export interface dataQualityOverviewLogicActions {
         }
         payload?: any
     }
+    openFailingRows: (check: DataQualityOverviewCheckApi) => {
+        check: DataQualityOverviewCheckApi
+    }
     pollActiveSuiteRun: () => {
         value: true
     }
@@ -216,9 +219,6 @@ export interface dataQualityOverviewLogicActions {
     ) => {
         checkId: string
         deleting: boolean
-    }
-    openFailingRows: (check: DataQualityOverviewCheckApi) => {
-        check: DataQualityOverviewCheckApi
     }
     setCheckRuns: (
         checkId: string,
@@ -530,91 +530,98 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 subjectGroups.filter((group) => UNHEALTHY.includes(group.health)).map((group) => group.subjectKey),
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        ...suiteRunPollListeners({
+    listeners(({ actions, values, cache }) => {
+        // Assigned one by one rather than spread: kea-typegen walks this object literal and crashes
+        // on a spread element, which has no property name.
+        const poll = suiteRunPollListeners({
             retrieve: (suiteRunId) => dataQualityRunsRetrieve(projectId(), suiteRunId),
             cache,
             values,
             actions,
-        }),
-        loadOverviewSuccess: () => {
-            if (!values.expansionInitialized) {
-                actions.setExpandedSubjects(values.unhealthySubjectKeys)
-                return
-            }
-            // Pruned against every subject, not the filtered ones, so a filter never collapses a
-            // panel the user opened.
-            const present = new Set(values.allSubjectKeys)
-            const kept = values.expandedSubjectKeys.filter((key) => present.has(key))
-            if (kept.length !== values.expandedSubjectKeys.length) {
-                actions.setExpandedSubjects(kept)
-            }
-        },
-        loadCheckRuns: async ({ check }) => {
-            if (values.runsLoadingByCheckId[check.id]) {
-                return
-            }
-            actions.setRunsLoading(check.id, true)
-            try {
-                actions.setCheckRuns(check.id, await checksApi.runs(subjectRefOf(check), check.id))
-            } catch (error) {
-                lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run history. Try again.')
-            } finally {
-                actions.setRunsLoading(check.id, false)
-            }
-        },
-        openFailingRows: async ({ check }) => {
-            await openFailingRowsInSqlEditor({
-                cachedRuns: values.checkRunsByCheckId[check.id],
-                fetchRuns: () => checksApi.runs(subjectRefOf(check), check.id),
-                onRunsFetched: (runs) => actions.setCheckRuns(check.id, runs),
-            })
-        },
-        runChecks: async ({ checkIds }) => {
-            try {
-                // An empty selection is the "everything" case, which the endpoint reads as no filter.
-                actions.setActiveSuiteRun(await dataQualityRunsCreate(projectId(), { check_ids: checkIds }))
-            } catch (error) {
-                actions.setRunError(apiErrorDetail(error) ?? "Couldn't run checks.")
-            } finally {
-                actions.setStartingRun(false)
-            }
-        },
-        deleteCheck: async ({ check }) => {
-            if (values.deletingCheckIds[check.id]) {
-                return
-            }
-            actions.setCheckDeleting(check.id, true)
-            try {
-                await checksApi.destroy(
-                    { subjectType: check.subject_type, subjectId: check.subject_uuid ?? '' },
-                    check.id
-                )
-                actions.removeCheck(check.id)
+        })
+        return {
+            setActiveSuiteRun: poll.setActiveSuiteRun,
+            scheduleSuiteRunPoll: poll.scheduleSuiteRunPoll,
+            pollActiveSuiteRun: poll.pollActiveSuiteRun,
+            loadOverviewSuccess: () => {
+                if (!values.expansionInitialized) {
+                    actions.setExpandedSubjects(values.unhealthySubjectKeys)
+                    return
+                }
+                // Pruned against every subject, not the filtered ones, so a filter never collapses a
+                // panel the user opened.
+                const present = new Set(values.allSubjectKeys)
+                const kept = values.expandedSubjectKeys.filter((key) => present.has(key))
+                if (kept.length !== values.expandedSubjectKeys.length) {
+                    actions.setExpandedSubjects(kept)
+                }
+            },
+            loadCheckRuns: async ({ check }) => {
+                if (values.runsLoadingByCheckId[check.id]) {
+                    return
+                }
+                actions.setRunsLoading(check.id, true)
+                try {
+                    actions.setCheckRuns(check.id, await checksApi.runs(subjectRefOf(check), check.id))
+                } catch (error) {
+                    lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run history. Try again.')
+                } finally {
+                    actions.setRunsLoading(check.id, false)
+                }
+            },
+            openFailingRows: async ({ check }) => {
+                await openFailingRowsInSqlEditor({
+                    cachedRuns: values.checkRunsByCheckId[check.id],
+                    fetchRuns: () => checksApi.runs(subjectRefOf(check), check.id),
+                    onRunsFetched: (runs) => actions.setCheckRuns(check.id, runs),
+                })
+            },
+            runChecks: async ({ checkIds }) => {
+                try {
+                    // An empty selection is the "everything" case, which the endpoint reads as no filter.
+                    actions.setActiveSuiteRun(await dataQualityRunsCreate(projectId(), { check_ids: checkIds }))
+                } catch (error) {
+                    actions.setRunError(apiErrorDetail(error) ?? "Couldn't run checks.")
+                } finally {
+                    actions.setStartingRun(false)
+                }
+            },
+            deleteCheck: async ({ check }) => {
+                if (values.deletingCheckIds[check.id]) {
+                    return
+                }
+                actions.setCheckDeleting(check.id, true)
+                try {
+                    await checksApi.destroy(
+                        { subjectType: check.subject_type, subjectId: check.subject_uuid ?? '' },
+                        check.id
+                    )
+                    actions.removeCheck(check.id)
+                    actions.loadOverview()
+                    lemonToast.success('Check deleted')
+                } catch (error) {
+                    lemonToast.error(apiErrorDetail(error) ?? 'Could not delete the check. Try again.')
+                } finally {
+                    actions.setCheckDeleting(check.id, false)
+                }
+            },
+            finishSuiteRun: ({ suiteRun }) => {
+                cache.disposables.dispose('suiteRunPoll')
                 actions.loadOverview()
-                lemonToast.success('Check deleted')
-            } catch (error) {
-                lemonToast.error(apiErrorDetail(error) ?? 'Could not delete the check. Try again.')
-            } finally {
-                actions.setCheckDeleting(check.id, false)
-            }
-        },
-        finishSuiteRun: ({ suiteRun }) => {
-            cache.disposables.dispose('suiteRunPoll')
-            actions.loadOverview()
-            const outcome = suiteRunOutcome(suiteRun)
-            if (outcome === 'empty') {
-                lemonToast.info('No enabled checks to run')
-            } else if (outcome === 'errored') {
-                // An inline banner rather than a toast: this page has a retry control for it.
-                actions.setRunError(suiteRun.error || "Couldn't run checks. Try again.")
-            } else if (outcome === 'warning') {
-                lemonToast.warning(suiteRunSummary(suiteRun))
-            } else {
-                lemonToast.success(suiteRunSummary(suiteRun))
-            }
-        },
-    })),
+                const outcome = suiteRunOutcome(suiteRun)
+                if (outcome === 'empty') {
+                    lemonToast.info('No enabled checks to run')
+                } else if (outcome === 'errored') {
+                    // An inline banner rather than a toast: this page has a retry control for it.
+                    actions.setRunError(suiteRun.error || "Couldn't run checks. Try again.")
+                } else if (outcome === 'warning') {
+                    lemonToast.warning(suiteRunSummary(suiteRun))
+                } else {
+                    lemonToast.success(suiteRunSummary(suiteRun))
+                }
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadOverview()
     }),

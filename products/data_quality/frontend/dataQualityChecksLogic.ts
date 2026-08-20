@@ -348,8 +348,10 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 ),
         ],
     }),
-    listeners(({ props, values, actions, cache }) => ({
-        ...suiteRunPollListeners({
+    listeners(({ props, values, actions, cache }) => {
+        // Assigned one by one rather than spread: kea-typegen walks this object literal and crashes
+        // on a spread element, which has no property name.
+        const poll = suiteRunPollListeners({
             retrieve: (suiteRunId) => checksApi.suiteRunRetrieve(subjectRef(props), suiteRunId),
             // A permanent 403 -- the flag turned off mid-run, or query access revoked -- takes the
             // panel's access-denied path immediately, like every other request here.
@@ -363,154 +365,159 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             cache,
             values,
             actions,
-        }),
-        loadChecksFailure: ({ errorObject }) => {
-            if (isForbidden(errorObject)) {
-                actions.setAccessDenied()
-            }
-        },
-        loadHealthFailure: ({ errorObject }) => {
-            if (isForbidden(errorObject)) {
-                actions.setAccessDenied()
-            }
-        },
-        deleteCheck: async ({ checkId }) => {
-            if (values.pendingCheckActions.deleting[checkId]) {
-                return
-            }
-            actions.setCheckPending('deleting', checkId, true)
-            try {
-                await checksApi.destroy(subjectRef(props), checkId)
-                actions.removeCheck(checkId)
-                actions.loadHealth()
-            } catch (error) {
-                lemonToast.error(apiErrorDetail(error) ?? 'Could not delete the check. Try again.')
-            } finally {
-                actions.setCheckPending('deleting', checkId, false)
-            }
-        },
-        toggleCheckEnabled: async ({ checkId, enabled }) => {
-            if (values.pendingCheckActions.toggling[checkId]) {
-                return
-            }
-            actions.setCheckPending('toggling', checkId, true)
-            try {
-                actions.upsertCheck(await checksApi.partialUpdate(subjectRef(props), checkId, { enabled }))
-                actions.loadHealth()
-            } catch (error) {
-                lemonToast.error(apiErrorDetail(error) ?? 'Could not update the check. Try again.')
-            } finally {
-                actions.setCheckPending('toggling', checkId, false)
-            }
-        },
-        loadCheckRuns: async ({ checkId }) => {
-            if (values.pendingCheckActions.loadingRuns[checkId]) {
-                return
-            }
-            actions.setCheckPending('loadingRuns', checkId, true)
-            try {
-                actions.setCheckRuns(checkId, await checksApi.runs(subjectRef(props), checkId))
-            } catch (error) {
-                lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run history. Try again.')
-            } finally {
-                actions.setCheckPending('loadingRuns', checkId, false)
-            }
-        },
-        openFailingRows: async ({ checkId }) => {
-            await openFailingRowsInSqlEditor({
-                cachedRuns: values.checkRunsByCheckId[checkId],
-                fetchRuns: () => checksApi.runs(subjectRef(props), checkId),
-                onRunsFetched: (runs) => actions.setCheckRuns(checkId, runs),
-            })
-        },
-        loadSuiteRunCheckRuns: async ({ suiteRunId }) => {
-            if (values.pendingCheckActions.loadingSuiteRunRuns[suiteRunId]) {
-                return
-            }
-            actions.setCheckPending('loadingSuiteRunRuns', suiteRunId, true)
-            try {
-                actions.setSuiteRunCheckRuns(
-                    suiteRunId,
-                    await checksApi.suiteRunCheckRuns(subjectRef(props), suiteRunId)
-                )
-            } catch (error) {
-                lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run details. Try again.')
-            } finally {
-                actions.setCheckPending('loadingSuiteRunRuns', suiteRunId, false)
-            }
-        },
-        runCheck: async ({ checkId }) => {
-            if (values.pendingCheckActions.running[checkId]) {
-                return
-            }
-            actions.setCheckPending('running', checkId, true)
-            // The pending guard is per check, and "Run all" is not blocked by it either, so two
-            // starts can be in flight at once. Only the newest one's run may become active:
-            // otherwise a slower earlier request lands last and the panel polls the older run.
-            cache.suiteStartToken = (cache.suiteStartToken ?? 0) + 1
-            const startToken = cache.suiteStartToken
-            try {
-                const started = await checksApi.run(subjectRef(props), checkId)
-                if (cache.suiteStartToken === startToken) {
-                    actions.setActiveSuiteRun(started)
-                }
-            } catch (error) {
-                lemonToast.error(apiErrorDetail(error) ?? 'Could not start the check. Try again.')
-            } finally {
-                actions.setCheckPending('running', checkId, false)
-            }
-        },
-        runAll: async () => {
-            cache.suiteStartToken = (cache.suiteStartToken ?? 0) + 1
-            const startToken = cache.suiteStartToken
-            try {
-                const started = await checksApi.runAll(subjectRef(props))
-                if (cache.suiteStartToken === startToken) {
-                    actions.setActiveSuiteRun(started)
-                }
-            } catch (error) {
-                lemonToast.error(apiErrorDetail(error) ?? 'Could not start the checks. Try again.')
-            } finally {
-                actions.setRunAllInFlight(false)
-            }
-        },
-        finishSuiteRun: ({ suiteRun }) => {
-            cache.disposables.dispose('suiteRunPoll')
-            actions.loadChecks()
-            actions.loadHealth()
-            Object.keys(values.checkRunsByCheckId).forEach((checkId) => actions.loadCheckRuns(checkId))
-            // An adopted or MCP-triggered suite can be expanded while it is still running, so its
-            // rows are cached mid-flight. Without this they stay stale until it is reopened.
-            Object.keys(values.suiteRunCheckRunsBySuiteRunId).forEach((suiteRunId) =>
-                actions.loadSuiteRunCheckRuns(suiteRunId)
-            )
-            if (values.suiteRunsRequested) {
-                actions.loadSuiteRuns()
-            }
-            const outcome = suiteRunOutcome(suiteRun)
-            if (outcome === 'empty') {
-                lemonToast.info('No enabled checks to run')
-            } else if (outcome === 'errored') {
-                lemonToast.error(suiteRun.error || "Couldn't run checks. Try again.")
-            } else if (outcome === 'warning') {
-                lemonToast.warning(suiteRunSummary(suiteRun))
-            } else {
-                lemonToast.success(suiteRunSummary(suiteRun))
-            }
-        },
-        adoptRunningSuiteRun: async () => {
-            try {
-                const [newest] = (await checksApi.suiteRuns(subjectRef(props), 1)).results
-                if (newest && !isTerminalSuiteRun(newest) && !values.activeSuiteRun) {
-                    actions.setActiveSuiteRun(newest)
-                }
-            } catch (error) {
-                if (isForbidden(error)) {
+        })
+        return {
+            setActiveSuiteRun: poll.setActiveSuiteRun,
+            scheduleSuiteRunPoll: poll.scheduleSuiteRunPoll,
+            pollActiveSuiteRun: poll.pollActiveSuiteRun,
+            loadChecksFailure: ({ errorObject }) => {
+                if (isForbidden(errorObject)) {
                     actions.setAccessDenied()
                 }
-            }
-        },
-    })),
+            },
+            loadHealthFailure: ({ errorObject }) => {
+                if (isForbidden(errorObject)) {
+                    actions.setAccessDenied()
+                }
+            },
+            deleteCheck: async ({ checkId }) => {
+                if (values.pendingCheckActions.deleting[checkId]) {
+                    return
+                }
+                actions.setCheckPending('deleting', checkId, true)
+                try {
+                    await checksApi.destroy(subjectRef(props), checkId)
+                    actions.removeCheck(checkId)
+                    actions.loadHealth()
+                } catch (error) {
+                    lemonToast.error(apiErrorDetail(error) ?? 'Could not delete the check. Try again.')
+                } finally {
+                    actions.setCheckPending('deleting', checkId, false)
+                }
+            },
+            toggleCheckEnabled: async ({ checkId, enabled }) => {
+                if (values.pendingCheckActions.toggling[checkId]) {
+                    return
+                }
+                actions.setCheckPending('toggling', checkId, true)
+                try {
+                    actions.upsertCheck(await checksApi.partialUpdate(subjectRef(props), checkId, { enabled }))
+                    actions.loadHealth()
+                } catch (error) {
+                    lemonToast.error(apiErrorDetail(error) ?? 'Could not update the check. Try again.')
+                } finally {
+                    actions.setCheckPending('toggling', checkId, false)
+                }
+            },
+            loadCheckRuns: async ({ checkId }) => {
+                if (values.pendingCheckActions.loadingRuns[checkId]) {
+                    return
+                }
+                actions.setCheckPending('loadingRuns', checkId, true)
+                try {
+                    actions.setCheckRuns(checkId, await checksApi.runs(subjectRef(props), checkId))
+                } catch (error) {
+                    lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run history. Try again.')
+                } finally {
+                    actions.setCheckPending('loadingRuns', checkId, false)
+                }
+            },
+            openFailingRows: async ({ checkId }) => {
+                await openFailingRowsInSqlEditor({
+                    cachedRuns: values.checkRunsByCheckId[checkId],
+                    fetchRuns: () => checksApi.runs(subjectRef(props), checkId),
+                    onRunsFetched: (runs) => actions.setCheckRuns(checkId, runs),
+                })
+            },
+            loadSuiteRunCheckRuns: async ({ suiteRunId }) => {
+                if (values.pendingCheckActions.loadingSuiteRunRuns[suiteRunId]) {
+                    return
+                }
+                actions.setCheckPending('loadingSuiteRunRuns', suiteRunId, true)
+                try {
+                    actions.setSuiteRunCheckRuns(
+                        suiteRunId,
+                        await checksApi.suiteRunCheckRuns(subjectRef(props), suiteRunId)
+                    )
+                } catch (error) {
+                    lemonToast.error(apiErrorDetail(error) ?? 'Could not load the run details. Try again.')
+                } finally {
+                    actions.setCheckPending('loadingSuiteRunRuns', suiteRunId, false)
+                }
+            },
+            runCheck: async ({ checkId }) => {
+                if (values.pendingCheckActions.running[checkId]) {
+                    return
+                }
+                actions.setCheckPending('running', checkId, true)
+                // The pending guard is per check, and "Run all" is not blocked by it either, so two
+                // starts can be in flight at once. Only the newest one's run may become active:
+                // otherwise a slower earlier request lands last and the panel polls the older run.
+                cache.suiteStartToken = (cache.suiteStartToken ?? 0) + 1
+                const startToken = cache.suiteStartToken
+                try {
+                    const started = await checksApi.run(subjectRef(props), checkId)
+                    if (cache.suiteStartToken === startToken) {
+                        actions.setActiveSuiteRun(started)
+                    }
+                } catch (error) {
+                    lemonToast.error(apiErrorDetail(error) ?? 'Could not start the check. Try again.')
+                } finally {
+                    actions.setCheckPending('running', checkId, false)
+                }
+            },
+            runAll: async () => {
+                cache.suiteStartToken = (cache.suiteStartToken ?? 0) + 1
+                const startToken = cache.suiteStartToken
+                try {
+                    const started = await checksApi.runAll(subjectRef(props))
+                    if (cache.suiteStartToken === startToken) {
+                        actions.setActiveSuiteRun(started)
+                    }
+                } catch (error) {
+                    lemonToast.error(apiErrorDetail(error) ?? 'Could not start the checks. Try again.')
+                } finally {
+                    actions.setRunAllInFlight(false)
+                }
+            },
+            finishSuiteRun: ({ suiteRun }) => {
+                cache.disposables.dispose('suiteRunPoll')
+                actions.loadChecks()
+                actions.loadHealth()
+                Object.keys(values.checkRunsByCheckId).forEach((checkId) => actions.loadCheckRuns(checkId))
+                // An adopted or MCP-triggered suite can be expanded while it is still running, so its
+                // rows are cached mid-flight. Without this they stay stale until it is reopened.
+                Object.keys(values.suiteRunCheckRunsBySuiteRunId).forEach((suiteRunId) =>
+                    actions.loadSuiteRunCheckRuns(suiteRunId)
+                )
+                if (values.suiteRunsRequested) {
+                    actions.loadSuiteRuns()
+                }
+                const outcome = suiteRunOutcome(suiteRun)
+                if (outcome === 'empty') {
+                    lemonToast.info('No enabled checks to run')
+                } else if (outcome === 'errored') {
+                    lemonToast.error(suiteRun.error || "Couldn't run checks. Try again.")
+                } else if (outcome === 'warning') {
+                    lemonToast.warning(suiteRunSummary(suiteRun))
+                } else {
+                    lemonToast.success(suiteRunSummary(suiteRun))
+                }
+            },
+            adoptRunningSuiteRun: async () => {
+                try {
+                    const [newest] = (await checksApi.suiteRuns(subjectRef(props), 1)).results
+                    if (newest && !isTerminalSuiteRun(newest) && !values.activeSuiteRun) {
+                        actions.setActiveSuiteRun(newest)
+                    }
+                } catch (error) {
+                    if (isForbidden(error)) {
+                        actions.setAccessDenied()
+                    }
+                }
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadChecks()
         actions.loadHealth()
