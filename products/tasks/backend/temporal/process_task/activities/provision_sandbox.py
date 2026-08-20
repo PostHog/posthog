@@ -28,6 +28,7 @@ from products.tasks.backend.exceptions import (
     OAuthTokenError,
     RepositoryCloneError,
     SandboxNetworkPolicyError,
+    TaskInvalidStateError,
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.agentsh import (
@@ -61,7 +62,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     measure_sandbox_cpu_usage,
     open_sandbox_session,
 )
-from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_snapshot_restore,
@@ -362,11 +363,19 @@ def _resolve_sandbox_github_token(
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        return Task.objects.select_related(
+        task = Task.objects.select_related(
             "created_by", "github_integration", "github_user_integration", "team", "loop"
         ).get(id=ctx.task_id)
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+    context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
+    if context_ownership_version != task.ownership_version:
+        raise TaskInvalidStateError(
+            f"TaskRun {ctx.run_id} belongs to a previous task owner",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=RuntimeError(f"TaskRun {ctx.run_id} ownership version is stale"),
+        )
+    return task
 
 
 def _get_image_source_label(

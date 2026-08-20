@@ -374,6 +374,9 @@ tools:
     tasks-destroy:
         operation: tasks_destroy
         enabled: false
+    tasks-handoff-create:
+        operation: tasks_handoff_create
+        enabled: false
     tasks-list:
         operation: tasks_list
         enabled: true
