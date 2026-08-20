@@ -32,9 +32,9 @@ class CannyEndpointConfig:
     # these are set, the endpoint requests the v2 path with cursor pagination; otherwise it stays on
     # the v1 skip/limit path. Both are kept so the table set is identical across versions.
     v2_path: Optional[str] = None
-    # Top-level key in the v2 JSON response holding the array of records. Canny's general v2 list
-    # format nests records under `items`; `companies/list` is the documented exception, keeping its
-    # named `companies` key.
+    # Top-level key in the v2 JSON response holding the array of records. Canny keys this per
+    # endpoint: `users/list` and `companies/list` keep their named `users`/`companies` keys, while
+    # `comments/list` nests records under the generic `items`.
     v2_data_key: Optional[str] = None
 
 
@@ -53,7 +53,7 @@ CANNY_ENDPOINTS: dict[str, CannyEndpointConfig] = {
     "status_changes": CannyEndpointConfig(path="/v1/status_changes/list", data_key="statusChanges"),
     "tags": CannyEndpointConfig(path="/v1/tags/list", data_key="tags"),
     "users": CannyEndpointConfig(
-        path="/v1/users/list", data_key="users", v2_path="/v2/users/list", v2_data_key="items"
+        path="/v1/users/list", data_key="users", v2_path="/v2/users/list", v2_data_key="users"
     ),
     "votes": CannyEndpointConfig(path="/v1/votes/list", data_key="votes"),
 }

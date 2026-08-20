@@ -338,9 +338,9 @@ class TestCannySource:
 
 
 class TestV2CursorPagination:
-    # Canny's v2 wire is cursor-paginated and nests records under a per-endpoint key that differs
-    # from v1: companies keeps `companies`, comments and users move to the generic `items`.
-    V2_ENDPOINTS = [("companies", "companies"), ("comments", "items"), ("users", "items")]
+    # Canny's v2 wire is cursor-paginated and keys records per endpoint: users and companies keep
+    # their named keys, comments uses the generic `items`.
+    V2_ENDPOINTS = [("companies", "companies"), ("comments", "items"), ("users", "users")]
 
     @pytest.mark.parametrize(("endpoint", "data_key"), V2_ENDPOINTS)
     @mock.patch(CLIENT_SESSION_PATCH)
