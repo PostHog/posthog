@@ -6,6 +6,7 @@ import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 import {
     buildBulkEnablePayloads,
     clonePayloadPreservingFiles,
+    effectiveLookbackDays,
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
     runBulkSchemaAction,
@@ -245,6 +246,35 @@ describe('schemasNeedingLookbackResync', () => {
 
     it('returns an empty list when the source is missing', () => {
         expect(schemasNeedingLookbackResync(null)).toEqual([])
+    })
+})
+
+describe('effectiveLookbackDays', () => {
+    // Blank, absent, and sub-1 values all mean the backend's 90-day default, so the resync prompt
+    // must compare against 90 rather than 0/null — otherwise it misfires on both raises and lowers.
+    it.each([
+        ['an absent value', undefined, 90],
+        ['a null value', null, 90],
+        ['a blank string', '', 90],
+        ['zero', 0, 90],
+        ['a negative value', -5, 90],
+        ['a set value', 120, 120],
+        ['a numeric string', '30', 30],
+        ['a value above the max', 10_000, 3 * 365],
+    ])('normalizes %s', (_label, input, expected) => {
+        expect(effectiveLookbackDays(input)).toBe(expected)
+    })
+
+    it('does not prompt when narrowing a blank (effective-90) window to 30', () => {
+        expect(effectiveLookbackDays('30') > effectiveLookbackDays('')).toBe(false)
+    })
+
+    it('prompts when raising from an absent value to 120', () => {
+        expect(effectiveLookbackDays(120) > effectiveLookbackDays(undefined)).toBe(true)
+    })
+
+    it('does not prompt when raising past a max that is already reached', () => {
+        expect(effectiveLookbackDays(10_000) > effectiveLookbackDays(3 * 365)).toBe(false)
     })
 })
 
