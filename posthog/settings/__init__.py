@@ -81,6 +81,11 @@ INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 # empty to use the real Slack email while keeping DEBUG on. Ignored outside DEBUG.
 SLACK_APP_LOCAL_DEV_EMAIL: str = os.getenv("SLACK_APP_LOCAL_DEV_EMAIL", "test@posthog.com")
 
+# Forward every Slack channel message onto the internal events topic, where a workflow with a Slack
+# trigger can pick it up. Off by default: this is the only thing admitting the full channel
+# firehose, so it doubles as the kill switch.
+SLACK_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("SLACK_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
+
 # Vapi voice-AI integration (used by user_interviews to host public interview pages).
 VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
 VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
