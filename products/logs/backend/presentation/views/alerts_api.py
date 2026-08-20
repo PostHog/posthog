@@ -100,6 +100,10 @@ STATE_TIMELINE_LOOKBACK_HOURS = 24
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
+_DESTINATIONS_URL_REQUIRED_SCOPES: Final[dict[str, list[str]]] = {
+    "list_destinations": ["logs:read"],
+    "create_destination": ["logs:write"],
+}
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -883,12 +887,6 @@ def _fill_empty_buckets(
             result.append(BucketedCount(timestamp=cursor, count=0))
         cursor += interval
     return result
-
-
-_DESTINATIONS_URL_REQUIRED_SCOPES: Final[dict[str, list[str]]] = {
-    "list_destinations": ["logs:read"],
-    "create_destination": ["logs:write"],
-}
 
 
 @extend_schema_view(list=extend_schema(parameters=[LogsAlertListQuerySerializer]))
