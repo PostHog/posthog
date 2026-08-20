@@ -432,6 +432,15 @@ describe('handleToken', () => {
             expectedStatus: 500,
             expectedBody: 'upstream failure',
         },
+        {
+            scenario: 'US answers below 400 and EU returns a client error',
+            usStatus: 302,
+            usBody: '',
+            euStatus: 400,
+            euBody: JSON.stringify({ error: 'invalid_grant' }),
+            expectedStatus: 400,
+            expectedBody: JSON.stringify({ error: 'invalid_grant' }),
+        },
     ])(
         'forwards the regional response when $scenario',
         async ({ usStatus, usBody, euStatus, euBody, expectedStatus, expectedBody }) => {

@@ -144,8 +144,12 @@ export async function tryBothRegions(
  * which must not be reported as a dead grant.
  */
 export function preferClientError(first: Response, second: Response): Response {
-    if (first.status < 500) {
+    if (isClientError(first)) {
         return first
     }
-    return second.status < 500 ? second : first
+    return isClientError(second) ? second : first
+}
+
+function isClientError(response: Response): boolean {
+    return response.status >= 400 && response.status < 500
 }
