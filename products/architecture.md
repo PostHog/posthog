@@ -106,12 +106,20 @@ Two core registries are keyed by model class identity and are explicit, sanction
 There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
 
 **The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core and sibling products consume and cannot yet stop consuming.
-Two products hold entries.
+Five products hold entries.
 `warehouse_sources`: core HogQL reads its warehouse table/schema/source models to build queryable tables.
 `product_analytics`: `Insight`, `InsightVariable` and `InsightViewed`.
 Core and seven products (alerts, dashboards, surveys, annotations, exports, customer_analytics, pulse) hold ForeignKeys or M2Ms into `Insight` — dashboard tiles, subscriptions and exported assets, sharing configurations, tagged items — and rely on cascade deletes, relation traversal, reverse relations, and queryset-typed access-control filtering that a frozen contract cannot express.
 `InsightViewed` crosses for the view-tracking upsert (`update_or_create`) that shared-insight rendering and the demo generator perform.
 The dashboards→product_analytics `DashboardTile.insight` FK and `Dashboard.insights` M2M-through cross into the product against §8's direction rule; that coupling is accepted under this entry until dashboards pursues its own isolation.
+
+`dashboards` (`Dashboard`, `DashboardTile`, `Text`), `alerts` (`AlertConfiguration`, `Threshold`, `AlertSubscription`) and `cohorts` (`Cohort`) are the same coupling read from the other side.
+An insight's API representation includes the dashboards it sits on and the alerts watching it, so the insight viewset resolves target dashboards through querysets, compares `Dashboard.PrivilegeLevel` off the model, serializes tiles with a `ModelSerializer`, and creates, soft-deletes and restores tiles through the soft-delete manager.
+It prefetches alerts with a `Prefetch` queryset so the render costs no extra query, and soft-deletes them when the insight goes; `Threshold` and `AlertSubscription` hang off `AlertConfiguration` and are rendered with it.
+`Cohort` crosses for its `DoesNotExist`, which the legacy query path raises from inside filter resolution and the viewset turns into a 400.
+None of the three products is narrowed today, so the allowance costs them nothing yet; it binds when they narrow, and it keeps each crossing named rather than hidden behind an unlinted facade re-export.
+Retiring them means moving the dashboard-membership and alert rendering out of `product_analytics`' presentation, which is a larger change than sealing the product was.
+
 An allowance product's facade may hand out model classes defined under `backend/models/`, provided the whole model surface — `backend/models/` and `backend/migrations/` — stays in the `backend:contract-check` inputs, so any model or migration change still re-runs the full suite.
 That is the same soundness contract wiring locations have; what it does not buy is isolation — the coupling to core remains, `hogli product:lint` keeps a standing warning on it, and the direction of travel is still facade functions returning contracts.
 The list lives in `MODEL_CROSSINGS` (`tools/hogli-commands/hogli_commands/product/isolation.py`) and is keyed `(product, class)`, like the carve-outs above: a class that is not listed is a leak and blocks narrowing, so a product already on the list cannot grow a new crossing without a doctrine change.

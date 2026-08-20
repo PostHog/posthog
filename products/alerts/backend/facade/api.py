@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Collection
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -68,6 +68,19 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     # ids to ids and returns no row data.
     # nosemgrep: idor-lookup-without-team
     return set(AlertConfiguration.objects.filter(insight_id__in=insight_ids).values_list("insight_id", flat=True))
+
+
+def serialize_insight_alerts(alerts: Collection[AlertConfiguration], context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Render an insight's alerts for the insight API response.
+
+    The insight API prefetches the alerts so the render costs no extra query, then hands them
+    back here — the alert JSON shape is this product's to define, not product_analytics'.
+    ``context`` is the calling serializer's DRF context.
+    """
+    # Deferred so the facade does not pull DRF onto its import path.
+    from products.alerts.backend.api.alert import AlertSerializer  # noqa: PLC0415
+
+    return AlertSerializer(alerts, many=True, context=context).data
 
 
 def snooze_alert_from_slack(
@@ -169,6 +182,7 @@ __all__ = [
     "create_alert_destination_hog_functions",
     "get_alert_team_id",
     "insight_ids_with_alerts",
+    "serialize_insight_alerts",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",
     "soft_delete_alert_destinations_for_alerts",

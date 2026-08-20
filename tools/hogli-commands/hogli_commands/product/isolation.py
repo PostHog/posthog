@@ -484,6 +484,13 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
 # products/architecture.md § Wiring couplings.
 MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
     {
+        ("alerts", "AlertConfiguration"),
+        ("alerts", "AlertSubscription"),
+        ("alerts", "Threshold"),
+        ("cohorts", "Cohort"),
+        ("dashboards", "Dashboard"),
+        ("dashboards", "DashboardTile"),
+        ("dashboards", "Text"),
         ("product_analytics", "Insight"),
         ("product_analytics", "InsightVariable"),
         ("product_analytics", "InsightViewed"),
