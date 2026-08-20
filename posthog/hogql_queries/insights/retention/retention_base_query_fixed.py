@@ -498,9 +498,12 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         actor_field = self.coerce_actor_id_expr(self.entity_actor_id_expr(entity))
 
-        timestamp_column_name = entity.timestamp_field if entity_is_dwh else "timestamp"
-        assert timestamp_column_name
-        timestamp_field = ast.Field(chain=[timestamp_column_name])
+        timestamp_field: ast.Expr
+        if entity_is_dwh:
+            # Routes through the shared resolver so integer epoch columns get converted.
+            timestamp_field = self.entity_timestamp_field(entity)
+        else:
+            timestamp_field = ast.Field(chain=["timestamp"])
 
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=timestamp_field)
         entity_expr = self._get_dwh_retention_entity_expr(entity=entity, legacy_entity_expr=legacy_entity_expr)

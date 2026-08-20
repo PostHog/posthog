@@ -16,7 +16,7 @@ from posthog.hogql.property import entity_to_expr, property_to_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.retention.utils import breakdown_extract_expr
-from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import resolve_warehouse_field
+from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import resolve_warehouse_field_or_none
 
 if TYPE_CHECKING:
     from posthog.schema import RetentionEntity, RetentionQuery
@@ -79,7 +79,9 @@ class RetentionBaseQueryBuilder(ABC):
             if not entity.table_name or not entity.timestamp_field:
                 # ValidationError so a half-configured entity surfaces as HTTP 400; a bare ValueError becomes a 500.
                 raise ValidationError("A data warehouse retention series requires table_name and timestamp_field.")
-            field = resolve_warehouse_field(self.runner.warehouse_database, entity.table_name, entity.timestamp_field)
+            field = resolve_warehouse_field_or_none(
+                self.runner.warehouse_database, entity.table_name, entity.timestamp_field
+            )
             if isinstance(field, IntegerDatabaseField):
                 return epoch_to_datetime_expr(ast.Field(chain=[entity.table_name, entity.timestamp_field]))
             return ast.Field(chain=[entity.table_name, entity.timestamp_field])

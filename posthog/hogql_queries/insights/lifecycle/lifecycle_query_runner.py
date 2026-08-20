@@ -34,6 +34,7 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.lifecycle.lifecycle_validation_rules import (
     RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget,
 )
+from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import resolve_warehouse_field_or_none
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
@@ -314,7 +315,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     def timestamp_field(self) -> ast.Expr:
         if self.is_data_warehouse_series:
             series = self.data_warehouse_series
-            field = self._warehouse_database.get_table(series.table_name).fields.get(series.timestamp_field)
+            field = resolve_warehouse_field_or_none(self._warehouse_database, series.table_name, series.timestamp_field)
             if isinstance(field, IntegerDatabaseField):
                 return epoch_to_datetime_expr(ast.Field(chain=[series.timestamp_field]))
             # Not a plain integer column, so parse as HogQL to keep expression timestamp fields working.
