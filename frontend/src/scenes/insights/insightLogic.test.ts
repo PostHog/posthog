@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -1042,6 +1043,33 @@ describe('insightLogic', () => {
                 logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, false)
             }).toFinishAllListeners()
 
+            await expectLogic(router).toNotHaveDispatchedActions(['push'])
+        })
+
+        it('marks the insight as duplicating until the request settles', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+            })
+                .toMatchValues({ insightDuplicating: true })
+                .toFinishAllListeners()
+                .toMatchValues({ insightDuplicating: false })
+        })
+
+        it('surfaces a failure instead of silently doing nothing', async () => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/insights/': () => [400, { detail: 'Insight limit reached' }],
+                },
+            })
+            jest.spyOn(lemonToast, 'error')
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ insightDuplicating: false })
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Insight limit reached')
             await expectLogic(router).toNotHaveDispatchedActions(['push'])
         })
     })

@@ -120,6 +120,7 @@ export interface insightLogicValues {
     highlightedSeries: IndexedTrendResult | null
     insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
     insightChanged: boolean
+    insightDuplicating: boolean
     insightFeedback: 'disliked' | 'liked' | null
     insightId: number | null
     insightLoading: boolean
@@ -154,6 +155,9 @@ export interface insightLogicActions {
     ) => {
         insight: QueryBasedInsightModel<Node<Record<string, any>>>
         redirectToInsight: any
+    }
+    duplicateInsightComplete: () => {
+        value: true
     }
     handleInsightSuggested: (suggestedInsight: Node | null) => {
         suggestedInsight: Node<Record<string, any>> | null
@@ -609,6 +613,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             redirectToInsight,
         }),
+        duplicateInsightComplete: true,
         deleteInsight: (dashboardId: number | null) => ({ dashboardId }),
         confirmDeleteInsight: (dashboardId: number | null) => ({ dashboardId }),
         setInsightFeedback: (feedback: 'liked' | 'disliked') => ({ feedback }),
@@ -735,6 +740,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             null as IndexedTrendResult | null,
             {
                 highlightSeries: (_, { series }) => series,
+            },
+        ],
+        insightDuplicating: [
+            false,
+            {
+                duplicateInsight: () => true,
+                duplicateInsightComplete: () => false,
             },
         ],
         insight: {
@@ -1239,22 +1251,32 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            let insightToDuplicate = insight
-            if (insight.short_id) {
-                try {
-                    const cleanInsight = await insightsApi.getByShortId(insight.short_id)
-                    if (cleanInsight) {
-                        insightToDuplicate = cleanInsight
+            try {
+                let insightToDuplicate = insight
+                if (insight.short_id) {
+                    try {
+                        const cleanInsight = await insightsApi.getByShortId(insight.short_id)
+                        if (cleanInsight) {
+                            insightToDuplicate = cleanInsight
+                        }
+                    } catch {
+                        // Fall through to duplicate the original insight
                     }
-                } catch {
-                    // Fall through to duplicate the original insight
                 }
+                const newInsight = await insightsApi.duplicate(insightToDuplicate)
+                for (const logic of savedInsightsLogic.findAllMounted()) {
+                    logic.actions.addInsight(newInsight)
+                }
+                lemonToast.success('Insight duplicated')
+                redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
+            } catch (e: any) {
+                // Nothing downstream reports this: the copy is created by a plain listener rather than
+                // a loader, so without a toast here a failure is indistinguishable from a dead button.
+                lemonToast.error(e.detail ?? 'Could not duplicate insight')
+                posthog.captureException(e)
+            } finally {
+                actions.duplicateInsightComplete()
             }
-            const newInsight = await insightsApi.duplicate(insightToDuplicate)
-            for (const logic of savedInsightsLogic.findAllMounted()) {
-                logic.actions.addInsight(newInsight)
-            }
-            redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
         deleteInsight: ({ dashboardId }) => {
             LemonDialog.open({

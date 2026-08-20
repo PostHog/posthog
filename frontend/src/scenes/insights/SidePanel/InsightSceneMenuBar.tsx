@@ -85,7 +85,8 @@ export function InsightSceneMenuBar({
 
 function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const theInsightLogic = insightLogic(insightLogicProps)
-    const { insightProps, insight, hasDashboardItemId, canEditInsight, isSavingTags } = useValues(theInsightLogic)
+    const { insightProps, insight, hasDashboardItemId, canEditInsight, isSavingTags, insightDuplicating } =
+        useValues(theInsightLogic)
     const { duplicateInsight, deleteInsight, setInsightMetadata } = useActions(theInsightLogic)
 
     const theInsightDataLogic = insightDataLogic(insightProps)
@@ -340,6 +341,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
             {showEditMenu && (
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
                     <SceneMenuBarItem
+                        disabled={insightDuplicating}
                         onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
                         data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
                     >
