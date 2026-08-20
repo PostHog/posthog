@@ -1376,7 +1376,10 @@ def sync_old_schemas_with_new_schemas(
             team_id=team_id, name=schema, source_id=source_id, deleted=False
         )
         for s in schemas_to_check:
-            if s.table_id is None:
+            # Only rows nobody enabled disappear entirely. A user-enabled row survives as visibly
+            # disabled, because soft-deleting it would silently discard the user's selection (e.g.
+            # a scope-gated table the source stopped offering before its first successful sync).
+            if s.table_id is None and not s.should_sync:
                 s.soft_delete()
                 deleted_schemas.append(schema)
             else:

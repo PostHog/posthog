@@ -6113,6 +6113,7 @@ export enum ActivityScope {
     TICKET = 'Ticket',
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
+    SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
 }
 
 export type CommentType = {
@@ -7242,6 +7243,9 @@ export type CyclotronJobInputSchemaType = {
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
         | 'customer_analytics_account_relationships'
+        | 'task_model'
+        | 'task_repository'
+        | 'task_mcp_installations'
     key: string
     label: string
     choices?: { value: string; label: string }[]

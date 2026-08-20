@@ -1,7 +1,8 @@
 import tk from 'timekeeper'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json'
@@ -10,6 +11,7 @@ import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
     canAccessBilling,
+    canViewUsageAndSpend,
     convertAmountToUsage,
     convertLargeNumberToWords,
     convertUsageToAmount,
@@ -17,8 +19,10 @@ import {
     formatProductNames,
     formatWithDecimals,
     getMinimumBillingAccessLevel,
+    getMinimumUsageSpendReadAccessLevel,
     getProration,
     getUsageLimitConsequence,
+    isMemberUsageSpendReadAccessEnabled,
     projectUsage,
     summarizeUsage,
 } from './billing-utils'
@@ -677,5 +681,71 @@ describe('canAccessBilling', () => {
         { level: null, ownerOnly: true, expected: false },
     ])('returns $expected for level=$level, ownerOnly=$ownerOnly', ({ level, ownerOnly, expected }) => {
         expect(canAccessBilling(level, ownerOnly)).toBe(expected)
+    })
+})
+
+describe('getMinimumUsageSpendReadAccessLevel', () => {
+    it.each([
+        { memberAccess: false, ownerOnly: false, expected: OrganizationMembershipLevel.Admin },
+        { memberAccess: true, ownerOnly: false, expected: OrganizationMembershipLevel.Member },
+        { memberAccess: false, ownerOnly: true, expected: OrganizationMembershipLevel.Owner },
+        // owner-only-billing wins over member-billing-usage-spend-read-access
+        { memberAccess: true, ownerOnly: true, expected: OrganizationMembershipLevel.Owner },
+    ])(
+        'returns $expected for memberAccess=$memberAccess, ownerOnly=$ownerOnly',
+        ({ memberAccess, ownerOnly, expected }) => {
+            expect(getMinimumUsageSpendReadAccessLevel(memberAccess, ownerOnly)).toBe(expected)
+        }
+    )
+})
+
+describe('canViewUsageAndSpend', () => {
+    it.each([
+        { level: OrganizationMembershipLevel.Member, memberAccess: true, ownerOnly: false, expected: true },
+        { level: OrganizationMembershipLevel.Member, memberAccess: true, ownerOnly: true, expected: false },
+        { level: OrganizationMembershipLevel.Member, memberAccess: false, ownerOnly: false, expected: false },
+        { level: OrganizationMembershipLevel.Admin, memberAccess: false, ownerOnly: false, expected: true },
+        { level: OrganizationMembershipLevel.Admin, memberAccess: true, ownerOnly: true, expected: false },
+        { level: OrganizationMembershipLevel.Owner, memberAccess: false, ownerOnly: true, expected: true },
+        { level: null, memberAccess: true, ownerOnly: false, expected: false },
+    ])(
+        'returns $expected for level=$level, memberAccess=$memberAccess, ownerOnly=$ownerOnly',
+        ({ level, memberAccess, ownerOnly, expected }) => {
+            expect(canViewUsageAndSpend(level, memberAccess, ownerOnly)).toBe(expected)
+        }
+    )
+})
+
+describe('isMemberUsageSpendReadAccessEnabled', () => {
+    // Dropping the usage-spend-dashboards half of this lets a view-only member reach Usage and Spend
+    // by URL while the account menu and settings sidebar hide Billing from them entirely.
+    it.each<{ case: string; featureFlags: FeatureFlagsSet; expected: boolean }>([
+        {
+            case: 'both flags are on',
+            featureFlags: {
+                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: true,
+                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
+            },
+            expected: true,
+        },
+        {
+            case: 'the grant is on but there are no dashboards to reach',
+            featureFlags: {
+                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: true,
+                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: false,
+            },
+            expected: false,
+        },
+        {
+            case: 'the dashboards are on but the grant is not',
+            featureFlags: {
+                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: false,
+                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
+            },
+            expected: false,
+        },
+        { case: 'neither flag is present', featureFlags: {}, expected: false },
+    ])('returns $expected when $case', ({ featureFlags, expected }) => {
+        expect(isMemberUsageSpendReadAccessEnabled(featureFlags)).toBe(expected)
     })
 })

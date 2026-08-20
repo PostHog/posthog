@@ -14,6 +14,9 @@ import type { AcpMessage } from "./session-events";
 
 export type { Adapter };
 
+/** Entries the first paint of a big transcript renders; the rest pages in on scroll. */
+export const TRANSCRIPT_TAIL_WINDOW = 2000;
+
 export type PermissionRequest = Omit<RequestPermissionRequest, "sessionId"> & {
   taskRunId: string;
   receivedAt: number;

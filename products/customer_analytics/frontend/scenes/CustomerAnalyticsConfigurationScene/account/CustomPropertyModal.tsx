@@ -173,8 +173,9 @@ function PersonSourceEditor(): JSX.Element {
         selectedTableColumns,
         selectedTableColumnsLoading,
         hasWarehouseSourceOptions,
+        mappableColumns,
     } = useValues(customPropertyDefinitionsLogic)
-    const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables } =
+    const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables, mapAllColumns } =
         useActions(customPropertyDefinitionsLogic)
     const { groupTypes, groupTypesLoading } = useValues(groupsModel)
 
@@ -203,6 +204,19 @@ function PersonSourceEditor(): JSX.Element {
             </span>
         ),
     }))
+    const keyColumnLabel = isGroup ? 'group key column' : 'distinct ID column'
+    // Bulk mapping needs the key column chosen first, since that is what it excludes. Naming the
+    // reason in the disabled state keeps a wide table from being mapped with its identifier in it.
+    const mapAllDisabledReason = !customPropertyForm.warehouseSource
+        ? 'Select a table or view first'
+        : selectedTableColumnsLoading
+          ? 'Loading columns'
+          : !customPropertyForm.keyColumn?.trim()
+            ? `Choose the ${keyColumnLabel} first`
+            : !mappableColumns.length
+              ? 'Every column is mapped already'
+              : undefined
+    const warningCount = columnMappingWarnings.filter(Boolean).length
     const groupTypeOptions = Array.from(groupTypes.values()).map((groupType) => ({
         value: groupType.group_type_index,
         label: groupType.name_singular || groupType.group_type,
@@ -391,13 +405,32 @@ function PersonSourceEditor(): JSX.Element {
                             )}
                         </div>
                     ))}
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        onClick={() => setMappings([...mappings, { column: '', property: '', description: '' }])}
-                    >
-                        Add mapping
-                    </LemonButton>
+                    {warningCount > 0 && (
+                        <span className="text-warning text-xs">
+                            {warningCount === 1
+                                ? '1 mapped property needs a look before you save.'
+                                : `${warningCount} mapped properties need a look before you save.`}
+                        </span>
+                    )}
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            onClick={() => setMappings([...mappings, { column: '', property: '', description: '' }])}
+                        >
+                            Add mapping
+                        </LemonButton>
+                        <LemonButton type="secondary" onClick={mapAllColumns} disabledReason={mapAllDisabledReason}>
+                            {mappableColumns.length > 0
+                                ? `Map ${mappableColumns.length} more columns`
+                                : 'Map all columns'}
+                        </LemonButton>
+                    </div>
+                    <span className="text-secondary text-xs">
+                        Mapping every column keeps the warehouse column names. The {keyColumnLabel} is left out, because
+                        its values identify the {entityLabel} rather than describing it. Nothing is saved until you
+                        create the property, so you can edit or remove any row first.
+                    </span>
                 </div>
             )}
             <LemonField
