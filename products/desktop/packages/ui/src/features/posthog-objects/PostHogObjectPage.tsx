@@ -83,7 +83,6 @@ export function PostHogObjectPage({
 }) {
   const object = getObjectKind(metadata.object_kind);
   const ObjectIcon = object.icon;
-  const url = useEvidenceUrl(metadata.object_kind, metadata.object_id);
   const { copied, copy } = useCopy();
   const usesBlockRenderer =
     metadata.object_kind === "insight" ||
@@ -102,6 +101,12 @@ export function PostHogObjectPage({
       refetchOnWindowFocus: false,
       retry: 1,
     },
+  );
+  // A flag cited by key or an event cited by name has no page under the cited
+  // id; link out via the id the preview resolved, as EvidenceRefChip does.
+  const url = useEvidenceUrl(
+    metadata.object_kind,
+    query.data?.resolvedId ?? metadata.object_id,
   );
   const title = query.data?.title ?? fallbackName;
 
