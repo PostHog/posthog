@@ -64,6 +64,17 @@ export function useServerArchiveSync(): void {
 
   useEffect(() => {
     if (!client || running.current) return;
+    // The triggers, checked directly: don't start a drain that would find
+    // nothing. The loop below re-reads both sources fresh each pass.
+    if (
+      pendingUnarchive.length === 0 &&
+      pendingServerArchiveIds(
+        archivedTaskIds,
+        new Set(useServerArchiveSyncStore.getState().syncedTaskIds),
+      ).length === 0
+    ) {
+      return;
+    }
 
     running.current = true;
     void (async () => {
