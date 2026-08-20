@@ -387,6 +387,7 @@ describe('dashboardLogic', () => {
 
                 expect(api.update).toHaveBeenCalledTimes(1)
                 expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    layout_compaction: 'vertical',
                     grid_spacing: 'relaxed',
                 })
                 expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
@@ -410,6 +411,64 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 expect(reportTileDensityConfigured).not.toHaveBeenCalled()
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('previews layout compaction immediately and persists only the final choice', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            ;(api.update as jest.Mock).mockClear()
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.setDashboardGridCompaction('vertical')
+                logic.actions.saveDashboardGridCompaction('vertical')
+                logic.actions.setDashboardGridCompaction('horizontal')
+                logic.actions.saveDashboardGridCompaction('horizontal')
+
+                expect(logic.values.dashboard?.customization?.layout_compaction).toBe('horizontal')
+                expect(api.update).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenCalledTimes(1)
+                expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    layout_compaction: 'horizontal',
+                    grid_spacing: 'standard',
+                })
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('persists the latest movement mode after a save is already in flight', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            let resolveFirstSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void
+            const firstSave = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
+                resolveFirstSave = resolve
+            })
+            ;(api.update as jest.Mock).mockImplementationOnce(() => firstSave)
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.setDashboardGridCompaction('horizontal')
+                logic.actions.saveDashboardGridCompaction('horizontal')
+                await jest.advanceTimersByTimeAsync(750)
+
+                logic.actions.setDashboardGridCompaction('stable')
+                logic.actions.saveDashboardGridCompaction('stable')
+                await jest.advanceTimersByTimeAsync(750)
+
+                resolveFirstSave(logic.values.dashboard!)
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenLastCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    layout_compaction: 'stable',
+                    grid_spacing: 'standard',
+                })
             } finally {
                 jest.useRealTimers()
             }
@@ -1164,6 +1223,64 @@ describe('dashboardLogic', () => {
                 })
                     .toFinishAllListeners()
                     .toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+        })
+
+        describe('changeDashboardGridCompaction action', () => {
+            let dialogOpenSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            })
+
+            afterEach(() => {
+                dialogOpenSpy.mockRestore()
+            })
+
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                logic.actions.updateLayouts({
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                })
+            }
+
+            it('changes the movement mode without a prompt when the layout is saved', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.changeDashboardGridCompaction('horizontal')
+                }).toDispatchActions([
+                    logic.actionCreators.setDashboardGridCompaction('horizontal'),
+                    logic.actionCreators.saveDashboardGridCompaction('horizontal'),
+                ])
+
+                expect(dialogOpenSpy).not.toHaveBeenCalled()
+            })
+
+            it('prompts before changing the movement mode when the layout is unsaved', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.changeDashboardGridCompaction('horizontal')
+                }).toNotHaveDispatchedActions([
+                    logic.actionCreators.setDashboardGridCompaction('horizontal'),
+                    logic.actionCreators.saveDashboardGridCompaction('horizontal'),
+                ])
+
+                expect(dialogOpenSpy).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        title: 'Change tile movement?',
+                        description: 'Changing this setting discards your unsaved tile layout changes.',
+                    })
+                )
+
+                const dialogProps = dialogOpenSpy.mock.calls.at(-1)?.[0]
+                dialogProps?.primaryButton?.onClick?.({} as React.MouseEvent<HTMLButtonElement>)
+
+                await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasUnsavedLayoutChanges: false })
             })
         })
 

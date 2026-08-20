@@ -2705,10 +2705,12 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     quick_filter_ids?: string[] | null
     customization?: {
         tile_spacing?: DashboardTileSpacing
+        layout_compaction?: DashboardGridCompaction
     }
 }
 
 export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
+export type DashboardGridCompaction = 'vertical' | 'horizontal' | 'stable'
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',
