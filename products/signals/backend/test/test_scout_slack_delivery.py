@@ -334,6 +334,49 @@ class TestScoutSlackDelivery(BaseTest):
         assert "First" in section_texts[0] and "Second" in section_texts[0]
         assert calls[1].kwargs["blocks"][0]["type"] == "context"
 
+    def test_threaded_report_packs_many_small_headings_into_few_replies(self) -> None:
+        # A report past the section cap made of many small heading sections must pack adjacent
+        # sections up to the Slack limit, not post one reply per heading. Otherwise the reply count
+        # tracks heading count and a heading-dense report bursts a request per heading into the thread.
+        emission = self._make_emission()
+        heading_count = 50
+        summary = "".join(
+            f"## Section {i}\nBody line for section {i} with a bit of detail to add length.\n\n"
+            for i in range(heading_count)
+        )
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary=summary,
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000700"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        calls = fake_client.chat_postMessage.call_args_list
+        section_texts = [
+            block["text"]["text"] for call in calls for block in call.kwargs["blocks"] if block["type"] == "section"
+        ]
+        # Packed: far fewer sections than headings, each within the cap, and no section is dropped.
+        assert len(section_texts) < heading_count // 5
+        assert all(len(text) <= 2900 for text in section_texts)
+        joined = "\n".join(section_texts)
+        assert all(f"Section {i}" in joined for i in range(heading_count))
+
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.
         self.organization.is_ai_data_processing_approved = False

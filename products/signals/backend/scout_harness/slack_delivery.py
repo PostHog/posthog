@@ -289,16 +289,33 @@ def _report_summary_chunks(report: SignalReport) -> list[str]:
     """Convert the report summary to mrkdwn, splitting into thread chunks only when it is too long.
 
     A summary that fits one Slack section stays a single chunk, so a short report posts as one message
-    however many headings it has. A longer one splits at its own Markdown headings (each chunk still
-    within a section), so the thread reads section by section and keeps its full tail. The split runs
-    after `strip_chart_references` so a chart link never straddles two messages."""
+    however many headings it has. A longer one splits at its own Markdown headings, packing adjacent
+    sections into as few chunks as each fits in one Slack section, so the reply count tracks content
+    size rather than heading count and the thread keeps its full tail. The split runs after
+    `strip_chart_references` so a chart link never straddles two messages."""
     summary_text = strip_chart_references((report.summary or "").strip())
     rendered = markdown_to_slack_mrkdwn(summary_text)
     if len(rendered) <= SLACK_SECTION_TEXT_MAX_LEN:
         return [rendered] if rendered else []
     chunks: list[str] = []
+    current = ""
     for segment in split_markdown_by_headings(summary_text):
-        chunks.extend(chunk_slack_mrkdwn(markdown_to_slack_mrkdwn(segment.strip())))
+        rendered_segment = markdown_to_slack_mrkdwn(segment.strip())
+        if not rendered_segment:
+            continue
+        candidate = f"{current}\n\n{rendered_segment}" if current else rendered_segment
+        if len(candidate) <= SLACK_SECTION_TEXT_MAX_LEN:
+            current = candidate
+            continue
+        # The running block is full: flush it, then hard-chunk the oversized segment on its line ends.
+        # Keep the last piece open so a following short section packs onto it instead of opening a new reply.
+        if current:
+            chunks.append(current)
+        segment_chunks = chunk_slack_mrkdwn(rendered_segment)
+        chunks.extend(segment_chunks[:-1])
+        current = segment_chunks[-1] if segment_chunks else ""
+    if current:
+        chunks.append(current)
     return chunks
 
 
