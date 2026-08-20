@@ -10,6 +10,21 @@ from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.node import Node
 
 
+def get_saved_query_columns(team_id: int, saved_query_id: UUID | str) -> dict[str, str]:
+    """Each column's ClickHouse type, including any ``Nullable()`` wrapper.
+
+    Empty for a view that has not run yet, since the columns are only recorded once a run has
+    established them. A caller must treat that as unknown rather than as having no columns.
+    """
+    saved_query = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        .exclude(deleted=True)
+        .values_list("columns", flat=True)
+        .first()
+    )
+    return saved_query or {}
+
+
 def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQuerySummary | None:
     """The saved query only if it still resolves, else None.
 

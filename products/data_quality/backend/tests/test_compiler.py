@@ -268,6 +268,50 @@ class TestCheckSerialization:
         assert canonical == shuffled
         assert _fingerprint_for(canonical) == _fingerprint_for(shuffled)
 
+    @parameterized.expand(
+        [
+            ("int_column", "Int64", ["1", "2"], [1.0, 2.0]),
+            ("nullable_int_column", "Nullable(Int64)", ["1"], [1.0]),
+            ("float_column", "Float64", ["1.5"], [1.5]),
+            ("bool_column", "Bool", ["true", "FALSE"], [False, True]),
+            ("string_column", "String", ["1", "paid"], ["1", "paid"]),
+            ("unknown_column_type", None, ["1"], ["1"]),
+        ]
+    )
+    def test_accepted_values_are_read_as_the_column_reads_them(self, _name, column_type, given, expected) -> None:
+        # The editor's value control only produces strings, so without this a numeric column is
+        # compared against strings and "1" fingerprints differently from the 1 an agent sends.
+        spec = get_spec(CheckType.ACCEPTED_VALUES)
+        parsed = spec.validate({"values": given}, "status")
+
+        coerced = spec.coerce_to_column(parsed, column_type)
+
+        assert coerced.model_dump(mode="json")["values"] == expected
+
+    @parameterized.expand(
+        [
+            ("a word on a numeric column", "Int64", ["paid"]),
+            ("a word on a boolean column", "Bool", ["paid"]),
+            ("a boolean on a numeric column", "Int64", [True]),
+        ]
+    )
+    def test_an_accepted_value_the_column_cannot_hold_is_rejected(self, _name, column_type, given) -> None:
+        # Better to say so at authoring time than to store a check that can never match a row.
+        spec = get_spec(CheckType.ACCEPTED_VALUES)
+        parsed = spec.validate({"values": given}, "status")
+
+        with pytest.raises(CheckConfigError):
+            spec.coerce_to_column(parsed, column_type)
+
+    def test_a_string_and_a_number_for_the_same_numeric_value_share_a_fingerprint(self) -> None:
+        # The UI sends "1" and an agent sends 1 for the same check on a numeric column; they must
+        # upsert onto one row rather than becoming twins.
+        spec = get_spec(CheckType.ACCEPTED_VALUES)
+        from_ui = spec.coerce_to_column(spec.validate({"values": ["1"]}, "status"), "Int64")
+        from_agent = spec.coerce_to_column(spec.validate({"values": [1]}, "status"), "Int64")
+
+        assert _fingerprint_for(from_ui.model_dump(mode="json")) == _fingerprint_for(from_agent.model_dump(mode="json"))
+
     def test_configs_that_differ_only_in_json_type_share_a_fingerprint(self) -> None:
         # Normalizing through the type's model first is what makes this hold: an agent sending
         # max_age_minutes as "60" must upsert the check it already created with 60, not add a twin.
