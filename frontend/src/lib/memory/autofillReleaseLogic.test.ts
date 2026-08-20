@@ -54,4 +54,18 @@ describe('autofillReleaseLogic', () => {
 
         expect(focusSpy).toHaveBeenCalledTimes(shouldFocus ? 1 : 0)
     })
+
+    it('completes the scene change even if focusing the sink throws', async () => {
+        await expectLogic(logic, () => router.actions.push('/insights')).toDispatchActions(['locationChanged'])
+
+        const sink = document.querySelector(SINK_SELECTOR) as HTMLInputElement
+        // a downstream blur handler on an unmounting form can throw when focus() moves off it
+        jest.spyOn(sink, 'focus').mockImplementation(() => {
+            throw new TypeError('y is not a function')
+        })
+
+        await expectLogic(logic, () => router.actions.push('/dashboard')).toDispatchActions(['locationChanged'])
+
+        expect(router.values.location.pathname).toContain('/dashboard')
+    })
 })

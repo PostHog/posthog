@@ -111,10 +111,22 @@ export const autofillReleaseLogic = kea<autofillReleaseLogicType>([
             if (!sink) {
                 return
             }
-            // preventScroll: focusing must never scroll the (off-screen) sink
-            // into view
-            sink.focus({ preventScroll: true })
-            sink.blur()
+            // Focusing the sink fires a native blur on whatever input the user
+            // had focused in the outgoing scene. When that input is a kea-forms
+            // <Field>, React runs its onBlur, which touches the field. The
+            // field's form logic is already unmounting with the scene, so the
+            // touch action is undefined and throws. That throw propagates out of
+            // focus(), escapes this listener, and aborts the navigation the user
+            // asked for. Releasing the autofill reference is best-effort, so
+            // swallow a downstream handler's failure and let navigation finish.
+            // preventScroll keeps focus() from scrolling the off-screen sink into
+            // view.
+            try {
+                sink.focus({ preventScroll: true })
+                sink.blur()
+            } catch {
+                // a blur/focus handler downstream threw; navigation must still complete
+            }
         },
     })),
 ])
