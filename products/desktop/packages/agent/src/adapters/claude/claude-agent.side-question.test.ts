@@ -53,7 +53,7 @@ function makeAgent(): Agent {
 function installFakeSession(
   agent: Agent,
   sessionId: string,
-  overrides: Partial<{ modelId: string }> = {},
+  overrides: Partial<{ modelId: string; sdkSessionId: string }> = {},
 ) {
   const abortController = new AbortController();
   const input = new Pushable();
@@ -62,6 +62,9 @@ function installFakeSession(
 
   const session = {
     query: oldQuery,
+    // At creation the SDK id matches the ACP id; `/clear` later swaps only
+    // this one, leaving `agent.sessionId` stable.
+    sdkSessionId: overrides.sdkSessionId ?? sessionId,
     queryOptions: {
       sessionId,
       cwd: "/tmp/repo",
@@ -170,6 +173,22 @@ describe("ClaudeAcpAgent.extMethod side_question", () => {
     expect(live.input).toBe(input);
     expect(live.queryOptions.sessionId).toBe("s-2");
     expect((agent as unknown as { sessionId: string }).sessionId).toBe("s-2");
+  });
+
+  it("forks the current SDK session id, not the stable ACP id, after /clear swaps it", async () => {
+    const agent = makeAgent();
+    // /clear keeps the ACP id stable but points sdkSessionId at the fresh
+    // session and deletes the pre-clear transcript. The fork must resume the
+    // fresh id, or it resumes a retired/deleted transcript.
+    installFakeSession(agent, "acp-1", { sdkSessionId: "sdk-after-clear" });
+    nextQueryMessages = [
+      assistantText("ok"),
+      { type: "result", subtype: "success" },
+    ];
+
+    await agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, { question: "hm?" });
+
+    expect(lastQueryCall.options?.resume).toBe("sdk-after-clear");
   });
 
   it("answers on the live session model, not the creation-time option", async () => {

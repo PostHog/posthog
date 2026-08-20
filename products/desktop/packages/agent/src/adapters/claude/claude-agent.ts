@@ -2001,7 +2001,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       } = this.session.queryOptions;
       const options: Options = {
         ...rest,
-        resume: this.sessionId,
+        // Fork the current SDK session, not the stable ACP id. `/clear` swaps
+        // `sdkSessionId` to a fresh session and deletes the pre-clear
+        // transcript, so `this.sessionId` would resume a retired one.
+        resume: this.session.sdkSessionId,
         forkSession: true,
         maxTurns: 1,
         // Belt and braces: remove the toolset entirely and deny anything
