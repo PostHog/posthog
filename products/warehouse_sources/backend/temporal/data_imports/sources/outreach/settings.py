@@ -1,10 +1,10 @@
-from dataclasses import dataclass
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class OutreachEndpointConfig:
     name: str
     path: str
