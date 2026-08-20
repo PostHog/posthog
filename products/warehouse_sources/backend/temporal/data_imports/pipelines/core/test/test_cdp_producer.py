@@ -767,6 +767,34 @@ async def test_clear_with_no_files(mock_get_s3_client, team):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
+async def test_clear_handles_permission_error_on_list(mock_get_s3_client, team):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    mock_s3_client = mock.AsyncMock()
+    mock_s3_client._ls.side_effect = PermissionError("Access Denied")
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+
+    producer = CDPProducer.for_source(
+        team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock()
+    )
+
+    await producer.clear()
+
+    mock_s3_client._rm.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
 async def test_clear_handles_file_not_found_on_delete(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
