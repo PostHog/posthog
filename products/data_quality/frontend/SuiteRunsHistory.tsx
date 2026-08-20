@@ -26,6 +26,7 @@ export function SuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.Elemen
                         <LemonTable
                             size="small"
                             dataSource={suiteRuns}
+                            rowKey="id"
                             loading={suiteRunsLoading}
                             nouns={['run', 'runs']}
                             emptyState="No runs yet"

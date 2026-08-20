@@ -67,7 +67,13 @@ export function DataQualityChecksPanel({
                         size="small"
                         onClick={runAll}
                         loading={runAllInFlight || isSuiteRunning}
-                        disabledReason={enabledChecksCount === 0 ? 'No enabled checks to run' : undefined}
+                        disabledReason={
+                            checksLoading
+                                ? 'Loading checks'
+                                : enabledChecksCount === 0
+                                  ? 'No enabled checks to run'
+                                  : undefined
+                        }
                         data-attr="data-quality-run-all"
                     >
                         Run all checks

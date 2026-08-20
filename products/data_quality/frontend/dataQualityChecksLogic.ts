@@ -766,8 +766,16 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 return
             }
             actions.setCheckPending('running', checkId, true)
+            // The pending guard is per check, and "Run all" is not blocked by it either, so two
+            // starts can be in flight at once. Only the newest one's run may become active:
+            // otherwise a slower earlier request lands last and the panel polls the older run.
+            cache.suiteStartToken = (cache.suiteStartToken ?? 0) + 1
+            const startToken = cache.suiteStartToken
             try {
-                actions.setActiveSuiteRun(await checksApi.run(subjectRef(props), checkId))
+                const started = await checksApi.run(subjectRef(props), checkId)
+                if (cache.suiteStartToken === startToken) {
+                    actions.setActiveSuiteRun(started)
+                }
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) ?? 'Could not start the check. Try again.')
             } finally {
@@ -775,8 +783,13 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             }
         },
         runAll: async () => {
+            cache.suiteStartToken = (cache.suiteStartToken ?? 0) + 1
+            const startToken = cache.suiteStartToken
             try {
-                actions.setActiveSuiteRun(await checksApi.runAll(subjectRef(props)))
+                const started = await checksApi.runAll(subjectRef(props))
+                if (cache.suiteStartToken === startToken) {
+                    actions.setActiveSuiteRun(started)
+                }
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) ?? 'Could not start the checks. Try again.')
             } finally {
@@ -849,6 +862,11 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             actions.loadChecks()
             actions.loadHealth()
             Object.keys(values.checkRunsByCheckId).forEach((checkId) => actions.loadCheckRuns(checkId))
+            // An adopted or MCP-triggered suite can be expanded while it is still running, so its
+            // rows are cached mid-flight. Without this they stay stale until it is reopened.
+            Object.keys(values.suiteRunCheckRunsBySuiteRunId).forEach((suiteRunId) =>
+                actions.loadSuiteRunCheckRuns(suiteRunId)
+            )
             if (values.suiteRunsRequested) {
                 actions.loadSuiteRuns()
             }

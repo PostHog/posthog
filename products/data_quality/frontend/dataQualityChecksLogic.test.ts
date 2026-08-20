@@ -6,6 +6,7 @@ import { expectLogic } from '~/test/keaTestUtils'
 
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
 import {
+    warehouseSavedQueriesCheckSuiteRunsCheckRunsList,
     warehouseSavedQueriesCheckSuiteRunsList,
     warehouseSavedQueriesCheckSuiteRunsRetrieve,
     warehouseSavedQueriesChecksCheckTypesList,
@@ -445,6 +446,52 @@ describe('dataQualityChecksLogic', () => {
         expect(logic.values.activeSuiteRun?.id).toEqual('suite-2')
         expect(logic.values.isSuiteRunning).toBe(true)
         expect(lemonToast.success).not.toHaveBeenCalled()
+    })
+
+    it('ignores a suite start that resolves after a newer one', async () => {
+        // Two starts can be in flight at once: the pending guard is per check, and "Run all" is not
+        // blocked by it. A slower earlier request must not replace the run the panel is tracking.
+        let resolveFirst: (run: DataQualitySuiteRunApi) => void = () => {}
+        ;(warehouseSavedQueriesChecksRunCreate as jest.Mock)
+            .mockReturnValueOnce(
+                new Promise<DataQualitySuiteRunApi>((resolve) => {
+                    resolveFirst = resolve
+                })
+            )
+            .mockResolvedValueOnce(buildSuiteRun({ id: 'suite-second' }))
+        await mountLogic()
+
+        logic.actions.runCheck('check-1')
+        logic.actions.runCheck('check-2')
+        await drainListeners()
+        expect(logic.values.activeSuiteRun?.id).toEqual('suite-second')
+
+        resolveFirst(buildSuiteRun({ id: 'suite-first' }))
+        await drainListeners()
+
+        expect(logic.values.activeSuiteRun?.id).toEqual('suite-second')
+    })
+
+    it('reloads an expanded suite run detail once the run finishes', async () => {
+        // A suite adopted mid-flight can be expanded while it is still running, caching partial rows.
+        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock)
+            .mockResolvedValueOnce(buildSuiteRun())
+            .mockResolvedValue(buildSuiteRun({ status: 'completed', checks_passed: 1 }))
+        ;(warehouseSavedQueriesCheckSuiteRunsCheckRunsList as jest.Mock).mockResolvedValue([])
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+        logic.actions.loadSuiteRunCheckRuns('suite-1')
+        await drainListeners()
+        const whileRunning = (warehouseSavedQueriesCheckSuiteRunsCheckRunsList as jest.Mock).mock.calls.length
+
+        await advancePoll(3000)
+        await advancePoll(3000)
+
+        expect((warehouseSavedQueriesCheckSuiteRunsCheckRunsList as jest.Mock).mock.calls.length).toBeGreaterThan(
+            whileRunning
+        )
     })
 
     it('stops polling a run that never finishes', async () => {
