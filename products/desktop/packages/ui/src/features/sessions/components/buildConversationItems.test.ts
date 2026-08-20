@@ -89,6 +89,18 @@ function backgroundTurnCompleteMsg(
   };
 }
 
+function backgroundTurnStartedMsg(ts: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/background_turn_started",
+      params: { sessionId: "session-1" },
+    },
+  };
+}
+
 function agentMessageMsg(ts: number, text: string): AcpMessage {
   return {
     type: "acp_message",
@@ -1122,6 +1134,24 @@ describe("buildConversationItems", () => {
 
       expect(lastTurnInfo?.isComplete).toBe(true);
       expect(lastTurnInfo?.durationMs).toBeGreaterThan(0);
+    });
+
+    it("tracks an active background turn until its completion arrives", () => {
+      const active = buildConversationItems(
+        [backgroundTurnStartedMsg(10), agentMessageMsg(11, "Working")],
+        false,
+      );
+      const completed = buildConversationItems(
+        [
+          backgroundTurnStartedMsg(10),
+          agentMessageMsg(11, "Working"),
+          backgroundTurnCompleteMsg(12),
+        ],
+        false,
+      );
+
+      expect(active.isBackgroundTurnActive).toBe(true);
+      expect(completed.isBackgroundTurnActive).toBe(false);
     });
 
     it("does not spawn a phantom turn for a silent trailing update like usage_update", () => {

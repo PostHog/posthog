@@ -5,6 +5,7 @@ import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { compactNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
@@ -446,6 +447,49 @@ export function canAccessBilling(membershipLevel: number | null | undefined, own
         return false
     }
     return membershipLevel >= getMinimumBillingAccessLevel(ownerOnlyBilling)
+}
+
+/**
+ * Whether the member-level read grant for usage and spend is in effect.
+ *
+ * The grant requires usage-spend-dashboards as well, because the tabbed dashboards are the only
+ * member-facing usage/spend surface. Honoring the grant without them would leave Usage and Spend
+ * reachable by URL while the account menu and settings sidebar hide Billing entirely. Admins reach
+ * usage and spend either way, so the second flag only ever narrows members.
+ */
+export function isMemberUsageSpendReadAccessEnabled(featureFlags: FeatureFlagsSet): boolean {
+    return (
+        !!featureFlags[FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS] &&
+        !!featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+    )
+}
+
+/**
+ * Returns the minimum membership level required for read-only access to the billing usage/spend tabs.
+ * The member-billing-usage-spend-read-access feature flag lowers it to Member, but owner-only-billing takes precedence.
+ */
+export function getMinimumUsageSpendReadAccessLevel(
+    memberUsageSpendReadAccess: boolean,
+    ownerOnlyBilling: boolean
+): OrganizationMembershipLevel {
+    if (ownerOnlyBilling) {
+        return OrganizationMembershipLevel.Owner
+    }
+    return memberUsageSpendReadAccess ? OrganizationMembershipLevel.Member : OrganizationMembershipLevel.Admin
+}
+
+/**
+ * Determines if the user can view the read-only billing usage/spend tabs based on their org membership level.
+ */
+export function canViewUsageAndSpend(
+    membershipLevel: number | null | undefined,
+    memberUsageSpendReadAccess: boolean,
+    ownerOnlyBilling: boolean
+): boolean {
+    if (!membershipLevel) {
+        return false
+    }
+    return membershipLevel >= getMinimumUsageSpendReadAccessLevel(memberUsageSpendReadAccess, ownerOnlyBilling)
 }
 
 /**

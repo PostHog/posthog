@@ -104,7 +104,9 @@ describe("EvidenceRefChip", () => {
     fireEvent.focus(link);
     // The card is a focus-managed dialog, not a tooltip: its controls are
     // real elements a keyboard user can Tab to.
-    expect(screen.getByRole("dialog")).toBeDefined();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeDefined();
+    expect(dialog.classList.contains("dark")).toBe(false);
     expect(
       screen.getByRole("button", { name: /Open in PostHog/ }),
     ).toBeDefined();

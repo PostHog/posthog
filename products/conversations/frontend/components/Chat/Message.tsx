@@ -18,6 +18,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
+import { richContentToHtml } from '../Editor/richContentToHtml'
 import { TeamOnlyBadge } from './TeamOnlyBadge'
 
 export interface MessageProps {
@@ -61,6 +62,12 @@ export function Message({
             return
         }
         onSubmitAiReplyFeedback(rating)
+    }
+
+    function copyMessage(): void {
+        // Generated on demand rather than per render, since only a copy needs it.
+        const html = richContentToHtml(message.richContent as JSONContent | null)
+        void copyToClipboard(message.content, 'Message', { html: html ?? undefined })
     }
 
     function submitBadFeedbackText(): void {
@@ -151,7 +158,7 @@ export function Message({
                                             size="xsmall"
                                             icon={<IconCopy />}
                                             noPadding
-                                            onClick={() => void copyToClipboard(message.content, 'Message')}
+                                            onClick={copyMessage}
                                         />
                                     </Tooltip>
                                 </div>

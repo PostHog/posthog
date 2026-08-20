@@ -25,7 +25,7 @@ from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSource
 
 from ee.api.rbac.access_control_settings import _display_model, resources_with_object_access_controls
@@ -2234,7 +2234,11 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         # Create another team and set different member override directly in DB
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         AccessControl.objects.create(
-            team=other_team, resource="project", organization_member=self.user2_membership, access_level="admin"
+            team=other_team,
+            resource="project",
+            resource_id=str(other_team.id),
+            organization_member=self.user2_membership,
+            access_level="admin",
         )
 
         # Request should only return current team's member overrides

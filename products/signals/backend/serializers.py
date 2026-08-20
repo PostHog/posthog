@@ -16,6 +16,7 @@ from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEER
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
+from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     AutonomyPriority,
     SignalReport,
@@ -182,6 +183,53 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "(or send {}) to keep targeting the repo default branch."
         ),
     )
+    max_reports_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        # Ceiling at the int4 column max so an out-of-range value returns 400, not a DB write error.
+        max_value=2147483647,
+        help_text=(
+            "Daily cap on new reports surfacing to the inbox, counted per calendar day in the "
+            "project's timezone. Once reached, signal ingestion, scout runs, and report research "
+            "pause until local midnight. Null means unlimited."
+        ),
+    )
+    reports_generated_today = serializers.SerializerMethodField(
+        help_text=(
+            "How many reports first became visible in the inbox during the current project-timezone "
+            "day. This is the count the daily report limit compares against."
+        )
+    )
+    daily_report_limit_reached = serializers.SerializerMethodField(
+        help_text=(
+            "Whether the team hit its daily report limit, pausing new report generation until "
+            "local midnight. Always false when max_reports_per_day is null."
+        )
+    )
+
+    # Memoized per serializer instance: both computed fields need the same count, and an
+    # instance only ever renders the team's one singleton row.
+    _reports_today: int | None = None
+
+    def _reports_today_count(self, obj: SignalTeamConfig) -> int:
+        if self._reports_today is None:
+            self._reports_today = reports_generated_today(obj.team, day_start=team_day_start(obj.team))
+        return self._reports_today
+
+    @extend_schema_field(serializers.IntegerField(min_value=0))
+    def get_reports_generated_today(self, obj: SignalTeamConfig) -> int:
+        # No limit means the count is never shown, so skip the query — mirroring the sibling field
+        # and daily_report_limit_gate, which both short-circuit unlimited teams.
+        if obj.max_reports_per_day is None:
+            return 0
+        return self._reports_today_count(obj)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_daily_report_limit_reached(self, obj: SignalTeamConfig) -> bool:
+        if obj.max_reports_per_day is None:
+            return False
+        return self._reports_today_count(obj) >= obj.max_reports_per_day
 
     class Meta:
         model = SignalTeamConfig
@@ -191,10 +239,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
+            "max_reports_per_day",
+            "reports_generated_today",
+            "daily_report_limit_reached",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "reports_generated_today", "daily_report_limit_reached", "created_at", "updated_at"]
         extra_kwargs = {
             "autostart_enabled": {
                 "help_text": (

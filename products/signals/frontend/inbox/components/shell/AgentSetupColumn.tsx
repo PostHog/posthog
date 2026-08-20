@@ -11,6 +11,7 @@ import { cn } from 'lib/utils/css-classes'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 import { urls } from 'scenes/urls'
 
+import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
@@ -311,6 +312,9 @@ function SetupModal(): JSX.Element {
 export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
+    // The usage widget renders nothing without the billing product, so the section title
+    // must hide with it rather than sit over an empty area.
+    const { product: inboxUsageProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
 
     return (
         <div
@@ -329,9 +333,11 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
                 <CodeAccessWidget />
                 <NotificationsWidget />
             </SetupSection>
-            <SetupSection title="Usage">
-                <InboxUsageWidget />
-            </SetupSection>
+            {(inboxUsageProduct != null || inboxUsageLoading) && (
+                <SetupSection title="Usage">
+                    <InboxUsageWidget />
+                </SetupSection>
+            )}
             <SetupModal />
         </div>
     )

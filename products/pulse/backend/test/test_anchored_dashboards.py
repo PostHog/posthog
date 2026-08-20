@@ -8,7 +8,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.anchored_dashboards import AnchoredDashboardsSource
 from products.pulse.backend.sources.anchored_insights import AnchoredInsightsSource
