@@ -10,7 +10,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.config import BriefSettings
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
 from products.pulse.backend.urls import insight_url
