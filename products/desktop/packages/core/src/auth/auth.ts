@@ -41,6 +41,24 @@ import {
 } from "./schemas";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
+
+const NO_API_ACCESS_ERROR_MESSAGE =
+  "Your session lost access to the PostHog API. Sign in again to continue.";
+
+/**
+ * Whether a token response's scope grants any API resource access.
+ *
+ * The server can mint a token whose scope is empty (a refresh racing the
+ * server's token-reuse revocation produces one). Such a token authenticates
+ * but 403s on every resource call, so accepting it strands the session in a
+ * permanent retry loop instead of surfacing a re-login. An omitted scope
+ * means "identical to what was requested" (RFC 6749 §5.1) and passes; `*`
+ * is the legacy wildcard grant.
+ */
+function hasResourceScopes(scope: string | undefined): boolean {
+  if (scope === undefined) return true;
+  return scope.split(" ").some((entry) => entry === "*" || entry.includes(":"));
+}
 const AUTH_FETCH_TIMEOUT_MS = 30_000;
 const AUTH_BOOTSTRAP_DEADLINE_MS = 20_000;
 export type FetchLike = (
@@ -666,6 +684,21 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       );
 
       if (result.success && result.data) {
+        if (!hasResourceScopes(result.data.scope)) {
+          // Accepting the token would strand the session: every resource call
+          // 403s and every refresh returns the same empty grant, so the only
+          // way out is a fresh sign-in. Same forced logout as auth_error.
+          this.logger.warn(
+            "Refreshed token carries no resource scopes, forcing logout",
+          );
+          this.authSession.clearCurrent();
+          this.session = null;
+          this.setAnonymousState({
+            cloudRegion: input.cloudRegion,
+            currentProjectId: input.selectedProjectId,
+          });
+          throw new Error(NO_API_ACCESS_ERROR_MESSAGE);
+        }
         return await this.createSessionFromTokenResponse(result.data, {
           ...input,
           fallbackRefreshToken: input.refreshToken,
@@ -975,6 +1008,11 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const result = await runFlow();
     if (!result.success || !result.data) {
       throw new Error(result.error || fallbackError);
+    }
+    if (!hasResourceScopes(result.data.scope)) {
+      // Failing here keeps the broken token out of the session store, so the
+      // user sees a sign-in error instead of an app that silently 403s.
+      throw new Error(NO_API_ACCESS_ERROR_MESSAGE);
     }
 
     const session = await this.createSessionFromTokenResponse(result.data, {

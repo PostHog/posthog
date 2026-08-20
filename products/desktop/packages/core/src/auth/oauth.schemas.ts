@@ -22,7 +22,10 @@ export const oAuthTokenResponse = z.object({
   access_token: z.string(),
   expires_in: z.number(),
   token_type: z.string(),
-  scope: z.string().optional().default(""),
+  // No default: an omitted scope means "identical to what was requested"
+  // (RFC 6749 §5.1) and must stay distinguishable from an explicit empty
+  // scope, which is a broken token that grants no API access.
+  scope: z.string().optional(),
   refresh_token: z.string().optional(),
   scoped_organizations: z.array(z.string()).optional(),
   scoped_teams: z.array(z.number()).optional(),

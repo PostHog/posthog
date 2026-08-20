@@ -81,6 +81,7 @@ function mockTokenResponse(
     accessToken?: string;
     refreshToken?: string | null;
     expiresIn?: number;
+    scope?: string;
     scopedOrgs?: string[];
     scopedTeams?: number[];
   } = {},
@@ -89,6 +90,7 @@ function mockTokenResponse(
     overrides.refreshToken === undefined
       ? "refresh-token"
       : overrides.refreshToken;
+  const scope = "scope" in overrides ? overrides.scope : "openid project:read";
   return {
     success: true as const,
     data: {
@@ -96,7 +98,7 @@ function mockTokenResponse(
       ...(refreshToken ? { refresh_token: refreshToken } : {}),
       expires_in: overrides.expiresIn ?? 3600,
       token_type: "Bearer",
-      scope: "",
+      ...(scope !== undefined ? { scope } : {}),
       scoped_organizations: overrides.scopedOrgs ?? ["org-1"],
       ...(overrides.scopedTeams ? { scoped_teams: overrides.scopedTeams } : {}),
     },
@@ -1078,6 +1080,47 @@ describe("AuthService", () => {
         currentProjectId: 42,
       });
       expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+      expect(sessionPort.getCurrent()).toBeNull();
+    });
+
+    it.each(["", "openid profile email"])(
+      "forces logout when a refreshed token's scope %j grants no resource access",
+      async (scope) => {
+        seedStoredSession({ selectedProjectId: 42 });
+        oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse({ scope }));
+
+        await service.initialize();
+
+        expect(service.getState()).toMatchObject({
+          status: "anonymous",
+          cloudRegion: "us",
+          currentProjectId: 42,
+        });
+        expect(sessionPort.getCurrent()).toBeNull();
+      },
+    );
+
+    it("accepts a refreshed token whose scope is omitted from the response", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({ scope: undefined }),
+      );
+      stubAuthFetch({
+        orgs: { "org-1": { name: "Org 1", projects: [{ id: 1, name: "P" }] } },
+      });
+
+      await service.initialize();
+
+      expect(service.getState().status).toBe("authenticated");
+    });
+
+    it("rejects a sign-in whose token carries no resource scopes", async () => {
+      oauthFlow.startFlow.mockResolvedValue(mockTokenResponse({ scope: "" }));
+
+      await expect(service.login("us")).rejects.toThrow(
+        "Sign in again to continue",
+      );
+      expect(service.getState().status).toBe("anonymous");
       expect(sessionPort.getCurrent()).toBeNull();
     });
 
