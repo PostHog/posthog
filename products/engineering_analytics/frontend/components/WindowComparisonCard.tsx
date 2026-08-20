@@ -9,7 +9,7 @@ import { ReactNode } from 'react'
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import { DeltaBadge, percentChange } from './MetricTile'
+import { DeltaBadge, percentChange, pointChange } from './MetricTile'
 
 function MagnitudeBar({
     share,
@@ -34,7 +34,7 @@ function MagnitudeBar({
             {markerShare != null && (
                 <Tooltip title={markerTooltip}>
                     <div
-                        className="absolute -top-0.5 h-3.5 w-0.5 rounded-sm"
+                        className="absolute -top-0.5 h-3.5 w-0.5 -translate-x-1/2 rounded-sm"
                         style={{ left: `${markerShare * 100}%`, background: 'var(--text-3000)' }}
                     />
                 </Tooltip>
@@ -44,8 +44,9 @@ function MagnitudeBar({
 }
 
 function SplitBar({ rate }: { rate: number }): JSX.Element {
+    const passedPercent = Math.round(rate * 100)
     return (
-        <Tooltip title={`${Math.round(rate * 100)}% passed, ${Math.round((1 - rate) * 100)}% failed`}>
+        <Tooltip title={`${passedPercent}% passed, ${100 - passedPercent}% failed`}>
             <div className="flex h-2.5 flex-1 overflow-hidden rounded-sm">
                 <div className="h-full" style={{ width: `${rate * 100}%`, background: 'var(--success)' }} />
                 <div className="h-full flex-1" style={{ background: 'var(--danger)' }} />
@@ -83,7 +84,7 @@ function ComparisonRow({
                 <MagnitudeBar
                     share={max > 0 ? value / max : 0}
                     current={current}
-                    markerShare={marker != null && max > 0 ? Math.min(marker / max, 1) : null}
+                    markerShare={marker != null && max > 0 ? marker / max : null}
                     markerTooltip={marker != null && markerLabel ? `${markerLabel} ${formatValue(marker)}` : undefined}
                 />
             )}
@@ -117,7 +118,7 @@ export function WindowComparisonCard({
     /** Rate mode: bars become a full-width pass/fail split instead of a length. */
     share?: boolean
     /** 'pt' renders the delta as percentage points; default is relative percent. */
-    deltaUnit?: string
+    deltaUnit?: 'pt'
     /** Definition or methodology, shown on title hover. */
     tooltip?: ReactNode
     /** A companion figure (e.g. p90) pinned as a tick on each bar, on the same scale as the value. */
@@ -128,12 +129,7 @@ export function WindowComparisonCard({
     emptyText: string
 }): JSX.Element {
     const max = Math.max(value ?? 0, previousValue ?? 0, marker ?? 0, markerPrevious ?? 0)
-    const delta =
-        deltaUnit === 'pt'
-            ? value != null && previousValue != null
-                ? (value - previousValue) * 100
-                : null
-            : percentChange(value, previousValue)
+    const delta = deltaUnit === 'pt' ? pointChange(value, previousValue) : percentChange(value, previousValue)
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col p-4">
@@ -154,7 +150,7 @@ export function WindowComparisonCard({
                         <span className="text-2xl font-semibold leading-none tabular-nums">{formatValue(value)}</span>
                         <DeltaBadge
                             value={delta}
-                            unit={deltaUnit === 'pt' ? 'pt' : '%'}
+                            unit={deltaUnit ?? '%'}
                             goodWhenDown={goodWhenDown}
                             vs="vs the previous window"
                         />

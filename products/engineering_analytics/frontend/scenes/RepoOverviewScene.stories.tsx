@@ -25,7 +25,6 @@ const OVERVIEW: RepoOverviewApi = {
     success_rate_prev: 0.82,
     rerun_cycles: 41,
     rerun_cycles_prev: 30,
-    // Matches the cost_series merges below: 8 merges x 7 daily buckets.
     merged_pr_count: 56,
     merged_pr_count_prev: 49,
     median_open_to_merge_seconds: 14 * 3600,
