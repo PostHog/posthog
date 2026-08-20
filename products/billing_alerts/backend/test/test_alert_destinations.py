@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
+from posthog.cdp.internal_events import GENERIC_API_HIDDEN_ALERT_EVENTS
 from posthog.models.organization import OrganizationMembership
 
 from products.billing_alerts.backend.alert_destinations import BILLING_ALERT_EVENT_IDS, EVENT_KIND_CONFIG
@@ -80,6 +81,9 @@ class TestBillingAlertDestinations(APIBaseTest):
                 "free": True,
             },
         )
+
+    def test_billing_alert_event_ids_are_hidden_from_generic_hog_function_api(self) -> None:
+        assert set(BILLING_ALERT_EVENT_IDS) <= set(GENERIC_API_HIDDEN_ALERT_EVENTS)
 
     def test_create_destination_builds_one_hog_function_per_billing_event(self) -> None:
         self._sync_webhook_template()

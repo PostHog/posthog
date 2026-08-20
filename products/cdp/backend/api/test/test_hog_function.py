@@ -227,7 +227,15 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         listed_ids = {item["id"] for item in list_response.json()["results"]}
         self.assertIn(function_id, listed_ids)
 
-    def test_generic_api_hides_and_cannot_patch_managed_alert_destinations(self):
+    @parameterized.expand(
+        [
+            ("$billing_alert_firing",),
+            ("$billing_alert_resolved",),
+            ("$billing_alert_errored",),
+            ("$billing_alert_auto_disabled",),
+        ]
+    )
+    def test_generic_api_hides_and_cannot_patch_managed_alert_destinations(self, event_id: str) -> None:
         ordinary = HogFunction.objects.create(
             team=self.team,
             name="Ordinary destination",
@@ -243,7 +251,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
             type="internal_destination",
             enabled=True,
             filters={
-                "events": [{"id": "$billing_alert_firing", "type": "events"}],
+                "events": [{"id": event_id, "type": "events"}],
                 "properties": [{"key": "alert_id", "value": "alert-1"}],
             },
         )
@@ -263,6 +271,88 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertNotIn(str(managed.id), listed_ids)
         self.assertEqual(retrieve_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(patch_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("$logs_alert_firing",),
+            ("$logs_alert_resolved",),
+            ("$logs_alert_errored",),
+            ("$logs_alert_auto_disabled",),
+        ]
+    )
+    def test_generic_api_lists_and_blocks_patch_of_logs_alert_destinations(self, event_id: str) -> None:
+        destination = HogFunction.objects.create(
+            team=self.team,
+            name="Logs alert destination",
+            hog="return event",
+            type="internal_destination",
+            enabled=True,
+            inputs_schema=[],
+            filters={
+                "events": [{"id": event_id, "type": "events"}],
+                "properties": [{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "event"}],
+            },
+        )
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?full=true")
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{destination.id}/")
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{destination.id}/",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed_ids = {item["id"] for item in list_response.json()["results"]}
+        self.assertIn(str(destination.id), listed_ids)
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK, retrieve_response.json())
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
+        self.assertEqual(patch_response.json()["attr"], "filters")
+        self.assertIn("managed through the alert API", patch_response.json()["detail"])
+
+    def test_generic_api_filter_groups_matches_logs_alert_destinations_by_alert_id(self) -> None:
+        alert_a = "019a0000-0000-0000-0000-00000000000a"
+        alert_b = "019a0000-0000-0000-0000-00000000000b"
+        event_ids = ["$logs_alert_firing", "$logs_alert_resolved", "$logs_alert_errored", "$logs_alert_auto_disabled"]
+        alert_a_functions = [
+            HogFunction.objects.create(
+                team=self.team,
+                name=f"Logs alert destination ({event_id})",
+                hog="return event",
+                type="internal_destination",
+                enabled=True,
+                filters={
+                    "events": [{"id": event_id, "type": "events"}],
+                    "properties": [{"key": "alert_id", "value": alert_a, "operator": "exact", "type": "event"}],
+                },
+            )
+            for event_id in event_ids
+        ]
+        HogFunction.objects.create(
+            team=self.team,
+            name="Other alert destination",
+            hog="return event",
+            type="internal_destination",
+            enabled=True,
+            filters={
+                "events": [{"id": "$logs_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": alert_b, "operator": "exact", "type": "event"}],
+            },
+        )
+
+        list_response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "internal_destination",
+                "full": "true",
+                "filter_groups": json.dumps(
+                    [{"properties": [{"key": "alert_id", "value": alert_a, "operator": "exact", "type": "event"}]}]
+                ),
+            },
+        )
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.json())
+        listed_ids = {item["id"] for item in list_response.json()["results"]}
+        self.assertEqual(listed_ids, {str(destination.id) for destination in alert_a_functions})
 
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
