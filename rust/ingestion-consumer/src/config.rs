@@ -162,6 +162,18 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
+    // ---- Consumer liveness ----
+    /// How long the consumer loop may go without a liveness heartbeat before
+    /// the lifecycle manager counts it as stalled (milliseconds).
+    #[envconfig(default = "60000")]
+    pub consumer_liveness_deadline_ms: u64,
+
+    /// Consecutive stalled health checks before the lifecycle manager shuts the
+    /// process down. Checks run every 5s, so this is the grace period on top of
+    /// `CONSUMER_LIVENESS_DEADLINE_MS` before a stalled loop exits the process.
+    #[envconfig(default = "3")]
+    pub consumer_stall_threshold: u32,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]

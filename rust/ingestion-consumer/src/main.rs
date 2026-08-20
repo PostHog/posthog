@@ -103,8 +103,8 @@ async fn async_main(config: Config) -> Result<()> {
         "consumer",
         ComponentOptions::new()
             .with_graceful_shutdown(Duration::from_secs(60))
-            .with_liveness_deadline(Duration::from_secs(60))
-            .with_stall_threshold(3),
+            .with_liveness_deadline(Duration::from_millis(config.consumer_liveness_deadline_ms))
+            .with_stall_threshold(config.consumer_stall_threshold),
     );
 
     let metrics_handle =
