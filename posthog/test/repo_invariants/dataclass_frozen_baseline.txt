@@ -45,7 +45,7 @@
 1 posthog/management/commands/create_channel_definitions_file.py
 1 posthog/models/file_system/file_system_representation.py
 1 posthog/models/group/util.py
-1 posthog/models/integration.py
+1 posthog/models/integration/oauth.py
 1 posthog/models/person/bulk_delete.py
 1 posthog/models/person/util.py
 1 posthog/personhog_client/fake_client.py

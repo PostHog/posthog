@@ -283,3 +283,37 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
             'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
         ),
 })
+
+export const llmSkillsNamePublishCommunityCreateBodyDisplayNameMax = 64
+
+export const llmSkillsNamePublishCommunityCreateBodyDisplayNameRegExp = new RegExp('^[^\\u0000-\\u001f\\u007f]\*$')
+export const llmSkillsNamePublishCommunityCreateBodyTagsItemMax = 64
+
+export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax = 39
+
+export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleRegExp = new RegExp(
+    '^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$'
+)
+
+export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.object({
+    display_name: zod
+        .string()
+        .max(llmSkillsNamePublishCommunityCreateBodyDisplayNameMax)
+        .regex(llmSkillsNamePublishCommunityCreateBodyDisplayNameRegExp)
+        .optional()
+        .describe(
+            'Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.'
+        ),
+    tags: zod
+        .array(zod.string().max(llmSkillsNamePublishCommunityCreateBodyTagsItemMax))
+        .optional()
+        .describe("Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage']."),
+    author_handle: zod
+        .string()
+        .max(llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax)
+        .regex(llmSkillsNamePublishCommunityCreateBodyAuthorHandleRegExp)
+        .optional()
+        .describe(
+            "The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account."
+        ),
+})
