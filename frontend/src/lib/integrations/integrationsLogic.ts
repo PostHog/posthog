@@ -967,8 +967,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             // Leaving the redirect scene stops the spinner; clear the timeout so it can't fire a
-            // stale timed-out state afterwards.
+            // stale timed-out state afterwards. Once it has fired, the user has already moved on via
+            // the escape button, so a late-settling callback must not replace the route under them.
             const redirect = (url: string): void => {
+                if (values.oauthCallbackTimedOut) {
+                    return
+                }
                 cache.disposables.dispose('oauthCallbackTimeout')
                 router.actions.replace(url)
             }

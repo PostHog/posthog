@@ -117,6 +117,39 @@ describe('integrationsLogic — handleOauthCallback', () => {
         document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
     })
 
+    it('does not redirect the user once the callback has already timed out', async () => {
+        jest.useFakeTimers()
+        document.cookie = 'ph_oauth_state=csrf-tok'
+        // The create outlives the 20s timeout, so the user sees the stall screen and leaves via the
+        // escape button. When the create finally settles, the finally block must not replace the
+        // route under them — the whole point of the timeout is to hand control back.
+        let resolveCreate: (value: { id: number }) => void = () => {}
+        createSpy.mockReturnValue(
+            new Promise((resolve) => {
+                resolveCreate = resolve
+            })
+        )
+        const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+
+        logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
+
+        jest.advanceTimersByTime(20000)
+        expect(logic.values.oauthCallbackTimedOut).toBe(true)
+        const pathnameWhileStalled = router.values.location.pathname
+
+        resolveCreate({ id: 7 })
+        // Flush the listener's post-await continuation (URL build, loadIntegrations, finally).
+        for (let i = 0; i < 5; i++) {
+            await Promise.resolve()
+        }
+
+        expect(logic.values.oauthCallbackTimedOut).toBe(true)
+        expect(router.values.location.pathname).toBe(pathnameWhileStalled)
+
+        jest.useRealTimers()
+        document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    })
+
     describe('integration create team scoping', () => {
         let requestedTeamIds: string[]
 
