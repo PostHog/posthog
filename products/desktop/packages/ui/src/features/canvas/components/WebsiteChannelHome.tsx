@@ -33,6 +33,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { useChannelFeedMessages } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import {
+  type ChannelReportsFilters,
   EMPTY_CHANNEL_REPORTS_FILTERS,
   useChannelReports,
 } from "@posthog/ui/features/canvas/hooks/useChannelReports";
@@ -103,11 +104,12 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
         : generalReportView(),
     [channel, channelId],
   );
-  const { reports } = useChannelReports(
-    reportView,
+  const [reportFilters, setReportFilters] = useState<ChannelReportsFilters>(
     EMPTY_CHANNEL_REPORTS_FILTERS,
-    { enabled: reportsEnabled },
   );
+  const { reports } = useChannelReports(reportView, reportFilters, {
+    enabled: reportsEnabled,
+  });
   const openReport = useOpenInboxReport();
 
   useSetHeaderContent(
@@ -334,6 +336,8 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           systemMessages={systemMessages}
           reports={reportsEnabled ? reports : undefined}
           onOpenReport={openReport}
+          reportFilters={reportFilters}
+          onReportFiltersChange={setReportFilters}
           isLoading={isLoading}
           emptyState={emptyState}
           intro={intro}

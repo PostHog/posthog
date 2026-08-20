@@ -56,6 +56,7 @@ import {
   stripContextBlocks,
 } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
 import { ReportFeedRow } from "@posthog/ui/features/canvas/components/ReportFeedRow";
+import { ReportFilterControls } from "@posthog/ui/features/canvas/components/ReportFilterControls";
 import {
   TaskRowContextMenu,
   TaskRowDropdownMenu,
@@ -63,6 +64,7 @@ import {
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { buildRows } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
+import type { ChannelReportsFilters } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useChannelTaskData } from "@posthog/ui/features/canvas/hooks/useChannelTaskData";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
@@ -1347,6 +1349,8 @@ export function ChannelFeedView({
   reports,
   onOpenReport,
   showKindFilter = true,
+  reportFilters,
+  onReportFiltersChange,
   isLoading,
   emptyState,
   intro,
@@ -1365,6 +1369,11 @@ export function ChannelFeedView({
   /** Off for single-kind feeds (a `type:report` saved feed), where the
    * sessions/reports tabs would only offer empty views. */
   showKindFilter?: boolean;
+  /** When provided with its setter, the Reports tab shows the same search /
+   * "Me" / priority controls as the sidebar Reports list. The caller owns the
+   * state and filters the `reports` prop with it. */
+  reportFilters?: ChannelReportsFilters;
+  onReportFiltersChange?: (filters: ChannelReportsFilters) => void;
   isLoading: boolean;
   emptyState?: React.ReactNode;
   /** Rendered pinned above the first entry — the Slack-style channel intro
@@ -1450,7 +1459,7 @@ export function ChannelFeedView({
   );
 
   const kindFilterBlock = reports !== undefined && showKindFilter && (
-    <div className="mx-auto flex w-full max-w-[660px] items-center gap-0.5 pt-1">
+    <div className="mx-auto flex w-full max-w-[660px] flex-col gap-1 pt-1">
       <Tabs
         value={activeKindFilter}
         onValueChange={(value: string) =>
@@ -1472,6 +1481,16 @@ export function ChannelFeedView({
           ))}
         </TabsList>
       </Tabs>
+      {activeKindFilter === "reports" &&
+        reportFilters &&
+        onReportFiltersChange && (
+          <div className="flex items-center gap-1">
+            <ReportFilterControls
+              filters={reportFilters}
+              onChange={onReportFiltersChange}
+            />
+          </div>
+        )}
     </div>
   );
 

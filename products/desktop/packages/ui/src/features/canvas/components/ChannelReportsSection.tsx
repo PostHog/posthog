@@ -1,27 +1,14 @@
-import {
-  FileMagnifyingGlassIcon,
-  FunnelSimple as FunnelSimpleIcon,
-} from "@phosphor-icons/react";
+import { FileMagnifyingGlassIcon } from "@phosphor-icons/react";
 import type { ReportChannelView } from "@posthog/core/inbox/reportChannelScope";
 import {
-  Button,
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Input,
   Skeleton,
 } from "@posthog/quill";
-import type { SignalReportPriority } from "@posthog/shared/types";
-import { cnHeaderButton } from "@posthog/ui/features/canvas/components/channelHeaderButton";
+import { ReportFilterControls } from "@posthog/ui/features/canvas/components/ReportFilterControls";
 import { ReportRow } from "@posthog/ui/features/canvas/components/ReportRow";
 import {
   type ChannelReportsFilters,
@@ -30,8 +17,6 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { useMemo, useState } from "react";
-
-const PRIORITIES: SignalReportPriority[] = ["P0", "P1", "P2", "P3", "P4"];
 
 /**
  * A space's Reports list. The general space shows every report; any other space
@@ -54,14 +39,6 @@ export function ChannelReportsSection({
 
   const filtersActive =
     filters.relevantToMeOnly || filters.priorities.length > 0;
-
-  const togglePriority = (priority: SignalReportPriority) =>
-    setFilters((prev) => ({
-      ...prev,
-      priorities: prev.priorities.includes(priority)
-        ? prev.priorities.filter((p) => p !== priority)
-        : [...prev.priorities, priority],
-    }));
 
   const body = useMemo(() => {
     if (isLoading) {
@@ -134,73 +111,7 @@ export function ChannelReportsSection({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-1 px-2 pt-1 pb-1">
-        <Input
-          value={filters.search}
-          onChange={(event) =>
-            setFilters((prev) => ({ ...prev, search: event.target.value }))
-          }
-          placeholder="Search reports…"
-          aria-label="Search reports"
-          className="h-6 flex-1 text-[12px]"
-        />
-        <Button
-          variant="default"
-          size="icon-xs"
-          aria-label="Show only reports relevant to me"
-          aria-pressed={filters.relevantToMeOnly}
-          onClick={() =>
-            setFilters((prev) => ({
-              ...prev,
-              relevantToMeOnly: !prev.relevantToMeOnly,
-            }))
-          }
-          className={cnHeaderButton(filters.relevantToMeOnly)}
-        >
-          <span className="font-semibold text-[10px]">Me</span>
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="default"
-                size="icon-xs"
-                aria-label="Filter reports by priority"
-                className={cnHeaderButton(filters.priorities.length > 0)}
-              >
-                <FunnelSimpleIcon size={12} />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Priority</DropdownMenuLabel>
-            {PRIORITIES.map((priority) => (
-              <DropdownMenuCheckboxItem
-                key={priority}
-                checked={filters.priorities.includes(priority)}
-                closeOnClick={false}
-                onCheckedChange={() => togglePriority(priority)}
-              >
-                {priority}
-              </DropdownMenuCheckboxItem>
-            ))}
-            {filtersActive && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() =>
-                    setFilters((prev) => ({
-                      ...prev,
-                      priorities: [],
-                      relevantToMeOnly: false,
-                    }))
-                  }
-                >
-                  Clear filters
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <ReportFilterControls filters={filters} onChange={setFilters} />
       </div>
       <div className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto">{body}</div>
     </div>
