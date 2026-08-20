@@ -702,14 +702,27 @@ export class ApiClient {
                     const findResponse = await this.fetch(findUrl)
 
                     if (findResponse.status === 404) {
+                        // Typed 404 so handleToolError returns this to the agent
+                        // for self-correction instead of capturing it as an
+                        // engineering exception.
                         return {
                             success: false,
-                            error: new Error(`Event definition not found: ${eventName}`),
+                            error: new PostHogApiError({
+                                status: 404,
+                                statusText: findResponse.statusText,
+                                body: await findResponse.text(),
+                                url: findUrl,
+                                method: 'GET',
+                                message: `Event definition not found: ${eventName}`,
+                            }),
                         }
                     }
 
                     if (!findResponse.ok) {
-                        throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
+                        // buildApiError reads the response body, so a 4xx keeps its
+                        // typed classification and the API's error detail instead of
+                        // collapsing to a bare status text.
+                        throw this.buildApiError(findResponse, await findResponse.text(), findUrl, 'GET')
                     }
 
                     const eventDef = (await findResponse.json()) as ApiEventDefinition
@@ -723,7 +736,7 @@ export class ApiClient {
                     })
 
                     if (!updateResponse.ok) {
-                        throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
+                        throw this.buildApiError(updateResponse, await updateResponse.text(), updateUrl, 'PATCH')
                     }
 
                     const responseData = (await updateResponse.json()) as ApiEventDefinition

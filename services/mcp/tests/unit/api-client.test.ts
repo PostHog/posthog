@@ -369,4 +369,58 @@ describe('ApiClient', () => {
             vi.unstubAllGlobals()
         })
     })
+
+    describe('projects().updateEventDefinition() — typed failures', () => {
+        it('returns a typed 404 PostHogApiError when the event name is not found', async () => {
+            // by_name lookup 404s; the tool should get a recoverable typed error, not
+            // a plain Error that handleToolError captures as an exception.
+            const mockFetch = vi.fn().mockResolvedValueOnce(new Response('', { status: 404, statusText: 'Not Found' }))
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+
+            const result = await client
+                .projects()
+                .updateEventDefinition({ projectId: '1', eventName: 'nope', data: { verified: true } })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected the event definition update to fail')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(404)
+            expect(result.error.message).toContain('Event definition not found: nope')
+
+            vi.unstubAllGlobals()
+        })
+
+        it('surfaces the API error detail when the update PATCH fails', async () => {
+            // The old code kept only response.statusText, so the serializer detail
+            // never reached the agent. buildApiError reads the body onto a typed error.
+            const mockFetch = vi
+                .fn()
+                .mockResolvedValueOnce(new Response(JSON.stringify({ id: 7, name: '$pageview' }), { status: 200 }))
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ detail: 'tags must be unique' }), {
+                        status: 400,
+                        statusText: 'Bad Request',
+                    })
+                )
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+
+            const result = await client
+                .projects()
+                .updateEventDefinition({ projectId: '1', eventName: '$pageview', data: { tags: ['a', 'a'] } })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected the event definition update to fail')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(400)
+            expect(result.error.message).toContain('tags must be unique')
+
+            vi.unstubAllGlobals()
+        })
+    })
 })
