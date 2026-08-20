@@ -265,6 +265,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.rerun_cycles == 1
         assert overview.billable_minutes == pytest.approx(4.0)  # two 120s jobs on a billable tier
         assert overview.estimated_cost_usd == pytest.approx(0.032)  # 4 min x $0.004 x 2 (4-core)
+        assert overview.cost_per_merge_usd == pytest.approx(0.016)  # the window's cost over its 2 merges
         assert overview.merge_queue_billable_minutes == pytest.approx(2.0)  # only the trunk-merge/** job
         assert overview.merge_queue_billable_minutes_prev is None  # no prev-window jobs, like billable_minutes_prev
         assert overview.median_ready_to_merge_seconds is None  # issue events unsynced: not observed, never zero
@@ -448,9 +449,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.merge_queue_multi_attempt_merge_share == pytest.approx(0.5)
         assert overview.merge_queue_failed_gate_merge_share == pytest.approx(0.5)
         # PR 80: first gate at -4d, merged -2d (2 days); PR 81: -4d to -3d (1 day).
-        assert overview.merge_queue_median_gate_to_merge_seconds == pytest.approx(1.5 * 86400)
-        assert overview.merge_queue_p90_gate_to_merge_seconds == pytest.approx(1.9 * 86400)
-        assert overview.merge_queue_median_gate_to_merge_seconds_prev is None
+        assert overview.merge_queue_median_first_gate_to_merge_seconds == pytest.approx(1.5 * 86400)
+        assert overview.merge_queue_p90_first_gate_to_merge_seconds == pytest.approx(1.9 * 86400)
+        assert overview.merge_queue_median_first_gate_to_merge_seconds_prev is None
 
     def test_repo_overview_ready_to_merge_median_and_series(self) -> None:
         # Guards the overview's ready_by_pr join: the headline must anchor on the last ready

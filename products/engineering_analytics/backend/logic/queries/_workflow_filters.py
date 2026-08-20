@@ -106,6 +106,18 @@ def date_to_filter_clause(
     return f"AND {column} <= {{date_to}}"
 
 
+def window_pair_predicates(column: str, *, date_to: datetime | None) -> tuple[str, str]:
+    """The ``(current, previous)`` window predicates every with-prev aggregate splits on.
+
+    Half-open at ``{date_from}``: a row exactly on the boundary is current, never both. Callers
+    register ``{date_from}``/``{prev_from}`` (and ``{date_to}`` when set) themselves — the pair is
+    the one place the boundary semantics live, not the placeholder bookkeeping.
+    """
+    cur = f"({column} >= {{date_from}}" + (f" AND {column} <= {{date_to}})" if date_to is not None else ")")
+    prev = f"({column} >= {{prev_from}} AND {column} < {{date_from}})"
+    return cur, prev
+
+
 def non_default_branch_predicate(branch_column: str = "r.head_branch") -> str:
     """True when the branch expression names a branch other than the repo's default. The source
     doesn't record which branch that is, so this excludes the common default names — the same

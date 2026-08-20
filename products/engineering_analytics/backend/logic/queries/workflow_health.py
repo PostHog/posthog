@@ -47,6 +47,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_duration_percentile_expr,
     run_scope_filter_clause,
     run_started_floor_constant,
+    window_pair_predicates,
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
@@ -235,8 +236,7 @@ def query_time_to_green_window(
 ) -> TimeToGreenWindow:
     """Window-level time-to-green medians for [date_from, date_to] and [prev_from, date_from], one
     scan, keyed on the bucketless equivalent of the series' round_start."""
-    cur = "(round_start >= {date_from}" + (" AND round_start <= {date_to})" if date_to is not None else ")")
-    prev = "(round_start >= {prev_from} AND round_start < {date_from})"
+    cur, prev = window_pair_predicates("round_start", date_to=date_to)
     placeholders: dict[str, ast.Expr] = {
         "scan_from": ast.Constant(value=prev_from),
         "date_from": ast.Constant(value=date_from),
