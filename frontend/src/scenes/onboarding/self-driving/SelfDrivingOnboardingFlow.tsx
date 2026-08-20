@@ -210,6 +210,9 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                                 onClick={goBack}
                                 tooltip="Go back"
                                 aria-label="Go back"
+                                // Completion runs from the last step; leaving it would land on a step
+                                // whose controls look active but hit the completion guard and do nothing.
+                                disabledReason={isCompleting ? 'Setting things up…' : undefined}
                             />
                         )}
                     </div>
