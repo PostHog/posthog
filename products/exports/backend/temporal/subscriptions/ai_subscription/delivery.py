@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urlencode
 
 import nh3
@@ -33,6 +34,13 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     SlackDeliveryResult,
     SlackMessage,
     deliver_slack_message_data,
+)
+from ee.tasks.subscriptions.teams_subscriptions import (
+    TEAMS_REPORT_CHARACTER_BUDGET,
+    TEAMS_TEXT_BLOCK_LIMIT,
+    teams_card_message,
+    teams_open_url_action,
+    teams_text_block,
 )
 
 logger = structlog.get_logger(__name__)
@@ -366,8 +374,53 @@ async def send_slack_ai_subscription_report(
     return await deliver_slack_message_data(integration, subscription, message_data)
 
 
+def build_ai_teams_card(subscription: Subscription, markdown: str, *, delivery_id: uuid.UUID) -> dict[str, Any]:
+    """Adaptive Card for an AI report. Adaptive Cards render a restricted markdown subset in a
+    TextBlock, so the report goes through mostly as written and a table degrades to plain text."""
+    utm_tags = f"{UTM_TAGS_BASE}&utm_medium=teams"
+    title = subscription.title or "Your PostHog AI report"
+    subscription_url = subscription.url or absolute_uri(
+        f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
+    )
+
+    sections = _split_text_into_chunks(strip_external_links_markdown(markdown), TEAMS_TEXT_BLOCK_LIMIT)
+    kept: list[str] = []
+    kept_length = 0
+    for section in sections:
+        if kept_length + len(section) > TEAMS_REPORT_CHARACTER_BUDGET:
+            break
+        kept.append(section)
+        kept_length += len(section)
+
+    body: list[dict[str, Any]] = [teams_text_block(f"**{title}**")]
+    if kept:
+        body.extend(teams_text_block(section) for section in kept)
+    else:
+        body.append(teams_text_block("_No report content was generated._"))
+    if len(kept) < len(sections):
+        body.append(
+            teams_text_block(
+                f"This report was shortened to fit. [Read all of it in PostHog]({subscription_url}?{utm_tags})",
+                is_subtle=True,
+            )
+        )
+
+    feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "teams")
+    feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "teams")
+    body.append(
+        teams_text_block(
+            f"Was this report useful? [👍 Yes]({feedback_positive_url}) · [👎 No]({feedback_negative_url})",
+            is_subtle=True,
+        )
+    )
+
+    actions = [teams_open_url_action("Manage subscription", f"{subscription_url}?{utm_tags}")]
+    return teams_card_message(body, actions)
+
+
 __all__ = [
     "build_ai_subscription_report",
+    "build_ai_teams_card",
     "render_ai_email_html",
     "send_email_ai_subscription_report",
     "send_slack_ai_subscription_report",

@@ -22,6 +22,8 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     deliver_email,
     deliver_slack,
+    deliver_webhook,
+    recipient_label,
 )
 from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_initial_content_snapshot,
@@ -57,6 +59,7 @@ from ee.tasks.subscriptions.failure_notifications import (
 )
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.subscriptions.teams_subscriptions import build_teams_subscription_card
 
 LOGGER = get_logger(__name__)
 
@@ -246,7 +249,7 @@ async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAb
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     return DeliveryAbort(
         failed_recipient=RecipientResult(
-            recipient=subscription.target_value,
+            recipient=recipient_label(subscription),
             status="failed",
             error={"message": reason.description, "type": reason.key},
             human_readable_error=reason.description,
@@ -486,7 +489,7 @@ async def _deliver_insight_dashboard_subscription(
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
         recipient_results.append(
             RecipientResult(
-                recipient=subscription.target_value,
+                recipient=recipient_label(subscription),
                 status="failed",
                 error={"message": NO_ASSETS_REASON, "type": "no_assets"},
                 human_readable_error=NO_ASSETS_HUMAN_READABLE_REASON,
@@ -528,6 +531,18 @@ async def _deliver_insight_dashboard_subscription(
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
             ),
         )
+    elif subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
+        # `resource_info` and each asset's insight are lazy ORM reads, which Django forbids on the
+        # event loop, so the card is built in a thread before the send.
+        card = await database_sync_to_async(build_teams_subscription_card, thread_sensitive=False)(
+            subscription,
+            assets,
+            inputs.total_insight_count,
+            is_new_subscription=send_only_to_new_recipients,
+            change_summary=inputs.change_summary,
+            summary_skipped_over_budget=inputs.summary_skipped_over_budget,
+        )
+        result = await deliver_webhook(subscription, recipient_results, url=subscription.target_value, body=card)
     else:
         raise ApplicationError(
             f"Subscription delivery reached an unsupported target {subscription.target_type!r}",

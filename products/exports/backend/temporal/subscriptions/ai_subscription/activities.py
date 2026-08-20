@@ -19,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
+    build_ai_teams_card,
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
@@ -29,6 +30,8 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     deliver_email,
     deliver_slack,
+    deliver_webhook,
+    recipient_label,
     strip_null_bytes,
 )
 from products.exports.backend.temporal.subscriptions.types import (
@@ -297,7 +300,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         # PromptRejectedError messages are handcrafted rejections (empty/too long/no creator), safe to show.
         recipient_results = [
             RecipientResult(
-                recipient=subscription.target_value,
+                recipient=recipient_label(subscription),
                 status="failed",
                 error={"message": str(exc), "type": "PromptRejectedError"},
                 human_readable_error=str(exc),
@@ -366,6 +369,9 @@ async def _deliver_ai_subscription(
                 subscription=subscription, markdown=markdown, integration=integration, delivery_id=delivery_id
             ),
         )
+    if subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
+        card = build_ai_teams_card(subscription, markdown, delivery_id=delivery_id)
+        return await deliver_webhook(subscription, recipient_results, url=subscription.target_value, body=card)
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,
     # so reaching here means an invariant was violated.
     raise ApplicationError(

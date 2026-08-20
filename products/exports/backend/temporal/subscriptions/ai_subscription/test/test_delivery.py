@@ -17,6 +17,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     _persist_ai_query_plan,
     _split_text_into_chunks,
     build_ai_subscription_report,
+    build_ai_teams_card,
     render_ai_email_html,
     send_email_ai_subscription_report,
 )
@@ -25,6 +26,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_REPORT_CHARACTER_BUDGET, TEAMS_TEXT_BLOCK_LIMIT
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
 
@@ -215,6 +217,30 @@ class TestBuildAISlackMessage:
         for thread_msg in message.thread_messages:
             for block in thread_msg["blocks"]:
                 assert block["text"]["text"].strip(), "thread section text must be non-empty"
+
+
+class TestBuildAITeamsCard:
+    def _body(self, markdown: str) -> list[dict]:
+        card = build_ai_teams_card(_mock_subscription(), markdown, delivery_id=_DELIVERY_ID)
+        return card["attachments"][0]["content"]["body"]
+
+    def test_long_report_is_split_across_text_blocks(self) -> None:
+        body = self._body("\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(3)))
+
+        report_blocks = [b for b in body if set(b["text"]) == {"x"}]
+        assert len(report_blocks) == 3
+        assert all(len(b["text"]) <= TEAMS_TEXT_BLOCK_LIMIT for b in report_blocks)
+
+    def test_report_over_the_card_budget_is_shortened_with_a_link_out(self) -> None:
+        body = self._body("\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(20)))
+
+        assert sum(len(b["text"]) for b in body if set(b["text"]) == {"x"}) <= TEAMS_REPORT_CHARACTER_BUDGET
+        assert "This report was shortened to fit." in body[-2]["text"]
+
+    def test_external_links_in_the_report_are_stripped(self) -> None:
+        body = self._body("See [the docs](https://evil.example.com/x) for more.")
+
+        assert "evil.example.com" not in str(body)
 
 
 def _mock_integration(scopes: frozenset[str]) -> MagicMock:

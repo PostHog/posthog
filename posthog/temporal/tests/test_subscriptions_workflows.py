@@ -522,6 +522,68 @@ async def test_deliver_subscription_report_slack(
     assert mock_send_slack_async.await_count == 1
 
 
+@patch("products.exports.backend.temporal.subscriptions.delivery_common.pinned_request")
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@pytest.mark.asyncio
+async def test_deliver_subscription_report_teams(
+    mock_metric_meter: MagicMock,
+    mock_exporter: MagicMock,
+    mock_pinned_request: MagicMock,
+    temporal_client: Client,
+    subscriptions_worker,
+    team,
+    user,
+):
+    # Power Automate acknowledges an accepted card with 202 rather than 200.
+    mock_pinned_request.return_value = MagicMock(status_code=202)
+
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="tms999", name="Insight")
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="teams",
+        target_value="https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+    )
+
+    def fake_export(asset_obj, **kwargs):
+        asset_obj.content_location = "s3://bucket/teams.png"
+        asset_obj.save(update_fields=["content_location"])
+
+    mock_exporter.export_asset_direct = fake_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await activity_environment.client.execute_workflow(
+                HandleSubscriptionValueChangeWorkflow.run,
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    assert mock_pinned_request.call_count == 1
+    card = mock_pinned_request.call_args.kwargs["json"]
+    assert card["attachments"][0]["content"]["type"] == "AdaptiveCard"
+
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription_id=subscription.id)
+    assert delivery.status == DeliveryStatus.COMPLETED
+    assert delivery.recipient_results == [{"recipient": "prod-25.westeurope.logic.azure.com", "status": "success"}]
+
+
 @patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
 @patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @patch(
