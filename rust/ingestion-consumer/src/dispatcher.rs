@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use k8s_awareness::PeerTracker;
@@ -285,6 +285,25 @@ impl WorkerAssignments {
     fn close_if_full(&mut self, worker: &WorkerId, idx: usize) {
         if self.chunking.is_full(self.sub_batches[idx].1.size()) {
             self.open.remove(worker);
+        }
+    }
+
+    /// A routing key must land in exactly one of the round's sub-batches.
+    /// Chunking only preserves per-key ordering because of it: two groups for
+    /// the same key in one round would be packed into different chunks and sent
+    /// concurrently, with nothing left to order them.
+    fn debug_assert_unique_routing_keys(&self) {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        let mut seen = HashSet::new();
+        for (_, builder) in &self.sub_batches {
+            for key in &builder.routing_keys {
+                assert!(
+                    seen.insert(key),
+                    "routing key {key} landed in two sub-batches of one round"
+                );
+            }
         }
     }
 
@@ -941,6 +960,7 @@ impl Dispatcher {
             );
         }
         drop(router);
+        assignments.debug_assert_unique_routing_keys();
 
         for (worker, message_count) in assignments.routed_counts() {
             *table.in_flight.entry(worker.clone()).or_insert(0) += message_count;
