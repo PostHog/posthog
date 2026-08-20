@@ -881,9 +881,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'experiment-behavior-comparison',
                 'data-warehouse-scene',
                 'data-quality-checks',
+                'autoresearch',
             ])
         )
-        expect(flags).toHaveLength(32)
+        expect(flags).toHaveLength(33)
     })
 
     it('every loops tool is gated on the loops flag', () => {

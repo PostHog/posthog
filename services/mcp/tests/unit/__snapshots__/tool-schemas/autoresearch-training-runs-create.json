@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "iteration_budget": {
+            "description": "Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "pipeline_id": {
+            "type": "string"
+        }
+    },
+    "required": ["pipeline_id"],
+    "type": "object"
+}

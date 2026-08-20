@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this autoresearch pipeline.",
+            "type": "string"
+        },
+        "iteration_budget": {
+            "description": "Override the pipeline iteration budget for this training run.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

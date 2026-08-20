@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "pipeline_id": {
+            "type": "string"
+        },
+        "priority": {
+            "default": "consider",
+            "description": "'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.\n\n* `try_next` - try_next\n* `consider` - consider",
+            "enum": ["try_next", "consider"],
+            "type": "string"
+        },
+        "prompt": {
+            "description": "Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.",
+            "maxLength": 2000,
+            "type": "string"
+        }
+    },
+    "required": ["pipeline_id", "prompt"],
+    "type": "object"
+}
