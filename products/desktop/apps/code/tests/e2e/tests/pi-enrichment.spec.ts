@@ -229,7 +229,6 @@ test.describe("Pi enrichment", () => {
         enrichment: {
           apiUrl: baseUrl,
           publicApiUrl: "https://us.posthog.com",
-          enableObjectReferences: true,
           projectId: 1,
           apiKey: "posthog-test-key",
         },

@@ -56,7 +56,12 @@ pub fn warning_for_otel_parse_error(err: &CaptureError) -> Option<WarningType> {
 
         // Reachable only if `parse_request` grows a new failure mode: decide
         // warn-or-not there rather than defaulting to silence here.
-        CaptureError::RequestHydrationError(_)
+        // `NonAiEventOnAiLane` and `AiEventTooBig` join them as structurally
+        // unreachable: only `process_events` raises them, and this handler does
+        // not call it.
+        CaptureError::NonAiEventOnAiLane(_)
+        | CaptureError::AiEventTooBig(_)
+        | CaptureError::RequestHydrationError(_)
         | CaptureError::EmptyBatch
         | CaptureError::EmptyPayload
         | CaptureError::EmptyPayloadFiltered
@@ -131,6 +136,36 @@ pub fn emit_span_cap_warning(
         WarningType::InvalidAiPayload,
         details,
         span_count as u64,
+    );
+}
+
+/// Emit the warning for spans shed for exceeding the deployment's per-event
+/// size ceiling.
+///
+/// This is the second warning here that accompanies a 200. The export is not
+/// refused, because an OTEL collector retries a rejected export and would stall
+/// behind a span that can never fit — so the offending spans are shed and the
+/// rest publish. That trade makes the loss invisible in the response, which is
+/// what this warning exists to correct.
+///
+/// `count` charges only the spans that were shed; the others landed.
+pub fn emit_span_too_big_warning(
+    emitter: Option<&dyn WarningEmitter>,
+    request: &WarningRequestContext,
+    dropped_spans: usize,
+    limit: u64,
+) {
+    let mut details = Map::new();
+    details.insert("droppedSpans".to_string(), json!(dropped_spans));
+    details.insert("limit".to_string(), json!(limit));
+
+    emit_request_warning(
+        emitter,
+        request,
+        CAPTURE_AI_OTEL,
+        WarningType::MessageSizeTooLarge,
+        details,
+        dropped_spans as u64,
     );
 }
 

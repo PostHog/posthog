@@ -102,7 +102,7 @@ from products.cohorts.backend.models.util import (
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.

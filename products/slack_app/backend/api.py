@@ -24,7 +24,7 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
-from posthog.git import extract_explicit_repo
+from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
@@ -105,6 +105,7 @@ from products.slack_app.backend.slack_link_unfurl import (
     link_url_region,
     parse_posthog_resource_link,
 )
+from products.slack_app.backend.slack_workflow_events import emit_slack_message_event
 
 logger = structlog.get_logger(__name__)
 
@@ -929,8 +930,22 @@ def _post_repo_picker_message(
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
-    """Extract an explicit org/repo token from Slack message text, if it matches connected repos."""
-    return extract_explicit_repo(_strip_bot_mentions(text), all_repos)
+    """Repo named by Slack message text, as a typed org/repo token or as a GitHub link."""
+    cleaned = _strip_bot_mentions(text)
+    return extract_explicit_repo(cleaned, all_repos) or extract_linked_repo(cleaned, all_repos)
+
+
+def _extract_explicit_repo_from_thread(thread_messages: list[dict[str, str]], all_repos: list[str]) -> str | None:
+    """Repo named by the thread around a mention, newest message first.
+
+    People paste the link into the thread and mention the bot in a later reply that carries no
+    link of its own. Reading only the mention hands those asks to the discovery agent, which
+    answers them from this same thread text. Newest first because the link under discussion is
+    the one most recently posted.
+    """
+    return extract_repo_from_scopes(
+        [_strip_bot_mentions(message.get("text", "")) for message in reversed(thread_messages)], all_repos
+    )
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
@@ -2002,6 +2017,22 @@ def route_posthog_code_event_to_relevant_region(
         )
 
     if event_type in ("app_mention", "message"):
+        # Above every drop below, because a workflow trigger watches a whole channel: the top-level
+        # posts the follow-up pipeline discards are the ones it exists for. Emitting here rather
+        # than inside that pipeline keeps the two independent.
+        if event_type == "message":
+            should_try_other_region = emit_slack_message_event(
+                event,
+                slack_team_id,
+                event_id=event_id,
+                is_ext_shared_channel=is_ext_shared_channel,
+            )
+            # The emit sees only this region's connections, and the drops below end a top-level post
+            # before the pipeline's region gate could forward it. No US-precedence probe: for a
+            # channel trigger, whichever region holds the connection should run the workflow.
+            if should_try_other_region and not proxied and cross_region_routing_enabled():
+                return _proxy_event_and_return_route(request, other_domain)
+
         if event_type == "app_mention":
             ignore_reason = _app_mention_ignore_reason(event)
             if ignore_reason:
@@ -2031,7 +2062,7 @@ def route_posthog_code_event_to_relevant_region(
                     message_ts=event.get("ts"),
                 )
                 return ROUTE_HANDLED_LOCALLY
-            # Top-level channel posts dominate the wire volume; drop before any DB hit.
+            # Top-level channel posts dominate the wire volume; drop before the pipeline's DB hits.
             top_level_thread_ts = event.get("thread_ts")
             if not isinstance(top_level_thread_ts, str) or top_level_thread_ts == event.get("ts"):
                 return ROUTE_HANDLED_LOCALLY

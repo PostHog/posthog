@@ -114,6 +114,12 @@ export interface TaskSearchResult {
  * threads, instructions (CONTEXT.md) and filed canvases. `personal` is the
  * user's private "#me" channel. `starred` is per-user.
  */
+export interface ProvisionedTaskChannels {
+  channels: TaskChannel[];
+  personal_created: boolean;
+  general_created: boolean;
+}
+
 export interface TaskChannel {
   id: string;
   name: string;
@@ -123,6 +129,7 @@ export interface TaskChannel {
   repositories?: string[];
   created_at: string;
   created_by?: UserBasic | null;
+  system_role?: "personal" | "general" | null;
 }
 
 /** Lifecycle events a client may post into a channel's feed. */
@@ -461,6 +468,10 @@ export interface CloudTaskSnapshotUpdate extends CloudTaskUpdateBase {
   kind: "snapshot";
   newEntries: StoredLogEntry[];
   totalEntryCount: number;
+  /** Chain index of newEntries[0] when the snapshot is a tail window rather
+   *  than the full history; older entries page in on demand. Absent means
+   *  the snapshot starts at the head of the chain. */
+  windowStart?: number;
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;

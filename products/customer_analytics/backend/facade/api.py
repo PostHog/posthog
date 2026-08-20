@@ -228,6 +228,7 @@ def get_account_context_data(
         external_id=account.external_id,
         created_at=account.created_at,
         churned_at=account.churned_at,
+        ignored_at=account.ignored_at,
         properties=_to_account_properties(account.properties),
         tags=_account_tags(account),
         notes=_account_notes(account),
@@ -247,28 +248,42 @@ def _resolve_account(team_id: int, account_id: str | None = None, external_id: s
 
 
 def search_accounts(
-    team_id: int, query: str, user_access_control: "UserAccessControl", limit: int
+    team_id: int,
+    query: str,
+    user_access_control: "UserAccessControl",
+    limit: int,
+    *,
+    include_ignored: bool = False,
 ) -> tuple[list[contracts.AccountRef], int]:
     """Accounts matching `query` by name or external id, access-filtered for the caller.
 
     Returns `(rows, total_count)` where `total_count` is the pre-limit match count.
     """
-    queryset = _accounts_queryset(team_id, user_access_control).filter(
-        Q(name__icontains=query) | Q(external_id__icontains=query)
-    )
+    queryset = _accounts_queryset(team_id, user_access_control)
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
+    queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
     total_count = queryset.count()
     rows = list(queryset.order_by("name")[:limit].values("id", "name", "external_id"))
     return [_to_account_ref(row) for row in rows], total_count
 
 
 def list_accounts(
-    team_id: int, offset: int, limit: int, user_access_control: "UserAccessControl"
+    team_id: int,
+    offset: int,
+    limit: int,
+    user_access_control: "UserAccessControl",
+    *,
+    include_ignored: bool = False,
 ) -> tuple[list[contracts.AccountRef], int]:
     """Accounts for the team, newest first, access-filtered for the caller.
 
     Returns `(rows, total_count)` where `total_count` is the full (unpaginated) count.
     """
-    queryset = _accounts_queryset(team_id, user_access_control).order_by("-created_at")
+    queryset = _accounts_queryset(team_id, user_access_control)
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
+    queryset = queryset.order_by("-created_at")
     total_count = queryset.count()
     rows = list(queryset[offset : offset + limit].values("id", "name", "external_id"))
     return [_to_account_ref(row) for row in rows], total_count
@@ -403,6 +418,7 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
         external_id=account.external_id,
         name=account.name,
         churned_at=account.churned_at,
+        ignored_at=account.ignored_at,
         properties=account.properties.model_dump(mode="json"),
         tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
         relationships=relationships,
@@ -525,6 +541,7 @@ def list_external_accounts(
     cursor: str | None = None,
     limit: int = 100,
     assigned_only: bool = False,
+    include_ignored: bool = False,
 ) -> contracts.ExternalAccountListPage:
     """Page through the team's accounts for the external API, ordered by id.
 
@@ -542,9 +559,10 @@ def list_external_accounts(
         user__isnull=False,
         user__organization_membership__organization_id=organization_id,
     )
-    queryset = (
-        Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="").order_by("id")
-    )
+    queryset = Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="")
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
+    queryset = queryset.order_by("id")
     if assigned_only:
         queryset = queryset.filter(Exists(active_relationships.filter(account=OuterRef("pk"))))
     if cursor:
@@ -576,6 +594,7 @@ def list_external_accounts(
             external_id=cast(str, account.external_id),
             name=account.name,
             churned_at=account.churned_at,
+            ignored_at=account.ignored_at,
             relationships=relationships_by_account.get(account.id, {}),
         )
         for account in accounts
@@ -1818,13 +1837,22 @@ def _fail_created_runs(team_id: int, source_ids: list[Any], error: str) -> None:
 def _start_backfill(team_id: int, binding: "WarehouseBinding", trigger: str) -> None:
     """Start the person-property backfill workflow. Failure must not fail the originating write."""
     created_source_ids: list[Any] = []
+    # The temporal client is heavy; keep it off the CA facade import (django.setup) path. Imported
+    # before the try so the except clause below can name WarehouseBindingMissingError even when an
+    # earlier line raises.
+    from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
+        WarehouseBindingMissingError,
+        start_person_property_backfill,
+    )
+
     try:
         # Placeholder rows before starting, so the activity always finds a running row to reconcile.
         created_source_ids = _create_running_runs(team_id, binding, trigger)
-        # The temporal client is heavy; keep it off the CA facade import (django.setup) path.
-        from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
-
         start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+    except WarehouseBindingMissingError:
+        # The warehouse object was deleted between saving the source and this deferred start. There is
+        # nothing to back-fill, so reconcile the placeholders without capturing it as an error.
+        _fail_created_runs(team_id, created_source_ids, "The warehouse table or view for this source no longer exists.")
     except Exception as e:
         # The workflow never started, so nothing will reconcile the placeholders — fail them here.
         _fail_created_runs(team_id, created_source_ids, "Failed to start backfill")
@@ -1957,10 +1985,19 @@ def trigger_person_property_backfill(
     _assert_warehouse_editor(team_id, binding, user_access_control)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
     created_source_ids = _create_running_runs(team_id, binding, trigger)
-    from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
+    from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
+        WarehouseBindingMissingError,
+        start_person_property_backfill,
+    )
 
     try:
         return start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+    except WarehouseBindingMissingError:
+        # The warehouse table or view was deleted after the placeholders were created; reconcile them
+        # so the source isn't stuck 'running', and report an invalid source (→ 400) rather than a
+        # coalesced run for a table that is gone.
+        _fail_created_runs(team_id, created_source_ids, "The warehouse table or view for this source no longer exists.")
+        return None
     except Exception:
         # The workflow never started; reconcile the placeholders so the source isn't stuck 'running'
         # with its trigger disabled, then surface the error to the caller.
@@ -2272,6 +2309,74 @@ def update_feature_request(
     )
 
 
+def add_feature_request_account(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.AddFeatureRequestAccountInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.add_feature_request_account(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def create_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.CreateFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.create_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def update_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.UpdateFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.update_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def delete_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.DeleteFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.delete_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
 def set_feature_request_archived(
     *,
     team_id: int,
@@ -2335,7 +2440,7 @@ def _customer_journeys_queryset(team_id: int):
 def insight_belongs_to_team(team_id: int, insight_id: int) -> bool:
     """Whether the given insight is in the team — backs the journey serializer's
     ``validate_insight`` (kept as a cheap existence probe so the model stays hidden)."""
-    from products.product_analytics.backend.models.insight import Insight
+    from products.product_analytics.backend.facade.models import Insight
 
     return Insight.objects.filter(pk=insight_id, team_id=team_id).exists()
 
@@ -2475,6 +2580,7 @@ def _to_account_view(account: Account) -> contracts.AccountView:
         notebooks=_account_view_notebooks(account),
         slack_summary_cadence=account.slack_summary_cadence,
         churned_at=account.churned_at,
+        ignored_at=account.ignored_at,
         created_at=account.created_at,
         created_by=account.created_by_id,
         updated_at=account.updated_at,
@@ -2505,6 +2611,8 @@ def _account_table_field_values(
                 values[field] = account.updated_at.isoformat() if account.updated_at else None
             case contracts.AccountTableField.CHURNED_AT:
                 values[field] = account.churned_at.isoformat() if account.churned_at else None
+            case contracts.AccountTableField.IGNORED_AT:
+                values[field] = account.ignored_at.isoformat() if account.ignored_at else None
             case contracts.AccountTableField.STRIPE_CUSTOMER_ID:
                 values[field] = properties.stripe_customer_id
             case contracts.AccountTableField.HUBSPOT_DEAL_ID:
@@ -2769,6 +2877,7 @@ def _apply_account_table_sort(
             contracts.AccountTableField.CREATED_AT: "created_at",
             contracts.AccountTableField.UPDATED_AT: "updated_at",
             contracts.AccountTableField.CHURNED_AT: "churned_at",
+            contracts.AccountTableField.IGNORED_AT: "ignored_at",
         }
         if direct_field := direct_fields.get(sort.account_field):
             queryset = queryset.annotate(_account_table_sort=F(direct_field))
@@ -2852,6 +2961,7 @@ def query_accounts_metrics(
     filters: tuple[contracts.AccountTableFilter, ...],
     metrics: tuple[contracts.AccountTableMetric, ...],
     include_churned: bool = False,
+    include_ignored: bool = False,
 ) -> list[float | int | None]:
     definition_ids = frozenset(
         metric.definition_id
@@ -2871,6 +2981,8 @@ def query_accounts_metrics(
     accounts = _accounts_queryset(team_id, user_access_control)
     if not include_churned:
         accounts = accounts.filter(churned_at__isnull=True)
+    if not include_ignored:
+        accounts = accounts.filter(ignored_at__isnull=True)
     accounts = _apply_account_table_filters(
         accounts,
         team_id=team_id,
@@ -2937,6 +3049,7 @@ def query_accounts_table(
     offset: int,
     limit: int,
     include_churned: bool = False,
+    include_ignored: bool = False,
 ) -> contracts.AccountTablePage:
     custom_property_display_types = _validate_account_table_definitions(
         team_id=team_id,
@@ -2948,6 +3061,8 @@ def query_accounts_table(
     queryset = _accounts_queryset(team_id, user_access_control)
     if not include_churned:
         queryset = queryset.filter(churned_at__isnull=True)
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
     queryset = _apply_account_table_filters(
         queryset,
         team_id=team_id,
@@ -3073,6 +3188,7 @@ def list_accounts_for_view(
     tags: list[str] | None = None,
     all_roles_unassigned: bool = False,
     include_churned: bool = False,
+    include_ignored: bool = False,
     ordering: str | None = None,
 ) -> tuple[list[contracts.AccountView], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
@@ -3086,6 +3202,8 @@ def list_accounts_for_view(
 
     if not include_churned:
         queryset = queryset.filter(churned_at__isnull=True)
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
 
     if search:
         queryset = queryset.filter(Q(name__icontains=search) | Q(external_id__icontains=search))

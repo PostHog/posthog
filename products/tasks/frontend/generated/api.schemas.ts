@@ -1062,6 +1062,17 @@ export interface TaskActivityMarkReadResponseApi {
 }
 
 /**
+ * * `personal` - Personal
+ * * `general` - General
+ */
+export type SystemRoleEnumApi = (typeof SystemRoleEnumApi)[keyof typeof SystemRoleEnumApi]
+
+export const SystemRoleEnumApi = {
+    Personal: 'personal',
+    General: 'general',
+} as const
+
+/**
  * Response shape for a task channel, read from a frozen ``ChannelDTO``.
  */
 export interface ChannelDTOApi {
@@ -1074,6 +1085,11 @@ export interface ChannelDTOApi {
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
     starred?: boolean
+    /** Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.
+     *
+     * * `personal` - Personal
+     * * `general` - General */
+    readonly system_role: SystemRoleEnumApi | null
 }
 
 export interface PaginatedChannelDTOListApi {
@@ -1241,6 +1257,18 @@ export interface PaginatedChannelInstructionsDTOListApi {
  */
 export interface ChannelStarWriteApi {
     starred: boolean
+}
+
+/**
+ * The requester's default channels, plus whether this call is what created them.
+ */
+export interface ProvisionedChannelsApi {
+    /** The full channel list after provisioning, same shape as the list endpoint. */
+    channels: ChannelDTOApi[]
+    /** Whether this call created the requester's personal #me channel. */
+    personal_created: boolean
+    /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
+    general_created: boolean
 }
 
 /**
@@ -3196,6 +3224,97 @@ export interface TaskRunCommandResponseApi {
 export interface ConnectionTokenResponseApi {
     /** JWT token for authenticating with the sandbox */
     token: string
+}
+
+/**
+ * One peer agent run visible to the requesting run (agent peer messaging).
+ */
+export interface TaskRunPeerApi {
+    /** The peer run's id — the address send_agent_message targets. */
+    run_id: string
+    /** Id of the peer run's parent task. */
+    task_id: string
+    /** Title of the peer run's parent task. */
+    task_title: string
+    /**
+     * Email of the user whose task the peer run belongs to.
+     * @nullable
+     */
+    created_by_email: string | null
+    /** Agent runtime of the peer run's task (e.g. 'pi'). */
+    runtime: string
+    /**
+     * Model the peer run was started with, when recorded.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * Repository the peer run works on, or null for repo-less (channel-mode) runs.
+     * @nullable
+     */
+    repository: string | null
+    /**
+     * Current stage of the peer run (e.g. 'build').
+     * @nullable
+     */
+    stage: string | null
+    /** Run status: 'in_progress' or 'queued' (only these are listed). */
+    status: string
+    /** Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is listed but its workflow may not exist yet. Never infer sendability from status labels. */
+    sendable: boolean
+    /**
+     * ISO-8601 timestamp of the peer run's last update.
+     * @nullable
+     */
+    updated_at: string | null
+}
+
+export interface TaskRunPeersResponseApi {
+    /** Active agent runs the requesting run may message, most recently updated first. */
+    peers: TaskRunPeerApi[]
+}
+
+export interface TaskRunPeerMessageRequestApi {
+    /**
+     * Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.
+     * @maxLength 16000
+     */
+    content: string
+    /**
+     * Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot.
+     * @maxItems 10
+     * @items.maxLength 128
+     */
+    artifact_ids?: string[]
+}
+
+/**
+ * * `accepted` - accepted
+ * * `target_finished` - target_finished
+ * * `rejected` - rejected
+ */
+export type ResultEnumApi = (typeof ResultEnumApi)[keyof typeof ResultEnumApi]
+
+export const ResultEnumApi = {
+    Accepted: 'accepted',
+    TargetFinished: 'target_finished',
+    Rejected: 'rejected',
+} as const
+
+export interface TaskRunPeerMessageResponseApi {
+    /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
+     *
+     * * `accepted` - accepted
+     * * `target_finished` - target_finished
+     * * `rejected` - rejected */
+    result: ResultEnumApi
+    /** Human-readable explanation of the result. */
+    detail: string
+    /**
+     * Id of the recorded peer message, when one was created for this send.
+     * @nullable
+     */
+    message_id?: string | null
 }
 
 export interface TaskRunRelayMessageRequestApi {

@@ -1081,6 +1081,24 @@ CREATE TABLE posthog.logs_kafka_metrics_distributed (
   max_created_at SimpleAggregateFunction(max, DateTime64(9)),
   max_lag SimpleAggregateFunction(max, UInt64)
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_kafka_metrics');
+CREATE TABLE posthog.logs_volume_buckets (
+  team_id Int32,
+  time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
+  service_name LowCardinality(String),
+  namespace LowCardinality(String),
+  environment LowCardinality(String),
+  severity_text LowCardinality(String),
+  log_count SimpleAggregateFunction(sum, UInt64)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.logs_volume_buckets_distributed (
+  team_id Int32,
+  time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
+  service_name LowCardinality(String),
+  namespace LowCardinality(String),
+  environment LowCardinality(String),
+  severity_text LowCardinality(String),
+  log_count SimpleAggregateFunction(sum, UInt64)
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_volume_buckets');
 CREATE TABLE posthog.message_assets_data (
   team_id Int64,
   function_kind LowCardinality(String),
@@ -1801,15 +1819,15 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   group3_properties String,
   group4_properties String,
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
-  $group_0 String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
-  $group_1 String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
-  $group_2 String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
-  $group_3 String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3',
-  $group_4 String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4',
-  flag_key String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag',
-  response LowCardinality(String) MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response',
-  session_id String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id',
-  request_id String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id',
+  $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
+  $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
+  $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
+  $group_3 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3',
+  $group_4 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4',
+  flag_key String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag',
+  response LowCardinality(String) DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response',
+  session_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id',
+  request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id',
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64,
@@ -4480,6 +4498,39 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, resource_attributes
   );
+CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  namespace,
+  environment,
+  severity_text,
+  sumSimpleState(1) AS log_count
+FROM
+  (
+    SELECT
+      team_id,
+      toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+      service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
+      if(
+        (resource_attributes['deployment.environment.name']) != '',
+        resource_attributes['deployment.environment.name'],
+        if(
+          (resource_attributes['deployment.environment']) != '',
+          resource_attributes['deployment.environment'],
+          resource_attributes['env']
+        )
+      ) AS environment,
+      lower(severity_text) AS severity_text
+    FROM posthog.logs34
+  )
+GROUP BY
+  team_id, time_bucket, service_name, namespace, environment, severity_text;
 CREATE MATERIALIZED VIEW posthog.message_assets_mv TO posthog.message_assets_data (team_id Int64, function_kind LowCardinality(String), function_id String, parent_run_id String, invocation_id String, action_id String, kind LowCardinality(String), distinct_id String, person_id String, recipient String, subject String, status LowCardinality(String), sent_at DateTime64(6, 'UTC'), version UInt64, is_deleted UInt8, html String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   function_kind,
