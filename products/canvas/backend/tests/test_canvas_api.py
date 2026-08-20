@@ -114,17 +114,6 @@ class CanvasAPIBaseTest(APIBaseTest):
 
 
 class TestCanvasCrud(CanvasAPIBaseTest):
-    def test_retrieve_includes_the_stable_discussion_task(self):
-        canvas_id = self._create_canvas()
-        discussion_task_id = uuid4()
-        with team_scope(self.team.id):
-            Canvas.objects.filter(id=canvas_id).update(discussion_task_id=discussion_task_id)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["discussion_task_id"] == str(discussion_task_id)
-
     def test_missing_user_only_sees_public_channels(self):
         with team_scope(self.team.id):
             public = Channel.objects.create(team=self.team, name="public")
@@ -257,7 +246,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         # The rejection names the task's channel so the agent can recover in one step.
         assert str(self.channel.id) in wrong_channel.json()["detail"]
 
-    def test_task_bound_sandbox_can_write_its_linked_canvas_and_canvases_created_by_the_actor(self):
+    def test_task_bound_sandbox_can_read_canvases_created_by_the_authenticated_user(self):
         bound_task = Task.objects.create(
             team=self.team,
             channel=self.channel,
@@ -314,8 +303,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert earlier_detail.status_code == status.HTTP_200_OK
         assert update.status_code == status.HTTP_200_OK
         assert update.json()["name"] == "Updated by later task"
-        assert linked_update.status_code == status.HTTP_200_OK
-        assert linked_update.json()["name"] == "Linked but unowned"
+        assert linked_update.status_code == status.HTTP_404_NOT_FOUND
 
     def test_rebound_sandbox_does_not_inherit_task_creator_canvas_access(self) -> None:
         actor = self._create_user("rebound-sandbox-actor@example.com")

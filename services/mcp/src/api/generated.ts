@@ -15009,8 +15009,6 @@ export namespace Schemas {
       readonly context: string;
       /** @nullable */
       readonly generation_task_id: string | null;
-      /** @nullable */
-      readonly discussion_task_id: string | null;
       /** Whether the canvas is pinned to its channel. */
       readonly pinned: boolean;
       /** @nullable */
@@ -17644,18 +17642,6 @@ export namespace Schemas {
       /** Other cohorts that include this cohort as a criterion, with truncation metadata */
       cohorts: CohortUsedInCohortsBlock;
     }
-
-    /**
-     * * `managed` - Managed
-     * * `collaborative` - Collaborative
-     */
-    export type CollaborationModeEnum = typeof CollaborationModeEnum[keyof typeof CollaborationModeEnum];
-
-
-    export const CollaborationModeEnum = {
-      Managed: 'managed',
-      Collaborative: 'collaborative',
-    } as const;
 
     /**
      * * `private` - Private (only visible to creator)
@@ -31628,10 +31614,10 @@ export namespace Schemas {
      * * `completed` - completed
      * * `metrics_unavailable` - metrics_unavailable
      */
-    export type EvaluationReportRunContentGenerationStatusEnum = typeof EvaluationReportRunContentGenerationStatusEnum[keyof typeof EvaluationReportRunContentGenerationStatusEnum];
+    export type GenerationStatusEnum = typeof GenerationStatusEnum[keyof typeof GenerationStatusEnum];
 
 
-    export const EvaluationReportRunContentGenerationStatusEnum = {
+    export const GenerationStatusEnum = {
       Completed: 'completed',
       MetricsUnavailable: 'metrics_unavailable',
     } as const;
@@ -31653,7 +31639,7 @@ export namespace Schemas {
        *
        * * `completed` - completed
        * * `metrics_unavailable` - metrics_unavailable */
-      generation_status?: EvaluationReportRunContentGenerationStatusEnum;
+      generation_status?: GenerationStatusEnum;
       /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
       metrics?: EvaluationReportMetrics | null;
     }
@@ -53580,33 +53566,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `pending` - Pending
-     * * `generating` - Generating
-     * * `ready` - Ready
-     * * `failed` - Failed
-     */
-    export type SignalReportCanvasGenerationStatusEnum = typeof SignalReportCanvasGenerationStatusEnum[keyof typeof SignalReportCanvasGenerationStatusEnum];
-
-
-    export const SignalReportCanvasGenerationStatusEnum = {
-      Pending: 'pending',
-      Generating: 'generating',
-      Ready: 'ready',
-      Failed: 'failed',
-    } as const;
-
-    export interface SignalReportCanvas {
-      readonly canvas_id: string;
-      readonly discussion_task_id: string;
-      /** @nullable */
-      readonly generation_task_id: string | null;
-      readonly generation_status: SignalReportCanvasGenerationStatusEnum;
-      readonly collaboration_mode: CollaborationModeEnum;
-      readonly failure_reason: string;
-      readonly updated_at: string;
-    }
-
-    /**
      * * `pr_incorrect` - PR incorrect
      * * `pr_not_useful` - PR not useful
      * * `duplicate` - Duplicate
@@ -53681,8 +53640,6 @@ export namespace Schemas {
       readonly artefact_count: number;
       /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
       readonly charts: readonly ReportChart[];
-      /** The persistent canvas and shared discussion created for this report, when available. */
-      readonly canvas_session: SignalReportCanvas | null;
       /**
          * P0–P4 from the latest priority judgment artefact (when present).
          * @nullable
@@ -79297,16 +79254,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `desktop_canvas` - desktop_canvas
-     */
-    export type TargetScopeEnum = typeof TargetScopeEnum[keyof typeof TargetScopeEnum];
-
-
-    export const TargetScopeEnum = {
-      DesktopCanvas: 'desktop_canvas',
-    } as const;
-
-    /**
      * Response shape for one task in the requester's activity feed (one row per task).
      */
     export interface TaskActivityDTO {
@@ -79340,15 +79287,6 @@ export namespace Schemas {
       latest_comment_scope?: string | null;
       /** @nullable */
       latest_comment_item_id?: string | null;
-      /** The non-task surface this activity opens, when the task backs another shared artifact.
-       *
-       * * `desktop_canvas` - desktop_canvas */
-      target_scope?: TargetScopeEnum | null;
-      /**
-         * Identifier of the activity target. Present together with target_scope.
-         * @nullable
-         */
-      target_id?: string | null;
       /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
       is_unread: boolean;
     }

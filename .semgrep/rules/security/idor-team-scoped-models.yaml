@@ -303,8 +303,6 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
-                              |SignalReportCanvas
-                              |SignalReportCanvasGeneration
                               |SignalReportRefund
                               |SignalReportTask
                               |SignalRepositoryAreaActivity
@@ -670,8 +668,6 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
-                        |SignalReportCanvas
-                        |SignalReportCanvasGeneration
                         |SignalReportRefund
                         |SignalReportTask
                         |SignalRepositoryAreaActivity

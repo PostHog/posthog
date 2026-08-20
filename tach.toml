@@ -720,7 +720,6 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "ee",
-    "products.canvas",
     "products.cohorts",
     "posthog",
     "products.actions",
@@ -858,14 +857,6 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.routes.*",
-]
-from = [
-    "products.canvas",
-]
-
-[[interfaces]]
-expose = [
-    "backend\\.report_canvas.*",
 ]
 from = [
     "products.canvas",
