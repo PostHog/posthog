@@ -16,6 +16,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 """
 
 import re
+import time
 import hashlib
 import logging
 from collections.abc import Collection, Iterable, Sequence
@@ -61,6 +62,7 @@ from posthog.utils import absolute_uri
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
+    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
@@ -232,7 +234,9 @@ __all__ = [
     "list_sandbox_custom_images",
     "list_sandbox_environments",
     "sandbox_custom_images_enabled",
+    "agent_peer_messaging_enabled",
     "list_task_run_living_artifacts",
+    "list_task_run_peers",
     "list_task_repositories",
     "list_task_runs",
     "list_tasks",
@@ -259,6 +263,7 @@ __all__ = [
     "set_task_title",
     "slack_actor_state_updates",
     "signal_report_queryset",
+    "signal_task_run_peer_message",
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
@@ -1064,7 +1069,11 @@ def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> lis
         return uncovered_ids
     runs = {
         run.id: run
-        for run in TaskRun.objects.filter(id__in=uncovered_ids)  # nosemgrep: celery-task-team-scope-audit
+        for run in TaskRun.objects.filter(
+            id__in=uncovered_ids
+        ).select_related(  # nosemgrep: celery-task-team-scope-audit
+            "task"
+        )
     }
     dispatch_run_ids = set(
         TaskWorkflowDispatch.objects.unscoped()
@@ -1073,9 +1082,20 @@ def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> lis
     )
     for run_id in uncovered_ids:
         run = runs.get(run_id)
-        has_legacy_intent = bool(run and isinstance(run.state, dict) and run.state.get("pending_dispatch"))
-        if run_id not in dispatch_run_ids and not has_legacy_intent:
+        state = run.state if run and isinstance(run.state, dict) else {}
+        has_legacy_intent = bool(state.get("pending_dispatch"))
+        awaiting_restart_rollout = bool(state.get("handoff_resumed"))
+        if run_id not in dispatch_run_ids and not has_legacy_intent and not awaiting_restart_rollout:
             WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc()
+            logger.warning(
+                "workflow_dispatch_missing_intent",
+                extra={
+                    "run_id": str(run_id),
+                    "task_id": str(run.task_id) if run else None,
+                    "team_id": run.team_id if run else None,
+                    "origin_product": run.task.origin_product if run else None,
+                },
+            )
     return uncovered_ids
 
 
@@ -2216,6 +2236,22 @@ def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | 
 def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
     """A run scoped to its parent task + team. Caller is responsible for task visibility."""
     return _task_run_queryset().filter(pk=run_id, team_id=team_id, task_id=task_id).first()
+
+
+def _get_peer_sender_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
+    return (
+        _task_run_queryset()
+        .filter(
+            pk=run_id,
+            team_id=team_id,
+            task_id=task_id,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.IN_PROGRESS,
+            task__runtime=Task.Runtime.PI,
+            task__deleted=False,
+        )
+        .first()
+    )
 
 
 def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
@@ -3510,6 +3546,13 @@ def task_uses_pi_runtime(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, runtime=Task.Runtime.PI).exists()
 
 
+def task_created_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
+    """Whether the task exists on the team and was created by this user. The peers
+    endpoints gate on it: peer visibility and attribution derive entirely from the
+    task creator, so broader task access must not extend to them."""
+    return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
+
+
 def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, force_proxy: bool = False) -> str | None:
     """Agent-proxy base URL for the read leg, or ``None`` to read from Django directly.
 
@@ -3612,6 +3655,183 @@ def signal_task_run_user_message(
             return False
         raise
     return True
+
+
+# --- Agent peer messaging (docs: logic/services/peer_messages.py) ---
+
+
+def agent_peer_messaging_enabled(team: Team, user: User) -> bool:
+    """Whether agent-to-agent peer messaging is enabled for this team/user. v1
+    callers additionally require the Pi runtime on the sender task."""
+    distinct_id = user.distinct_id or f"user_{user.id}"
+    organization_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                AGENT_PEER_MESSAGING_FEATURE_FLAG,
+                distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("agent peer messaging flag check failed; treating as disabled")
+        return False
+
+
+def list_task_run_peers(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[contracts.TaskRunPeerDTO] | None:
+    """Peer agent runs the given run may message. ``None`` when the sender isn't eligible.
+
+    Discovery and send validation share one visibility policy
+    (``peer_messages.visible_peer_runs``), so an agent can only message what it can
+    list; the per-entry ``sendable`` flag is the liveness contract — clients never
+    infer eligibility from status labels.
+    """
+    from products.tasks.backend.logic.services import (
+        peer_messages,  # noqa: PLC0415 — keep storage deps off the api import path
+    )
+
+    run = _get_peer_sender_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return [contracts.TaskRunPeerDTO(**entry) for entry in peer_messages.list_peer_run_entries(run)]
+
+
+def signal_task_run_peer_message(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    target_run_id: str,
+    content: str,
+    artifact_ids: list[str],
+) -> contracts.PeerMessageSendResultDTO | None:
+    """Send a peer message from one agent run to another. ``None`` when the sender
+    isn't eligible.
+
+    Unlike ``signal_task_run_user_message`` this composes the signal context
+    entirely server-side (``kind``/``peer_message_id``/``from_run_id``/``from_task_id``,
+    never reserved actor keys, never merged from agent input) and carries no
+    ``actor_user_id`` — the delivery activity's peer mode preserves the recipient's
+    already-bound credential identity. The synchronous result means ``accepted``,
+    never "delivered": the sandbox handoff happens later inside the target workflow,
+    which records the delivery outcome on the message row.
+    """
+    from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
+
+    from products.tasks.backend.logic.services import (
+        peer_messages,  # noqa: PLC0415 — keep storage deps off the api import path
+    )
+    from products.tasks.backend.models import AgentPeerMessage  # noqa: PLC0415
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        signal_task_followup_message,
+    )
+
+    sender_run = _get_peer_sender_run(run_id, task_id, team_id)
+    if sender_run is None:
+        return None
+
+    prepared = peer_messages.validate_and_prepare_peer_message(sender_run, target_run_id, content, artifact_ids)
+    if isinstance(prepared, peer_messages.PeerMessageRejection):
+        return contracts.PeerMessageSendResultDTO(result="rejected", detail=prepared.detail)
+    message = prepared.message
+    target_artifact_ids = prepared.artifact_ids
+    target_run = prepared.target_run
+
+    envelope = peer_messages.compose_peer_envelope(sender_run, content)
+    context = peer_messages.build_peer_message_context(message)
+    # Statuses where the server may have accepted the signal before the client saw
+    # the error. Re-signaling with the same message id is safe end-to-end (the
+    # sandbox dedupes deliveries by message_id), so these retry inline; if they
+    # still fail, the row must NOT terminalize — see the handler below.
+    transient_statuses = (
+        RPCStatusCode.UNAVAILABLE,
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.CANCELLED,
+    )
+    signal_attempts = 3
+    try:
+        for attempt in range(1, signal_attempts + 1):
+            try:
+                signal_task_followup_message(
+                    target_run.workflow_id,
+                    envelope,
+                    target_artifact_ids,
+                    str(message.id),
+                    None,
+                    context,
+                    steer=False,
+                )
+                break
+            except RPCError as retry_error:
+                if retry_error.status in transient_statuses and attempt < signal_attempts:
+                    time.sleep(0.2 * attempt)
+                    continue
+                raise
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            peer_messages.mark_peer_message_outcome(
+                str(message.id),
+                AgentPeerMessage.Outcome.TARGET_FINISHED,
+                failure_phase="signal",
+                failure_detail="target workflow gone",
+            )
+            return contracts.PeerMessageSendResultDTO(
+                result="target_finished",
+                detail="The target run has already finished; it can no longer receive messages.",
+                message_id=str(message.id),
+            )
+        if e.status in transient_statuses:
+            # At-least-once ambiguity: the signal may have landed, so a terminal
+            # outcome here could contradict a later successful delivery. Leave the
+            # row non-terminal — delivery marks it delivered if the signal landed,
+            # and otherwise it ages out of queue capacity after the delivery window.
+            logger.warning(
+                "peer message signal hit a transient error; leaving row non-terminal",
+                extra={"peer_message_id": str(message.id), "status": str(e.status)},
+            )
+            return contracts.PeerMessageSendResultDTO(
+                result="rejected",
+                detail=(
+                    "Signaling the target run hit a transient error; the message may still "
+                    "be delivered. If it does not arrive, try again in a few minutes."
+                ),
+                message_id=str(message.id),
+            )
+        peer_messages.mark_peer_message_outcome(
+            str(message.id),
+            AgentPeerMessage.Outcome.DELIVERY_FAILED,
+            failure_phase="signal",
+            failure_detail=str(e),
+        )
+        return contracts.PeerMessageSendResultDTO(
+            result="rejected",
+            detail="Signaling the target run failed. Try again shortly.",
+            message_id=str(message.id),
+        )
+    except Exception as e:
+        # Terminalize before surfacing: an accepted row left behind would hold the
+        # target's queue capacity for the whole delivery window.
+        peer_messages.mark_peer_message_outcome(
+            str(message.id),
+            AgentPeerMessage.Outcome.DELIVERY_FAILED,
+            failure_phase="signal",
+            failure_detail=str(e),
+        )
+        return contracts.PeerMessageSendResultDTO(
+            result="rejected",
+            detail="Signaling the target run failed. Try again shortly.",
+            message_id=str(message.id),
+        )
+
+    peer_messages.mark_peer_message_signaled(str(message.id))
+    return contracts.PeerMessageSendResultDTO(
+        result="accepted",
+        detail="Message accepted for delivery. It will reach the target as a queued turn; delivery is not confirmed synchronously.",
+        message_id=str(message.id),
+    )
 
 
 def get_task_run_sandbox_connection(
@@ -5611,6 +5831,9 @@ def run_task(
     ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
     gate (429) is applied by the view before calling this.
     """
+    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        enforce_report_implementation_rerun_cap,
+    )
     from products.tasks.backend.logic.services.staged_artifacts import get_task_staged_artifacts  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
@@ -5624,6 +5847,20 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    report_id_for_slot_check = (
+        str(task.signal_report_id)
+        if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        else None
+    )
+    if report_id_for_slot_check is not None:
+        # Ahead of the warm-run reuse below, which returns early: a task released its slot when
+        # its runs all failed, so another implementation may hold it by now. Refusing here also
+        # avoids the sandbox and repository lookups a doomed run would otherwise do first. The
+        # check that actually holds the slot is the one wrapping `create_run` below.
+        with transaction.atomic():
+            enforce_report_implementation_rerun_cap(
+                team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+            )
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
@@ -5926,7 +6163,18 @@ def run_task(
             )
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
-    task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+    with transaction.atomic():
+        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+        if report_id_for_slot_check is not None:
+            # A live run is what marks the report's implementation slot taken, so the slot is only
+            # really claimed once this row exists. Inserting first and locking the report second
+            # keeps the row lock off `create_run`, which evaluates a feature flag, and still
+            # serializes against a concurrent create: that create either takes the report lock
+            # first, so this check sees the task it added and rolls the run back, or takes it
+            # second, by which point this run is committed and its own count check refuses.
+            enforce_report_implementation_rerun_cap(
+                team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+            )
     if is_pi_task and resume_from_run_id:
         task_run.active_task_session = previous_run.active_task_session
         task_run.save(update_fields=["active_task_session", "updated_at"])
@@ -7692,25 +7940,6 @@ def request_canvas_change(
     if outcome in {"signaled", "new_run"}:
         create_thread_message(task_id, team_id, acting_user_id, content="Run requested from the canvas")
     return outcome
-
-
-def _dispatch_server_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:
-    """Dispatch a server-originated run's processing workflow, bypassing the per-user check.
-
-    Nothing canvas-specific: kept here because ``temporal.client`` puts temporalio on
-    its import path and this module must not.
-    """
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        execute_task_processing_workflow,
-    )
-
-    execute_task_processing_workflow(
-        task_id=task_id,
-        run_id=run_id,
-        team_id=team_id,
-        user_id=user_id,
-        skip_user_check=True,
-    )
 
 
 _GITHUB_PR_PATH_PATTERN = re.compile(r"/([^/]+)/([^/]+)/pull/(\d+)/?", re.IGNORECASE)

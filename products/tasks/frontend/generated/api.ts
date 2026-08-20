@@ -103,6 +103,9 @@ import type {
     TaskRunLivingArtifactOpenResponseApi,
     TaskRunLivingArtifactResponseApi,
     TaskRunLivingArtifactsResponseApi,
+    TaskRunPeerMessageRequestApi,
+    TaskRunPeerMessageResponseApi,
+    TaskRunPeersResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
@@ -1836,6 +1839,58 @@ export const tasksRunsConnectionTokenRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTasksRunsPeersRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/`
+}
+
+/**
+ * Agent runs this run may send messages to: cloud Pi runs of tasks created by the same user, currently in progress or queued. Discovery and send validation share one visibility policy, so a run can only message what it can list; the per-entry `sendable` flag is the liveness contract.
+ * @summary List peer agent runs
+ */
+export const tasksRunsPeersRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunPeersResponseApi> => {
+    return apiMutator<TaskRunPeersResponseApi>(getTasksRunsPeersRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsPeersMessageCreateUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    targetRunId: string
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/${targetRunId}/message/`
+}
+
+/**
+ * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
+ * @summary Send a message to a peer agent run
+ */
+export const tasksRunsPeersMessageCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    targetRunId: string,
+    taskRunPeerMessageRequestApi: TaskRunPeerMessageRequestApi,
+    options?: RequestInit
+): Promise<TaskRunPeerMessageResponseApi> => {
+    return apiMutator<TaskRunPeerMessageResponseApi>(
+        getTasksRunsPeersMessageCreateUrl(projectId, taskId, id, targetRunId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunPeerMessageRequestApi),
+        }
+    )
 }
 
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
