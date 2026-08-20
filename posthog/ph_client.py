@@ -4,7 +4,7 @@ import threading
 from collections.abc import Mapping
 from contextlib import contextmanager
 from numbers import Number
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -49,6 +49,35 @@ def feature_enabled_or_false(
         )
         is True
     )
+
+
+def get_feature_flag_or_none(
+    key: str,
+    distinct_id: str,
+    groups: dict[str, str] | None = None,
+    group_properties: dict[str, dict[str, Any]] | None = None,
+    only_evaluate_locally: bool = False,
+    send_feature_flag_events: bool = True,
+) -> str | bool | None:
+    """Variant-returning sibling of feature_enabled_or_false that never raises, so callers on
+    paths that must not fail (cache writes, background tasks) can treat any failure as flag-off."""
+    try:
+        # The library annotates the return as Optional[FeatureFlag], but at runtime a plain
+        # variant string or bool comes back, so cast like ee/hogai/utils/feature_flags.py does.
+        return cast(
+            "str | bool | None",
+            posthoganalytics.get_feature_flag(
+                key,
+                distinct_id,
+                groups=groups,
+                group_properties=group_properties,
+                only_evaluate_locally=only_evaluate_locally,
+                send_feature_flag_events=send_feature_flag_events,
+            ),
+        )
+    except Exception:
+        logger.warning("get_feature_flag_failed", flag_key=key, exc_info=True)
+        return None
 
 
 def get_regional_ph_client(**kwargs: Any):

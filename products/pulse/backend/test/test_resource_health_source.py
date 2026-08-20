@@ -18,7 +18,7 @@ from products.alerts.backend.models import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem
 from products.pulse.backend.sources.resource_health import STUCK_REFRESH_ATTEMPTS, ResourceHealthSource
 

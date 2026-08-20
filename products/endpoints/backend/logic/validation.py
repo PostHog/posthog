@@ -39,7 +39,7 @@ from products.endpoints.backend.models import (
     _breakdown_property_names,
     can_materialize_query,
 )
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 
 
 def validate_data_freshness(data_freshness_seconds: int | None) -> None:
