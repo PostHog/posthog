@@ -2,8 +2,6 @@ import { RobotIcon } from "@phosphor-icons/react";
 import { AgentBuilderHeaderControls } from "@posthog/ui/features/agent-applications/agent-builder/AgentBuilderHeaderControls";
 import type { AgentBuilderPageContext } from "@posthog/ui/features/agent-applications/agent-builder/agentBuilderStore";
 import { useSetAgentBuilderPage } from "@posthog/ui/features/agent-applications/agent-builder/useSetAgentBuilderPage";
-import { AGENT_PLATFORM_FLAG } from "@posthog/ui/features/agent-applications/featureFlag";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Flex, Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
@@ -50,9 +48,6 @@ export function AgentsTabLayout({
   const pageContext: AgentBuilderPageContext =
     activeTab === "applications" ? { kind: "agent-list" } : { kind: "scouts" };
   useSetAgentBuilderPage(pageContext);
-  // The Fleet tab is gated behind the agent-platform flag.
-  const applicationsEnabled = useFeatureFlag(AGENT_PLATFORM_FLAG);
-
   return (
     <Flex direction="column" className="h-full min-h-0">
       <div className="relative cursor-default select-none border-(--gray-5) border-b px-6 pt-5">
@@ -62,9 +57,7 @@ export function AgentsTabLayout({
             Agents
           </Text>
           <Text className="max-w-3xl text-[12.5px] text-gray-11 leading-snug">
-            {applicationsEnabled
-              ? TAB_DESCRIPTION[activeTab]
-              : "Design, schedule, and deploy the agents that work on your product."}
+            {TAB_DESCRIPTION[activeTab]}
           </Text>
         </Flex>
         <Flex gap="5" align="center">
@@ -73,13 +66,6 @@ export function AgentsTabLayout({
             label="Scouts"
             active={activeTab === "scouts"}
           />
-          {applicationsEnabled ? (
-            <TabLink
-              to="/code/agents/applications"
-              label="Fleet"
-              active={activeTab === "applications"}
-            />
-          ) : null}
         </Flex>
       </div>
 
