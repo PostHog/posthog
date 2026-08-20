@@ -86,6 +86,16 @@ interface ReasoningLevelSelectorProps {
    * the web composer's marker.
    */
   isDefaultSelection?: boolean;
+  /**
+   * Position and size the popup against this element instead of the trigger.
+   *
+   * The popup takes both its placement and its width from its anchor, and the trigger
+   * resizes as the label under the cursor changes — so dragging the slider walks the
+   * popup around. Callers whose layout lets the trigger move (a right-aligned settings
+   * row, say) pass a fixed-size element to hold it still. Composers, where the trigger
+   * is left-anchored, need nothing.
+   */
+  anchor?: React.RefObject<HTMLElement | null>;
 }
 
 function toDropdownOptions(
@@ -126,6 +136,7 @@ export function ReasoningLevelSelector({
   showBillingMenu,
   workspaceMode,
   isDefaultSelection,
+  anchor,
 }: ReasoningLevelSelectorProps) {
   const [internalMenuOpen, setInternalMenuOpen] = useState(false);
   const open = menuOpen ?? internalMenuOpen;
@@ -202,6 +213,7 @@ export function ReasoningLevelSelector({
             align="start"
             side="top"
             sideOffset={6}
+            anchor={anchor}
             className="min-w-[230px]"
           >
             <DropdownMenuItem disabled>
@@ -446,6 +458,7 @@ export function ReasoningLevelSelector({
         align="start"
         side="top"
         sideOffset={6}
+        anchor={anchor}
         className="min-w-[230px]"
       >
         <AnimatedHeight>

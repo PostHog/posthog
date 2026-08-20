@@ -37,7 +37,17 @@ export function useTaskRunDefaults(): TaskRunDefaultsResult {
   const query = useAuthenticatedQuery(
     taskRunDefaultsQueryKey(projectId),
     async (client) => await client.getTaskRunDefaults(Number(projectId)),
-    { enabled: projectId != null, staleTime: 5 * 60 * 1000, retry: false },
+    {
+      enabled: projectId != null,
+      // The preference is shared, so it also moves in the web app, in Slack, or via a
+      // teammate changing the project default — none of which this app hears about. A
+      // short window plus a refetch when the app is focused again keeps it close to the
+      // truth without polling; a change made *here* doesn't wait for it, since the write
+      // invalidates this key directly.
+      staleTime: 30 * 1000,
+      refetchOnWindowFocus: true,
+      retry: false,
+    },
   );
 
   // Monotonic: `projectId` only arrives once auth bootstraps, so a plain `projectId == null`

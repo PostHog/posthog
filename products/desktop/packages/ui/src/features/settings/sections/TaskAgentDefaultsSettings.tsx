@@ -59,6 +59,8 @@ function MyDefaultPicker({
   const { modelOption, thoughtOption, isLoading, setConfigOption } =
     usePreviewConfig(adapter);
 
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+
   // Reflect the stored triple into the fetched options, so the pill names the preference
   // rather than whatever the last preview session happened to select.
   const seeded = useRef<string | null>(null);
@@ -102,28 +104,39 @@ function MyDefaultPicker({
   };
 
   return (
-    <ReasoningLevelSelector
-      modelOption={modelOption}
-      thoughtOption={thoughtOption}
-      adapter={adapter}
-      isDefaultSelection={isInherited}
-      onModelChange={handleModelChange}
-      onChange={handleEffortChange}
-      onAdapterChange={(next) => {
-        // Switching harness clears the pair; the next model pick supplies the new one.
-        seeded.current = null;
-        onSave({ runtime_adapter: next, model: null, reasoning_effort: null });
-      }}
-      onConfigOptionChange={(configId, value) => {
-        if (modelOption && configId === modelOption.id) {
-          handleModelChange(value);
-        } else if (thoughtOption && configId === thoughtOption.id) {
-          handleEffortChange(value);
-        }
-      }}
-      disabled={disabled}
-      isLoading={isLoading}
-    />
+    // The popup takes its position and width from its anchor. The trigger is a poor one
+    // here: this row right-aligns its control, so the button's left edge slides as the
+    // label under the cursor changes, and dragging the slider walks the popup with it.
+    // This wrapper is a fixed size in a fixed place, so the popup holds still.
+    <div ref={anchorRef} className="flex w-[280px] justify-end">
+      <ReasoningLevelSelector
+        modelOption={modelOption}
+        thoughtOption={thoughtOption}
+        adapter={adapter}
+        anchor={anchorRef}
+        isDefaultSelection={isInherited}
+        onModelChange={handleModelChange}
+        onChange={handleEffortChange}
+        onAdapterChange={(next) => {
+          // Switching harness clears the pair; the next model pick supplies the new one.
+          seeded.current = null;
+          onSave({
+            runtime_adapter: next,
+            model: null,
+            reasoning_effort: null,
+          });
+        }}
+        onConfigOptionChange={(configId, value) => {
+          if (modelOption && configId === modelOption.id) {
+            handleModelChange(value);
+          } else if (thoughtOption && configId === thoughtOption.id) {
+            handleEffortChange(value);
+          }
+        }}
+        disabled={disabled}
+        isLoading={isLoading}
+      />
+    </div>
   );
 }
 

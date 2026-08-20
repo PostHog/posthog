@@ -74,16 +74,20 @@ export function useTaskAgentDefaults(): TaskAgentDefaultsResult {
       );
     },
     onSuccess: (next: MyTaskRunConfig) => {
-      // The write returns the row and its resolution, so seed the cache rather than
-      // refetching what we already hold.
+      // The write returns the row and its resolution, so seed both caches from it — the
+      // page and the composer show the new value without waiting on a round trip.
       queryClient.setQueryData([MY_CONFIG_KEY, projectId], next);
-      // The composer caches the resolved answer for minutes at a time, which would leave
-      // the next task opening on the model this change just replaced. Seed it too, from
-      // the same response, so opening a task shows what was chosen here.
       queryClient.setQueryData(
         taskRunDefaultsQueryKey(projectId),
         next.resolved,
       );
+      // Then invalidate rather than trust the seed. The composer holds this for the whole
+      // stale window, so anything the seed misses — a key that didn't match, an observer
+      // mounted elsewhere — would leave the task UI opening on the replaced model until
+      // it expired. Invalidating makes the next read go to the server regardless.
+      void queryClient.invalidateQueries({
+        queryKey: taskRunDefaultsQueryKey(projectId),
+      });
       // A stored last-used pick outranks the preference in the composer, so without this
       // the new default would be shadowed on any device that has ever picked a model —
       // the setting would look ignored. Choosing a default here is the more deliberate
