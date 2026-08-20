@@ -2113,10 +2113,11 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             format="json",
         )
 
+        stored = {"slack": {**destination["slack"], "thread_reports": False}}
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["output_destinations"] == destination
+        assert response.json()["output_destinations"] == stored
         config.refresh_from_db()
-        assert config.output_destinations == destination
+        assert config.output_destinations == stored
 
     @parameterized.expand(
         [
