@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.config import DEFAULT_BRIEF_SETTINGS, BriefSettings
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.anchored_insights import AnchoredInsightsSource

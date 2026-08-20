@@ -76,7 +76,6 @@ services/agent-*/.next
 !tools/hogli
 !tools/openapi-codegen
 !tools/owners
-!tools/pr-approval-agent
 !tsconfig.json
 !unit.json.tpl
 common/*/*/node_modules
