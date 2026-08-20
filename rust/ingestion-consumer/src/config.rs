@@ -1,3 +1,4 @@
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
@@ -94,6 +95,15 @@ pub struct Config {
     /// 100MB — matches Node.js default (reduced from rdkafka default of 1GB)
     #[envconfig(default = "102400")]
     pub kafka_consumer_queued_max_messages_kbytes: u32,
+
+    /// How often librdkafka emits its internal statistics snapshot to the
+    /// consumer's `stats` callback (milliseconds), which exports the
+    /// `kafka_consumer_*` gauges. `0` disables the callback entirely. The
+    /// callback runs on a librdkafka thread and only walks the assigned
+    /// partitions and connected brokers, so 15s is cheap; lower it only when
+    /// actively debugging queue growth.
+    #[envconfig(default = "15000")]
+    pub kafka_consumer_statistics_interval_ms: u32,
 
     /// Pod hostname from K8s, used as client.id and group.instance.id
     /// for sticky partition assignment (same as Node.js hostname())
@@ -357,6 +367,9 @@ pub struct Config {
     /// default labels. The lag-based KEDA autoscaler selects on this label.
     #[envconfig(from = "INGESTION_LANE")]
     pub ingestion_lane: Option<String>,
+
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
 }
 
 /// Parse `KAFKA_CONSUMER_*` env vars into rdkafka config key-value pairs.
@@ -435,6 +448,12 @@ impl Config {
         .set(
             "fetch.message.max.bytes",
             &self.kafka_consumer_fetch_message_max_bytes.to_string(),
+        )
+        // Set before the env-override loop below so
+        // KAFKA_CONSUMER_STATISTICS_INTERVAL_MS stays authoritative.
+        .set(
+            "statistics.interval.ms",
+            &self.kafka_consumer_statistics_interval_ms.to_string(),
         );
 
         if !self.kafka_client_rack.is_empty() {

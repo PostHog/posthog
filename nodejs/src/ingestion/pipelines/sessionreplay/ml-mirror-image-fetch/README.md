@@ -15,7 +15,7 @@ code is written against. Where the code and this file disagree, one of them is a
 | Frontier           | The topic `session_replay_image_fetch`. It holds the URLs waiting to be fetched.                                                                                                                                                  |
 | Back queue         | The URLs of one registrable domain. The topic key is the domain, so a partition holds whole back queues.                                                                                                                          |
 | Pass               | The fetching for one Kafka poll batch. Every back queue in the batch runs at the same time, and wall time bounds the pass rather than work.                                                                                       |
-| Crawl history      | The Redis record of the URLs this lane has finished with, whatever the outcome. It answers the URL-seen test.                                                                                                                     |
+| Crawl history      | The DynamoDB record of URLs this lane has finished with, whatever the outcome. Entries have a 30-day TTL.                                                                                                                         |
 | Host budget        | The token bucket, connection limit, and circuit breaker for one registrable domain. The rate moves by AIMD: a failure halves it, and success raises it slowly.                                                                    |
 | Hop                | One trip a URL makes back through Kafka. The lane spends a hop when it puts a URL back: a retry, a redirect that left the domain, or a URL that arrived before its wait ended. A redirect the lane follows in place costs no hop. |
 | Hop budget         | The number of hops one URL may make before the lane gives up.                                                                                                                                                                     |
@@ -24,6 +24,12 @@ code is written against. Where the code and this file disagree, one of them is a
 A redirect to another domain is a new candidate URL. It goes back through the frontier rather than
 being fetched in place, because the budget that governs it belongs to whichever consumer owns that
 domain's partition.
+
+The lane reads the crawl history after parsing and in-batch deduplication. It makes fetch decisions
+from the result, then writes completed URLs at the end of the Kafka batch. The DynamoDB backend uses
+batch operations with service limits of 100 reads and 25 writes. An expired row counts as absent
+before DynamoDB removes it. Before Kafka consumption starts, the lane writes and consistently reads
+a short-lived probe record so that a missing table or IAM permission stops the pod.
 
 ## Limits
 

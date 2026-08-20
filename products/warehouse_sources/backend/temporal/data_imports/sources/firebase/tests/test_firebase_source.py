@@ -156,3 +156,4 @@ class TestFirebaseSource:
 
         assert "error=invalid_grant" in errors
         assert "403 Client Error: Forbidden" in errors
+        assert "message=CONFIGURATION_NOT_FOUND" in errors

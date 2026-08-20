@@ -8,6 +8,7 @@ import pytest
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
+    NewEventsSchemaSnapshotExtension,
     _create_event,
     flush_persons_and_events,
     get_indexes_from_explain,
@@ -291,7 +292,7 @@ class TestPropertyTypes(BaseTest):
     def _events_schema_snapshot(self):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            return self.snapshot(name="new_events_schema")
+            return self.snapshot(name="new_events_schema", extension_class=NewEventsSchemaSnapshotExtension)
         return self.snapshot
 
     def _plan_where_comparison(

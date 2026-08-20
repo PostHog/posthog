@@ -11,6 +11,8 @@ from ..facade.enums import CreatedSource, MetricStatus
 # `POST data_catalog/metrics/{name}/run`), so it must be a bare identifier.
 METRIC_NAME_REGEX = r"^[A-Za-z][A-Za-z0-9_]*$"
 
+METRIC_NAME_MAX_LENGTH = 128
+
 validate_metric_name = RegexValidator(
     regex=METRIC_NAME_REGEX,
     message="Name must start with a letter and contain only letters, numbers, and underscores.",
@@ -39,7 +41,7 @@ class Metric(
     )
 
     name = models.CharField(
-        max_length=128,
+        max_length=METRIC_NAME_MAX_LENGTH,
         validators=[validate_metric_name],
         help_text="Identifier-safe run handle, unique among the team's live metrics. Renaming or "
         "deleting a metric frees its name for reuse; references to the old name stop resolving.",

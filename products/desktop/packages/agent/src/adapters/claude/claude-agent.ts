@@ -80,7 +80,11 @@ import { BaseAcpAgent } from "../base-acp-agent";
 import { isLocalSkillCommandChunk } from "../local-skill";
 import { LOCAL_TOOLS_MCP_NAME, type LocalToolCtx } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
-import { resolveSpokenNarration, resolveTaskId } from "../session-meta";
+import {
+  resolveBedrockGatewayVariant,
+  resolveSpokenNarration,
+  resolveTaskId,
+} from "../session-meta";
 import {
   buildBreakdown,
   emptyBaseline,
@@ -2396,6 +2400,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const environment = meta?.environment;
     const channelMode = meta?.channelMode;
     const spokenNarration = resolveSpokenNarration(meta);
+    const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
     const buildInProcessMcpServers = (): Record<
       string,
@@ -2415,6 +2420,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           channelMode,
           spokenNarration,
           background: meta?.mode === "background",
+          peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -2506,6 +2512,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
+      bedrockGatewayVariant,
       onTaskStateChange: async () => {
         await this.client.sessionUpdate({
           sessionId,
