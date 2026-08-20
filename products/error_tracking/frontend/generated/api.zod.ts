@@ -970,6 +970,62 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
 })
 
+export const errorTrackingSeverityRulesCreateBodyOrderKeyDefault = 0
+
+export const ErrorTrackingSeverityRulesCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .describe('Property-group filters evaluated against the event that creates an issue.'),
+    severity: zod
+        .enum(['low', 'medium', 'high', 'critical'])
+        .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `critical` - critical')
+        .describe(
+            'Severity assigned when this rule is the first match.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `critical` - critical'
+        ),
+    order_key: zod
+        .number()
+        .default(errorTrackingSeverityRulesCreateBodyOrderKeyDefault)
+        .describe('Evaluation priority. Lower values run first. Defaults to 0.'),
+})
+
+export const ErrorTrackingSeverityRulesUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe('Replacement property-group filters. Omit to preserve the existing filters.'),
+    severity: zod
+        .enum(['low', 'medium', 'high', 'critical'])
+        .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `critical` - critical')
+        .optional()
+        .describe(
+            'Replacement severity. Omit to preserve the existing severity.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `critical` - critical'
+        ),
+})
+
+export const ErrorTrackingSeverityRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe('Replacement property-group filters. Omit to preserve the existing filters.'),
+    severity: zod
+        .enum(['low', 'medium', 'high', 'critical'])
+        .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `critical` - critical')
+        .optional()
+        .describe(
+            'Replacement severity. Omit to preserve the existing severity.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `critical` - critical'
+        ),
+})
+
+export const ErrorTrackingSeverityRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
+    orders: zod
+        .record(zod.string(), zod.number())
+        .optional()
+        .describe('Mapping from severity rule UUID to its new evaluation order.'),
+})
+
 export const ErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
     snooze_duration_minutes: zod
         .number()

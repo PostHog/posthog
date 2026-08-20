@@ -11,6 +11,7 @@ facade boundary instead of producing a malformed payload further downstream.
 
 from dataclasses import field
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -196,6 +197,17 @@ class ErrorTrackingAssignmentRule:
     id: UUID
     filters: dict
     assignee: ErrorTrackingRuleAssignee | None
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSeverityRule:
+    id: UUID
+    filters: dict
+    severity: Literal["low", "medium", "high", "critical"]
     order_key: int
     disabled_data: dict | None
     created_at: datetime

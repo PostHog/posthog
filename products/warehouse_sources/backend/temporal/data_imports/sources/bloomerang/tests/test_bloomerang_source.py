@@ -4,6 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang import (
+    BASE_URL,
     BloomerangResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.settings import (
@@ -156,3 +157,22 @@ class TestBloomerangSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_bloomerang_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @pytest.mark.parametrize(
+        "pinned, expected_version",
+        [("v1", "v1"), ("v2", None), (None, None)],
+    )
+    def test_deprecation_flags_legacy_v1_only(self, pinned, expected_version):
+        deprecation = self.source.get_version_deprecation(pinned)
+        if expected_version is None:
+            assert deprecation is None
+        else:
+            assert deprecation is not None
+            assert deprecation.version == expected_version
+            assert deprecation.sunset_at is None  # vendor published no sunset date
+
+    def test_request_layer_stays_on_the_v2_wire(self):
+        # No per-version dispatch: `/v2` is a fixed path segment, so a legacy v1 pin rides the same
+        # wire as v2. Regressing this URL to v1 would move every v1-pinned source onto the vendor's
+        # deprecated API.
+        assert BASE_URL == "https://api.bloomerang.co/v2"

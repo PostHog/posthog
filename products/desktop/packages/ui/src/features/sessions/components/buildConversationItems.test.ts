@@ -1198,3 +1198,143 @@ function findProgressGroups(items: ConversationItem[]): ProgressGroupUpdate[] {
   }
   return groups;
 }
+
+describe("plan recovered from a permission request", () => {
+  // A sandbox agent that recovers the plan from a plan file sends the
+  // ExitPlanMode tool_call plan-less; the plan travels only inside the
+  // permission request, which persists in the run log.
+  const PLAN = "# Dummy plan\n\n1. Open `dummy.ts`.\n2. Add a log line.";
+
+  const exitPlanModeMsg = (
+    ts: number,
+    rawInput: Record<string, unknown> = {},
+  ): AcpMessage => ({
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "toolu_plan",
+          title: "Ready to code?",
+          kind: "switch_mode",
+          status: "pending",
+          rawInput,
+          content: [],
+          _meta: { claudeCode: { toolName: "ExitPlanMode" } },
+        },
+      },
+    },
+  });
+
+  const permissionRequestMsg = (ts: number, plan: string): AcpMessage => ({
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/permission_request",
+      params: {
+        requestId: "req-plan",
+        toolCallId: "toolu_plan",
+        options: [
+          { optionId: "default", name: "Yes, continue", kind: "allow_once" },
+        ],
+        toolCall: {
+          toolCallId: "toolu_plan",
+          kind: "switch_mode",
+          title: "Ready to code?",
+          content: [{ type: "content", content: { type: "text", text: plan } }],
+          rawInput: {
+            plan,
+            planFilePath: "/root/.claude/plans/plan.md",
+            toolName: "ExitPlanMode",
+          },
+        },
+      },
+    },
+  });
+
+  const resolvingUpdateMsg = (ts: number): AcpMessage => ({
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "toolu_plan",
+          rawInput: {},
+          status: "completed",
+        },
+      },
+    },
+  });
+
+  function planToolCallOf(items: ConversationItem[]) {
+    const item = items.find(
+      (i) =>
+        i.type === "session_update" && i.update.sessionUpdate === "tool_call",
+    );
+    return (item?.type === "session_update" ? item.update : undefined) as
+      | { rawInput?: { plan?: string }; status?: string }
+      | undefined;
+  }
+
+  it("folds the plan from a logged permission_request into the plan-less tool call", () => {
+    const { items } = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "plan something"),
+        exitPlanModeMsg(2),
+        permissionRequestMsg(3, PLAN),
+      ],
+      true,
+    );
+
+    expect(planToolCallOf(items)?.rawInput?.plan).toBe(PLAN);
+  });
+
+  it("keeps the recovered plan across the resolving plan-less tool_call_update", () => {
+    const { items } = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "plan something"),
+        exitPlanModeMsg(2),
+        permissionRequestMsg(3, PLAN),
+        resolvingUpdateMsg(4),
+      ],
+      true,
+    );
+
+    const toolCall = planToolCallOf(items);
+    expect(toolCall?.status).toBe("completed");
+    expect(toolCall?.rawInput?.plan).toBe(PLAN);
+  });
+
+  it("applies a plan whose permission frame arrives before the tool_call", () => {
+    const { items } = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "plan something"),
+        permissionRequestMsg(2, PLAN),
+        exitPlanModeMsg(3),
+      ],
+      true,
+    );
+
+    expect(planToolCallOf(items)?.rawInput?.plan).toBe(PLAN);
+  });
+
+  it("never overrides an inline plan", () => {
+    const { items } = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "plan something"),
+        exitPlanModeMsg(2, { plan: "inline plan" }),
+        permissionRequestMsg(3, PLAN),
+      ],
+      true,
+    );
+
+    expect(planToolCallOf(items)?.rawInput?.plan).toBe("inline plan");
+  });
+});
