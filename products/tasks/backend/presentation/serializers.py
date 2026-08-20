@@ -2267,6 +2267,17 @@ class TaskPinRequestSerializer(serializers.Serializer):
     pinned = serializers.BooleanField(help_text="Whether the task should be pinned for the requester.")
 
 
+class TaskHandoffRequestSerializer(serializers.Serializer):
+    """Request body for handing a task off to a colleague: they become its owner."""
+
+    user = serializers.IntegerField(
+        min_value=1,
+        help_text=(
+            "ID of the user taking over the task. Must have access to this project and not be the task's current owner."
+        ),
+    )
+
+
 class TaskPinResponseSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="Task whose pin state was updated.")
     pinned = serializers.BooleanField(help_text="Current pin state for the requester.")
