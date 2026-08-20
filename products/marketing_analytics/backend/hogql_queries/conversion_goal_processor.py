@@ -26,6 +26,7 @@ from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.dataclasses import frozen
 from posthog.models import PropertyDefinition, Team, User
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
@@ -60,7 +61,8 @@ PRECOMPUTE_TTL_SECONDS = {"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "def
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+# kw_only off: the TRACKED_FIELDS table below reads as a table, one positional row per field.
+@frozen(kw_only=False)
 class TrackedField:
     """A field tracked through the conversion attribution pipeline for channel classification."""
 
@@ -105,13 +107,19 @@ TRACKED_FIELDS: list[TrackedField] = [
     # in posthog/taxonomy/taxonomy.py). The `$initial_*` forms channel_type reads are
     # person-scoped copies derived from these, and `$gclid` exists nowhere at all.
     TrackedField("gclid", "gclid", click_identifier=True, click_id_source="google"),
-    TrackedField("fbclid", "fbclid", click_identifier=True, click_id_source="facebook"),
+    # Not a click identifier: Facebook appends fbclid to every outbound link, organic posts
+    # included, so it names the network without saying the click was paid. `channel_type`'s paid
+    # branch and `attribution_health`'s paid counter both exclude it for that reason; treating it
+    # as evidence here would admit organic Facebook traffic as a paid touchpoint and then have
+    # channel_type call the same row organic.
+    TrackedField("fbclid", "fbclid"),
     TrackedField("gad_source", "gad_source", click_identifier=True, click_id_source="google"),
 ]
 
 # Property names of the ad click identifiers. A pageview that carries one of these is a paid
-# touchpoint even with no utm_source. referring_domain is not here: it defaults to $direct on
-# organic traffic, so it is not evidence of an ad click.
+# touchpoint even with no utm_source. Deliberately only the Google Ads pair — see fbclid above.
+# referring_domain is out too: it defaults to $direct on organic traffic, so it is not evidence
+# of an ad click.
 CLICK_ID_PROPERTIES: list[str] = [f.event_property for f in TRACKED_FIELDS if f.click_identifier]
 
 CLICK_ID_FIELDS: list[TrackedField] = [f for f in TRACKED_FIELDS if f.click_identifier]
