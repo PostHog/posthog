@@ -296,6 +296,10 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
         deleted_while_unlocked: list[bool] = []
         original_delete = OAuthAccessToken.delete
 
+        def recording_delete(instance, *args, **kwargs):
+            deleted_while_unlocked.append(not mock_lock.called)
+            return original_delete(instance, *args, **kwargs)
+
         with (
             self.settings(
                 STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
@@ -303,14 +307,7 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
                 STRIPE_APP_CLIENT_ID="stripe_app_client_id",
                 STRIPE_APP_SECRET_KEY="sk_test",
             ),
-            patch.object(
-                OAuthAccessToken,
-                "delete",
-                lambda instance, *a, **kw: (
-                    deleted_while_unlocked.append(not mock_lock.called),
-                    original_delete(instance, *a, **kw),
-                )[1],
-            ),
+            patch.object(OAuthAccessToken, "delete", recording_delete),
         ):
             call_command("rotate_stripe_marketplace_tokens", stdout=StringIO())
 
