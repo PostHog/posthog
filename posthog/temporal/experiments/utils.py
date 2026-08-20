@@ -296,4 +296,5 @@ def check_sample_ratio_mismatch(experiment: Experiment) -> None:
         logger.warning(
             "Sample ratio mismatch check failed, skipping notification",
             experiment_id=experiment.id,
+            exc_info=True,
         )
