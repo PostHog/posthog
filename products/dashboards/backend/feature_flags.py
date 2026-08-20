@@ -27,6 +27,7 @@ def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> b
         posthoganalytics.feature_enabled(
             flag,
             distinct_id,
+            person_properties={"email": user.email} if user is not None else None,
             groups={"organization": organization_id, "project": project_id},
             group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
             only_evaluate_locally=False,
