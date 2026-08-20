@@ -20,6 +20,7 @@ export const ACTIVITY_EVENTS = [
   "pr_merged",
   "pr_closed",
   "message_forwarded",
+  "task_handed_off",
 ] as const;
 
 export type ActivityEventKind = (typeof ACTIVITY_EVENTS)[number];
@@ -88,6 +89,14 @@ export interface MessageForwardedPayload {
   runId: string;
 }
 
+export interface TaskHandedOffPayload {
+  fromUserId: number | null;
+  toUserId: number;
+  /** Rendered names, so the row can read without a member lookup. */
+  fromDisplayName: string | null;
+  toDisplayName: string;
+}
+
 /** Identity only: the thread body, quote, and replies are fetched when the row opens. */
 export interface CommentEventPayload {
   commentId: string;
@@ -115,7 +124,8 @@ export type ActivityEvent =
   | { kind: "pr_created"; payload: PrPayload }
   | { kind: "pr_merged"; payload: PrPayload }
   | { kind: "pr_closed"; payload: PrPayload }
-  | { kind: "message_forwarded"; payload: MessageForwardedPayload };
+  | { kind: "message_forwarded"; payload: MessageForwardedPayload }
+  | { kind: "task_handed_off"; payload: TaskHandedOffPayload };
 
 function str(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
@@ -254,6 +264,24 @@ export function parseActivityEvent(message: {
       const parsed = prPayload(payload);
       // A PR row with no url can't be labelled or opened, so it isn't a row.
       return parsed.prUrl ? { kind: event, payload: parsed } : null;
+    }
+    case "task_handed_off": {
+      // Older rows only carry user ids; a row with neither name can't say who
+      // took over, so fall back to undrawn rather than label it wrong.
+      const toDisplayName = optionalStr(payload.to_display_name);
+      if (!toDisplayName) return null;
+      return {
+        kind: event,
+        payload: {
+          fromUserId:
+            typeof payload.from_user_id === "number"
+              ? payload.from_user_id
+              : null,
+          toUserId: num(payload.to_user_id, 0),
+          fromDisplayName: optionalStr(payload.from_display_name),
+          toDisplayName,
+        },
+      };
     }
     case "message_forwarded":
       return {
