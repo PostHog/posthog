@@ -4118,9 +4118,13 @@ describe("AgentServer HTTP Mode", () => {
         createdAt: string | null;
         author: string | null;
         headRefName: string | null;
+        isCrossRepository: boolean | null;
       }>;
       fetchGhLogin(): Promise<string | null>;
-      getCurrentGitBranch(): Promise<string | null>;
+      getCurrentCheckout(): Promise<{
+        repository: string | null;
+        branch: string;
+      } | null>;
       detectedPrUrl: string | null;
       posthogAPI: {
         getTaskRun: ReturnType<typeof vi.fn>;
@@ -4132,20 +4136,24 @@ describe("AgentServer HTTP Mode", () => {
     const longAgo = "2020-01-01T00:00:00Z";
     const GH_LOGIN = "run-owner";
     const RUN_BRANCH = "posthog-self-driving/fix-the-thing-ab12cd";
+    const RUN_REPOSITORY = "posthog/posthog.com";
+    const RUN_CHECKOUT = { repository: RUN_REPOSITORY, branch: RUN_BRANCH };
 
     const setup = (
       prCreatedAt: string | null,
       prAuthor: string | null = GH_LOGIN,
       prHeadRefName: string | null = RUN_BRANCH,
+      isCrossRepository: boolean | null = false,
     ): PrTestServer => {
       const s = createServer() as unknown as PrTestServer;
       s.fetchPrAttribution = vi.fn(async () => ({
         createdAt: prCreatedAt,
         author: prAuthor,
         headRefName: prHeadRefName,
+        isCrossRepository,
       }));
       s.fetchGhLogin = vi.fn(async () => GH_LOGIN);
-      s.getCurrentGitBranch = vi.fn(async () => RUN_BRANCH);
+      s.getCurrentCheckout = vi.fn(async () => RUN_CHECKOUT);
       let storedOutput: Record<string, unknown> | null = null;
       s.posthogAPI = {
         getTaskRun: vi.fn(async () => ({ output: storedOutput })),
@@ -4222,6 +4230,7 @@ describe("AgentServer HTTP Mode", () => {
         createdAt: url === PR_URL ? justNow() : longAgo,
         author: GH_LOGIN,
         headRefName: RUN_BRANCH,
+        isCrossRepository: false,
       }));
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       s.maybeAttachCreatedPr(payload, terminalUpdate(viewed));
@@ -4257,7 +4266,10 @@ describe("AgentServer HTTP Mode", () => {
       // work. Every PR opened in the last few minutes scrolls past it; none is its own.
       const s = setup(justNow(), "app/posthog", "someone/feature-branch");
       s.fetchGhLogin = vi.fn(async () => null);
-      s.getCurrentGitBranch = vi.fn(async () => "master");
+      s.getCurrentCheckout = vi.fn(async () => ({
+        repository: RUN_REPOSITORY,
+        branch: "master",
+      }));
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
       expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
@@ -4267,10 +4279,43 @@ describe("AgentServer HTTP Mode", () => {
     it("does not attribute a fresh PR when neither the branch nor the identity can be resolved", async () => {
       const s = setup(justNow(), "app/posthog", null);
       s.fetchGhLogin = vi.fn(async () => null);
-      s.getCurrentGitBranch = vi.fn(async () => null);
+      s.getCurrentCheckout = vi.fn(async () => null);
       s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
       await flush();
       expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+    });
+
+    it("does not attribute a fork PR whose head branch name matches the run's branch", async () => {
+      // A fork owner picks the branch name, so a matching name proves nothing.
+      const s = setup(justNow(), "someone-else", RUN_BRANCH, true);
+      s.fetchGhLogin = vi.fn(async () => null);
+      s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
+      await flush();
+      expect(s.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      expect(s.detectedPrUrl).toBeNull();
+    });
+
+    it("attributes a PR on a branch the run pushed by signed commit when it has no checkout (no-repository mode)", async () => {
+      const s = setup(justNow(), "app/posthog");
+      s.fetchGhLogin = vi.fn(async () => null);
+      s.getCurrentCheckout = vi.fn(async () => null);
+      s.posthogAPI.getTaskRun = vi.fn(async () => ({
+        output: {
+          head_branches: [{ repository: RUN_REPOSITORY, branch: RUN_BRANCH }],
+        },
+      }));
+      s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
+      await flush();
+      expect(s.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);
+      expect(s.detectedPrUrl).toBe(PR_URL);
+    });
+
+    it("attributes a fresh PR the run's own identity authored from a branch it is no longer on", async () => {
+      const s = setup(justNow(), GH_LOGIN, "another-branch-of-ours");
+      s.maybeAttachCreatedPr(payload, terminalUpdate(PR_URL));
+      await flush();
+      expect(s.posthogAPI.updateTaskRun).toHaveBeenCalledTimes(1);
+      expect(s.detectedPrUrl).toBe(PR_URL);
     });
 
     it("still rejects an old PR when the identity cannot be resolved (recency guards)", async () => {

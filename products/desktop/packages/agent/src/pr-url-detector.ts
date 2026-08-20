@@ -33,29 +33,57 @@ export function wasCreatedRecently(
   return createdAt.getTime() >= nowMs - maxAgeMs;
 }
 
+// A branch this run pushed, as `owner/name` (lowercased) plus branch. `repository`
+// is null when the run knows its branch but not which remote it points at.
+export interface OwnedBranch {
+  repository: string | null;
+  branch: string;
+}
+
 export interface PrOwnershipEvidence {
   createdAt: string | null | undefined;
   nowMs: number;
   author: string | null | undefined;
   ghLogin: string | null | undefined;
+  // `owner/name` of the repository the PR lives in, lowercased, from its URL.
+  prRepository: string | null;
   headRefName: string | null | undefined;
-  currentBranch: string | null | undefined;
+  // True when the PR head lives in a fork. A fork's branch name is chosen by the
+  // fork owner, so it can never prove this run opened the PR.
+  isCrossRepository: boolean | null | undefined;
+  ownedBranches: readonly OwnedBranch[];
   baseBranch?: string | null;
+}
+
+const PR_REPOSITORY_REGEX =
+  /^https:\/\/github\.com\/([^/\s"]+\/[^/\s"]+)\/pull\/\d+/;
+
+export function parsePrRepository(prUrl: string): string | null {
+  const match = PR_REPOSITORY_REGEX.exec(prUrl);
+  return match ? match[1].toLowerCase() : null;
 }
 
 // Whether a PR URL seen in the agent's output is a PR this run opened, rather than
 // one it read while checking GitHub for in-flight work. Recency is necessary but
 // never sufficient on its own: a research run listing open PRs sees every PR the
 // repo opened in the last few minutes. Ownership needs one positive signal on top,
-// either the PR's head branch is the branch this run has checked out, or the PR
-// author is the identity this run pushes as. A run sitting on the base branch
-// cannot own a same-repo PR, so a head ref equal to the base is rejected outright.
+// either the PR's head branch is a branch this run pushed in that same repository,
+// or the PR author is the identity this run pushes as. A run sitting on the base
+// branch cannot own a same-repo PR, so a head ref equal to the base is rejected,
+// and so is any fork PR, whose head branch name is not ours to trust.
 export function wasCreatedByThisRun(evidence: PrOwnershipEvidence): boolean {
   if (!wasCreatedRecently(evidence.createdAt, evidence.nowMs)) return false;
-  const { headRefName, currentBranch, baseBranch } = evidence;
+  if (evidence.isCrossRepository) return false;
+  const { headRefName, baseBranch, prRepository } = evidence;
   if (headRefName && baseBranch && headRefName === baseBranch) return false;
-  if (headRefName && currentBranch) {
-    return headRefName === currentBranch;
-  }
-  return wasCreatedByLogin(evidence.author, evidence.ghLogin);
+  const branchOwned =
+    !!headRefName &&
+    evidence.ownedBranches.some(
+      (owned) =>
+        owned.branch === headRefName &&
+        (!owned.repository ||
+          !prRepository ||
+          owned.repository === prRepository),
+    );
+  return branchOwned || wasCreatedByLogin(evidence.author, evidence.ghLogin);
 }
