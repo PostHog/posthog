@@ -817,7 +817,11 @@ const Message = React.memo(function Message({
                     !message.id.startsWith('temp-') && (
                         <MaxWebAnalyticsNudge message={message} messageId={message.id} />
                     )}
-                {isLastInGroup && message.status === 'error' && (
+                {isLastInGroup && message.status === 'error' && !isFailureMessage(message) && (
+                    // This notice belongs to the GenerationError status event, where an assistant message
+                    // is marked 'error' and generation automatically runs again. A server FailureMessage
+                    // also carries status 'error' but is terminal (the user must press "Try again"), so it
+                    // must not claim a retry is in progress.
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
                             <IconWarning className="text-xl text-warning" />
