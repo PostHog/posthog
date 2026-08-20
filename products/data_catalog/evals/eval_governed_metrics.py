@@ -9,6 +9,8 @@ per-case team, asks a headline-business-number question, and grades the trust be
 * multiple materially different approved matches → clarify instead of guessing;
 * proposed, drifted, empty, or failed canonical paths → disclose and label any fallback
   noncanonical;
+* a definition question the catalog cannot answer → reconstruct from the saved insight and
+  close by offering to add it as a proposed metric, without creating one unprompted;
 * prescriptive "playbook" SQL for a governed measure pushed at the agent scout-style →
   still catalog-first, canonical run preferred over the prescribed query;
 * operational telemetry (a reliability rate a scheduled scout recomputes every run) →
@@ -37,7 +39,10 @@ from products.data_catalog.evals.constants import (
     APPROVED_METRIC_NAME,
     CURRENT_TOP_CUSTOMERS_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
+    DEFINITION_INSIGHT_NAME,
     DRIFTED_METRIC_NAME,
+    METRIC_CREATE_TOOL,
+    METRIC_UPDATE_TOOL,
     OPERATIONAL_METRIC_NAME,
     PROPOSED_METRIC_NAME,
     SCOUT_PRESCRIBED_OPS_SWEEP_SQL,
@@ -55,6 +60,7 @@ from products.data_catalog.evals.scorers import (
 from products.data_catalog.evals.seeders import (
     seed_ambiguous_top_customers_metrics,
     seed_approved_metric,
+    seed_definition_insight,
     seed_drifted_metric,
     seed_failing_top_customers_metric,
     seed_metric_listing_catalog,
@@ -65,6 +71,7 @@ from products.data_catalog.evals.seeders import (
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.scorers import NoToolCall
 
 
 async def eval_governed_metrics(ctx: EvalContext) -> None:
@@ -315,10 +322,37 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                     "expected_behavior": (
                         "Produced a derivation or a clearly-reasoned approximation of net revenue retention from "
                         "the project's events without stalling: it must not ask the user to define or approve a "
-                        "metric first, and must not claim it is blocked because no governed definition exists."
+                        "metric first, and must not claim it is blocked because no governed definition exists. "
+                        "Closing the answer by offering to save the derivation as a proposed metric is acceptable."
                     )
                 },
             },
+        ),
+        # Definition question with an empty catalog: the measure is only written down in a
+        # saved insight, so the settled answer is a reusable definition the catalog lacks.
+        # Pins the proactive close — users don't know proposals exist, so the agent has to
+        # ask — and pins that asking is not license to create one unprompted.
+        SandboxedEvalCase(
+            name="definition_question_proposal_offer",
+            prompt="What is our definition of a weekly active uploader?",
+            expected={
+                "metrics_catalog_queried": {},
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {"outcome": "not_called"},
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        "Checked the metrics catalog, found no governed definition of a weekly active uploader, "
+                        f"reconstructed the definition from the saved insight '{DEFINITION_INSIGHT_NAME}' (distinct "
+                        "users with an uploaded_file event in the trailing 7 days), and labeled it noncanonical or "
+                        "said no governed definition exists. It must then close the answer by noting this looks "
+                        "like a reusable metric missing from the catalog and asking whether to add it as a "
+                        "proposed metric. Answering with no closing offer is a failure. Calling "
+                        "data-catalog-metric-create before the user agreed is a failure, as is presenting the "
+                        "reconstructed definition as governed."
+                    )
+                },
+            },
+            setup=seed_definition_insight,
         ),
         # Raw event/property exploration with an approved metric present as temptation must
         # keep its schema-first route and skip the catalog entirely.
@@ -456,6 +490,9 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             CanonicalMetricRun(),
             MetricsCatalogNotQueried(),
             GovernedBehaviorCorrectness(),
+            # A case is one turn, so the user never answers the offer. Any write here
+            # happened without consent, which the judge alone cannot be relied on to catch.
+            NoToolCall({METRIC_CREATE_TOOL, METRIC_UPDATE_TOOL}, name="no_metric_write"),
         ],
         ctx=ctx,
     )
