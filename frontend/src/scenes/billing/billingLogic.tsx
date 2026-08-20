@@ -448,9 +448,6 @@ export interface billingLogicActions {
     scrollToProduct: (productType: string) => {
         productType: string
     }
-    setRegisteredCustomLimitKeys: (keys: string[]) => {
-        keys: string[]
-    }
     setActivateLicenseManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -508,6 +505,9 @@ export interface billingLogicActions {
     }
     setRedirectPath: (redirectPath: string) => {
         redirectPath: string
+    }
+    setRegisteredCustomLimitKeys: (keys: string[]) => {
+        keys: string[]
     }
     setScrollToProductKey: (scrollToProductKey: ProductKey | null) => {
         scrollToProductKey: ProductKey | null

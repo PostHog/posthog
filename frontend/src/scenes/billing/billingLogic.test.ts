@@ -139,6 +139,31 @@ describe('billingLogic', () => {
         expect(billingLogic.values.billingAlert).toBeNull()
     })
 
+    it('preserves billing error URL alerts when refreshed billing data has no managed alert', async () => {
+        billingState = billingWithProducts([productWithUsage(0)])
+        router.actions.push('/organization/billing', { billing_error: 'Checkout failed' })
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        expect(billingLogic.values.billingAlert).toMatchObject({
+            status: 'error',
+            title: 'Error',
+            message: 'Checkout failed',
+            contactSupport: true,
+        })
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.billingAlert).toMatchObject({
+            status: 'error',
+            title: 'Error',
+            message: 'Checkout failed',
+            contactSupport: true,
+        })
+    })
+
     it('unregisters removed custom limit analytics properties', async () => {
         const registerSpy = jest.spyOn(posthog, 'register')
         const unregisterSpy = jest.spyOn(posthog, 'unregister')
