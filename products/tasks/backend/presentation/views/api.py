@@ -561,15 +561,21 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ComputeBillingLimitExceeded as error:
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
-            # `code` distinguishes this from the compute-quota 429 for frontend handling.
-            return Response(
-                TaskRunErrorResponseSerializer(
-                    {"type": "rate_limit", "code": "signal_report_task_cap", "error": error.detail}
-                ).data,
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+            return self._report_task_cap_response(error.detail)
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+    def _report_task_cap_response(self, detail: str) -> Response:
+        """429 for a report that has spent its task allowance, on both create and run.
+
+        `code` distinguishes this from the compute-quota 429 for frontend handling.
+        """
+        return Response(
+            TaskRunErrorResponseSerializer(
+                {"type": "rate_limit", "code": "signal_report_task_cap", "error": detail}
+            ).data,
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
 
     def _forward_signals_discussion_note(
         self, request, task: tasks_contracts.TaskDetailDTO, relationship: str | None
@@ -932,7 +938,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             404: OpenApiResponse(description="Task not found"),
             429: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "Team is over its posthog_code usage limit, or the task's signal report has "
+                    "reached its task limit (code `signal_report_task_cap`)"
+                ),
             ),
         },
         summary="Run task",
@@ -959,7 +969,16 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
-        result = tasks_facade.run_task(pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data))
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
+            ReportTaskCapExceeded,
+        )
+
+        try:
+            result = tasks_facade.run_task(
+                pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data)
+            )
+        except ReportTaskCapExceeded as error:
+            return self._report_task_cap_response(error.detail)
         if result is None:
             raise NotFound()
         if result.error is not None:
