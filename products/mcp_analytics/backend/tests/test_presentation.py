@@ -610,6 +610,18 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
 
+    def test_resolves_id_with_dot(self) -> None:
+        # A dot in the id used to 404 this path-based route via the DRF default lookup regex; the
+        # widened lookup_value_regex lets it resolve.
+        session_id = "1.2.3-session"
+        MCPSession.objects.create(team=self.team, session_id=session_id, intent="A persisted summary.")
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(self._url(session_id))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
+
     def test_generates_and_persists_when_empty(self) -> None:
         session_id = "session-fresh"
         # Mock the two primitives so the endpoint path runs without ClickHouse or a real LLM call.
@@ -670,14 +682,41 @@ class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, Clickhou
             session = next(s for s in listed.json()["results"] if s["session_id"] == session_id)
             # Hand the serialized session_start straight back, exactly as the UI does.
             response = self.client.get(
-                f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/tool_calls/",
-                {"date_from": session["session_start"]},
+                f"/api/environments/{self.team.id}/mcp_analytics/sessions/tool_calls/",
+                {"session_id": session_id, "date_from": session["session_start"]},
             )
 
         assert response.status_code == status.HTTP_200_OK
         # The first event sits at exactly session_start; a `timestamp >= session_start` bound must
         # still include it after the round-trip — otherwise we'd get just ["last_tool"].
         assert [c["tool_name"] for c in response.json()["results"]] == ["first_tool", "last_tool"]
+
+    @parameterized.expand([("dot", "1.2.3-session"), ("slash", "harness/session/42")])
+    def test_tool_calls_resolves_ids_with_path_delimiters(self, _name: str, session_id: str) -> None:
+        # A dot or slash in the id used to 404 the route: the id sat in the URL path, where the DRF
+        # default lookup regex rejects a dot and the WSGI layer decodes %2F back to a slash before
+        # routing. As a query parameter it resolves, so the panel loads on any harness-reported id.
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=datetime.now(tz=UTC) - timedelta(minutes=5),
+            properties={"$session_id": session_id, "$mcp_tool_name": "some_tool"},
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/mcp_analytics/sessions/tool_calls/",
+                {"session_id": session_id},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["tool_name"] for c in response.json()["results"]] == ["some_tool"]
+
+    def test_tool_calls_requires_session_id(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/sessions/tool_calls/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestMCPSessionListQuerySerializer(SimpleTestCase):

@@ -509,32 +509,6 @@ export interface MCPSessionIntentApi {
     readonly intent: string
 }
 
-export interface MCPToolCallApi {
-    /** ClickHouse uuid of the $mcp_tool_call event. */
-    readonly event_id: string
-    /** When the tool call was captured. */
-    readonly timestamp: string
-    /** Tool that was invoked ($mcp_tool_name). */
-    readonly tool_name: string
-    /** Agent intent for this tool call ($mcp_intent). Empty when the SDK did not capture context. */
-    readonly intent: string
-    /** Whether the tool call resulted in an error. */
-    readonly is_error: boolean
-    /** Error message when is_error is true, otherwise empty. */
-    readonly error_message: string
-    /**
-     * Duration of the tool call in milliseconds when captured.
-     * @nullable
-     */
-    readonly duration_ms: number | null
-}
-
-export interface PaginatedMCPToolCallListApi {
-    results: MCPToolCallApi[]
-    /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
-    has_next: boolean
-}
-
 export interface MCPActivityStatsApi {
     /** $mcp_tool_call events captured in the last 30 days. */
     readonly total_calls: number
@@ -633,6 +607,32 @@ export interface MCPIntentDigestApi {
     readonly themes: readonly MCPIntentThemeApi[]
 }
 
+export interface MCPToolCallApi {
+    /** ClickHouse uuid of the $mcp_tool_call event. */
+    readonly event_id: string
+    /** When the tool call was captured. */
+    readonly timestamp: string
+    /** Tool that was invoked ($mcp_tool_name). */
+    readonly tool_name: string
+    /** Agent intent for this tool call ($mcp_intent). Empty when the SDK did not capture context. */
+    readonly intent: string
+    /** Whether the tool call resulted in an error. */
+    readonly is_error: boolean
+    /** Error message when is_error is true, otherwise empty. */
+    readonly error_message: string
+    /**
+     * Duration of the tool call in milliseconds when captured.
+     * @nullable
+     */
+    readonly duration_ms: number | null
+}
+
+export interface PaginatedMCPToolCallListApi {
+    results: MCPToolCallApi[]
+    /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
+    has_next: boolean
+}
+
 export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
@@ -715,4 +715,9 @@ export type McpAnalyticsSessionsToolCallsParams = {
      * @minimum 0
      */
     offset?: number
+    /**
+     * $mcp_session_id whose $mcp_tool_call events to list. A query parameter rather than a path segment so ids containing '.' or '/' resolve.
+     * @minLength 1
+     */
+    session_id: string
 }

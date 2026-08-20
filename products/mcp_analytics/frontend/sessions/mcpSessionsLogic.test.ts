@@ -70,4 +70,15 @@ describe('mcpSessionsLogic', () => {
         expect(logic.values.selectedSessionToolCalls.loading).toBe(true)
         expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).not.toContain('a2')
     })
+
+    it('fails soft to an empty panel when the first tool-calls page errors', async () => {
+        // Auto-select loads the first row's calls with no user action, so a failed fetch must resolve
+        // to an empty panel for the session rather than surface a hard error.
+        toolCallsMock.mockRejectedValueOnce(new Error('Endpoint not found.'))
+        await expectLogic(logic, () => {
+            logic.actions.selectSession('A')
+        }).toDispatchActions(['loadToolCallsSuccess'])
+        expect(logic.values.selectedSessionToolCalls.calls).toEqual([])
+        expect(logic.values.selectedSessionToolCalls.loading).toBe(false)
+    })
 })

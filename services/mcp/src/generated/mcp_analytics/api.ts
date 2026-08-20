@@ -281,8 +281,10 @@ export const McpAnalyticsSessionsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Generate (or return the cached) LLM summary of the agent's goal for a session, derived from its recorded $mcp_intents. The first call summarises and persists the result; subsequent calls return the stored summary.
  */
+export const mcpAnalyticsSessionsGenerateIntentPathIdRegExp = new RegExp('^[^\/]+$')
+
 export const McpAnalyticsSessionsGenerateIntentParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this mcp analytics submission.'),
+    id: zod.string().regex(mcpAnalyticsSessionsGenerateIntentPathIdRegExp),
     project_id: zod
         .string()
         .describe(
@@ -300,10 +302,9 @@ export const McpAnalyticsSessionsGenerateIntentQueryParams = /* @__PURE__ */ zod
 })
 
 /**
- * List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.
+ * List a page of the $mcp_tool_call events that belong to a given session_id, in chronological order.
  */
 export const McpAnalyticsSessionsToolCallsParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this mcp analytics submission.'),
     project_id: zod
         .string()
         .describe(
@@ -338,5 +339,11 @@ export const McpAnalyticsSessionsToolCallsQueryParams = /* @__PURE__ */ zod.obje
         .default(mcpAnalyticsSessionsToolCallsQueryOffsetDefault)
         .describe(
             "Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain."
+        ),
+    session_id: zod
+        .string()
+        .min(1)
+        .describe(
+            "$mcp_session_id whose $mcp_tool_call events to list. A query parameter rather than a path segment so ids containing '.' or '\/' resolve."
         ),
 })

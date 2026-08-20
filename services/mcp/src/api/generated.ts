@@ -90935,6 +90935,11 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * $mcp_session_id whose $mcp_tool_call events to list. A query parameter rather than a path segment so ids containing '.' or '/' resolve.
+     * @minLength 1
+     */
+    session_id: string;
     };
 
     export type McpGatewayAuditListParams = {

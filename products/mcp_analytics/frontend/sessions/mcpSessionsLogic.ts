@@ -74,17 +74,17 @@ export interface SessionToolCalls {
 
 const EMPTY_TOOL_CALLS: SessionToolCalls = { sessionId: null, calls: [], hasNext: false }
 
-// Fetch one page of a session's tool calls, unwrapped into { calls, hasNext }. session_id comes from
-// untrusted event properties, so encode it — path/query delimiters must not redirect the request to
-// another same-origin endpoint. date_from bounds the scan by the session's start so sessions older
-// than the backend's default lookback still return their calls.
+// Fetch one page of a session's tool calls, unwrapped into { calls, hasNext }. session_id is a query
+// parameter, so ids containing '.' or '/' resolve. date_from bounds the scan by the session's start
+// so sessions older than the backend's default lookback still return their calls.
 async function fetchToolCallsPage(
     projectId: string | number,
     sessionId: string,
     sessionStart: string | null | undefined,
     offset: number
 ): Promise<{ calls: MCPToolCallApi[]; hasNext: boolean }> {
-    const response = await mcpAnalyticsSessionsToolCalls(String(projectId), encodeURIComponent(sessionId), {
+    const response = await mcpAnalyticsSessionsToolCalls(String(projectId), {
+        session_id: sessionId,
         date_from: sessionStart || undefined,
         limit: TOOL_CALLS_PAGE_SIZE,
         offset,
@@ -354,12 +354,19 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !sessionId) {
                         return EMPTY_TOOL_CALLS
                     }
-                    const page = await fetchToolCallsPage(
-                        values.currentProjectId,
-                        sessionId,
-                        values.selectedSession?.session_start,
-                        0
-                    )
+                    // Fail soft: auto-select loads the first row's calls with no user action, so a
+                    // failed fetch shows an empty panel for the session rather than a hard error.
+                    let page: { calls: MCPToolCallApi[]; hasNext: boolean }
+                    try {
+                        page = await fetchToolCallsPage(
+                            values.currentProjectId,
+                            sessionId,
+                            values.selectedSession?.session_start,
+                            0
+                        )
+                    } catch {
+                        page = { calls: [], hasNext: false }
+                    }
                     breakpoint()
                     return { sessionId, ...page }
                 },

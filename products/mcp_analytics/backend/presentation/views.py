@@ -169,6 +169,10 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = "mcp-analytics"
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPSessionPagination
+    # Session ids are free-form strings from whatever harness reported them, so a dot is legal.
+    # The DRF default lookup regex ``[^/.]+`` rejects any id with a dot, 404-ing the detail route
+    # generate_intent; widen it to allow every character except the path separator.
+    lookup_value_regex = "[^/]+"
 
     def dangerously_get_queryset(self) -> QuerySet:
         # Sessions live in ClickHouse, not a Django model, but GenericViewSet still needs a
@@ -202,14 +206,16 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=MCPSessionToolCallsQuerySerializer,
         responses={200: OpenApiResponse(response=MCPToolCallSerializer(many=True))},
         operation_id="mcp_analytics_sessions_tool_calls",
-        description="List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.",
+        description="List a page of the $mcp_tool_call events that belong to a given session_id, in chronological order.",
     )
-    @action(detail=True, methods=["get"], url_path="tool_calls")
-    def tool_calls(self, request: ValidatedRequest, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+    @action(detail=False, methods=["get"], url_path="tool_calls")
+    def tool_calls(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        # session_id rides in the query string, not the path: a WSGI server decodes %2F back to a
+        # slash before routing, so a slash in the id would break a path segment however it is encoded.
         params = request.validated_query_data
         page = api.list_mcp_tool_calls(
             self.team,
-            session_id=str(pk or ""),
+            session_id=params["session_id"],
             limit=params["limit"],
             offset=params["offset"],
             date_from=params.get("date_from"),

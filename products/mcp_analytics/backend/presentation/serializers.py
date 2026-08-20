@@ -222,6 +222,12 @@ class LenientDateTimeField(serializers.DateTimeField):
 
 
 class MCPSessionToolCallsQuerySerializer(serializers.Serializer):
+    session_id = serializers.CharField(
+        help_text=(
+            "$mcp_session_id whose $mcp_tool_call events to list. A query parameter rather than a path "
+            "segment so ids containing '.' or '/' resolve."
+        ),
+    )
     date_from = LenientDateTimeField(
         required=False,
         help_text=(

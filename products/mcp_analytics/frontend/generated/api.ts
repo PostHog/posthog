@@ -248,41 +248,6 @@ export const mcpAnalyticsSessionsGenerateIntent = async (
     })
 }
 
-export const getMcpAnalyticsSessionsToolCallsUrl = (
-    projectId: string,
-    id: string,
-    params?: McpAnalyticsSessionsToolCallsParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/mcp_analytics/sessions/${id}/tool_calls/?${stringifiedParams}`
-        : `/api/projects/${projectId}/mcp_analytics/sessions/${id}/tool_calls/`
-}
-
-/**
- * List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.
- */
-export const mcpAnalyticsSessionsToolCalls = async (
-    projectId: string,
-    id: string,
-    params?: McpAnalyticsSessionsToolCallsParams,
-    options?: RequestInit
-): Promise<PaginatedMCPToolCallListApi> => {
-    return apiMutator<PaginatedMCPToolCallListApi>(getMcpAnalyticsSessionsToolCallsUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getMcpAnalyticsSessionsActivityOverviewUrl = (projectId: string) => {
     return `/api/projects/${projectId}/mcp_analytics/sessions/activity_overview/`
 }
@@ -314,5 +279,35 @@ export const mcpAnalyticsSessionsIntentDigest = async (
     return apiMutator<MCPIntentDigestApi>(getMcpAnalyticsSessionsIntentDigestUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getMcpAnalyticsSessionsToolCallsUrl = (projectId: string, params: McpAnalyticsSessionsToolCallsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_analytics/sessions/tool_calls/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_analytics/sessions/tool_calls/`
+}
+
+/**
+ * List a page of the $mcp_tool_call events that belong to a given session_id, in chronological order.
+ */
+export const mcpAnalyticsSessionsToolCalls = async (
+    projectId: string,
+    params: McpAnalyticsSessionsToolCallsParams,
+    options?: RequestInit
+): Promise<PaginatedMCPToolCallListApi> => {
+    return apiMutator<PaginatedMCPToolCallListApi>(getMcpAnalyticsSessionsToolCallsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

@@ -9,7 +9,6 @@ import {
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
     McpAnalyticsSessionsListQueryParams,
-    McpAnalyticsSessionsToolCallsParams,
     McpAnalyticsSessionsToolCallsQueryParams,
 } from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
@@ -105,9 +104,7 @@ const mcpAnalyticsSessionsList = (): ToolBase<
     },
 })
 
-const McpAnalyticsSessionsToolCallsSchema = McpAnalyticsSessionsToolCallsParams.omit({ project_id: true }).extend(
-    McpAnalyticsSessionsToolCallsQueryParams.shape
-)
+const McpAnalyticsSessionsToolCallsSchema = McpAnalyticsSessionsToolCallsQueryParams
 
 const mcpAnalyticsSessionsToolCalls = (): ToolBase<
     typeof McpAnalyticsSessionsToolCallsSchema,
@@ -119,11 +116,12 @@ const mcpAnalyticsSessionsToolCalls = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedMCPToolCallList>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/tool_calls/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/tool_calls/`,
             query: {
                 date_from: params.date_from,
                 limit: params.limit,
                 offset: params.offset,
+                session_id: params.session_id,
             },
         })
         return await withPostHogUrl(context, result, '/mcp-analytics')
