@@ -11,6 +11,7 @@ After synthesizing new material, spend a bounded pass keeping the wiki coherent.
 
 - Evolve AGENTS.md's map as pages appear or move, so it stays an accurate entry point.
 - Merge near-duplicate pages; leave a wikilink from the merged-away name's callers.
+- Remove or relink orphan pages (no inbound wikilinks); a page nothing links to is dead weight.
 - Resolve recorded disagreements you now have evidence to settle; note the resolution and its source.
 - Split a page that has grown past one topic; keep the hub page linking to the parts.
 - Fix broken wikilinks by writing the missing page when you have material, or leaving the link when you don't.

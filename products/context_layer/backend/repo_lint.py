@@ -24,6 +24,9 @@ MAX_TOTAL_BYTES = 50_000_000
 MAX_FILE_COUNT = 2_000
 DECISION_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$")
 FRONTMATTER_DELIMITER = "---"
+# `[[page]]` wikilinks are the graph between pages. A target may carry an
+# Obsidian-style `|display` suffix, which names the same page.
+WIKILINK_RE = re.compile(r"\[\[([^\]\[]+?)\]\]")
 
 
 def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
@@ -32,9 +35,23 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
     `pin_scripts=False` skips the script-content comparison; use it when linting
     historical trees, which legitimately carry earlier script versions. The tree
     that actually lands (and gets executed by agents) must keep the default.
+    Only hard errors are returned here; advisory findings (orphan pages) are
+    surfaced separately by `lint_repo_with_warnings` and never block a landing.
+    """
+    errors, _ = lint_repo_with_warnings(root, pin_scripts=pin_scripts)
+    return errors
+
+
+def lint_repo_with_warnings(root: Path | str, *, pin_scripts: bool = True) -> tuple[list[str], list[str]]:
+    """Structure violations as (errors, warnings).
+
+    Errors block a landing; warnings (currently orphan pages) are advisory —
+    they keep the wiki tidy but never fail the land, because a page can be
+    legitimately unlinked while it is being written.
     """
     root = Path(root)
     errors: list[str] = []
+    warnings: list[str] = []
 
     agents_md = root / "AGENTS.md"
     if not agents_md.is_file() or agents_md.is_symlink():
@@ -57,6 +74,7 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
     for directory in sorted(MARKDOWN_DIRECTORIES):
         errors.extend(_lint_markdown_directory(root, directory))
     errors.extend(_lint_channel_ids(root))
+    warnings.extend(_lint_orphan_pages(root))
 
     errors.extend(_lint_scripts_directory(root, pin_scripts=pin_scripts))
 
@@ -80,7 +98,7 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
     if file_count > MAX_FILE_COUNT:
         errors.append(f"the wiki exceeds the {MAX_FILE_COUNT} file limit")
 
-    return errors
+    return errors, warnings
 
 
 def _lint_markdown_directory(root: Path, directory: str) -> list[str]:
@@ -205,6 +223,52 @@ def _lint_scripts_directory(root: Path, *, pin_scripts: bool = True) -> list[str
     return errors
 
 
+def _lint_orphan_pages(root: Path) -> list[str]:
+    """Pages nothing links to are undiscoverable dead weight.
+
+    Dangling outbound links stay legal: they mark a page worth writing. But a
+    page with no inbound wikilink can never be reached by following the graph,
+    so it rots unread. The map in AGENTS.md counts as an inbound link, so
+    wiring a new hub page into the map (or into a hub page) is the fix.
+    """
+    pages: dict[str, Path] = {}
+    for directory in MARKDOWN_DIRECTORIES:
+        base = root / directory
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*.md"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            pages[str(path.relative_to(root))[:-3]] = path
+
+    if not pages:
+        return []
+
+    # outbound[file] = the wikilink targets that file points at. A page's own
+    # links never count toward its inbound set, so a page that only links to
+    # itself is still an orphan.
+    outbound: dict[Path, set[str]] = {}
+    for path in [root / "AGENTS.md", *pages.values()]:
+        if not path.is_file():
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        outbound[path] = {_normalize_link(match.group(1)) for match in WIKILINK_RE.finditer(content)}
+
+    warnings: list[str] = []
+    for target, path in sorted(pages.items()):
+        linked = any(linker != path and (target in links or path.stem in links) for linker, links in outbound.items())
+        if not linked:
+            warnings.append(f"{path.relative_to(root)}: no page links to it; link it from a hub page or remove it")
+    return warnings
+
+
+def _normalize_link(link: str) -> str:
+    return link.split("|", 1)[0].strip()
+
+
 def _frontmatter(path: Path) -> dict[str, str]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -224,12 +288,16 @@ def _frontmatter(path: Path) -> dict[str, str]:
 
 def main(argv: list[str]) -> int:
     root = Path(argv[1]) if len(argv) > 1 else Path.cwd()
-    errors = lint_repo(root)
+    errors, warnings = lint_repo_with_warnings(root)
+    for warning in warnings:
+        print(f"warning: {warning}")  # noqa: T201
     for error in errors:
         print(error)  # noqa: T201
     if errors:
         print(f"{len(errors)} problem(s) found")  # noqa: T201
         return 1
+    if warnings:
+        print(f"{len(warnings)} warning(s) found; fix them to keep the wiki tidy")  # noqa: T201
     print("wiki structure OK")  # noqa: T201
     return 0
 

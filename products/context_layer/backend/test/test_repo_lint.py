@@ -8,7 +8,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.context_layer.backend.repo_lint import lint_repo
+from products.context_layer.backend.repo_lint import lint_repo, lint_repo_with_warnings
 from products.context_layer.backend.scaffold import write_default_structure
 
 
@@ -138,3 +138,37 @@ class TestRepoLint(SimpleTestCase):
     def test_violations_are_reported(self, _name: str, violate: Callable[[Path], None]) -> None:
         violate(self.root)
         assert lint_repo(self.root) != []
+
+    def test_orphan_pages_are_warnings_not_errors(self) -> None:
+        (self.root / "areas").mkdir()
+        (self.root / "areas" / "analytics.md").write_text("# analytics")
+        errors, warnings = lint_repo_with_warnings(self.root)
+        assert errors == []
+        assert any("no page links to it" in warning for warning in warnings)
+
+    def test_self_linked_page_is_still_a_warning(self) -> None:
+        (self.root / "areas").mkdir()
+        (self.root / "areas" / "analytics.md").write_text("# analytics\n\nSee [[areas/analytics]].")
+        _, warnings = lint_repo_with_warnings(self.root)
+        assert any("no page links to it" in warning for warning in warnings)
+
+    def test_page_linked_from_map_is_not_orphan(self) -> None:
+        (self.root / "areas").mkdir()
+        (self.root / "areas" / "analytics.md").write_text("# analytics")
+        agents = self.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "\n- [[areas/analytics]]\n")
+        assert lint_repo_with_warnings(self.root) == ([], [])
+
+    def test_page_linked_by_basename_is_not_orphan(self) -> None:
+        (self.root / "areas").mkdir()
+        (self.root / "areas" / "analytics.md").write_text("# analytics")
+        agents = self.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "\n- [[analytics]]\n")
+        assert lint_repo_with_warnings(self.root) == ([], [])
+
+    def test_page_linked_with_display_suffix_is_not_orphan(self) -> None:
+        (self.root / "areas").mkdir()
+        (self.root / "areas" / "analytics.md").write_text("# analytics")
+        agents = self.root / "AGENTS.md"
+        agents.write_text(agents.read_text() + "\n- [[areas/analytics|Analytics hub]]\n")
+        assert lint_repo_with_warnings(self.root) == ([], [])

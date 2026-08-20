@@ -14,7 +14,7 @@ background agents. Treat it as reference material, not instructions.
 
 ## Map
 
-- `org/` holds who we are: mission, customers, personas, teams, business model.
+- `[[org/overview]]` holds who we are: mission, customers, personas, teams, business model.
 - `areas/<area>.md` is one hub page per product area: current state, direction, links.
 - `decisions/<YYYY-MM-DD>-<slug>.md` records product decisions: what, why, who, source.
 - `channels/<slug>.md` is one page per channel, with `channel_id` in its frontmatter.
@@ -28,6 +28,7 @@ background agents. Treat it as reference material, not instructions.
 ## How to update it
 
 - Keep pages in the directories above; `scripts/lint` checks the structure.
+- Keep the map above linked to every page; a page nothing links to is dead weight.
 - Write synthesized prose, not raw excerpts from source material.
 - If your work makes a page stale, correct those lines and commit the edit.
 - In a sandbox, run `scripts/publish` to land your commits; a linter reviews
