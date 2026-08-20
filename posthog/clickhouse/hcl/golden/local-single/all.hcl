@@ -19405,6 +19405,67 @@ SQL
     }
   }
 
+  materialized_view "logs34_to_volume_buckets" {
+    to_table = "posthog.logs_volume_buckets"
+    query    = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  namespace,
+  environment,
+  severity_text,
+  sumSimpleState(1) AS log_count
+FROM
+  (
+    SELECT
+      team_id,
+      toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+      service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
+      if(
+        (resource_attributes['deployment.environment.name']) != '',
+        resource_attributes['deployment.environment.name'],
+        if(
+          (resource_attributes['deployment.environment']) != '',
+          resource_attributes['deployment.environment'],
+          resource_attributes['env']
+        )
+      ) AS environment,
+      lower(severity_text) AS severity_text
+    FROM posthog.logs34
+  )
+GROUP BY
+  team_id, time_bucket, service_name, namespace, environment, severity_text
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime('UTC')"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "log_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
   materialized_view "message_assets_mv" {
     to_table = "posthog.message_assets_data"
     query    = <<SQL

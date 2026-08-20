@@ -136,7 +136,6 @@ const mockAuthenticatedClient = vi.hoisted(() => ({
   finalizeTaskStagedArtifactUploads: vi.fn(),
   presignTaskRunArtifact: vi.fn(),
   startGithubUserIntegrationConnect: vi.fn(),
-  getTaskRunSessionLogs: vi.fn(),
   getTaskRunSessionLogsResult: vi.fn(),
   getTaskRunSessionLogsPage: vi.fn(),
 }));
@@ -498,7 +497,6 @@ describe("SessionService", () => {
     mockGetIsOnline.mockReturnValue(true);
     mockGetConfigOptionByCategory.mockReturnValue(undefined);
     mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
-    mockAuthenticatedClient.getTaskRunSessionLogs.mockResolvedValue([]);
     mockSessionConfigStore.getPersistedConfigOptions.mockReturnValue(undefined);
     mockAdapterFns.getAdapter.mockReturnValue(undefined);
     mockAuthenticatedClient.getTaskRunSessionLogsResult.mockResolvedValue({
@@ -1940,6 +1938,204 @@ describe("SessionService", () => {
       );
     });
 
+    it("hydrates an uncached in-progress run from the transcript window, not the full log", async () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "in_progress",
+        isCloud: true,
+        events: [],
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
+      const chainEntries = Array.from({ length: 12000 }, (_, i) => ({
+        timestamp: `2024-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
+        notification: { method: `entry-${i}` },
+      }));
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockImplementation(
+        async (
+          _taskId: string,
+          _runId: string,
+          options: { limit: number; offset?: number },
+        ) => {
+          const offset = options.offset ?? 0;
+          const entries = chainEntries.slice(offset, offset + options.limit);
+          return {
+            entries,
+            hasMore: offset + entries.length < chainEntries.length,
+            matchingCount: chainEntries.length,
+          };
+        },
+      );
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+        undefined,
+        "https://example.com/logs/run-123",
+        "do the thing",
+        "claude",
+        undefined,
+        undefined,
+        undefined,
+        "in_progress",
+      );
+
+      await vi.waitFor(() => {
+        expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+          "run-123",
+          expect.objectContaining({
+            transcriptWindowStart: 10000,
+            cloudTranscriptEntryCount: 12000,
+            processedLineCount: 12000,
+          }),
+        );
+      });
+      expect(mockTrpcLogs.fetchS3Logs.query).not.toHaveBeenCalled();
+      // The run's prompt sits behind the window, not missing; a pinned
+      // placeholder would double it once older pages load.
+      expect(
+        mockSessionStoreSetters.appendOptimisticItem,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("commits a windowed snapshot at its offset instead of refetching the whole log", () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "in_progress",
+        isCloud: true,
+        events: [],
+        processedLineCount: 0,
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      mockConvertStoredEntriesToEvents.mockImplementation(
+        (entries: unknown[]) =>
+          entries.map(
+            (_, i) =>
+              ({
+                type: "acp_message",
+                ts: i,
+                message: { jsonrpc: "2.0", method: "session/update" },
+              }) as AcpMessage,
+          ),
+      );
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+      );
+
+      const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
+        .calls[0][1] as {
+        onData: (update: unknown) => void;
+      };
+      const windowEntries = [
+        { timestamp: "2024-01-01T00:00:00Z", notification: {} },
+        { timestamp: "2024-01-01T00:00:01Z", notification: {} },
+      ];
+      subscribeOptions.onData({
+        kind: "snapshot",
+        taskId: "task-123",
+        runId: "run-123",
+        newEntries: windowEntries,
+        totalEntryCount: 5000,
+        windowStart: 4998,
+      });
+
+      expect(mockConvertStoredEntriesToEvents).toHaveBeenCalledWith(
+        windowEntries,
+        undefined,
+        { taskRunId: "run-123", startEntryIndex: 4998 },
+      );
+      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({
+          transcriptWindowStart: 4998,
+          processedLineCount: 5000,
+        }),
+      );
+      expect(mockTrpcLogs.fetchS3Logs.query).not.toHaveBeenCalled();
+    });
+
+    it("keeps paged-in older history when a windowed snapshot overlaps the transcript", () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "in_progress",
+        isCloud: true,
+        events: [],
+        processedLineCount: 5000,
+        transcriptWindowStart: 4000,
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      mockConvertStoredEntriesToEvents.mockImplementation(
+        (entries: unknown[]) =>
+          entries.map(
+            (_, i) =>
+              ({
+                type: "acp_message",
+                ts: i,
+                message: { jsonrpc: "2.0", method: "session/update" },
+              }) as AcpMessage,
+          ),
+      );
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+      );
+
+      const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
+        .calls[0][1] as {
+        onData: (update: unknown) => void;
+      };
+      const windowEntries = Array.from({ length: 4 }, (_, i) => ({
+        timestamp: `2024-01-01T00:00:0${i}Z`,
+        notification: {},
+      }));
+      subscribeOptions.onData({
+        kind: "snapshot",
+        taskId: "task-123",
+        runId: "run-123",
+        newEntries: windowEntries,
+        totalEntryCount: 5002,
+        windowStart: 4998,
+      });
+
+      expect(mockSessionStoreSetters.appendEvents).toHaveBeenCalledWith(
+        "run-123",
+        expect.any(Array),
+        5002,
+      );
+      expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({ events: expect.anything() }),
+      );
+      expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({ transcriptWindowStart: expect.anything() }),
+      );
+    });
+
     it("waits out a restoring auth before hydrating instead of bailing", async () => {
       const service = getSessionService();
       const session = createMockSession({
@@ -2203,7 +2399,6 @@ describe("SessionService", () => {
       mockSessionStoreSetters.getSessions.mockReturnValue({
         "run-123": session,
       });
-      mockAuthenticatedClient.getTaskRunSessionLogs.mockResolvedValue([]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
       mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
         JSON.stringify({
@@ -2279,7 +2474,6 @@ describe("SessionService", () => {
       mockSessionStoreSetters.getSessions.mockReturnValue({
         "run-123": session,
       });
-      mockAuthenticatedClient.getTaskRunSessionLogs.mockResolvedValue([]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
       mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
 
