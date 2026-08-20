@@ -45,13 +45,25 @@ _USER_QUERY_ERROR_CLASSES: tuple[type[Exception], ...] = (
 USER_QUERY_ERROR_TYPE_NAMES: frozenset[str] = frozenset(cls.__name__ for cls in _USER_QUERY_ERROR_CLASSES)
 
 
-def is_expected_user_query_error(error: Exception) -> bool:
+def _bytes_cap_is_kill_switch_protection(team_id: Optional[int] = None) -> bool:
+    """True when a global or team-scoped kill switch is active. While one is, the tightened bytes
+    cap is temporary cluster protection, so a bytes-cap failure says nothing about the query."""
+    if get_kill_switch_level() != KillSwitchLevel.OFF:
+        return True
+    return team_id is not None and get_team_kill_switch_level(team_id) != KillSwitchLevel.OFF
+
+
+def is_expected_user_query_error(error: Exception, team_id: Optional[int] = None) -> bool:
     """True for user-caused query failures and for any failure the breaker replayed from cache.
     Capture sites skip error tracking for these — they are the user's to fix, not defects."""
     if getattr(error, "served_from_query_failure_cache", False):
         return True
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded) and not error.is_per_query_limit:
         # Cluster or user-wide memory pressure is transient infra, not the user's query.
+        return False
+    if isinstance(error, CHQueryErrorTooManyBytes) and _bytes_cap_is_kill_switch_protection(team_id):
+        # An active kill switch, not the query, tripped this bytes cap, so keep reporting it —
+        # matching classify_failure, which declines to cache it for the same reason.
         return False
     return isinstance(error, _USER_QUERY_ERROR_CLASSES)
 
@@ -69,9 +81,7 @@ def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optiona
     if isinstance(error, CHQueryErrorTooManyBytes):
         # Under an active kill switch (global or team-scoped) the bytes cap is temporary
         # cluster protection, so the failure says nothing about the query once it lifts.
-        if get_kill_switch_level() != KillSwitchLevel.OFF:
-            return None
-        if team_id is not None and get_team_kill_switch_level(team_id) != KillSwitchLevel.OFF:
+        if _bytes_cap_is_kill_switch_protection(team_id):
             return None
         return "too_many_bytes"
     return None

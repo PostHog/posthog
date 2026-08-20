@@ -2205,7 +2205,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # those are user-input limits — see _classify_error_for_slo. Skip those user
                         # limits here: the user fixes them by narrowing the query, so they are not
                         # defects and must not reach error tracking.
-                        if not is_expected_user_query_error(exc):
+                        if not is_expected_user_query_error(exc, self.team.pk):
                             capture_exception(exc)
                     if self._query_failure_caching_enabled:
                         # Transient error classes classify to None and are never recorded.
