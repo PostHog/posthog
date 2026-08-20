@@ -44,6 +44,8 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel whose instructions to read.
+        feature_flag: context-layer
+        feature_flag_behavior: disable
     channel-instructions-update:
         operation: task_channels_instructions_update
         enabled: true
@@ -61,6 +63,40 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel whose instructions to update.
+            base_version:
+                input_schema: ChannelInstructionsBaseVersionSchema
+        feature_flag: context-layer
+        feature_flag_behavior: disable
+    loop-channel-instructions-retrieve:
+        operation: task_channels_instructions_retrieve
+        enabled: true
+        scopes:
+            - task:read
+            - loop_context_internal:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read fallback loop context
+        description: Read legacy channel context when an unattended loop cannot access an initialized context wiki.
+        param_overrides:
+            id:
+                description: ID of the loop's context channel.
+    loop-channel-instructions-update:
+        operation: task_channels_instructions_update
+        enabled: true
+        scopes:
+            - task:write
+            - loop_context_internal:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update fallback loop context
+        description: Update legacy channel context when an unattended loop cannot access an initialized context wiki.
+        param_overrides:
+            id:
+                description: ID of the loop's context channel.
             base_version:
                 input_schema: ChannelInstructionsBaseVersionSchema
     channel-list:
@@ -87,9 +123,7 @@ tools:
             idempotent: true
         title: Get a channel
         description: "Get a single PostHog Tasks channel by id, returning its name and type. Channels are the project's
-            workspace channels that group tasks and canvases (public channels plus each member's #me channel). Use
-            channel-list to resolve a channel id from its name; use channel-instructions-retrieve to read the channel's
-            CONTEXT.md instructions."
+            workspace channels that group tasks and canvases (public channels plus each member's #me channel)."
         param_overrides:
             id:
                 description: ID of the channel to read.

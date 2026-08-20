@@ -270,6 +270,35 @@ class TestContextLayerAPI(APIBaseTest):
         # marker the caller must hold organization:write like any other writer.
         assert self._post_bundle_with_bearer("task:write").status_code == 403
 
+    def test_pages_accept_a_sandbox_run_token(self, _flag) -> None:
+        head = self._enable()
+        token = self._bearer("task:read task:write loop_context_internal:write")
+        self.client.logout()
+        response = self.client.put(
+            f"{self.base_url}/pages/",
+            {"path": "areas/analytics.md", "content": "# Updated by loop\n", "base_head": head},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == 200, response.content
+        page = self.client.get(
+            f"{self.base_url}/pages/",
+            {"path": "areas/analytics.md"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert page.status_code == 200
+
+    def test_pages_reject_task_scopes_without_run_provenance(self, _flag) -> None:
+        self._enable()
+        token = self._bearer("task:read task:write internal_run:read")
+        self.client.logout()
+        response = self.client.get(
+            f"{self.base_url}/pages/",
+            {"path": "areas/analytics.md"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == 403
+
     def test_commits_endpoint_rejects_lint_violations(self, _flag) -> None:
         self._enable()
         bundle_bytes = self._bundle_with_edit("rogue.txt", "nope")
