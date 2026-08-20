@@ -1175,9 +1175,13 @@ class RefundableRateThrottleMixin:
         # Re-read the window rather than writing back the snapshot this request captured at
         # throttle time. A concurrent request from the same user may have been charged since,
         # and restoring the snapshot would erase that charge and let the window run over its
-        # limit. This narrows the race to the gap between get and set rather than closing it,
-        # because Django's cache API has no atomic list operation; closing it fully would mean
-        # moving this scope onto a Redis-side token bucket.
+        # limit.
+        # This narrows the race rather than closing it, and closing it here is not reachable.
+        # SimpleRateThrottle.throttle_success() charges the window with the same unsynchronized
+        # get/modify/set, so there is no atomic writer to serialize against, and the window is
+        # stored as a pickled Python list, so no server-side Redis operation can edit it in
+        # place. Removing the race means replacing the sliding window with a token bucket,
+        # which changes throttling behavior well beyond this scope.
         current = self.cache.get(key, [])  # type: ignore[attr-defined]
         try:
             current.remove(charged_at)
