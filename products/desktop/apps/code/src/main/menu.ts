@@ -21,6 +21,7 @@ import { container } from "./di/container";
 import { AUTH_SERVICE, UPDATES_SERVICE } from "./di/tokens";
 import { isDevBuild } from "./utils/env";
 import { getLogFilePath } from "./utils/logger";
+import { getMemoryWatchdog } from "./watchdog/instance";
 import { adjustWindowZoom, ZOOM_STEP } from "./zoom";
 
 function applyZoom(
@@ -180,6 +181,28 @@ function buildFileMenu(): MenuItemConstructorOptions {
               void shell.openPath(pendingDir).then((err) => {
                 if (err) void shell.openPath(app.getPath("crashDumps"));
               });
+            },
+          },
+          {
+            label: "Capture memory snapshot",
+            click: () => {
+              const watchdog = getMemoryWatchdog();
+              if (!watchdog) return;
+              void watchdog
+                .capture("manual", "Requested from the Developer menu")
+                .then((report) => {
+                  if (report) shell.showItemInFolder(report.directory);
+                });
+            },
+          },
+          {
+            label:
+              process.platform === "darwin"
+                ? "Show memory reports in Finder"
+                : "Show memory reports in file manager",
+            click: () => {
+              const watchdog = getMemoryWatchdog();
+              if (watchdog) void shell.openPath(watchdog.reportsDirectory);
             },
           },
           ...(isDevBuild()

@@ -347,5 +347,6 @@ See [docs/TESTING.md](./docs/TESTING.md).
 - [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md)
 - [docs/DEEP-LINKS.md](./docs/DEEP-LINKS.md)
 - [docs/LOCAL-DEVELOPMENT.md](./docs/LOCAL-DEVELOPMENT.md)
+- [docs/MEMORY-WATCHDOG.md](./docs/MEMORY-WATCHDOG.md)
 - [docs/UPDATES.md](./docs/UPDATES.md)
 - [docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)
