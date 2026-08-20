@@ -12733,16 +12733,21 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("bool_id", {"id": True, "key": "replay_gate"}),
-            ("string_id", {"id": "abc", "key": "replay_gate"}),
-            ("missing_id", {"key": "replay_gate"}),
+            ("bool_id", lambda flag_id: {"id": True, "key": "replay_gate"}),
+            ("string_id", lambda flag_id: {"id": "abc", "key": "replay_gate"}),
+            ("missing_id", lambda flag_id: {"key": "replay_gate"}),
+            # A text id matching the flag's number is malformed, not linked: the team API
+            # normalizes numeric-string ids to ints at write time (see
+            # validate_session_recording_linked_flag), so jsonb's type-sensitive equality
+            # can safely ignore it, same as the single-flag guard's containment check.
+            ("numeric_string_id", lambda flag_id: {"id": str(flag_id), "key": "replay_gate"}),
         ]
     )
-    def test_bulk_delete_ignores_a_malformed_replay_link(self, _case, stored_link):
+    def test_bulk_delete_ignores_a_malformed_replay_link(self, _case, stored_link_factory):
         # One team's malformed stored link must not block or 500 the project's bulk deletes:
         # the guard's jsonb filter matches no flag for these shapes, so it ignores them.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated")
-        self.team.session_recording_linked_flag = stored_link
+        self.team.session_recording_linked_flag = stored_link_factory(flag.id)
         self.team.save()
 
         response = self.client.post(
