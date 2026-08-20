@@ -1030,9 +1030,12 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 row_count, file_uris = await _materialize_fully(
                     objects, plan, hogql_query, table_uri, storage_options, logger, cdp_sink, person_property_sink
                 )
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             # A retry stages from scratch and a terminal failure produces nothing, so whatever this
-            # attempt wrote is only ever waste.
+            # attempt wrote is only ever waste. CancelledError is a BaseException, not an Exception -
+            # cancelling or preempting the activity mid-write would otherwise skip this cleanup
+            # entirely, and the workflow's own cleanup can't reach it either: it only runs once the
+            # activity has returned a MaterializeViewResult, which a mid-run cancellation never does.
             await cdp_sink.discard()
             raise
 

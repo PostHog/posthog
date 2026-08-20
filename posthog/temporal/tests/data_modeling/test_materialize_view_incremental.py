@@ -6,6 +6,7 @@ Rust crate — key matching, duplicate rejection, schema handling, column-name c
 would assert our idea of deltalite rather than deltalite.
 """
 
+import asyncio
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -436,9 +437,12 @@ class TestIncrementalMaterialization:
 class _RecordingProducer:
     """Stands in for CDPProducer, recording what a run handed it."""
 
-    def __init__(self, *, gate: bool = True, fail_on_chunk: int | None = None) -> None:
+    def __init__(
+        self, *, gate: bool = True, fail_on_chunk: int | None = None, cancel_on_chunk: int | None = None
+    ) -> None:
         self._gate = gate
         self._fail_on_chunk = fail_on_chunk
+        self._cancel_on_chunk = cancel_on_chunk
         self.staged: list[tuple[Any, Any]] = []
         self.clears = 0
 
@@ -452,6 +456,10 @@ class _RecordingProducer:
     async def stage_chunk(self, chunk: int, batch: Any) -> None:
         if chunk == self._fail_on_chunk:
             raise RuntimeError("s3 is having a day")
+        if chunk == self._cancel_on_chunk:
+            # What a Temporal activity cancellation looks like from inside: the SDK cancels the
+            # asyncio task, which raises this at the next await point, here.
+            raise asyncio.CancelledError()
         self.staged.append((chunk, batch))
 
     def staged_rows(self) -> list[tuple[Any, Any]]:
@@ -538,6 +546,22 @@ class TestCDPRowStaging:
         assert result.should_trigger_cdp_producer is False
         assert producer.staged == []
         assert producer.clears >= 2, "the prefix is cleared at the start of the run and again on failure"
+
+    async def test_a_cancellation_mid_stage_discards_the_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        # A Temporal activity cancellation raises asyncio.CancelledError, a BaseException rather than
+        # an Exception - the same discard-on-first-failure rule must still run, or a cancelled run
+        # after staging began leaks its chunks under a prefix no later run's own clear reaches.
+        producer = _RecordingProducer(cancel_on_chunk=1)
+        await _configure(asaved_query)
+
+        with _settings(bucket_name), _patch_producer(producer):
+            with pytest.raises(asyncio.CancelledError):
+                await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]), _batch([DAY2], [20]))
+
+        assert producer.staged == []
+        assert producer.clears >= 2, "the prefix is cleared at the start of the run and again on cancellation"
 
     async def test_a_failed_run_stages_nothing(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
