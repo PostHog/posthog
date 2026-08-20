@@ -9,6 +9,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 import django
 django.setup()
 import posthog.temporal.health_checks.processing
+from posthog.temporal.health_checks.registry import ensure_registry_loaded
+ensure_registry_loaded()
 import sys
 print("posthog.dags" in sys.modules)
 """
