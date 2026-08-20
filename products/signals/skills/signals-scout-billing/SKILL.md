@@ -106,7 +106,13 @@ With `team_ids` pinned to one project, `["type"]` is all the step lane needs; on
 
 **Anchor on the data, not the wall clock.** `dates` runs through today, and today's bucket is reported as **zero on every meter**, not as a partial count — usage lands in daily batches.
 Drop today, and only today, before scoring — the latest complete day is yesterday, **even when every meter reads zero on it**. A complete all-zero day is the going-dark shape this scout promises to surface, so skipping back to the last non-zero date would hide a project-wide capture outage and freeze the cursor.
-Distinguish an outage from batch lag with the overview: if `usage_summary.<usage_key>.usage` is still advancing while the series shows zeros, the series is lagging — record the lag in the cursor and score the last non-zero day instead. Otherwise the zeros are real.
+Distinguish an outage from batch lag with **project-scoped** evidence, because the overview's `usage_summary` is an organization total and a sibling project still emitting keeps it advancing while this project is dark:
+
+- Zeros on one meter while this project's other meters report on the same date is **not** lag. Lag empties the whole day, not one series.
+- When every meter on this project reads zero, re-run the usage call for that date with `breakdowns: "[\"type\",\"team\"]"` and no `team_ids`. Another project carrying data for the same date means ingestion is current, so this project's zeros are real. Only treat the day as lagging when no project has data for it.
+- A caller who cannot see a sibling project has no way to tell the two apart. Score the zero day and say in the report that a delayed batch has not been ruled out, rather than dismissing it.
+
+Use the org `usage_summary` only to corroborate, never to decide. When the day really is lagging, record it in the cursor and score the last non-zero day instead.
 
 ### Profile shape — what is worth a look
 
@@ -141,8 +147,10 @@ Same-weekday matters: most PostHog meters have a hard weekday/weekend shape, and
 | Events             | `event_count_in_period`, `enhanced_persons_event_count_in_period`, `group_analytics`, `data_pipelines`                                      |
 | Logs               | `logs_mb_in_period`, `logs_retention_30d_mb_in_period`                                                                                      |
 | Warehouse rows in  | `rows_synced_in_period`, `free_historical_rows_synced_in_period`                                                                            |
-| Sandbox compute    | `sandbox_compute_credits_used_in_period`, `sandbox_compute_cpu_millicore_seconds_in_period`, `sandbox_compute_memory_mib_seconds_in_period` |
+| PostHog Desktop    | `posthog_code_credits_used_in_period`, `posthog_code_token_credits_used_in_period`, `sandbox_compute_credits_used_in_period`, `sandbox_compute_cpu_millicore_seconds_in_period`, `sandbox_compute_memory_mib_seconds_in_period` |
 | Session recordings | `recording_count_in_period`, `mobile_recording_count_in_period`                                                                             |
+
+The Desktop credits meter is the sum of its parts — token credits plus sandbox compute credits — so any token or compute move necessarily moves the aggregate too, and scoring them apart guarantees two families out of tolerance on a single localized jump.
 
 Report on the specific member that moved; use the family only for the concentration test.
 
@@ -160,11 +168,13 @@ A ramp that follows the project's own weekly rhythm and lifts related meters tog
 ### Lane 2 — the trajectory (every run, one call)
 
 `billing-overview-get` carries the forecast. Read the field mechanics in [`references/usage-types.md`](references/usage-types.md) before quoting a number — the wrong projection field overstates the invoice, and the consequence of crossing a limit is not as certain as it looks.
-The response is large (about 70 KB on a modest org: half `available_product_features`, a third `products[].tiers` and `products[].addons`), so make **one** call per run and pull only `billing_period`, `custom_limits_usd`, `discount_percent`, the four `projected_total_*` fields, `trial` / `free_trial_until`, and — for each product **and each entry in its `addons[]`**, since add-on meters like identified events, mobile recordings, and 30-day log retention carry their own tiers there — `type`, `usage_key`, `subscribed`, `tiers`, `free_allocation`, `current_usage`, `usage_limit`, and `projected_amount_usd`. Drop `available_product_features`, descriptions, and URLs unread.
+The response is large (about 70 KB on a modest org: half `available_product_features`, a third `products[].tiers` and `products[].addons`), so make **one** call per run and pull only `billing_period`, `custom_limits_usd`, `discount_percent`, the four `projected_total_*` fields, `trial` / `free_trial_until`, and — for each product **and each entry in its `addons[]`**, since add-on meters like identified events, mobile recordings, and 30-day log retention carry their own tiers there — `type`, `usage_key`, `subscribed`, `tiers`, `free_allocation`, `current_usage`, `usage_limit`, `projected_usage`, and `projected_amount_usd`.
+`projected_usage` is the unit forecast the materiality counterfactual starts from, and it cannot be rebuilt by summing the tiers' own forecasts — those can total something different — so dropping it degrades ordinary candidates to the spend or volume-only fallback. Drop `available_product_features`, descriptions, and URLs unread.
 If the harness truncates the payload, that is a close-out for this lane, not a denial and not a finding — the step lane still runs.
 Report-worthy shapes:
 
 - Projected period spend materially above the last complete period's actual, with no single meter explaining it.
+  **Compare daily run rates, not raw totals.** Billing periods are calendar months of different lengths, so a March projection sits ~11% above an unchanged February at an identical daily rate — enough to clear the materiality floor on the calendar alone. Divide each side by its own period's day count, or scale the prior total to the current period's length, before calling the difference surprising.
 - A product tracking to cross a `custom_limits_usd` spending limit before the period ends. The customer set that limit deliberately, so say what it may cost them — but state it as a possibility, not a certainty.
 - A trial ending soon where the post-trial run rate is a step up nobody has seen yet. Check **both** trial representations: the newer `trial` object and the legacy `free_trial_until` timestamp, which is still supported and is checked first elsewhere in the product.
 
@@ -205,6 +215,7 @@ The billing judgment on top:
   Name the handoff explicitly — the owning product scout and the drilldown surface — because your report should end where that investigation begins.
   These are decisions about someone's spend, not code fixes: `actionability=requires_human_input`, and leave `priority` / `repository` unset.
   **Do not attach `charts`.** Billing series come from a REST tool, not HogQL, so there is no query node that reproduces them — put the numbers in the prose, where a Slack reader gets them too.
+  **Write for a project-wide audience.** Reports and scratchpad entries are team-scoped, so anyone who can read the inbox reads your billing numbers whether or not the billing pages would let them in. Carry the figures the finding actually needs — the meter that moved, its volumes, its dollar impact — and leave the rest of the org's billing state (plan detail, full invoice totals, other products' spend) out of the prose.
 - **Edit** when a live report already tracks the meter. A meter still elevated is an `append_note` with the fresh window and the running dollar total, not a second report. Check the matched report is still live first — appending to a resolved or suppressed one buries a relapse.
 - **Remember** when it is suggestive but fails a gate, and always when you rule something out. A recorded backfill saves a future run the whole investigation.
 - **Skip** when `noise:` / `addressed:` / `dedupe:` or a live report covers it.

@@ -10,6 +10,7 @@ Every tiered product meters cumulatively **within** a period and resets at the b
 1. **Never compare spend across a period boundary day-for-day.** Identical usage bills higher early in a period, because the cheaper high-volume tiers have not been reached yet. Compare usage instead, or compare spend only at matched positions within a period.
 2. **A spend move with flat usage is a tier crossing** until proven otherwise.
 3. **Anything you cached from the overview goes stale at the rollover.** Store the period boundaries alongside any cached period figure and re-derive when `current_period_start` advances.
+4. **Periods are not the same length.** Comparing a 31-day period's projected total against a 28-day period's actual shows a ~11% rise at an unchanged daily rate. Normalize both sides to a daily run rate — total ÷ days in that period — before treating a period-over-period difference as a trajectory finding.
 
 The overview reflects the current period only. For history, use `billing-usage-get` / `billing-spend-get` with explicit dates.
 
