@@ -82,6 +82,7 @@ depends_on = [
     "products.access_control",
     "products.analytics_platform",
     "products.approvals",
+    "products.autoresearch",
     "products.batch_exports",
     "products.billing_alerts",
     "products.business_knowledge",
@@ -180,6 +181,14 @@ depends_on = [
     "posthog",
     "products.feature_flags",
     "products.notifications",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.autoresearch"
+depends_on = [
+    "posthog",
+    "products.feature_flags",
 ]
 layer = "modules"
 

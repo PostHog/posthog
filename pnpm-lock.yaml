@@ -2516,6 +2516,8 @@ importers:
 
   products/approvals: {}
 
+  products/autoresearch: {}
+
   products/batch_exports: {}
 
   products/billing: {}
