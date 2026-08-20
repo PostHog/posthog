@@ -147,24 +147,28 @@ class TestAppleSearchAdsSource:
 
     @parameterized.expand(
         [
-            ("campaigns", "https://api.searchads.apple.com/api/v5/campaigns?limit=1000&offset=0"),
-            ("ad_group_report", "https://api.searchads.apple.com/api/v5/reports/campaigns/123/adgroups"),
-            # The token exchange runs the same retry policy, so a final 503 from the auth host is
+            (
+                "read_503",
+                "503 Server Error: Service Unavailable for url: https://api.searchads.apple.com/api/v5/campaigns",
+            ),
+            # The token exchange runs the same retry policy, so a final 5xx from the auth host is
             # transient too and should not page anyone.
-            ("token", "https://appleid.apple.com/auth/oauth2/token"),
+            ("token_503", "503 Server Error: Service Unavailable for url: https://appleid.apple.com/auth/oauth2/token"),
+            # An edge 503 can carry a different or empty reason phrase; the status-derived prefix
+            # still classifies it, so the match must not depend on "Service Unavailable".
+            ("empty_reason", "503 Server Error:  for url: https://api.searchads.apple.com/api/v5/reports/campaigns"),
+            ("bad_gateway", "502 Server Error: Bad Gateway for url: https://api.searchads.apple.com/api/v5/campaigns"),
         ]
     )
-    def test_retryable_errors_match_transient_503(self, _name: str, url: str) -> None:
-        observed_error = f"503 Server Error: Service Unavailable for url: {url}"
-
+    def test_retryable_errors_match_transient_5xx(self, _name: str, observed_error: str) -> None:
         assert any(key in observed_error for key in self.source.get_retryable_errors())
 
     @parameterized.expand(
         [
             # A 4xx on a read endpoint is a real bug, not a transient blip, so it stays loud.
             ("read_400", "400 Client Error: Bad Request for url: https://api.searchads.apple.com/api/v5/campaigns"),
-            # Auth failures on the token host are credential problems, not outages, so the broadened
-            # 503 match must not swallow them.
+            # Auth failures on the token host are credential problems, not outages, so the
+            # "Server Error" match must not swallow them.
             ("token_400", "400 Client Error: Bad Request for url: https://appleid.apple.com/auth/oauth2/token"),
             ("token_401", "401 Client Error: Unauthorized for url: https://appleid.apple.com/auth/oauth2/token"),
         ]

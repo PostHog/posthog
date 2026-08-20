@@ -62,16 +62,15 @@ class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSear
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # Both the read API and the token exchange retry a 503 five times (`APPLE_SEARCH_ADS_RETRY`),
-        # but with `raise_on_status=False` the final 503 comes back as a response and is turned into
-        # an HTTPError. Apple returns 503 during brief outages, and Temporal retries the whole
-        # activity, so the import self-recovers. Keep these out of tracked exception noise. Matched on
-        # the 503 status and reason phrase plus the host, so a real 4xx on the same endpoints stays
-        # loud.
-        return {
-            "503 Server Error: Service Unavailable for url: https://api.searchads.apple.com",
-            "503 Server Error: Service Unavailable for url: https://appleid.apple.com/auth/oauth2/token",
-        }
+        # Both the read API and the token exchange retry a 5xx five times (`APPLE_SEARCH_ADS_RETRY`),
+        # but with `raise_on_status=False` the final response comes back and is turned into an
+        # HTTPError. Apple returns 503 during brief outages, and Temporal retries the whole activity,
+        # so the import self-recovers — keep these out of tracked exception noise.
+        # `requests.Response.raise_for_status` derives the "Server Error" prefix from the status code
+        # alone, not Apple's reason text, so it is stable to match on even when an edge 503 carries a
+        # different or empty reason phrase, while a 4xx ("Client Error") stays loud (see the
+        # app_store_connect/mailchimp/convex sources for the same pattern).
+        return {"Server Error"}
 
     @property
     def get_source_config(self) -> SourceConfig:
