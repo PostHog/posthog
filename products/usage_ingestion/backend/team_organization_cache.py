@@ -30,6 +30,7 @@ team_organization_hypercache = HyperCache(
     cache_miss_ttl=TEAM_ORGANIZATION_CACHE_MISS_TTL,
     cache_alias=USAGE_INGESTION_CACHE_ALIAS if USAGE_INGESTION_CACHE_ALIAS in settings.CACHES else None,
     expiry_sorted_set_key=TEAM_ORGANIZATION_EXPIRY_SORTED_SET,
+    bucket=settings.USAGE_INGESTION_OBJECT_STORAGE_BUCKET,
 )
 
 

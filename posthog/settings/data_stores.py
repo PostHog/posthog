@@ -573,6 +573,11 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 # Django owns writes while the Rust service reads the projection directly.
 USAGE_INGESTION_REDIS_URL = os.getenv("USAGE_INGESTION_REDIS_URL", None)
 
+# Dedicated object storage bucket for the same HyperCache's S3 tier. Unset falls back
+# to OBJECT_STORAGE_BUCKET; when set it must match the bucket the Rust reader is given,
+# or the S3 tier misses and every lookup falls through to PostgreSQL.
+USAGE_INGESTION_OBJECT_STORAGE_BUCKET = os.getenv("USAGE_INGESTION_OBJECT_STORAGE_BUCKET", None)
+
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
 # published where the gateway reads it — zero config for the gateway e2e
