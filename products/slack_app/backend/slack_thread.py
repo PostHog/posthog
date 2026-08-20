@@ -15,6 +15,7 @@ from products.slack_app.backend.services.slack_messages import (
     app_home_url,
     context_block,
     normalize_labeled_mentions_to_bare,
+    personal_integrations_url,
     post_slack_thread_reply,
     reply_footer_block,
     slack_message_exists,
@@ -445,6 +446,7 @@ class SlackThreadHandler:
         pr_url: str,
         task_url: str | None,
         reply_target_slack_user_id: str | None = None,
+        bot_authored: bool = False,
     ) -> None:
         """Post the single per-run "PR opened" card.
 
@@ -456,6 +458,12 @@ class SlackThreadHandler:
 
         ``reply_target_slack_user_id`` is the resolved actor — typically the
         most recent thread participant. ``None`` produces an untagged message.
+
+        ``bot_authored`` means the run fell back to the team GitHub installation
+        because the actor had no usable personal one, so the pull request carries
+        the bot's identity rather than theirs. This card is the first place that
+        becomes visible, and it is the only surface guaranteed to reach someone
+        who only ever talks to @PostHog from Slack.
         """
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         header = f"{mention_prefix}*Pull request opened* :rocket:"
@@ -488,8 +496,20 @@ class SlackThreadHandler:
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
             {"type": "actions", "elements": buttons},
         ]
+        if bot_authored:
+            blocks.append(context_block(self._personal_github_hint()))
 
         self._delete_progress_and_post(header, blocks)
+
+    def _personal_github_hint(self) -> str:
+        """One muted line telling the reader why the pull request isn't theirs.
+
+        Written for the next run rather than this one: authorship is fixed when a run is
+        created, so connecting now changes who the following pull requests belong to, and
+        the commits this thread pushes once someone replies here.
+        """
+        url = personal_integrations_url(self._get_integration().team_id)
+        return f"Opened by the PostHog bot. <{url}|Connect your GitHub> so pull requests are opened as you."
 
     def post_footer(self) -> None:
         """Post the footer alone, for an answer with no message of its own to close.
