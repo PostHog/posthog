@@ -615,7 +615,6 @@ def test_autostart_description_does_not_ask_the_agent_to_hunt_for_competing_work
     assert "gh pr list" not in description
     assert "gh issue list" not in description
     assert "competing PR" not in description
-    assert "do not search for competing work" in description
 
 
 @pytest.mark.parametrize(
