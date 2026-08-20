@@ -1676,6 +1676,33 @@ class TestResourceInheritance(BaseUserAccessControlTest):
         assert resource_access and resource_access.access_level == "none"
         assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "viewer") is False
 
+    def test_support_ticket_rule_does_not_gate_the_posthog_ai_conversation_scope(self):
+        """`conversation` must not inherit from `ticket`.
+
+        `conversation` is the scope object of PostHog AI's ConversationViewSet (ee/api/conversation.py)
+        and nothing else uses it — Support's own viewsets declare `ticket` directly. Sending a message
+        is a POST, so it requires `editor`: while `conversation` inherited from `ticket`, a project
+        restricting Support tickets to `viewer` lost PostHog AI entirely for every non-admin member.
+        """
+        assert "conversation" not in RESOURCE_INHERITANCE_MAP
+
+        self._create_access_control(
+            resource="ticket",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        # The Support restriction still applies to Support.
+        assert self.user_access_control.check_access_level_for_resource("ticket", "viewer") is True
+        assert self.user_access_control.check_access_level_for_resource("ticket", "editor") is False
+
+        # PostHog AI is untouched by it.
+        conversation_access = self.user_access_control.access_level_for_resource("conversation")
+        assert conversation_access and conversation_access.access_level == "editor"
+        assert self.user_access_control.check_access_level_for_resource("conversation", "editor") is True
+
 
 @pytest.mark.ee
 class TestFieldLevelAccessControl(BaseUserAccessControlTest):
