@@ -187,6 +187,28 @@ canvas) differ in payload shape, auth, and behavior. Invoking looks like:
 const { result } = await ph.actions.invoke('tasks.create', { title, description })
 ```
 
+## App state — ph.tasks
+
+`await ph.tasks({ limit? })` returns a live snapshot of the viewer's agent tasks in this app —
+for personal boards that track parallel agent work ("mission control", kanban, focus views).
+This is app state, not PostHog analytics data: no insight or SQL is involved, and it needs no
+capability declaration. In-app canvases only; the published tier's capability manifest denies it.
+
+```tsx
+const { tasks } = await ph.tasks({ limit: 50 }) // most recently updated first; limit 1-200
+// each task: { id, title, status, needsPermission, isGenerating, prUrl,
+//              repository, environment, runStatus, createdAt, updatedAt }
+```
+
+- `status` is `running | waiting | idle | error | completed`. `waiting` (with
+  `needsPermission: true`) means the agent is blocked on the viewer — surface it first and most
+  prominently.
+- Poll it: `setInterval` of 3–5 seconds inside a `useEffect` (cleared on unmount) keeps the board
+  live; the host serves list reads from a shared cache, so polling is cheap.
+- Wire each row's click to `ph.navigate.toTask(task.id)` so the board deep-links into the task.
+- `prUrl` is a GitHub URL — render it as a badge/label (e.g. `#4821`), not an `openExternal`
+  link (only posthog.com URLs open).
+
 ## Side effects
 
 - `ph.capture(event, properties?, distinctId?)` — analytics events for interactions

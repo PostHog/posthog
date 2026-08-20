@@ -127,6 +127,14 @@ exactly `className="w-auto p-0"` and nothing is added to `DateTimePicker` beyond
 `value`/`onApply`/`onCancel` (it self-sizes; don't pass `compact` or widths). Re-run every query
 when the window changes — see the `querying-canvas-data` skill for feeding it into `dateRange`.
 
+## Task boards
+
+For "track my agents / parallel work" requests, build the board on `ph.tasks()` (see the "App
+state" section of the `querying-canvas-data` skill): needs-attention tasks first (status
+`waiting`/`error`, amber/destructive treatment), then running with spinners, then recently
+finished with their PR badges. Poll every few seconds and open a task on click with
+`ph.navigate.toTask(id)`.
+
 ## State and actions
 
 Persisting values across reloads (`ph.state`, with user/shared scopes) and writing into PostHog

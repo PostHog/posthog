@@ -2,6 +2,7 @@ import { ShapesIcon, WarningIcon } from "@phosphor-icons/react";
 import { cn, Skeleton, Text } from "@posthog/quill";
 import { FreeformCanvas } from "@posthog/ui/features/canvas/freeform/FreeformCanvas";
 import { handleFreeformDataRequest } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
+import { useCanvasTasksResolver } from "@posthog/ui/features/canvas/freeform/useCanvasTasksResolver";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
 import { Box, Flex } from "@radix-ui/themes";
@@ -40,12 +41,15 @@ export function FreeformPreview({
   // preview shows real-ish content. (posthog-js itself is never booted — no
   // `analytics` prop — so there's no autocapture/pageview/replay either.)
   const queryClient = useQueryClient();
+  const resolveCanvasTasks = useCanvasTasksResolver();
   const onDataRequest = useCallback(
     (method: string, payload: unknown) =>
       method === "capture"
         ? Promise.resolve({ ok: true })
-        : handleFreeformDataRequest(method, payload, queryClient),
-    [queryClient],
+        : handleFreeformDataRequest(method, payload, queryClient, {
+            tasks: resolveCanvasTasks,
+          }),
+    [queryClient, resolveCanvasTasks],
   );
 
   return (

@@ -82,6 +82,77 @@ export const canvasLoadInsightInput = z.object({
 });
 export type CanvasLoadInsightInput = z.infer<typeof canvasLoadInsightInput>;
 
+// ---------------------------------------------------------------------------
+// Tasks avenue: the read behind the `ph.tasks` shim. A live snapshot of the
+// user's agent tasks — joined with in-memory session state (status, pending
+// permissions, prompt-in-flight) — so a canvas can be a personal board tracking
+// parallel agent work. Resolved entirely in the renderer from the same data the
+// sidebar and Command Center render; nothing here carries credentials, and the
+// canvas only ever sees this projected summary shape. In-app (edit-tier)
+// canvases only: the published tier's capability manifest denies unknown
+// methods by default, so a built artifact cannot reach it.
+// ---------------------------------------------------------------------------
+export const CANVAS_TASKS_MAX_LIMIT = 200;
+
+export const canvasTasksInput = z.object({
+  // How many tasks to return (most recently updated first). Bounded so a canvas
+  // can't ask the host to serialize thousands of rows across the postMessage
+  // boundary; defaults host-side when omitted.
+  limit: z.number().int().min(1).max(CANVAS_TASKS_MAX_LIMIT).optional(),
+});
+export type CanvasTasksInput = z.infer<typeof canvasTasksInput>;
+
+// The live display status, mirroring the Command Center's `CellStatus` (see
+// `command-center/status.ts`, the canonical derivation) so a canvas board and
+// the built-in grid never disagree about what an agent is doing.
+export const canvasTaskStatusSchema = z.enum([
+  "running",
+  "waiting",
+  "idle",
+  "error",
+  "completed",
+]);
+export type CanvasTaskStatus = z.infer<typeof canvasTaskStatusSchema>;
+
+export const canvasTaskSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  // Live status: derived from the task's connected session when one exists
+  // (with a terminal run status winning over a merely idle session), else
+  // coarsened from the latest run. "waiting" = blocked on the user (a pending
+  // permission) — the attention state a board should surface first.
+  status: canvasTaskStatusSchema,
+  // The latest run's raw lifecycle status, for boards that want run mechanics.
+  runStatus: z
+    .enum([
+      "not_started",
+      "queued",
+      "in_progress",
+      "completed",
+      "failed",
+      "cancelled",
+    ])
+    .nullable(),
+  environment: z.enum(["local", "cloud"]).nullable(),
+  // "owner/repo", when the task is bound to a repository.
+  repository: z.string().nullable(),
+  // The task's pull request, once a run has opened one.
+  prUrl: z.string().nullable(),
+  // Blocked on the user right now (pending permission request).
+  needsPermission: z.boolean(),
+  // The agent is actively producing output right now.
+  isGenerating: z.boolean(),
+  // ISO timestamps, as the API reports them.
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type CanvasTaskSummary = z.infer<typeof canvasTaskSummarySchema>;
+
+export const canvasTasksResultSchema = z.object({
+  tasks: z.array(canvasTaskSummarySchema),
+});
+export type CanvasTasksResult = z.infer<typeof canvasTasksResultSchema>;
+
 // Capture (write) avenue behind the `ph.capture` shim. The host sends the event
 // to the project using its PUBLIC project key (phc_…, safe to be client-side) —
 // the private read token still never enters the iframe. `distinctId` is who the
@@ -287,6 +358,7 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
       "loadInsight",
       "capture",
       "run",
+      "tasks",
       "stateGet",
       "stateSet",
       "stateList",

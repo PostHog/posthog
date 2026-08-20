@@ -3,6 +3,11 @@ import type { CanvasTemplateSummary } from "./templateSchemas";
 
 const FREEFORM_SUGGESTIONS = [
   {
+    label: "Agent task board",
+    prompt:
+      "Build a live board of my agent tasks using ph.tasks(): a 'Needs attention' section first (waiting/error), then running, then recently finished. Show each task's title, status, repo, and PR link, refresh every few seconds, and open a task when I click it.",
+  },
+  {
     label: "Signups chart",
     prompt:
       "Build an app that shows daily new signups for the last 30 days as a line chart, with a total at the top.",

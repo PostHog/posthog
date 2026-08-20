@@ -108,6 +108,7 @@ import {
 } from "./canvasVersionNavigation";
 import { handleFreeformDataRequest } from "./freeformDataBridge";
 import { useCanvasNavigation } from "./useCanvasNavigation";
+import { useCanvasTasksResolver } from "./useCanvasTasksResolver";
 import { usePinnedArtifact } from "./usePinnedArtifact";
 
 // A freeform (React-in-iframe) canvas. The rendered output is, in priority
@@ -589,11 +590,13 @@ export function FreeformCanvasView({
       setAgentRequest(null);
     }
   }, [dashboardId]);
+  const resolveCanvasTasks = useCanvasTasksResolver();
   const onDataRequest = useCallback(
     (method: string, payload: unknown) => {
       if (method !== "agentRequest") {
         return handleFreeformDataRequest(method, payload, queryClient, {
           dashboardId,
+          tasks: resolveCanvasTasks,
         });
       }
       const input = canvasAgentRequestInputSchema.parse(payload);
@@ -609,7 +612,7 @@ export function FreeformCanvasView({
         agentRequestPromiseRef.current = { resolve, reject };
       });
     },
-    [queryClient, dashboardId],
+    [queryClient, dashboardId, resolveCanvasTasks],
   );
   const cancelAgentRequest = useCallback(() => {
     agentRequestPromiseRef.current?.reject(new Error("Agent request canceled"));
