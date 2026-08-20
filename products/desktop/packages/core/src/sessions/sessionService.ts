@@ -2405,6 +2405,10 @@ export class SessionService {
     this.d.store.removeSession(taskRunId);
     this.cloudRunIdleTracker.delete(taskRunId);
     this.cloudLogGapReconciler.forgetDeficiency(taskRunId);
+    // The run is gone, so nothing is left to retry against. Any references
+    // still pending here are dead weight; drop them so a removed run cannot
+    // leave its failed registrations resident.
+    this.pendingReferenceRegistrations.delete(taskRunId);
     if (session) {
       this.localRepoPaths.delete(session.taskId);
       this.localRecoveryAttempts.delete(session.taskId);
@@ -3189,6 +3193,7 @@ export class SessionService {
       this.sessionEventFlushHandle = null;
     }
     this.pendingSessionEvents.clear();
+    this.pendingReferenceRegistrations.clear();
     this.hostEndedResubscribes.clear();
     this.lastSessionEventAt.clear();
     this.sessionEventStats.clear();
