@@ -231,6 +231,7 @@ class TestRunOrchestration:
             await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
 
         assert produce.call_args.args[3] == [("did1", {"plan_tier": "enterprise"})]
+        assert write_snapshot.await_args is not None
         assert set(write_snapshot.await_args.args[4]) == {"user@x.com"}
 
     @pytest.mark.asyncio
