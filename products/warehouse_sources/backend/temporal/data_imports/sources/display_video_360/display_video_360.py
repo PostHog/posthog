@@ -4,7 +4,6 @@ import json
 import time
 import datetime as dt
 import itertools
-import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
@@ -19,6 +18,7 @@ from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials as OAuthCredentials
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
@@ -84,7 +84,7 @@ class DisplayVideo360ReportTimeoutError(Exception):
     """
 
 
-@dataclasses.dataclass
+@frozen
 class DisplayVideo360ResumeConfig:
     # Entity fan-out: the advertiser whose page walk was in flight.
     advertiser_id: str | None = None
