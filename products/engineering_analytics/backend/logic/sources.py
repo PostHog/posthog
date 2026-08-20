@@ -193,6 +193,34 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
     return resolved
 
 
+TRUNK_MERGE_QUEUE_SCHEMA = "MergeQueuePullRequests"
+
+
+def resolve_trunk_merge_queue_table(team: Team) -> str | None:
+    """The synced Trunk merge-queue table's warehouse name, or None.
+
+    The TrunkIo source leaves its merge-queue endpoint unselected by default (it needs a target
+    branch the flaky-tests endpoints don't), so absence is the normal state and every consumer
+    degrades to the GitHub-derived proxy. Team-level: a Trunk source covers one merge queue, so
+    the first synced table wins rather than threading repo scope through a source that has none.
+    """
+    schemas = (
+        ExternalDataSchema.objects.filter(
+            team_id=team.pk,
+            source__source_type=ExternalDataSourceType.TRUNKIO,
+            name=TRUNK_MERGE_QUEUE_SCHEMA,
+            should_sync=True,
+        )
+        .exclude(deleted=True)
+        .select_related("table")
+    )
+    for schema in schemas:
+        table = schema.table
+        if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
+            return table.name
+    return None
+
+
 # Listing the team's connected sources is its own concern (no curated read handle): it threads the
 # requesting user's access control so the picker can't enumerate sources the user can't access.
 def build_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
