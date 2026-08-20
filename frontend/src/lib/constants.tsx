@@ -265,6 +265,7 @@ export const FEATURE_FLAGS = {
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     ANOMALY_ALERT_GUIDANCE_EXPERIMENT: 'anomaly-alert-guidance',
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
+    AUTORESEARCH: 'autoresearch', // owner: @andrewm4894 #team-platform-features
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
     BILLING_ALERTS: 'billing-alerts', // owner: #team-billing, gates the Billing > Alerts tab

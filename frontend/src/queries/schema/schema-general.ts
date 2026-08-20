@@ -9571,6 +9571,7 @@ export enum ProductKey {
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
+    AUTORESEARCH = 'autoresearch',
     COHORTS = 'cohorts',
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
