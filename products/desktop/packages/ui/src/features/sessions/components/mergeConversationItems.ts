@@ -77,6 +77,7 @@ export function mergeConversationItems({
   // echo but remember it. The server copy supplies the authoritative timestamp
   // as well as context and attachments, while the optimistic id keeps the row stable.
   const echoedItemByKey = new Map<string, UserMessageItem>();
+  const consumedEchoIds = new Set<string>();
   const consumedPlainEchoByKey = new Set<string>();
   const dedupedConversation =
     unconsumedPinnedKeyCounts.size === 0
@@ -88,10 +89,16 @@ export function mergeConversationItems({
           if (remaining > 0) {
             unconsumedPinnedKeyCounts.set(key, remaining - 1);
             echoedItemByKey.set(key, item);
+            consumedEchoIds.add(item.id);
             if (!hasShadowContext(item.content))
               consumedPlainEchoByKey.add(key);
             return false;
           }
+
+          // Cloud hydration can surface the same initial turn through both the stored log and
+          // the live transport. They share the authoritative conversation-item id. Drop that
+          // second representation without collapsing a later, intentional same-text message.
+          if (consumedEchoIds.has(item.id)) return false;
 
           if (
             consumedPlainEchoByKey.has(key) &&

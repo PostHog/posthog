@@ -117,6 +117,22 @@ describe("task response normalization", () => {
     });
   });
 
+  it("preserves an explicit system task principal", () => {
+    const task = normalizeTaskResponse(
+      {
+        id: "task-1",
+        principal: { type: "system", name: "signals", label: "Signals" },
+      },
+      { teamId: 123 },
+    );
+
+    expect(task.principal).toEqual({
+      type: "system",
+      name: "signals",
+      label: "Signals",
+    });
+  });
+
   // Multi-repo handoff and cloud-run instructions read task.repositories, so
   // dropping this fallback silently degrades every consumer to single-repo.
   it.each([

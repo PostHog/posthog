@@ -84,6 +84,10 @@ export interface Task {
    */
   last_activity_at?: string;
   created_by?: UserBasic | null;
+  principal?:
+    | { type: "user"; user: UserBasic }
+    | { type: "system"; name: string; label: string }
+    | null;
   origin_product: string;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")
   repositories?: string[];

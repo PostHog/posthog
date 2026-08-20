@@ -25,11 +25,15 @@ type TaskRunResponseDTO = Partial<
 };
 
 type TaskResponseDTO = Partial<
-  Omit<Schemas.Task, "created_by" | "json_schema" | "latest_run">
+  Omit<Schemas.Task, "created_by" | "json_schema" | "latest_run" | "principal">
 > & {
   id: string;
   channel?: string | null;
   created_by?: Schemas.UserBasic | null;
+  principal?:
+    | { type: "user"; user: Schemas.UserBasic }
+    | { type: "system"; name: string; label: string }
+    | null;
   github_user_integration?: string | null;
   last_activity_at?: string | null;
   json_schema?: unknown | null;
@@ -204,6 +208,7 @@ export function normalizeTaskResponse(
     updated_at: dto.updated_at ?? "",
     last_activity_at: dto.last_activity_at ?? dto.updated_at ?? "",
     ...(dto.created_by === undefined ? {} : { created_by: dto.created_by }),
+    ...(dto.principal === undefined ? {} : { principal: dto.principal }),
     origin_product: dto.origin_product ?? "",
     ...(dto.repository === undefined ? {} : { repository: dto.repository }),
     repositories: dto.repositories ?? (dto.repository ? [dto.repository] : []),

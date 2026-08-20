@@ -60,15 +60,15 @@ beforeEach(() => {
 });
 
 describe("ActivityTimeline", () => {
-  it("attributes an internal Signals task to its report", () => {
+  it("attributes a system-owned task to its explicit principal", () => {
     renderTimeline(false, [], {
       ...task,
       created_by: undefined,
-      origin_product: "signal_report",
+      principal: { type: "system", name: "signals", label: "Signals" },
     });
 
     expect(
-      screen.getByText("PostHog started this task from a Signals report"),
+      screen.getByText("Signals started this session"),
     ).toBeInTheDocument();
   });
 

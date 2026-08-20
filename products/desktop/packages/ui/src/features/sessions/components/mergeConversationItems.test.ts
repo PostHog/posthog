@@ -176,6 +176,19 @@ describe("mergeConversationItems", () => {
     expect(result.map((i) => i.id)).toEqual(["opt", "again"]);
   });
 
+  it("cloud: folds duplicate transport representations of the initial turn", () => {
+    const result = mergeConversationItems({
+      conversationItems: [
+        userMessage("initial-user", "repeat"),
+        userMessage("initial-user", "repeat"),
+      ],
+      optimisticItems: [userMessage("opt", "repeat")],
+      isCloud: true,
+    });
+
+    expect(result.map((item) => item.id)).toEqual(["opt"]);
+  });
+
   it("cloud: dedupe is no-op when there are no optimistic items", () => {
     const conversationItems = [
       userMessage("a", "first"),

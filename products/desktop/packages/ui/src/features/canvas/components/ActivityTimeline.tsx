@@ -1,4 +1,4 @@
-import { FileTextIcon, ScrollIcon } from "@phosphor-icons/react";
+import { FileTextIcon, ScrollIcon, SparkleIcon } from "@phosphor-icons/react";
 import type {
   ArtifactPayload,
   CommentEventPayload,
@@ -31,6 +31,7 @@ import {
   CommentRow,
   CommentStateRow,
   CREATED_BADGE,
+  EventBead,
   MESSAGE_BADGE,
   MessageBubble,
   PersonBead,
@@ -60,6 +61,7 @@ type ConversationItem = ReturnType<
 
 function UserMessageRow({
   author,
+  systemLabel,
   content,
   timestamp,
   connectedAbove,
@@ -67,13 +69,14 @@ function UserMessageRow({
   onShowInChat,
 }: {
   author?: UserBasic | null;
+  systemLabel?: string;
   content: string;
   timestamp: string;
   connectedAbove: boolean;
   connectedBelow: boolean;
   onShowInChat?: () => void;
 }) {
-  const name = author ? userDisplayName(author) : "You";
+  const name = systemLabel ?? (author ? userDisplayName(author) : "You");
   const channelContext = useMemo(
     () => extractChannelContext(content),
     [content],
@@ -100,7 +103,15 @@ function UserMessageRow({
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
-      gutter={<PersonBead user={author} badge={MESSAGE_BADGE} />}
+      gutter={
+        systemLabel ? (
+          <EventBead tone="violet">
+            <SparkleIcon size={10} weight="fill" />
+          </EventBead>
+        ) : (
+          <PersonBead user={author} badge={MESSAGE_BADGE} />
+        )
+      }
       timestamp={timestamp}
       onShowInChat={onShowInChat}
       detail={
@@ -327,26 +338,40 @@ export function ActivityTimeline({
     connectedAbove: boolean,
     connectedBelow: boolean,
   ) => {
+    const systemPrincipal =
+      task.principal?.type === "system" ? task.principal : null;
+    const principalUser =
+      task.principal?.type === "user" ? task.principal.user : task.created_by;
     switch (row.kind) {
-      case "task_created":
+      case "task_created": {
         return (
           <TimelineRow
             connectedAbove={connectedAbove}
             connectedBelow={connectedBelow}
-            gutter={<PersonBead user={task.created_by} badge={CREATED_BADGE} />}
+            gutter={
+              systemPrincipal ? (
+                <EventBead tone="violet">
+                  <SparkleIcon size={10} weight="fill" />
+                </EventBead>
+              ) : (
+                <PersonBead user={principalUser} badge={CREATED_BADGE} />
+              )
+            }
             timestamp={task.created_at}
           >
-            {!task.created_by && task.origin_product === "signal_report"
-              ? "PostHog started this task from a Signals report"
-              : `${task.created_by ? userDisplayName(task.created_by) : "Someone"} created this task`}
+            {systemPrincipal
+              ? `${systemPrincipal.label} started this session`
+              : `${principalUser ? userDisplayName(principalUser) : "Someone"} created this task`}
           </TimelineRow>
         );
+      }
       case "user_message":
         return (
           <UserMessageRow
             connectedAbove={connectedAbove}
             connectedBelow={connectedBelow}
-            author={task.created_by}
+            author={principalUser}
+            systemLabel={systemPrincipal?.label}
             content={row.item.content}
             timestamp={new Date(row.item.timestamp).toISOString()}
             onShowInChat={showPromptInChat(row.item.id)}
