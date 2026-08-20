@@ -89,13 +89,25 @@ class TaskOwnershipChangedError(RuntimeError):
 class Channel(TeamScopedRootMixin):
     """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
-    channel ("#me") per team, provisioned lazily on first channel list."""
+    channel ("#me") per team, and each team gets a public "general" channel, Slack-style.
+    Listing creates neither; provisioning does. The general channel can't be renamed or
+    deleted."""
 
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"
         PERSONAL = "personal", "Personal"
 
+    class SystemRole(models.TextChoices):
+        """Identifies a channel as one of the two system-provisioned spaces, independent
+        of its (renameable) name and its (visibility-only) channel_type."""
+
+        PERSONAL = "personal", "Personal"
+        GENERAL = "general", "General"
+
     PERSONAL_CHANNEL_NAME = "me"
+    # The label the personal channel is shown under, reserved so no other space can wear it.
+    PERSONAL_CHANNEL_LABEL = "personal"
+    GENERAL_CHANNEL_NAME = "general"
 
     @classmethod
     def visible_to_q(cls, user_id: int | None, *, relation: Literal["", "channel", "task__channel"] = "") -> models.Q:
@@ -123,6 +135,10 @@ class Channel(TeamScopedRootMixin):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     name = models.CharField(max_length=128)
     channel_type = models.CharField(max_length=16, choices=ChannelType, default=ChannelType.PUBLIC)
+    # Null for ordinary channels. No dedicated unique constraint: provisioning still creates/adopts
+    # the general channel by its fixed name, so task_channel_team_name_public_unique (team, name)
+    # remains the race guard; task_channel_team_user_personal_unique guards the personal role likewise.
+    system_role = models.CharField(max_length=16, null=True, blank=True, choices=SystemRole.choices)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
