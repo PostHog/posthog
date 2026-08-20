@@ -5,6 +5,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -40,6 +41,8 @@ import {
     DashboardFilter,
     AccountsQuery,
     AccountsQueryResponse,
+    AccountsTableQuery,
+    AccountsTableQueryResponse,
     DataNode,
     DataVisualizationNode,
     ErrorTrackingQuery,
@@ -71,6 +74,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     isAccountsQuery,
+    isAccountsTableQuery,
     isActorsQuery,
     isErrorTrackingQuery,
     isEventsQuery,
@@ -139,6 +143,24 @@ export interface DataNodeLogicProps {
 
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
+
+const VALID_REFRESH_TYPES: ReadonlySet<RefreshType> = new Set([
+    'async',
+    'async_except_on_cache_miss',
+    'blocking',
+    'force_async',
+    'force_blocking',
+    'force_cache',
+    'lazy_async',
+])
+
+// Guards against callers that wire `loadData` straight to an event handler, so a React
+// MouseEvent (or any other non-RefreshType value) never reaches the query request body.
+function sanitizeRefreshType(refresh: unknown): RefreshType | undefined {
+    return typeof refresh === 'string' && VALID_REFRESH_TYPES.has(refresh as RefreshType)
+        ? (refresh as RefreshType)
+        : undefined
+}
 
 const concurrencyController = new ConcurrencyController(1)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
@@ -910,7 +932,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             alreadyRunningQueryId?: string,
             overrideQuery?: DataNode<Record<string, any>>
         ) => ({
-            refresh,
+            refresh: sanitizeRefreshType(refresh),
             queryId: alreadyRunningQueryId || uuid(),
             pollOnly: !!alreadyRunningQueryId,
             overrideQuery,
@@ -1097,6 +1119,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isSessionsQuery(props.query) ||
                         isMarketingAnalyticsTableQuery(props.query) ||
                         isAccountsQuery(props.query) ||
+                        isAccountsTableQuery(props.query) ||
                         isWebStatsTableQuery(props.query)
                     ) {
                         const newResponse =
@@ -1122,6 +1145,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | SessionsQueryResponse
                             | MarketingAnalyticsTableQueryResponse
                             | AccountsQueryResponse
+                            | AccountsTableQueryResponse
                             | WebStatsTableQueryResponse
 
                         let results = [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])]
@@ -1383,7 +1407,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const response = await performQuery(query)
                         breakpoint()
                         return response?.results?.[0]?.[0] || 0
-                    } catch (error) {
+                    } catch (error: any) {
+                        if (isBreakpoint(error)) {
+                            throw error
+                        }
                         posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
                         return null
                     }
@@ -1504,6 +1531,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isSessionsQuery(query) ||
                         isMarketingAnalyticsTableQuery(query) ||
                         isAccountsQuery(query) ||
+                        isAccountsTableQuery(query) ||
                         isWebStatsTableQuery(query)) &&
                     !responseError &&
                     !dataLoading
@@ -1520,24 +1548,29 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | SessionsQueryResponse
                                 | MarketingAnalyticsTableQueryResponse
                                 | AccountsQueryResponse
+                                | AccountsTableQueryResponse
                                 | WebStatsTableQueryResponse
                         )?.hasMore
                     ) {
                         const sortKey =
-                            isTracesQuery(query) || isSessionQuery(query)
+                            isTracesQuery(query) || isSessionQuery(query) || isAccountsTableQuery(query)
                                 ? null
                                 : (query.orderBy?.[0] ?? 'timestamp DESC')
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const typedResults = (response as EventsQueryResponse)?.results
-                            const sortColumnIndex = query.select
-                                .map((hql) => removeExpressionComment(hql))
-                                .indexOf('timestamp')
+                            const cleanedColumns = query.select.map((hql) => removeExpressionComment(hql))
+                            const sortColumnIndex = cleanedColumns.indexOf('timestamp')
                             if (sortColumnIndex !== -1) {
-                                const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
+                                const lastRow = typedResults?.[typedResults.length - 1]
+                                const lastTimestamp = lastRow?.[sortColumnIndex]
                                 if (lastTimestamp) {
+                                    // Encode the last row's uuid into the cursor so pagination advances
+                                    // through events sharing a timestamp instead of dropping the ties past
+                                    // the page boundary. The backend splits `<timestamp>|<uuid>` back apart.
+                                    const lastUuid = extractCursorUuid(lastRow, cleanedColumns)
                                     const newQuery: EventsQuery = {
                                         ...query,
-                                        before: lastTimestamp,
+                                        before: lastUuid ? `${lastTimestamp}|${lastUuid}` : lastTimestamp,
                                         limit: Math.max(
                                             100,
                                             Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
@@ -1558,6 +1591,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     | SessionsQueryResponse
                                     | MarketingAnalyticsTableQueryResponse
                                     | AccountsQueryResponse
+                                    | AccountsTableQueryResponse
                                     | WebStatsTableQueryResponse
                             )?.results
                             return {
@@ -1577,6 +1611,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | SessionsQuery
                                 | MarketingAnalyticsTableQuery
                                 | AccountsQuery
+                                | AccountsTableQuery
                                 | WebStatsTableQuery
                         }
                     }
@@ -2055,4 +2090,24 @@ const dedupeResults = (arr: any[], key: string): any[] => {
             return acc
         }, {})
     )
+}
+
+// Pull the event uuid out of a result row to use as a stable pagination tiebreaker. It lives either
+// in the expanded `*` column (an object) or in an explicit `uuid` column.
+function extractCursorUuid(row: any[] | undefined, columns: string[]): string | undefined {
+    if (!row) {
+        return undefined
+    }
+    const starIndex = columns.indexOf('*')
+    if (starIndex !== -1) {
+        const starValue = row[starIndex]
+        if (starValue && typeof starValue === 'object' && typeof starValue.uuid === 'string') {
+            return starValue.uuid
+        }
+    }
+    const uuidIndex = columns.indexOf('uuid')
+    if (uuidIndex !== -1 && typeof row[uuidIndex] === 'string') {
+        return row[uuidIndex]
+    }
+    return undefined
 }

@@ -26,6 +26,7 @@ def _pr(**overrides: object) -> PRData:
         "mergeable_state": "clean",
         "author": "alice",
         "labels": [],
+        "base_ref": "master",
         "base_sha": "a",
         "head_sha": "h",
         "files": [],
@@ -186,6 +187,53 @@ def test_inline_truncation_keeps_unresolved_drops_resolved(
     assert line == omission
 
 
+def test_explore_root_defaults_to_repo_root() -> None:
+    repo = Path("/repo")
+    assert Reviewer(repo).explore_root == repo
+    other = Path("/tmp/wt")
+    assert Reviewer(repo, explore_root=other).explore_root == other
+
+
+def test_copy_diff_into_explore_root_cannot_follow_pr_symlink(tmp_path: Path) -> None:
+    source_diff = tmp_path / "source.patch"
+    source_diff.write_text("diff --git a/file b/file\n")
+    explore_root = tmp_path / "explore"
+    explore_root.mkdir()
+    outside_target = tmp_path / "outside"
+    outside_target.write_text("unchanged")
+    (explore_root / ".pr-review-diff.patch").symlink_to(outside_target)
+
+    copied_diff = Reviewer(tmp_path, explore_root=explore_root)._copy_diff_into_explore_root(source_diff)
+
+    assert copied_diff.parent == explore_root
+    assert copied_diff.name != ".pr-review-diff.patch"
+    assert copied_diff.read_text() == source_diff.read_text()
+    assert outside_target.read_text() == "unchanged"
+
+
+@pytest.mark.parametrize(
+    "base_ref, default_branch, expect_stack_note",
+    [
+        ("master", "master", False),
+        ("query-validations", "master", True),
+        # Stacked-ness keys off the repo's own trunk, not a hardcoded "master".
+        ("main", "main", False),
+        ("master", "main", True),
+    ],
+)
+def test_prompt_stack_note(base_ref: str, default_branch: str, expect_stack_note: bool) -> None:
+    # A stacked PR (base != the repo's default branch) gets a note telling the
+    # agent that parent-PR symbols resolve in the tree and aren't missing.
+    prompt = _prompt(_pr(base_ref=base_ref, default_branch=default_branch))
+
+    assert ("Stacked PR" in prompt) is expect_stack_note
+    if expect_stack_note:
+        assert f"targets a non-default branch, not `{default_branch}`" in prompt
+        # The author-chosen base branch name must not land in the trusted block.
+        trusted, _, _ = prompt.rpartition("--- BEGIN UNTRUSTED CONTENT ---")
+        assert base_ref not in trusted
+
+
 def _fake_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, guidance: str) -> Path:
     monkeypatch.setattr(policy, "repo_root", lambda: tmp_path)
     stamphog_dir = tmp_path / ".stamphog"
@@ -230,3 +278,33 @@ def test_format_ownership_individual_only(ownership: dict, summary: str, expecte
     out = Reviewer(Path("."))._format_ownership(cl)
     assert out.splitlines()[0] == expected_head
     assert "NOT on the owning team" not in out
+
+
+def test_prompt_provenance_renders_only_for_self_driving_runs() -> None:
+    # The Action never sets the flag, so its prompts must stay byte-identical (absent and False both
+    # render nothing); a self-driving run gets the TRUSTED provenance block that replaces the
+    # human-author trust context the prompt normally leans on.
+    reviewer = Reviewer(Path("."))
+
+    def prompt_with(cl_extra: dict) -> str:
+        cl = {
+            "tier": "T1-agent",
+            "t1_subclass": "",
+            "breadth": "narrow",
+            "commit_type": "fix",
+            "familiarity": None,
+            "ownership": {},
+            "assurance": None,
+            **cl_extra,
+        }
+        return reviewer._build_review_prompt(_pr(), cl, {"gate_verdict": "PENDING", "gates": []}, Path("/tmp/d.patch"))
+
+    assert prompt_with({}) == prompt_with({"self_driving": False})
+    assert "Provenance:" not in prompt_with({})
+
+    self_driving_prompt = prompt_with({"self_driving": True})
+    assert "Provenance: this PR was opened by a self-driving implementation task" in self_driving_prompt
+    # The block is trust guidance, not trust itself — it must sit in the TRUSTED region, above the
+    # untrusted PR content. rindex: the anti-injection notice at the top of the prompt also quotes
+    # the marker text, so the real delimiter is the last occurrence.
+    assert self_driving_prompt.index("Provenance:") < self_driving_prompt.rindex("--- BEGIN UNTRUSTED CONTENT ---")

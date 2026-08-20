@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
-    config::{AiRouting, CaptureMode},
+    config::CaptureMode,
     quota_limiters::CaptureQuotaLimiter,
     router::router,
     sinks::Event,
@@ -1101,30 +1101,27 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             quota_limiter,
             TokenDropper::default(),
             None, // event_restriction_service
-            false,
+            None, // recorder_handle
             mode,
-            String::from("capture"),
             None,
             25 * 1024 * 1024,
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
             is_mirror_deploy,
             verbose_sample_percent,
-            26_214_400,         // 25MB default for AI endpoint
-            None,               // ai_blob_storage
-            None,               // body_chunk_read_timeout_ms
-            256,                // body_read_chunk_size_kb
-            10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
-            50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
-            None,               // overflow_limiter
-            None,               // ai_events_overflow_limiter
-            None,               // replay_overflow_limiter
-            None,               // v1_sink_router
-            8,                  // capture_v1_scatter_gather_min_batch
-            None,               // ai_gateway_signing_secret
-            AiRouting::Primary, // ai_routing
-            false,              // ai_events_overflow_enabled
-            None,               // ingestion_warning_emitter
+            26_214_400,       // 25MB default for AI endpoint
+            None,             // body_chunk_read_timeout_ms
+            256,              // body_read_chunk_size_kb
+            10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+            50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+            None,             // overflow_limiter
+            None,             // ai_events_overflow_limiter
+            None,             // replay_overflow_limiter
+            None,             // v1_sink_router
+            8,                // capture_v1_scatter_gather_min_batch
+            None,             // ai_gateway_signing_secret
+            false,            // ai_events_overflow_enabled
+            None,             // ingestion_warning_emitter
         ),
         sink,
     )

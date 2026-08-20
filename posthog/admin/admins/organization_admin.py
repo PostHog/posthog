@@ -5,6 +5,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import path, reverse
@@ -12,6 +13,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
+from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
@@ -22,6 +24,7 @@ from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
 from posthog.person_db_router import PERSONS_DB_MODELS
+from posthog.tasks.ai_observability_usage_report import internal_reporting_team_id
 
 # Registry of default-db models to count for bulk-delete report.
 # Format: (app_label.ModelName, filter_field, display_name)
@@ -42,7 +45,6 @@ BULK_DELETE_PERSONS_DB_MODELS: dict[str, str] = {
     "grouptypemapping": "Group Type Mappings",
     "person": "Persons",
     "persondistinctid": "Person Distinct IDs",
-    "personlessdistinctid": "Personless Distinct IDs",
 }
 
 
@@ -149,6 +151,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_ai_training_opted_in",
         "is_ai_training_locked",
         "is_ai_training_cta_shown",
+        "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]
     inlines = [
@@ -169,6 +172,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "customer_trust_scores",
         "bulk_delete_data_display",
         "sync_to_billing_display",
+        "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]
     search_fields = ("name", "members__email", "team__api_token")
@@ -190,6 +194,13 @@ class OrganizationAdmin(admin.ModelAdmin):
         # Inlines other apps registered for Organization, so a product can show a panel on
         # this page without core importing it. See posthog.admin.inline_registry.
         return [*super().get_inlines(request, obj), *extra_inlines_for(Organization)]
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        extra_context = {
+            **(extra_context or {}),
+            "deactivation_reason_presets": list(Organization.DeactivationReason.values),
+        }
+        return super().changeform_view(request, object_id, form_url, extra_context)
 
     def members_count(self, organization: Organization):
         return organization.members.count()
@@ -310,6 +321,17 @@ class OrganizationAdmin(admin.ModelAdmin):
             return "-"
         url = reverse("admin:organization_model_counts", args=[organization.pk])
         return format_html('<a class="button" href="{}">View counts</a>', url)
+
+    @admin.display(description="AI training opt-in history")
+    def ai_training_opt_in_history_display(self, organization: Organization):
+        # UUIDT sets the id before the save, so the add form's unsaved instance also has a pk.
+        if organization._state.adding:
+            return "-"
+        # render_to_string returns a SafeString, so this method does not need mark_safe.
+        return render_to_string(
+            "admin/organization/ai_training_opt_in_history.html",
+            {"history": get_ai_training_opt_in_history(organization)},
+        )
 
     @admin.display(description="Sync to billing")
     def sync_to_billing_display(self, organization: Organization):
@@ -556,21 +578,31 @@ class OrganizationAdmin(admin.ModelAdmin):
         return render(request, "admin/posthog/organization/send_usage_report.html", {"form": form})
 
     def send_ai_observability_usage_report_view(self, request):
-        # Staff-only on purpose (no group gate like the sibling): nothing customer-facing, and
-        # duplicate emissions are ignorable at query time (read one event per org per day).
+        # Staff-only on purpose, unlike the sibling billing view: nothing here is customer-facing, and
+        # the task now skips organizations that already have a report for the period.
         if request.method == "POST":
             form = UsageReportForm(request.POST)
             if form.is_valid():
                 report_date = form.cleaned_data["report_date"]
-                call_command(
-                    "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async"
-                )
-                messages.success(request, f"AI observability usage report for date {report_date} was queued.")
+                try:
+                    call_command(
+                        "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async"
+                    )
+                except CommandError as e:
+                    # Surfacing this matters: a swallowed refusal would report success for a run that
+                    # never started, so the operator would stop looking for the missing reports.
+                    messages.error(request, str(e))
+                else:
+                    messages.success(request, f"AI observability usage report for date {report_date} was queued.")
                 return redirect(reverse("admin:posthog_organization_changelist"))
         else:
             form = UsageReportForm()
 
-        return render(request, "admin/posthog/organization/send_ai_observability_usage_report.html", {"form": form})
+        return render(
+            request,
+            "admin/posthog/organization/send_ai_observability_usage_report.html",
+            {"form": form, "can_skip_existing_reports": internal_reporting_team_id() is not None},
+        )
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}

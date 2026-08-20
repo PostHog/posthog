@@ -28,6 +28,7 @@ from products.experiments.backend.temporal.models import (
     OUTCOME_SKIPPED,
     CanaryMetricResult,
     CanaryMetricTarget,
+    CanaryOutcome,
     CanaryReportInputs,
     CanaryRunSnapshot,
     CanaryVariantStats,
@@ -108,6 +109,22 @@ class TestEvaluateCanaryRuns:
                 _BASE,
                 {"control": (1000.0, 10050), "test": (1100.0, 10000)},  # exposures are frozen: strict
                 {"control": (1000.0, 10050), "test": (1100.0, 10000)},
+                OUTCOME_DIVERGENCE,
+            ),
+            (
+                "retention_samples_drift_between_precomputed_reads_passes",
+                "retention",
+                _BASE,
+                {"control": (1000.0, 10050), "test": (1100.0, 10000)},  # start counts read metric events: loose
+                {"control": (1000.0, 10050), "test": (1100.0, 10000)},
+                OUTCOME_PASS,
+            ),
+            (
+                "retention_samples_drift_beyond_loose_tolerance_diverges",
+                "retention",
+                _BASE,
+                {"control": (1000.0, 10300), "test": (1100.0, 10000)},  # 3% > 2%
+                {"control": (1000.0, 10300), "test": (1100.0, 10000)},
                 OUTCOME_DIVERGENCE,
             ),
             (
@@ -255,11 +272,12 @@ class TestCanarySampling(BaseTest):
         Experiment.objects.filter(id=experiment.id).update(**resolved)
         assert sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs()) == []
 
-    def test_retention_and_legacy_metrics_are_dropped(self):
+    def test_legacy_metrics_are_dropped_but_retention_is_sampled(self):
         self._enable_precompute()
         legacy = {"uuid": str(uuid.uuid4()), "kind": "ExperimentTrendsQuery"}  # no metric_type
         self._experiment([_inline_metric("retention"), legacy])
-        assert sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs()) == []
+        targets = sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs())
+        assert [t.metric_type for t in targets] == ["retention"]
 
     def test_quotas_and_per_experiment_cap(self):
         self._enable_precompute()
@@ -385,7 +403,7 @@ class TestRunMetricCanary(BaseTest):
                 run_metric_canary_sync(self._target(experiment, metric["uuid"]))
 
 
-def _result(outcome: str, **kwargs) -> CanaryMetricResult:
+def _result(outcome: CanaryOutcome, **kwargs) -> CanaryMetricResult:
     target = CanaryMetricTarget(team_id=1, experiment_id=2, metric_uuid="m-uuid", metric_type="funnel")
     return CanaryMetricResult(target=target, outcome=outcome, runs=[_snapshot("a", _BASE)], **kwargs)
 

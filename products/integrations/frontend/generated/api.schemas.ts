@@ -25,6 +25,7 @@ export const OrganizationIntegrationKindEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -37,6 +38,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -151,6 +153,7 @@ export interface RoleLookupResponseApi {
 /**
  * * `anthropic` - Anthropic
  * * `apns` - Apple Push
+ * * `aws-redshift` - Aws Redshift
  * * `aws-s3` - Aws S3
  * * `azure-blob` - Azure Blob
  * * `bing-ads` - Bing Ads
@@ -165,19 +168,23 @@ export interface RoleLookupResponseApi {
  * * `gitlab` - Gitlab
  * * `google-ads` - Google Ads
  * * `google-analytics` - Google Analytics
+ * * `google-calendar` - Google Calendar
  * * `google-cloud-service-account` - Google Cloud Service Account
  * * `google-cloud-storage` - Google Cloud Storage
  * * `google-pubsub` - Google Pubsub
  * * `google-search-console` - Google Search Console
  * * `google-sheets` - Google Sheets
  * * `hubspot` - Hubspot
+ * * `instagram` - Instagram
  * * `intercom` - Intercom
  * * `jira` - Jira
  * * `linear` - Linear
  * * `linkedin-ads` - Linkedin Ads
  * * `meta-ads` - Meta Ads
+ * * `pardot` - Pardot
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
+ * * `posthog` - Posthog
  * * `reddit-ads` - Reddit Ads
  * * `resend` - Resend
  * * `s3-compatible` - S3 Compatible
@@ -190,12 +197,14 @@ export interface RoleLookupResponseApi {
  * * `tiktok-ads` - Tiktok Ads
  * * `twilio` - Twilio
  * * `vercel` - Vercel
+ * * `youtube-analytics` - Youtube Analytics
  */
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
@@ -210,19 +219,23 @@ export const IntegrationKindEnumApi = {
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
+    Instagram: 'instagram',
     Intercom: 'intercom',
     Jira: 'jira',
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
+    Posthog: 'posthog',
     RedditAds: 'reddit-ads',
     Resend: 'resend',
     S3Compatible: 's3-compatible',
@@ -235,6 +248,7 @@ export const IntegrationKindEnumApi = {
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
     Vercel: 'vercel',
+    YoutubeAnalytics: 'youtube-analytics',
 } as const
 
 /**
@@ -385,6 +399,33 @@ export interface LinearTeamsResponseApi {
     teams: LinearTeamApi[]
 }
 
+export interface GitHubAvailableInstallationApi {
+    /** GitHub installation ID to pass to github/link_existing when linking this installation. */
+    installation_id: string
+    /**
+     * GitHub account (organization or user) the installation belongs to, for display in the picker.
+     * @nullable
+     */
+    account_name: string | null
+    /**
+     * GitHub account type, e.g. 'Organization' or 'User'.
+     * @nullable
+     */
+    account_type: string | null
+    /**
+     * A project in the organization that already has this installation linked. Null when the installation isn't linked to any project yet — it was found via the user's personal GitHub link and can be adopted by linking it here.
+     * @nullable
+     */
+    source_team_id: number | null
+}
+
+export interface GitHubAvailableInstallationsResponseApi {
+    /** GitHub installations available to link to this project: the organization's existing installations plus any the user's personal GitHub link can see but that aren't linked to any project yet. */
+    installations: GitHubAvailableInstallationApi[]
+    /** Whether the requesting user has a personal GitHub account linked (via Linked Accounts). Used to prompt for that link when it would surface more installations to adopt. */
+    personal_github_connected: boolean
+}
+
 export interface GitHubLinkExistingRequestApi {
     /**
      * Sibling team in the same organization whose GitHub installation should be reused.
@@ -432,6 +473,7 @@ export interface IntegrationAccessRequestApi {
      *
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
@@ -446,19 +488,23 @@ export interface IntegrationAccessRequestApi {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -470,7 +516,8 @@ export interface IntegrationAccessRequestApi {
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
-     * * `vercel` - Vercel */
+     * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics */
     kind: IntegrationKindEnumApi
     /**
      * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
@@ -482,6 +529,73 @@ export interface IntegrationAccessRequestApi {
 export interface IntegrationAccessRequestResponseApi {
     /** Whether the access request was accepted and the project admins were notified. */
     success: boolean
+}
+
+/**
+ * Query parameters to send to the target.
+ */
+export type PostHogConnectionForwardApiQuery = { [key: string]: string }
+
+/**
+ * * `GET` - GET
+ * * `POST` - POST
+ * * `PUT` - PUT
+ * * `PATCH` - PATCH
+ * * `DELETE` - DELETE
+ */
+export type PostHogConnectionForwardMethodEnumApi =
+    (typeof PostHogConnectionForwardMethodEnumApi)[keyof typeof PostHogConnectionForwardMethodEnumApi]
+
+export const PostHogConnectionForwardMethodEnumApi = {
+    Get: 'GET',
+    Post: 'POST',
+    Put: 'PUT',
+    Patch: 'PATCH',
+    Delete: 'DELETE',
+} as const
+
+export interface PostHogConnectionForwardApi {
+    /** HTTP method to use against the target project's API.
+     *
+     * * `GET` - GET
+     * * `POST` - POST
+     * * `PUT` - PUT
+     * * `PATCH` - PATCH
+     * * `DELETE` - DELETE */
+    method: PostHogConnectionForwardMethodEnumApi
+    /** Relative target API path with no host or scheme, e.g. `api/projects/2/insights/`. */
+    path: string
+    /** Query parameters to send to the target. */
+    query?: PostHogConnectionForwardApiQuery
+    /** JSON request body for write methods. */
+    data?: unknown
+}
+
+export interface PostHogConnectionForwardResponseApi {
+    /** HTTP status the target project returned. */
+    status: number
+    /** The target project's response body, passed through. */
+    data: unknown
+}
+
+export interface PostHogConnectionTargetApi {
+    /** Project id to use in target API paths. It is the connected project's id, not this one's. */
+    project_id: number
+    /** Name of the connected project. */
+    project_name: string
+    /** Id of the organization the connected project belongs to. */
+    organization_id: string
+    /** Name of the organization the connected project belongs to. */
+    organization_name: string
+    /** Cloud region the connected project lives in, e.g. `US` or `EU`. */
+    region: string
+    /** Base URL requests through this connection are sent to. */
+    base_url: string
+}
+
+export interface PostHogConnectionTargetErrorApi {
+    /** Why the connected project's context could not be read. */
+    error: string
 }
 
 export type RoleExternalReferencesListParams = {
@@ -522,6 +636,7 @@ export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
@@ -536,19 +651,23 @@ export type IntegrationsListParams = {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -561,6 +680,7 @@ export type IntegrationsListParams = {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics
      */
     kind?: IntegrationsListKind
     /**
@@ -578,6 +698,7 @@ export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof In
 export const IntegrationsListKind = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
@@ -592,19 +713,23 @@ export const IntegrationsListKind = {
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
+    Instagram: 'instagram',
     Intercom: 'intercom',
     Jira: 'jira',
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
+    Posthog: 'posthog',
     RedditAds: 'reddit-ads',
     Resend: 'resend',
     S3Compatible: 's3-compatible',
@@ -617,6 +742,7 @@ export const IntegrationsListKind = {
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
     Vercel: 'vercel',
+    YoutubeAnalytics: 'youtube-analytics',
 } as const
 
 export type IntegrationsChannelsRetrieveParams = {

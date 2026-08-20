@@ -2,9 +2,11 @@ import json
 import base64
 import hashlib
 import secrets
+import dataclasses
 from urllib.parse import quote_plus
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -35,6 +37,43 @@ TEST_PARTNER_SCOPES = [
 ]
 
 
+# A partner granted everything, so a test narrows to the one capability it is about rather
+# than restating the other eight. `provisioning_config(can_start_wizard_runs=False)` reads as
+# the thing under test; a literal dict at each call site does not.
+TEST_PARTNER_PROVISIONING: dict[str, bool] = {
+    "active": True,
+    "can_create_accounts": True,
+    "can_provision_resources": True,
+    "can_use_github_grants": True,
+    "can_start_wizard_runs": True,
+    "can_issue_deep_links": True,
+    # Stands in for the one grandfathered app that still mints a provisioned PAT.
+    "issues_personal_api_key": True,
+}
+
+
+def provisioning_config(**overrides) -> dict:
+    """The stored form of the test partner's config. Goes into ``_provisioning_config``."""
+    from posthog.models.oauth_provisioning import ProvisioningConfig
+
+    return ProvisioningConfig(**{**TEST_PARTNER_PROVISIONING, **overrides}).model_dump(mode="json")
+
+
+def patched_budget(view_cls, method: str, endpoint: str, budget, *, multipliers=None):
+    """Shrink a handler's declared bucket budget for a test.
+
+    The declaration lives on the handler function, so tests patch it there
+    rather than replaying dozens of requests to exhaust a real budget. Pass
+    ``multipliers`` (e.g. FLAT_MULTIPLIERS) when the test partner's tier would
+    otherwise scale the patched budget back up.
+    """
+    budgets = getattr(view_cls, method)._provisioning_budgets
+    changes: dict = {"budget": budget}
+    if multipliers is not None:
+        changes["multipliers"] = multipliers
+    return patch.dict(budgets, {endpoint: dataclasses.replace(budgets[endpoint], **changes)})
+
+
 class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -55,13 +94,7 @@ class ProvisioningTestBase(APIBaseTest):
                 "algorithm": "RS256",
                 "scopes": TEST_PARTNER_SCOPES,
                 "is_provisioning_partner": True,
-                "provisioning_partner_type": "test_partner",
-                "provisioning_active": True,
-                "provisioning_can_create_accounts": True,
-                "provisioning_can_provision_resources": True,
-                "provisioning_can_issue_deep_links": True,
-                # Stands in for the one grandfathered app that still mints a provisioned PAT.
-                "provisioning_issues_personal_api_key": True,
+                "_provisioning_config": provisioning_config(),
             },
         )
         return app

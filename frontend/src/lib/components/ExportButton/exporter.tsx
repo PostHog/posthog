@@ -1,7 +1,6 @@
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { ExportedAssetType } from '~/types'
+import { ExportedAssetType, InsightShortId } from '~/types'
 
 export function downloadBlob(content: Blob, filename: string): void {
     const anchor = document.createElement('a')
@@ -25,30 +24,27 @@ export async function exportedAssetBlob(asset: ExportedAssetType): Promise<Blob>
     return await response.blob()
 }
 
-export async function downloadExportedAsset(asset: ExportedAssetType): Promise<boolean> {
+export function downloadExportedAsset(asset: ExportedAssetType): void {
     const downloadUrl = api.exports.determineExportUrl(asset.id)
 
-    // Probe the content endpoint before navigating to it. If retrieval fails (e.g. an access-control
-    // 404), the raw JSON error would otherwise render as a blank/black page. api.getResponse throws on
-    // a non-2xx status, so we can surface an error toast and keep the user where they are. We read only
-    // the headers and cancel the body — the anchor navigation below streams the actual download to disk
-    // without buffering large files (e.g. video exports) in memory.
-    try {
-        const response = await api.getResponse(downloadUrl)
-        await response.body?.cancel()
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        lemonToast.error('Export download failed: ' + message)
-        return false
-    }
-
+    // Trigger the download synchronously so it runs inside the click's user gesture. Safari only
+    // performs a programmatic download while transient activation is live (~5s from the click), so any
+    // await before this point causes it to silently drop the download.
     const anchor = document.createElement('a')
     anchor.style.display = 'none'
     anchor.href = downloadUrl
     document.body.appendChild(anchor)
     anchor.click()
-    document.body.removeChild(anchor)
-    return true
+    // Removing the anchor synchronously after click() can cancel the download in Firefox — defer it,
+    // matching downloadBlob and downloadFile in lib/utils/dom.ts.
+    setTimeout(() => {
+        document.body.removeChild(anchor)
+    }, 0)
 }
 
-export type TriggerExportProps = Pick<ExportedAssetType, 'export_format' | 'dashboard' | 'insight' | 'export_context'>
+export type TriggerExportProps = Pick<
+    ExportedAssetType,
+    'export_format' | 'dashboard' | 'insight' | 'export_context'
+> & {
+    insightShortId?: InsightShortId
+}

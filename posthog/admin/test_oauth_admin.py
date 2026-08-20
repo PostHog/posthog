@@ -20,10 +20,78 @@ class TestOAuthApplicationAdmin(BaseTest):
         super().setUp()
         self.admin = OAuthApplicationAdmin(OAuthApplication, AdminSite())
 
-    def test_list_filter_includes_provisioning_fields(self):
-        assert "provisioning_active" in self.admin.list_filter
-        assert "is_provisioning_partner" in self.admin.list_filter
-        assert "provisioning_partner_type" in self.admin.list_filter
+    def _provisioning_form(self, app: OAuthApplication, **fields):
+        form_class = self.admin.get_form(RequestFactory().get("/"), app, change=True)
+        data = {
+            "name": app.name,
+            "client_id": app.client_id,
+            "client_type": app.client_type,
+            "auth_brand": app.auth_brand,
+            "authorization_grant_type": app.authorization_grant_type,
+            "redirect_uris": app.redirect_uris,
+            "algorithm": app.algorithm,
+            **fields,
+        }
+        return form_class(data=data, instance=app)
+
+    def test_admin_grants_a_capability_into_the_config(self):
+        # Granting a capability is the admin's whole job here, and it writes into a JSONB blob
+        # rather than a column, so a form that silently dropped it would look like it worked.
+        app = OAuthApplication.objects.create(
+            name="Capability App",
+            client_id="capability_client_id",
+            client_secret="secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+        )
+        assert app.provisioning.can_use_github_grants is False
+
+        form = self._provisioning_form(app, provisioning_can_use_github_grants="on")
+        assert form.is_valid(), form.errors
+        form.save()
+
+        app.refresh_from_db()
+        granted = app.provisioning
+        assert granted.can_use_github_grants is True
+        # Unticked boxes stay off rather than picking up a default.
+        assert granted.can_start_wizard_runs is False
+
+    def _rate_limit_app(self) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name="Rate Limit App",
+            client_id="rate_limit_client_id",
+            client_secret="secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+        )
+
+    def test_admin_rate_limit_override_is_stored_per_endpoint(self):
+        app = self._rate_limit_app()
+
+        form = self._provisioning_form(app, provisioning_rate_limit_account_requests="250")
+        assert form.is_valid(), form.errors
+        form.save()
+
+        app.refresh_from_db()
+        assert app.provisioning.rate_limits == {"account_requests": 250}
+
+    def test_admin_rate_limit_zero_is_rejected_and_minus_one_means_unlimited(self):
+        # 0 used to mean unlimited; an operator typing it must get an error, not infinity.
+        app = self._rate_limit_app()
+
+        form = self._provisioning_form(app, provisioning_rate_limit_account_requests="0")
+        assert not form.is_valid()
+        assert "provisioning_rate_limit_account_requests" in form.errors
+
+        form = self._provisioning_form(app, provisioning_rate_limit_account_requests="-1")
+        assert form.is_valid(), form.errors
+        form.save()
+        app.refresh_from_db()
+        assert app.provisioning.rate_limits == {"account_requests": -1}
 
     @parameterized.expand(
         [

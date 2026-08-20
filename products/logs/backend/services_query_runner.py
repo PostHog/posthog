@@ -1,17 +1,18 @@
+from functools import cached_property
 from typing import Any
 
 import re2
 
-from posthog.schema import CachedLogsQueryResponse, HogQLFilters, LogsQuery
+from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
+from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin, ilike_pattern
 from products.logs.backend.models import LogsExclusionRule
 
 # Three-valued logic for evaluating a rule's filter_group against a partial record
@@ -96,7 +97,7 @@ def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
         return _INDETERMINATE
     if not sn:
         # For negation operators, empty string doesn't match non-empty values
-        if operator in ("is_not", "not_in", "not_icontains", "not_regex"):
+        if operator in ("is_not", "not_in", "not_icontains", "not_starts_with", "not_ends_with", "not_regex"):
             return _TRUE
         # For positive match operators, empty string can't match
         return _FALSE
@@ -109,6 +110,14 @@ def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
         return _TRUE if str(value).lower() in sn.lower() else _FALSE
     if operator == "not_icontains":
         return _FALSE if str(value).lower() in sn.lower() else _TRUE
+    if operator == "starts_with":
+        return _TRUE if sn.lower().startswith(str(value).lower()) else _FALSE
+    if operator == "not_starts_with":
+        return _FALSE if sn.lower().startswith(str(value).lower()) else _TRUE
+    if operator == "ends_with":
+        return _TRUE if sn.lower().endswith(str(value).lower()) else _FALSE
+    if operator == "not_ends_with":
+        return _FALSE if sn.lower().endswith(str(value).lower()) else _TRUE
     if operator in ("regex", "not_regex"):
         # RE2 (linear-time, no catastrophic backtracking) — same engine the Node
         # ingestion worker uses via `tracked-re2`. A project member can pick the
@@ -155,11 +164,31 @@ def _sampling_rule_summary(rule: LogsExclusionRule) -> str:
     return str(rule.rule_type)
 
 
+# Response caps. SERVICES_LIMIT bounds the per-request payload against
+# user-controlled service_name cardinality (a misconfigured SDK can emit a
+# unique name per pod or instance). Names beyond the cap stay reachable via
+# serviceNameSearch, which filters before aggregation.
+# The LIMIT applies after the GROUP BY, so raising it costs response bytes rather
+# than query time. The aggregation reads the same window either way.
+SERVICES_LIMIT = 10000
+# Sparklines are fetched per displayed page: the bucket grid is
+# time × service and the sparkline query's row LIMIT would silently drop the
+# most recent buckets if scoped to all SERVICES_LIMIT names at once.
+SPARKLINE_SERVICES_LIMIT = 25
+
+
 class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     """Returns per-service aggregates (volume, error count, error rate) and sparkline data."""
 
     query: LogsQuery
     cached_response: CachedLogsQueryResponse
+
+    def __init__(self, *args: Any, service_name_search: str | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Not part of the query object, so it never reaches the cache key. Safe
+        # only while the services endpoint runs CALCULATE_BLOCKING_ALWAYS; a move
+        # to any cached execution mode requires this on LogsQuery instead.
+        self.service_name_search = service_name_search.strip() if service_name_search else None
 
     def _calculate(self) -> LogsQueryResponse:
         aggregates_response = execute_hogql_query(
@@ -170,16 +199,17 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
+            filters=self.query_date_range.to_hogql_filters(),
             settings=self.settings,
         )
 
-        # The table only renders sparklines for the services in the aggregates
-        # result (top 25 by volume), so scope the sparkline scan to those names
-        # rather than every service in the window: service_name is in the table's
-        # sort key, so the IN filter prunes the scan, and it removes the chance of
-        # the row LIMIT truncating a displayed service's trend.
-        top_service_names = [row[0] for row in aggregates_response.results]
+        # Sparklines cover only the top services by volume; callers wanting
+        # trends for other rows re-request with `serviceNames` scoped to the
+        # rows they display. service_name is in the table's sort key, so the IN
+        # filter prunes the scan, and the bounded name list keeps the grid of
+        # time × service rows under the sparkline query's row LIMIT (which
+        # truncates the most recent buckets first).
+        top_service_names = [row[0] for row in aggregates_response.results[:SPARKLINE_SERVICES_LIMIT]]
         sparkline_rows: list[Any] = []
         if top_service_names:
             sparkline_response = execute_hogql_query(
@@ -190,10 +220,15 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 workload=Workload.LOGS,
                 timings=self.timings,
                 limit_context=self.limit_context,
-                filters=HogQLFilters(dateRange=self.query.dateRange),
+                filters=self.query_date_range.to_hogql_filters(),
                 settings=self.settings,
             )
             sparkline_rows = sparkline_response.results
+
+        # True distinct-service count, unaffected by SERVICES_LIMIT — the UI
+        # uses it to disclose truncation. The window function counts the groups
+        # before LIMIT applies, so every row carries the same total.
+        total_services = int(aggregates_response.results[0][6]) if aggregates_response.results else 0
 
         enabled_rules = list(
             LogsExclusionRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
@@ -265,6 +300,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             results={
                 "services": services,
                 "sparkline": sparkline,
+                "total_services": total_services,
                 "summary": {
                     "top_services_count": top_n,
                     "top_services_volume_share_pct": top_share,
@@ -275,6 +311,17 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     def to_query(self) -> ast.SelectQuery:
         return self._aggregates_query()
 
+    @cached_property
+    def _where_with_search(self) -> ast.Expr:
+        base = self.where()
+        if not self.service_name_search:
+            return base
+        search = parse_expr(
+            "service_name ILIKE {pattern}",
+            placeholders={"pattern": ast.Constant(value=ilike_pattern(self.service_name_search))},
+        )
+        return ast.And(exprs=[base, search])
+
     def _aggregates_query(self) -> ast.SelectQuery:
         query = parse_select(
             """
@@ -284,7 +331,10 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 sumIf(cnt, in(severity_text, tuple('error', 'fatal'))) AS error_count,
                 sumIf(cnt, in(severity_text, tuple('trace', 'debug'))) AS severity_debug,
                 sumIf(cnt, severity_text = 'info') AS severity_info,
-                sumIf(cnt, in(severity_text, tuple('warn', 'warning'))) AS severity_warn
+                sumIf(cnt, in(severity_text, tuple('warn', 'warning'))) AS severity_warn,
+                -- Counts the grouped rows before LIMIT, so the caller learns the
+                -- true service count without a second scan of the window.
+                count() OVER () AS total_services
             FROM (
                 SELECT
                     service_name,
@@ -296,10 +346,11 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             )
             GROUP BY service_name
             ORDER BY log_count DESC
-            LIMIT 25
+            LIMIT {limit}
             """,
             placeholders={
-                "where": self.where(),
+                "where": self._where_with_search,
+                "limit": ast.Constant(value=SERVICES_LIMIT),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -323,7 +374,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 "time_field": ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["timestamp"])])
                 if self.query_date_range.interval_name != "second"
                 else ast.Field(chain=["timestamp"]),
-                "where": self.where(),
+                "where": self._where_with_search,
                 "service_names": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in service_names]),
             },
         )

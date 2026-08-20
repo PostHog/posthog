@@ -21,6 +21,7 @@ from rest_framework.response import Response
 from posthog.api.email_verification import EmailVerifier
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken
+from posthog.models.oauth_provisioning import PartnerTier
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -32,6 +33,7 @@ from ee.api.agentic_provisioning.constants import (
     DEEP_LINK_TTL_SECONDS,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
+from ee.api.agentic_provisioning.ratelimits import BLOCKED, rate_limited
 from ee.api.agentic_provisioning.regions import current_region_host
 from ee.api.agentic_provisioning.serializers import DeepLinkSerializer
 from ee.api.agentic_provisioning.views.base import BearerResourceAPIView
@@ -54,10 +56,18 @@ def is_safe_deep_link_path(path: object) -> bool:
 
 
 class DeepLinksView(BearerResourceAPIView):
+    # A deep link mints a full web session, so on top of the admin-granted
+    # capability the public tiers get no budget at all: a client identified only
+    # by a client_id anyone can send has no business minting sessions. An
+    # explicit per-partner override outranks BLOCKED if one is ever needed.
+    @rate_limited(
+        "deep_links",
+        multipliers={PartnerTier.PUBLIC: BLOCKED, PartnerTier.PUBLIC_ATTESTED: BLOCKED},
+    )
     def post(self, request: Request) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
 
-        if not access_token.application.provisioning_can_issue_deep_links:
+        if not access_token.application.provisioning.can_issue_deep_links:
             capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
             raise ProvisioningError(
                 "deep_links_not_enabled",

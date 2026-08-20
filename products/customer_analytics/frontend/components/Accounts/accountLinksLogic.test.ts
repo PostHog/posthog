@@ -34,6 +34,7 @@ const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
     },
     tags: [],
     notebooks: [],
+    ignored_at: null,
     created_at: '2026-01-01T00:00:00Z',
     created_by: null,
     updated_at: '2026-01-01T00:00:00Z',
@@ -72,6 +73,7 @@ describe('accountLinksLogic', () => {
             billing_id: 'cus_1',
             slack_channel_id: 'C1',
             usage_dashboard_link: '',
+            metabase_link: '',
             sfdc_id: '',
         })
     })
@@ -92,6 +94,7 @@ describe('accountLinksLogic', () => {
             billing_id: 'new',
             slack_channel_id: 'C9',
             usage_dashboard_link: '',
+            metabase_link: '',
             sfdc_id: '001abc',
         })
         logic.actions.saveLinks()
@@ -104,6 +107,7 @@ describe('accountLinksLogic', () => {
                 billing_id: 'new',
                 slack_channel_id: 'C9',
                 usage_dashboard_link: null,
+                metabase_link: null,
                 sfdc_id: '001abc',
             },
         })
@@ -120,6 +124,7 @@ describe('accountLinksLogic', () => {
             billing_id: '',
             slack_channel_id: '   ',
             usage_dashboard_link: '',
+            metabase_link: '',
             sfdc_id: '',
         })
         logic.actions.saveLinks()
@@ -127,7 +132,13 @@ describe('accountLinksLogic', () => {
 
         expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', {
             external_id: null,
-            properties: { billing_id: null, slack_channel_id: null, usage_dashboard_link: null, sfdc_id: null },
+            properties: {
+                billing_id: null,
+                slack_channel_id: null,
+                usage_dashboard_link: null,
+                metabase_link: null,
+                sfdc_id: null,
+            },
         })
     })
 

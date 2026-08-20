@@ -30,7 +30,7 @@ class TestResolveSlackUser:
             sensitive_config={"access_token": "xoxb-test"},
         )
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_success(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -51,7 +51,7 @@ class TestResolveSlackUser:
             pytest.param("DEV@EXAMPLE.COM", id="all_uppercase"),
         ],
     )
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_matches_email_case_insensitively(self, mock_webclient_class, slack_email):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -64,7 +64,7 @@ class TestResolveSlackUser:
         assert result.user.email == "dev@example.com"
         assert result.slack_email == slack_email
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_missing_email(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -77,7 +77,20 @@ class TestResolveSlackUser:
         mock_client.chat_postMessage.assert_called_once()
         assert "email" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_placeholder_user_skipped_silently(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        slack = SlackIntegration(self.integration)
+        result = resolve_slack_user(slack, self.integration, "U00", "C001", "1234.5678")
+
+        assert result is None
+        mock_client.users_info.assert_not_called()
+        mock_client.chat_postMessage.assert_not_called()
+        mock_client.chat_postEphemeral.assert_not_called()
+
+    @patch("posthog.models.integration.slack.WebClient")
     def test_no_org_membership(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -93,7 +106,7 @@ class TestResolveSlackUser:
         assert call_kwargs["thread_ts"] == "1234.5678"
         assert "stranger@example.com" in call_kwargs["text"]
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.UserPermissions")
     def test_no_team_access(self, mock_permissions_class, mock_webclient_class):
         mock_client = MagicMock()
@@ -111,7 +124,7 @@ class TestResolveSlackUser:
         call_text = mock_client.chat_postEphemeral.call_args.kwargs["text"]
         assert "access" in call_text.lower()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_uses_db_cached_slack_profile(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -141,7 +154,7 @@ class TestResolveSlackUser:
             pytest.param(lambda: None, id="null_refreshed_at"),
         ],
     )
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_refetches_when_profile_is_stale(self, mock_webclient_class, stale_refreshed_at):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -174,7 +187,7 @@ class TestResolveSlackUser:
         assert profile.is_admin is True
         assert profile.refreshed_at is not None and profile.refreshed_at >= before
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_persists_slack_profile_after_lookup(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -214,7 +227,7 @@ class TestLookupSlackUserIdByEmail:
             sensitive_config={"access_token": "xoxb-test"},
         )
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_uses_db_cached_profile(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -232,7 +245,7 @@ class TestLookupSlackUserIdByEmail:
         assert slack_user_id == "U123"
         mock_client.users_lookupByEmail.assert_not_called()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_lookup_by_email_api(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -259,7 +272,7 @@ class TestLookupSlackUserIdByEmail:
             pytest.param(lambda: None, id="null_refreshed_at"),
         ],
     )
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_refetches_email_lookup_when_profile_is_stale(self, mock_webclient_class, stale_refreshed_at):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client

@@ -1,0 +1,134 @@
+import {
+  TASK_THREAD_SERVICE,
+  type TaskThreadService,
+} from "@posthog/core/canvas/taskThreadService";
+import { useService } from "@posthog/di/react";
+import type { TaskThreadMessage } from "@posthog/shared/domain-types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
+import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef } from "react";
+
+const THREAD_POLL_INTERVAL_MS = 5_000;
+
+export function taskThreadQueryKey(taskId: string | undefined) {
+  return ["task-thread", taskId ?? "none"] as const;
+}
+
+export function useTaskThread(
+  taskId: string | undefined,
+  options?: {
+    pollIntervalMs?: number;
+    enabled?: boolean;
+    markActivityRead?: boolean;
+  },
+): {
+  messages: TaskThreadMessage[];
+  isLoading: boolean;
+  /** The thread has come back at least once. Distinct from `!isLoading`, which flips back
+   *  on a refetch and would blink a loader over content already on screen. */
+  hasLoaded: boolean;
+} {
+  const pollIntervalMs = options?.pollIntervalMs ?? THREAD_POLL_INTERVAL_MS;
+  const enabled = options?.enabled ?? true;
+  const markActivityRead = options?.markActivityRead ?? true;
+  const { mutate: markTasksRead } = useMarkTaskActivityRead();
+  const opening = useMemo(
+    () => ({ taskId, seenBefore: new Date().toISOString() }),
+    [taskId],
+  );
+  const markedOpening = useRef<string | null>(null);
+  const query = useAuthenticatedQuery<TaskThreadMessage[]>(
+    taskThreadQueryKey(taskId),
+    (client) => client.getTaskThreadMessages(taskId as string),
+    {
+      enabled: !!taskId && enabled,
+      refetchInterval: pollIntervalMs,
+      staleTime: pollIntervalMs,
+      // The poll is the retry. Request-level retries also hold the timeline's
+      // first paint behind their backoff, since it gates on this query settling.
+      retry: false,
+    },
+  );
+  useEffect(() => {
+    if (!taskId || !enabled || !markActivityRead || query.dataUpdatedAt === 0)
+      return;
+    const openingKey = `${opening.taskId}:${opening.seenBefore}`;
+    if (markedOpening.current === openingKey) return;
+    markedOpening.current = openingKey;
+    markTasksRead([{ task_id: taskId, seen_before: opening.seenBefore }]);
+  }, [
+    taskId,
+    enabled,
+    markActivityRead,
+    markTasksRead,
+    opening,
+    query.dataUpdatedAt,
+  ]);
+  return {
+    messages: query.data ?? [],
+    isLoading: query.isLoading,
+    hasLoaded: query.isSuccess || query.isError,
+  };
+}
+
+export function usePostTaskThreadMessage(taskId: string | undefined) {
+  const client = useOptionalAuthenticatedClient();
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (content: string) => {
+      if (!client || !taskId) throw new Error("Not authenticated");
+      return client.createTaskThreadMessage(taskId, content);
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: taskThreadQueryKey(taskId) }),
+  });
+  return { postMessage: mutation.mutateAsync, isPosting: mutation.isPending };
+}
+
+export function usePostTaskThreadMessageToAgent(taskId: string | undefined) {
+  const client = useOptionalAuthenticatedClient();
+  const queryClient = useQueryClient();
+  const service = useService<TaskThreadService>(TASK_THREAD_SERVICE);
+  const mutation = useMutation({
+    mutationFn: async (content: string) => {
+      if (!client || !taskId) throw new Error("Not authenticated");
+      return service.postMessageToAgent(client, taskId, content);
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: taskThreadQueryKey(taskId) }),
+  });
+  return {
+    postMessageToAgent: mutation.mutateAsync,
+    isPostingToAgent: mutation.isPending,
+  };
+}
+
+export function useDeleteTaskThreadMessage(taskId: string | undefined) {
+  const client = useOptionalAuthenticatedClient();
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      if (!client || !taskId) throw new Error("Not authenticated");
+      return client.deleteTaskThreadMessage(taskId, messageId);
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: taskThreadQueryKey(taskId) }),
+  });
+  return { deleteMessage: mutation.mutateAsync };
+}
+
+export function useSendTaskThreadMessageToAgent(taskId: string | undefined) {
+  const client = useOptionalAuthenticatedClient();
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      if (!client || !taskId) throw new Error("Not authenticated");
+      return client.sendTaskThreadMessageToAgent(taskId, messageId);
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: taskThreadQueryKey(taskId) }),
+  });
+  return { sendToAgent: mutation.mutateAsync, isSending: mutation.isPending };
+}

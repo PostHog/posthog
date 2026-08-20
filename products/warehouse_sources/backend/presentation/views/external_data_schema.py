@@ -20,6 +20,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.permissions import AccessControlPermission, is_service_auth
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import (
@@ -137,26 +139,31 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         removes=["cdc_last_log_position", "cdc_deferred_runs"],
     )
     instance.initial_sync_complete = False
-    instance.status = ExternalDataSchema.Status.RUNNING
-    instance.save(update_fields=["initial_sync_complete", "status", "updated_at"])
+    instance.save(update_fields=["initial_sync_complete", "updated_at"])
 
     try:
         trigger_external_data_workflow(instance)
     except temporalio.service.RPCError as e:
+        # Leave the status untouched so the Syncs UI doesn't show RUNNING for a workflow that never
+        # started. The sync_type_config mutations stay; the schema's intent is still "do a
+        # re-snapshot next run".
         logger.exception(
             "Could not trigger external data workflow after re-snapshot reset",
             schema_id=str(instance.id),
             exc_info=e,
         )
-        # Roll the status back so the Syncs UI doesn't show RUNNING for a workflow that never started.
-        # The sync_type_config mutations stay — the schema's intent is still "do a re-snapshot next run".
-        instance.status = ExternalDataSchema.Status.FAILED
-        instance.save(update_fields=["status"])
+        return
+
+    instance.status = ExternalDataSchema.Status.RUNNING
+    instance.save(update_fields=["status", "updated_at"])
 
 
-# Sync frequencies that only CDC schemas may use. Every other sync type floors at 5 minutes.
-CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
-NON_CDC_FLOOR_SYNC_FREQUENCY = "5min"
+# Sync frequencies below the 5-minute floor. No longer accepted as input (dropped from the
+# serializer's choices), but rows written before the floor may still carry one until the
+# migrate_sub_5min_sync_frequencies command bumps them — so the interval mappings keep parsing
+# "1min" and the update path clamps instead of erroring.
+LEGACY_SUB_FLOOR_SYNC_FREQUENCIES = {"1min"}
+FLOOR_SYNC_FREQUENCY = "5min"
 
 
 @extend_schema_field(
@@ -237,7 +244,9 @@ def _apply_primary_key_columns(
         )
 
 
-class ExternalDataSchemaSerializer(serializers.ModelSerializer):
+class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
+
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
@@ -271,7 +280,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     sync_frequency = serializers.ChoiceField(
         choices=[
             ("never", "never"),
-            ("1min", "1min"),
             ("5min", "5min"),
             ("15min", "15min"),
             ("30min", "30min"),
@@ -284,7 +292,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ],
         required=False,
         allow_null=True,
-        help_text="How often to sync.",
+        help_text="How often to sync. The fastest sync frequency is 5 minutes.",
+        error_messages={
+            "invalid_choice": '"{input}" is not a valid sync frequency. The fastest sync frequency is 5 minutes.'
+        },
     )
     sync_time_of_day = serializers.TimeField(
         required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
@@ -382,6 +393,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "source",
             "api_version",
             "api_version_deprecation",
+            "user_access_level",
         ]
 
         read_only_fields = [
@@ -396,6 +408,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "available_columns",
             "source",
             "api_version_deprecation",
+            "user_access_level",
         ]
 
     @extend_schema_field(
@@ -481,6 +494,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "api_version": source_api_version,
             "supported_api_versions": supported_api_versions,
         }
+
+    def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:  # type: ignore[override]  # narrows the mixin's Model — DRF always dispatches with this serializer's instance
+        # The synced table's access, which itself falls back to the source via RESOURCE_FALLBACK_MAP.
+        # Drives the row's sync/delete gating in the UI.
+        uac = self.user_access_control
+        if uac is None:
+            return None
+        return uac.get_user_access_level(schema.table or schema.source)
 
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
@@ -776,8 +797,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if "primary_key_columns" in data:
                 new_pk = data.get("primary_key_columns")
                 old_pk = instance.sync_type_config.get("primary_key_columns")
+                # Only swapping an established key breaks merge identity against already-synced
+                # rows. A keyless incremental table can't merge at all, and picking its first key
+                # is the fix we tell the user to apply, so don't block that.
                 if (
                     resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                    and old_pk
                     and new_pk != old_pk
                     and instance.table is not None
                 ):
@@ -819,7 +844,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):
-                    # Get the max_value and set it on incremental_field_last_value
                     max_value = instance.table.get_max_value_for_column(incremental_field)
                     if max_value:
                         instance.update_incremental_field_value(max_value, save=False)
@@ -867,27 +891,19 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         was_sync_time_of_day_updated = False
         source = instance.source
 
-        # Sub-5-minute cadence is only valid for CDC. Enforce server-side so API/MCP callers (not
-        # just the UI) can't drop a non-CDC schema below the allowed floor. We validate the
-        # frequency the schema will actually end up with — the new value if one is supplied, else
-        # the existing interval — against the sync type it will end up with. This also catches
-        # switching a 1-minute CDC schema to a non-CDC type without re-sending the frequency.
+        # "1min" is rejected at the field level, but a schema whose stored interval predates the
+        # 5-minute floor keeps working until migrated. When such a schema stops being CDC (the only
+        # type that ever allowed 1min), clamp the inherited cadence to the floor so the switch
+        # doesn't dead-end. The clamp flows through the sync_frequency handling below.
         resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
         resulting_frequency = sync_frequency
         if not resulting_frequency and instance.sync_frequency_interval is not None:
             resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
-        if resulting_frequency in CDC_ONLY_SYNC_FREQUENCIES and resulting_sync_type != ExternalDataSchema.SyncType.CDC:
-            if sync_frequency:
-                # The caller explicitly asked for a CDC-only cadence on a non-CDC schema — a direct
-                # contradiction, so reject it.
-                raise ValidationError(
-                    "A 1-minute sync frequency is only available for CDC schemas. "
-                    "The fastest frequency for other sync types is 5 minutes."
-                )
-            # Switching a CDC schema to a non-CDC type while it still carries a CDC-only cadence:
-            # clamp to the non-CDC floor instead of dead-ending the switch. The clamp flows through
-            # the sync_frequency handling below.
-            sync_frequency = NON_CDC_FLOOR_SYNC_FREQUENCY
+        if (
+            resulting_frequency in LEGACY_SUB_FLOOR_SYNC_FREQUENCIES
+            and resulting_sync_type != ExternalDataSchema.SyncType.CDC
+        ):
+            sync_frequency = FLOOR_SYNC_FREQUENCY
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -1321,9 +1337,34 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "label", "should_sync", "last_synced_at", "sync_type"]
 
 
+class WarehouseTableAccessPermission(AccessControlPermission):
+    """Resolves a schema's access through the table it syncs.
+
+    No access control rules are written against a schema, so the base class - which looks for rules
+    keyed to the object's own id - finds none and lets everything through. Resolve through the table
+    instead (whose access falls back to the source via RESOURCE_FALLBACK_MAP), or the source directly
+    before the first sync. The required level still comes from the base class: viewer to read, editor
+    to write."""
+
+    def has_object_permission(self, request: Request, view, obj: ExternalDataSchema) -> bool:
+        # Service credentials (PSAK/TST) are synthetic users UserAccessControl can't evaluate; they're
+        # gated by API scope + project membership. Mirror AccessControlPermission.
+        if is_service_auth(request):
+            return True
+        required_level = self._get_required_access_level(request, view)
+        if not required_level:
+            return True
+        level = view.user_access_control.get_user_access_level(obj.table or obj.source)
+        if level is None or not access_level_satisfied_for_resource("warehouse_table", level, required_level):
+            self.message = f"You do not have {required_level} access to this table."
+            return False
+        return True
+
+
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
+    permission_classes = [WarehouseTableAccessPermission]
     scope_object_write_actions = [
         "update",
         "partial_update",
@@ -1375,6 +1416,26 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.select_related("table__credential")
         return queryset.order_by(self.ordering)
 
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        if self.action != "list" or is_service_auth(self.request):
+            return queryset
+        # A schema has no rules of its own, so the generic queryset filtering can't see its access.
+        # Resolve each row the way retrieve does and drop the ones the user can't view - otherwise
+        # the list serves names and sync metadata for tables and sources they're denied on.
+        schemas = list(queryset)
+        uac = self.user_access_control
+        uac.preload_object_access_controls([schema.table or schema.source for schema in schemas])
+        visible = [
+            schema.id
+            for schema in schemas
+            if (level := uac.get_user_access_level(schema.table or schema.source)) is not None
+            and access_level_satisfied_for_resource("warehouse_table", level, "viewer")
+        ]
+        if len(visible) == len(schemas):
+            return queryset
+        return queryset.filter(id__in=visible)
+
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
 
@@ -1408,6 +1469,19 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return self.get_paginated_response(LogEntrySerializer(page, many=True).data)
         return Response(LogEntrySerializer(data, many=True).data)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(description="The sync was triggered."),
+            400: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
+                description="The sync could not be started.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
@@ -1421,8 +1495,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             trigger_external_data_workflow(instance)
         except temporalio.service.RPCError as e:
+            # Only mark the schema Running once the trigger succeeded: a Running status with no
+            # workflow behind it sticks forever (nothing finalizes it) and blocks cancel.
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
-
+            return Response(
+                data={"detail": "Couldn't start the sync. Please try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as e:
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             raise
@@ -1431,6 +1510,19 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.save()
         return Response(status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(description="The full resync was triggered."),
+            400: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
+                description="The resync could not be started.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def resync(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
@@ -1471,13 +1563,21 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         if cdc_resync:
             instance.initial_sync_complete = False
-        instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save(update_fields=["status", "updated_at"])
 
         try:
             trigger_external_data_workflow(instance)
         except temporalio.service.RPCError as e:
+            # Only mark the schema Running once the trigger succeeded: a Running status with no
+            # workflow behind it sticks forever (nothing finalizes it) and blocks cancel. The
+            # sync_type_config reset above stays; the schema's intent is still "resync next run".
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
+            return Response(
+                data={"detail": "Couldn't start the sync. Please try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        instance.status = ExternalDataSchema.Status.RUNNING
+        instance.save(update_fields=["status", "updated_at"])
 
         return Response(status=status.HTTP_200_OK)
 
@@ -1485,8 +1585,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=None,
         responses={
             200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
                 description="The running sync was cancelled. v3 pipeline jobs are marked Failed immediately; "
-                "for older pipeline versions the cancelled workflow records the final status.",
+                "for older pipeline versions the cancelled workflow records the final status. When no sync "
+                "was actually running but the schema was stuck reporting Running, the schema status is "
+                "corrected instead and the response says so.",
             ),
             400: OpenApiResponse(
                 response={
@@ -1508,6 +1614,22 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         if not latest_running_job or latest_running_job.status != "Running" or not latest_running_job.workflow_id:
+            job_is_running = latest_running_job is not None and latest_running_job.status == "Running"
+            # A schema reporting Running with no running job is stale (e.g. a trigger that never
+            # started a run): nothing will ever repaint it, so the stop button is the user's only
+            # way out. Mirror the latest job's terminal status. CDC halted markers absorb status
+            # updates (see update_external_job_status), so honor them here too.
+            if instance.status == ExternalDataSchema.Status.RUNNING and not job_is_running and not instance.cdc_halted:
+                if latest_running_job is not None:
+                    instance.status = ExternalDataSchema.Status(latest_running_job.status)
+                    instance.latest_error = latest_running_job.latest_error
+                else:
+                    instance.status = ExternalDataSchema.Status.FAILED
+                instance.save(update_fields=["status", "latest_error", "updated_at"])
+                return Response(
+                    data={"detail": "No sync was running. The sync status has been updated."},
+                    status=status.HTTP_200_OK,
+                )
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"detail": "No running sync to cancel."},

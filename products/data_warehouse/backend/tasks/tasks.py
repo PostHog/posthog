@@ -1,5 +1,7 @@
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 from celery import shared_task
 from prometheus_client import Counter
@@ -11,7 +13,11 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
 )
-from products.data_warehouse.backend.managed_warehouse_connection import reconcile_managed_warehouse_tables
+from products.managed_warehouse.backend.facade.connection import reconcile_managed_warehouse_tables
+from products.managed_warehouse.backend.facade.cp_teams import (
+    get_org_team_membership,
+    list_enabled_backfill_team_memberships,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -43,10 +49,10 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
-# Live introspection of a large catalog can far exceed the digest bound; the
-# select_for_update guards make an overlap harmless, but keep the lock long enough
-# that it stays the normal exclusion mechanism.
-MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 600
+# A team can temporarily have dynamic, project-reader, and static compatibility
+# catalogs, and each metadata query has a 10-minute database timeout. Cover the
+# serial queries so another task cannot overlap catalog writes near the lock boundary.
+MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 30 * 60
 MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
 
 
@@ -86,25 +92,89 @@ def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id
 )
 @skip_team_scope_audit
 def soft_delete_managed_warehouse_sources_task(organization_id: str) -> None:
-    from products.data_warehouse.backend.managed_warehouse_connection import (  # noqa: PLC0415
-        soft_delete_managed_warehouse_sources,
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        soft_delete_legacy_managed_warehouse_sources,
     )
 
-    soft_delete_managed_warehouse_sources(organization_id=organization_id)
+    if settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED:
+        logger.warning("Ignoring a legacy managed warehouse cleanup task after dynamic auth enablement")
+        return
+    soft_delete_legacy_managed_warehouse_sources(organization_id=organization_id)
 
 
-def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> None:
+@shared_task(
+    ignore_result=True,
+    name="products.data_warehouse.backend.tasks.soft_delete_managed_warehouse_sources_v2",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def soft_delete_managed_warehouse_sources_v2_task(organization_id: str, expected_generation: int) -> None:
+    from products.managed_warehouse.backend.facade.connection import (
+        soft_delete_managed_warehouse_sources,  # noqa: PLC0415
+    )
+
+    soft_delete_managed_warehouse_sources(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
+
+
+def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUID, expected_generation: int) -> None:
+    if settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED:
+        soft_delete_managed_warehouse_sources_v2_task.delay(
+            organization_id=str(organization_id),
+            expected_generation=expected_generation,
+        )
+        return
     soft_delete_managed_warehouse_sources_task.delay(organization_id=str(organization_id))
+
+
+@shared_task(
+    ignore_result=True,
+    name="products.data_warehouse.backend.tasks.ensure_managed_warehouse_direct_source_v2",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def ensure_managed_warehouse_direct_source_v2_task(
+    team_id: int,
+    organization_id: str,
+    expected_generation: int,
+) -> None:
+    if not settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED:
+        return
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        ensure_managed_warehouse_direct_source,
+    )
+
+    ensure_managed_warehouse_direct_source(
+        team_id=team_id,
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
+
+
+def schedule_managed_warehouse_direct_source_ensure(
+    *, team_id: int, organization_id: str | UUID, expected_generation: int
+) -> None:
+    if not settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED:
+        return
+    ensure_managed_warehouse_direct_source_v2_task.delay(
+        team_id=team_id,
+        organization_id=str(organization_id),
+        expected_generation=expected_generation,
+    )
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_all_managed_warehouse_tables")
 @skip_team_scope_audit
 def reconcile_all_managed_warehouse_tables_task() -> None:
-    # Deferred: ducklake pulls duckdb in via common, and that must not load while Celery
-    # imports task modules — keep it off this module's import path.
-    from posthog.ducklake import cp_teams  # noqa: PLC0415
-
-    rows = cp_teams.list_enabled_backfills()
+    rows = list_enabled_backfill_team_memberships()
     if rows is None:
         # Periodic sweep: an unreachable control plane just skips this run — the next
         # scheduled sweep retries.
@@ -166,29 +236,25 @@ def sync_team_earliest_event_date(team_id: int) -> None:
     """
     # Deferred: ducklake pulls duckdb in via common, and posthog.models must not load
     # while Celery imports task modules — keep both off this module's import path.
-    from posthog.ducklake import cp_teams  # noqa: PLC0415
-    from posthog.ducklake.common import (  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415
         NO_HISTORY_SENTINEL,
-        _get_org_id_for_team,
+        get_org_id_for_team,
         resolve_team_earliest_event_date,
+        update_team_earliest_event_date,
     )
 
-    from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-        push_team_earliest_event_date,
-    )
-
-    organization_id = _get_org_id_for_team(team_id)
-    row = cp_teams.get_team(organization_id, team_id)
+    organization_id = get_org_id_for_team(team_id)
+    row = get_org_team_membership(organization_id, team_id)
     if row is None:
         logger.info("No duckling team row for team; skipping earliest event date sync", team_id=team_id)
         return
     if row.earliest_event_date is not None:
         return
     resolved = resolve_team_earliest_event_date(team_id)
-    if resolved == NO_HISTORY_SENTINEL:
+    if resolved is None or resolved == NO_HISTORY_SENTINEL:
         logger.info("No events for team yet; leaving earliest event date unresolved", team_id=team_id)
         return
-    push_team_earliest_event_date(organization_id, team_id, resolved)
+    update_team_earliest_event_date(organization_id, team_id, resolved)
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_catchup")

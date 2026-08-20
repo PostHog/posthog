@@ -153,7 +153,7 @@ OLD_ALLOW_PATH_PATTERNS = [
 OLD_MAX_LINES = 800
 OLD_MAX_FILES = 30
 OLD_DISMISS_TEST_RE = "(?:^|/)(?:__tests__|tests?|fixtures)/|(?:^|/)test_[^/]+\\.py$|_test\\.(py|go)$|\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$|(?:^|/)conftest\\.py$"
-OLD_DISMISS_GENERATED_RE = "(?:^|/)generated/.*\\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|\\.gen\\.(ts|tsx|js|jsx)$|\\.generated\\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/"
+OLD_DISMISS_GENERATED_RE = "(?:^|/)generated/.*\\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|^services/mcp/src/api/generated\\.ts$|\\.gen\\.(ts|tsx|js|jsx)$|\\.generated\\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/"
 
 # ── 1. Equality snapshot: loaded policy matches pre-extraction literals ──
 
@@ -404,6 +404,7 @@ def test_size_gate_applies_mixed_leniency(n_global: int, expected_ok: bool) -> N
         mergeable_state="clean",
         author="alice",
         labels=[],
+        base_ref="master",
         base_sha="base",
         head_sha="head",
         files=vr_files + global_files,
@@ -548,6 +549,7 @@ def _body_pipeline(fam) -> "review_pr.Pipeline":
         mergeable_state="clean",
         author="alice",
         labels=[],
+        base_ref="master",
         base_sha="base",
         head_sha="91c4be2aaaa",
         files=[{"filename": "products/visual_review/a.py", "additions": 3, "deletions": 1, "status": "M"}],

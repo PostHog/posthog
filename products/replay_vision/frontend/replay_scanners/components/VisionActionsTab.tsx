@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel } from '~/types'
 
+import { visionDocsUrl } from '../../components/DocsLink'
 import { DeliveryTargetTypeEnumApi } from '../../generated/api.schemas'
 import type { VisionActionApi } from '../../generated/api.schemas'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../../utils/accessControl'
@@ -110,8 +111,8 @@ function VisionActionsTable({
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
 
-    // The scanner's built-in daily digest is listed here alongside user-created digests and alerts
-    // (marked with a "Daily digest" chip), so this page is the one place to see and manage every
+    // The scanner's built-in featured digest is listed here alongside user-created digests and alerts
+    // (marked with a "Featured digest" chip), so this page is the one place to see and manage every
     // automation on the scanner. It also has its own hero surface on the Observations tab.
     const rows = visionActions
 
@@ -122,6 +123,7 @@ function VisionActionsTable({
                 thingName="digest or alert"
                 isEmpty
                 customHog={HedgehogXRay}
+                docsURL={visionDocsUrl('actions')}
                 description="Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
                 actionElementOverride={
                     <div className="flex gap-2">
@@ -164,7 +166,7 @@ function VisionActionsTable({
                     >
                         {action.name}
                     </Link>
-                    {action.is_scanner_digest && <LemonTag type="highlight">Daily digest</LemonTag>}
+                    {action.is_scanner_digest && <LemonTag type="highlight">Featured digest</LemonTag>}
                     {action.mode === 'alert' && <LemonTag type="warning">Alert</LemonTag>}
                 </span>
             ),

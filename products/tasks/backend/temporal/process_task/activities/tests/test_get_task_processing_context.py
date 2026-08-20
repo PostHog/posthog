@@ -12,25 +12,32 @@ from posthog.models.user_integration import UserIntegration
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
-    MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
+    DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
+    PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
+    vm_sandbox_default_custom_image,
+    vm_sandbox_origin_in_rollout,
+    vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
+    VmSandboxDecision,
     _is_agent_otel_telemetry_enabled,
     _is_agent_proxy_keep_stream_open_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_continue_as_new_enabled,
-    _is_modal_vm_sandbox_enabled,
+    _is_desktop_workspace_warm_enabled,
+    _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
+    _resolve_modal_vm_sandbox,
     get_task_processing_context,
 )
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
@@ -75,6 +82,46 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
     )
 
     assert context.is_snapshot_resume is expected
+
+
+@pytest.mark.parametrize("flag_value,expected", [(True, True), (False, False), (None, False)])
+def test_desktop_workspace_warm_flag_uses_organization_rollout(flag_value, expected):
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        return_value=flag_value,
+    ) as feature_enabled_mock:
+        assert (
+            _is_desktop_workspace_warm_enabled(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+            )
+            is expected
+        )
+
+    feature_enabled_mock.assert_called_once_with(
+        DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+        distinct_id="distinct-id",
+        groups={"organization": "organization-id"},
+        group_properties={"organization": {"id": "organization-id"}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+def test_desktop_workspace_warm_flag_fails_closed():
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("flag service failed"),
+    ):
+        assert (
+            _is_desktop_workspace_warm_enabled(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+            )
+            is False
+        )
 
 
 @pytest.mark.requires_secrets
@@ -458,6 +505,58 @@ class TestGetTaskProcessingContextActivity:
         called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
         assert "tasks-pr-loop" not in called_flags
 
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "pr_loop_flag, babysit_flag, expected, babysit_flag_consulted",
+        [
+            (False, True, False, False),
+            (True, False, False, True),
+            (True, True, True, True),
+        ],
+    )
+    def test_pr_babysit_enabled_requires_both_the_loop_and_its_own_flag(
+        self,
+        activity_environment,
+        test_task,
+        pr_loop_flag,
+        babysit_flag,
+        expected,
+        babysit_flag_consulted,
+    ):
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        def feature_enabled(flag_key, **kwargs):
+            if flag_key == "tasks-pr-loop":
+                return pr_loop_flag
+            if flag_key == PR_BABYSIT_SNAPSHOT_FEATURE_FLAG:
+                return babysit_flag
+            return False
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=feature_enabled,
+        ) as feature_enabled_mock:
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.pr_babysit_enabled is expected
+        called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
+        assert (PR_BABYSIT_SNAPSHOT_FEATURE_FLAG in called_flags) is babysit_flag_consulted
+
+    def test_pr_babysit_snapshot_flag_fails_closed(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flag service failed"),
+        ):
+            assert (
+                _is_pr_babysit_snapshot_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is False
+            )
+
     @pytest.mark.parametrize(
         "flag_value, expected",
         [
@@ -762,14 +861,14 @@ class TestGetTaskProcessingContextActivity:
             return_value=payload,
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=None,
                     custom_image_available=True,
-                )
+                ).use_vm_sandbox
                 is expected
             )
 
@@ -788,13 +887,13 @@ class TestGetTaskProcessingContextActivity:
             side_effect=RuntimeError("flag service failed"),
         ):
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=None,
-                )
+                ).use_vm_sandbox
                 is False
             )
 
@@ -812,7 +911,7 @@ class TestGetTaskProcessingContextActivity:
             return_value=None,
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
@@ -820,7 +919,7 @@ class TestGetTaskProcessingContextActivity:
                     allowed_domains=None,
                     custom_image_available=custom_image_available,
                     state={"use_modal_vm_sandbox": True},
-                )
+                ).use_vm_sandbox
                 is expected
             )
 
@@ -832,13 +931,13 @@ class TestGetTaskProcessingContextActivity:
             return_value='{"origin_products": ["user_created"]}',
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=["github.com"],
-                )
+                ).use_vm_sandbox
                 is False
             )
 
@@ -850,39 +949,86 @@ class TestGetTaskProcessingContextActivity:
             return_value='{"origin_products": ["user_created"]}',
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=["github.com"],
                     state={"use_modal_vm_sandbox": True},
-                )
+                ).use_vm_sandbox
                 is False
             )
 
         payload_mock.assert_not_called()
 
     def test_modal_vm_sandbox_restricted_egress_overrides_default_base(self):
-        # Restricted egress must win over the default-base allowlist: VM can't enforce Modal's
-        # outbound domain allowlist, so a default-base origin with a custom domain list stays on
-        # gVisor and the flag is never consulted (the egress gate returns before the fetch).
+        # A restricted run cannot use any VM routing source until the independent network-policy
+        # flag is enabled, so the runtime flag is not consulted on this path.
         with patch(
             VM_FLAG_PAYLOAD_TARGET,
             return_value='{"default_base_origin_products": ["user_created"]}',
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=["github.com"],
-                )
+                ).use_vm_sandbox
                 is False
             )
 
         payload_mock.assert_not_called()
+
+    def test_modal_vm_sandbox_restricted_egress_uses_vm_when_provider_policy_is_enabled(self):
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"origin_products": ["user_created"]}',
+        ):
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="user_created",
+                allowed_domains=["github.com"],
+                use_modal_network_allowlist=True,
+                custom_image_available=True,
+            )
+
+        assert decision.use_vm_sandbox is True
+
+    def test_modal_vm_sandbox_restricted_state_override_requires_provider_policy(self):
+        with patch(VM_FLAG_PAYLOAD_TARGET, return_value=None) as payload_mock:
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="image_builder",
+                allowed_domains=["github.com"],
+                use_modal_network_allowlist=True,
+                state={"use_modal_vm_sandbox": True},
+            )
+
+        assert decision.use_vm_sandbox is True
+        payload_mock.assert_not_called()
+
+    def test_modal_vm_sandbox_restricted_default_base_requires_provider_policy(self):
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"]}',
+        ):
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="user_created",
+                allowed_domains=["github.com"],
+                use_modal_network_allowlist=True,
+            )
+
+        assert decision.use_vm_sandbox is True
 
     def test_modal_vm_sandbox_false_state_override_forces_gvisor_over_default_base(self):
         # A trusted server-set use_modal_vm_sandbox=False forces gVisor even when the org's payload
@@ -892,7 +1038,7 @@ class TestGetTaskProcessingContextActivity:
             return_value='{"default_base_origin_products": ["user_created"]}',
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
@@ -900,7 +1046,7 @@ class TestGetTaskProcessingContextActivity:
                     allowed_domains=None,
                     custom_image_available=True,
                     state={"use_modal_vm_sandbox": False},
-                )
+                ).use_vm_sandbox
                 is False
             )
 
@@ -930,6 +1076,7 @@ class TestGetTaskProcessingContextActivity:
             ("user_created", {"default_base_origin_products": ["user_created"]}, False, True),
             # the waiver is scoped per origin — an unlisted origin still gets gVisor.
             ("signals_scout", {"default_base_origin_products": ["user_created"]}, False, False),
+            ("signals_scout", {"origin_product_rollout_percentages": {"signals_scout": 100}}, False, True),
             # origin_products membership alone does NOT waive the custom-image requirement.
             (
                 "user_created",
@@ -945,14 +1092,14 @@ class TestGetTaskProcessingContextActivity:
             return_value=payload,
         ):
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product=origin_product,
                     allowed_domains=None,
                     custom_image_available=custom_image_available,
-                )
+                ).use_vm_sandbox
                 is expected
             )
 
@@ -989,6 +1136,101 @@ class TestGetTaskProcessingContextActivity:
         assert vm_sandbox_default_base_origin_products(payload) == expected
 
     @pytest.mark.parametrize(
+        "payload,expected",
+        [
+            ({"origin_product_rollout_percentages": {"signals_scout": 10}}, {"signals_scout": 10.0}),
+            ('{"origin_product_rollout_percentages":{"signals_scout":12.5}}', {"signals_scout": 12.5}),
+            ({"origin_product_rollout_percentages": {"negative": -1, "large": 101, "bool": True}}, {}),
+            ({"origin_product_rollout_percentages": ["signals_scout"]}, {}),
+            (None, {}),
+        ],
+    )
+    def test_vm_sandbox_origin_rollout_percentages_parsing(self, payload, expected):
+        assert vm_sandbox_origin_rollout_percentages(payload) == expected
+
+    def test_vm_sandbox_origin_percentage_rollout_is_stable_and_distributed(self):
+        percentages = {"signals_scout": 10.0}
+        decisions = [
+            vm_sandbox_origin_in_rollout("signals_scout", f"run-{index}", percentages) for index in range(1000)
+        ]
+
+        assert decisions == [
+            vm_sandbox_origin_in_rollout("signals_scout", f"run-{index}", percentages) for index in range(1000)
+        ]
+        assert 70 <= sum(decisions) <= 130
+        assert not vm_sandbox_origin_in_rollout("onboarding", "run-1", percentages)
+        assert vm_sandbox_origin_in_rollout(None, "run-1", {"": 50}) == vm_sandbox_origin_in_rollout(
+            "", "run-1", {"": 50}
+        )
+
+    @pytest.mark.parametrize(
+        "payload, expected",
+        [
+            (None, None),
+            ({"default_custom_image": "posthog-dev-stack"}, "posthog-dev-stack"),
+            ('{"default_custom_image": "posthog-dev-stack"}', "posthog-dev-stack"),
+            ({"default_custom_image": "  padded  "}, "padded"),
+            # Empty/whitespace/non-string values and payloads without the key must resolve
+            # to "no default", never crash routing — the payload is human-edited flag JSON.
+            ({"default_custom_image": ""}, None),
+            ({"default_custom_image": "   "}, None),
+            ({"default_custom_image": 3}, None),
+            ({"origin_products": ["user_created"]}, None),
+            (["posthog-dev-stack"], None),
+            ("not-json", None),
+        ],
+    )
+    def test_vm_sandbox_default_custom_image_parsing(self, payload, expected):
+        assert vm_sandbox_default_custom_image(payload) == expected
+
+    @pytest.mark.parametrize(
+        "origin_product, expected",
+        [
+            # Default-base origin resolves to VM and picks up the org's default image.
+            (
+                "user_created",
+                VmSandboxDecision(use_vm_sandbox=True, default_custom_image="posthog-dev-stack"),
+            ),
+            # An origin that stays on gVisor must not leak the (VM-only) default image out.
+            ("signals_scout", VmSandboxDecision(use_vm_sandbox=False)),
+        ],
+    )
+    def test_modal_vm_sandbox_default_custom_image_resolution(self, origin_product, expected):
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"], "default_custom_image": "posthog-dev-stack"}',
+        ):
+            assert (
+                _resolve_modal_vm_sandbox(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=origin_product,
+                    allowed_domains=None,
+                )
+                == expected
+            )
+
+    def test_modal_vm_sandbox_state_override_never_gets_default_custom_image(self):
+        # Image-builder runs (trusted state override) must keep layering on the plain VM
+        # base: the flag is never consulted, so the org default image cannot apply.
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["image_builder"], "default_custom_image": "posthog-dev-stack"}',
+        ) as payload_mock:
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="image_builder",
+                allowed_domains=None,
+                state={"use_modal_vm_sandbox": True},
+            )
+
+        assert decision == VmSandboxDecision(use_vm_sandbox=True, default_custom_image=None)
+        payload_mock.assert_not_called()
+
+    @pytest.mark.parametrize(
         "state,expected",
         [
             (None, True),
@@ -1016,44 +1258,34 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_event_ingest_enabled is True
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize(
-        "legacy_resume_snapshots, directory_resume_snapshots, run_state, expected_resume_snapshots",
-        [
-            (True, False, {}, True),
-            (False, True, {}, True),
-            (False, False, {}, False),
-            (False, False, {"use_modal_directory_resume_snapshots": True}, False),
-            (False, True, {"use_modal_directory_resume_snapshots": False}, True),
-        ],
-    )
-    def test_get_task_processing_context_combines_legacy_and_directory_resume_snapshot_flags(
-        self,
-        activity_environment,
-        test_task,
-        legacy_resume_snapshots,
-        directory_resume_snapshots,
-        run_state,
-        expected_resume_snapshots,
-    ):
-        task_run = test_task.create_run(extra_state=run_state)
+    def test_get_task_processing_context_enables_directory_resume_snapshots(self, activity_environment, test_task):
+        task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        def feature_enabled(flag_key, *args, **kwargs):
-            if flag_key == MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG:
-                return directory_resume_snapshots
-            return False
-
-        with (
-            override_settings(TASKS_USE_MODAL_RESUME_SNAPSHOTS=legacy_resume_snapshots),
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-                side_effect=feature_enabled,
-            ),
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
         ):
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
-        assert result.use_modal_resume_snapshots is expected_resume_snapshots
-        assert result.use_modal_directory_resume_snapshots is directory_resume_snapshots
+        assert result.use_modal_resume_snapshots is True
+        assert result.use_modal_directory_resume_snapshots is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_applies_org_default_custom_image(self, activity_environment, test_task):
+        # Wiring guard for the elif chain in the activity body: a VM run with no
+        # user/environment image must land the payload's default in custom_image_name.
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"], "default_custom_image": "posthog-dev-stack"}',
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.use_modal_vm_sandbox is True
+        assert result.custom_image_name == "posthog-dev-stack"
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_ci_prompt(self, activity_environment, test_task):

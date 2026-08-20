@@ -6,7 +6,10 @@ import { GENERATED_TOOLS as ai_observability } from './ai_observability'
 import { GENERATED_TOOLS as alerts } from './alerts'
 import { GENERATED_TOOLS as annotations } from './annotations'
 import { GENERATED_TOOLS as batch_exports } from './batch_exports'
+import { GENERATED_TOOLS as billing } from './billing'
+import { GENERATED_TOOLS as billing_alerts } from './billing_alerts'
 import { GENERATED_TOOLS as business_knowledge } from './business_knowledge'
+import { GENERATED_TOOLS as canvas } from './canvas'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
@@ -15,7 +18,7 @@ import { GENERATED_TOOLS as core } from './core'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as data_catalog } from './data_catalog'
-import { GENERATED_TOOLS as data_management } from './data_management'
+import { GENERATED_TOOLS as data_quality } from './data_quality'
 import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as docs } from './docs'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
@@ -34,6 +37,7 @@ import { GENERATED_TOOLS as managed_migrations } from './managed_migrations'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
 import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
 import { GENERATED_TOOLS as mcp_store } from './mcp_store'
+import { GENERATED_TOOLS as messaging } from './messaging'
 import { GENERATED_TOOLS as metrics } from './metrics'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
@@ -65,7 +69,10 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...alerts,
     ...annotations,
     ...batch_exports,
+    ...billing,
+    ...billing_alerts,
     ...business_knowledge,
+    ...canvas,
     ...cdp_function_templates,
     ...cdp_functions,
     ...cohorts,
@@ -74,7 +81,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...customer_analytics,
     ...dashboards,
     ...data_catalog,
-    ...data_management,
+    ...data_quality,
     ...data_warehouse,
     ...docs,
     ...early_access_features,
@@ -93,6 +100,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...marketing_analytics,
     ...mcp_analytics,
     ...mcp_store,
+    ...messaging,
     ...metrics,
     ...notebooks,
     ...persons,

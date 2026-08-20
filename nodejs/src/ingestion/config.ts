@@ -137,6 +137,8 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
+    PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
     PERSONS_PREFETCH_ENABLED: boolean
 
     // Person properties config
@@ -168,6 +170,19 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_FOLD_ENABLED: boolean
     // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
+    // Tombstone rollout of the person-deletion-gaps RFC: for these teams, a merge tombstones the
+    // source person row (is_deleted = true, version stamped in the same transaction, properties
+    // scrubbed) instead of hard-deleting it, and the ClickHouse death row carries that exact
+    // version instead of the version + 100 fudge. The row keeps the key's version counter so a
+    // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
+    // teams; empty means no teams.
+    PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Teams whose person creation claims an existing unreachable posthog_person row holding
+    // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
+    // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
+    // for everyone else the probe is wasted load on the hottest write statement.
+    // Comma-separated team IDs, or '*' for all teams; empty means no teams.
+    PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -203,6 +218,8 @@ export type IngestionConsumerConfig = {
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
+    EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 
     // $feature_flag_called keep-first dedup config
     /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
@@ -239,7 +256,6 @@ export type IngestionConsumerConfig = {
 
     // Cookieless server hash mode config
     COOKIELESS_DISABLED: boolean
-    COOKIELESS_FORCE_STATELESS_MODE: boolean
     COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
     COOKIELESS_SESSION_TTL_SECONDS: number
     COOKIELESS_SALT_TTL_SECONDS: number
@@ -291,6 +307,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
         PERSONS_PREFETCH_ENABLED: false,
 
         // Person properties config
@@ -310,6 +327,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
+        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
@@ -339,6 +358,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+        EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
 
         // $feature_flag_called keep-first dedup config
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',
@@ -377,7 +397,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
 
         // Cookieless server hash mode config
         COOKIELESS_DISABLED: false,
-        COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000,
         COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * (72 + 24),
         COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * (72 + 24),

@@ -15,6 +15,13 @@ class TimeRange:
     start_time: datetime.datetime
     end_time: datetime.datetime
 
+    def __post_init__(self) -> None:
+        if self.start_time > self.end_time:
+            raise ValueError(
+                f"TimeRange start_time must not be after end_time: "
+                f"start_time={self.start_time}, end_time={self.end_time}"
+            )
+
     def get_expression(self, column: str) -> str:
         return f"{column} >= '{self.start_time.isoformat()}' AND {column} < '{self.end_time.isoformat()}'"
 

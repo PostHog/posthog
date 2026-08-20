@@ -6,7 +6,10 @@ including multiple variant handling and exposure filtering logic.
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import Optional, Union
+
+import posthoganalytics
 
 from posthog.schema import (
     ActionsNode,
@@ -19,7 +22,6 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
@@ -33,6 +35,49 @@ logger = logging.getLogger(__name__)
 # pairing in `get_exposure_event_and_property` (and the handling of configs that explicitly
 # name `$feature_flag_called`) must move with it.
 DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
+
+# The dedicated exposure event that replaces $feature_flag_called as the default,
+# gated per team by the flag below while it rolls out.
+EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
+EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
+
+# When $experiment_exposure ingestion goes live. Experiments started before this timestamp ran
+# (at least partly) without the new event, so they must keep counting exposures via
+# $feature_flag_called even where the two overlap. Only experiments whose start_date is at or
+# after the cutoff can rely on $experiment_exposure covering their whole exposure window.
+EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 8, 5, tzinfo=UTC)
+
+
+def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
+    """
+    Returns the event to count exposures on when the experiment doesn't configure a custom one.
+
+    Experiments started at or after EXPERIMENT_EXPOSURE_EVENT_CUTOFF use $experiment_exposure,
+    provided the team is flagged into the rollout. Everything else stays on $feature_flag_called:
+    older experiments predate the new event, and because ingestion duplicates flag events into
+    $experiment_exposure, counting exactly one of the two is what avoids double counting.
+    """
+    if start_date is None:
+        return DEFAULT_EXPOSURE_EVENT
+    if start_date.tzinfo is None:
+        # Query-supplied start dates can be naive ISO strings; the stored values are UTC.
+        start_date = start_date.replace(tzinfo=UTC)
+    if start_date < EXPERIMENT_EXPOSURE_EVENT_CUTOFF:
+        return DEFAULT_EXPOSURE_EVENT
+    # only_evaluate_locally keeps this off the network - it runs on the query hot path, so an
+    # inconclusive or failed local evaluation must fall back to the pre-rollout default.
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            EXPERIMENT_EXPOSURE_EVENT_FLAG,
+            str(team.id),
+            groups={"project": str(team.id)},
+            group_properties={"project": {"id": str(team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return DEFAULT_EXPOSURE_EVENT
+    return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
 
 
 def _is_actions_node_dict(config: dict) -> bool:
@@ -67,18 +112,44 @@ def normalize_to_exposure_criteria(
 
     # Convert dict to typed object
     if isinstance(exposure_criteria, dict):
-        # Create a copy to avoid mutating the input
-        criteria_copy = exposure_criteria.copy()
-        # Also normalize nested exposure_config if present
-        if criteria_copy.get("exposure_config"):
-            exposure_config = criteria_copy["exposure_config"]
-            if isinstance(exposure_config, dict):
-                if _is_actions_node_dict(exposure_config):
-                    criteria_copy["exposure_config"] = ActionsNode.model_validate(exposure_config)
+        # Copy only known fields before the strict (extra="forbid") parse: the write-side
+        # validator never rejected unknown top-level keys, so saved criteria can carry
+        # stray ones (e.g. `properties`, which belongs at exposure_config.properties) —
+        # erroring here would break every results/exposure query for that experiment.
+        criteria_copy = {k: v for k, v in exposure_criteria.items() if k in ExperimentExposureCriteria.model_fields}
+        # Also normalize nested configs if present
+        for config_key in ("exposure_config", "activation_config"):
+            config = criteria_copy.get(config_key)
+            if config and isinstance(config, dict):
+                if _is_actions_node_dict(config):
+                    criteria_copy[config_key] = ActionsNode.model_validate(config)
                 else:
-                    criteria_copy["exposure_config"] = ExperimentEventExposureConfig.model_validate(exposure_config)
+                    criteria_copy[config_key] = ExperimentEventExposureConfig.model_validate(config)
 
         return ExperimentExposureCriteria.model_validate(criteria_copy)
+
+
+def is_default_exposure_config(config: Union[ActionsNode, ExperimentEventExposureConfig, None]) -> bool:
+    """A missing config or one naming a default exposure event is the default exposure, not a
+    custom one (same convention as get_exposure_event_and_property)."""
+    if config is None:
+        return True
+    return isinstance(config, ExperimentEventExposureConfig) and config.event in (
+        DEFAULT_EXPOSURE_EVENT,
+        EXPERIMENT_EXPOSURE_EVENT,
+    )
+
+
+def has_activation_config(exposure_criteria: Union[ExperimentExposureCriteria, dict, None]) -> bool:
+    """Whether the criteria put the experiment in activation mode: an activation event on top of
+    the default exposure. A custom exposure_config disables activation (validation rejects the
+    combination, but stored data predating it must not change semantics)."""
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    return (
+        criteria is not None
+        and criteria.activation_config is not None
+        and is_default_exposure_config(criteria.exposure_config)
+    )
 
 
 def get_multiple_variant_handling_from_experiment(
@@ -150,7 +221,10 @@ def get_test_accounts_filter(
 
 
 def get_exposure_event_and_property(
-    feature_flag_key: str, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
+    feature_flag_key: str,
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None,
+    *,
+    default_exposure_event: str,
 ) -> tuple[Optional[str], str]:
     """
     Determines which event and feature flag variant property to use for exposures.
@@ -158,6 +232,10 @@ def get_exposure_event_and_property(
     Args:
         feature_flag_key: The feature flag key
         exposure_criteria: Experiment exposure criteria configuration
+        default_exposure_event: What the experiment's default exposure resolves to
+            (`resolve_default_exposure_event`). Required so every consumer makes the rollout
+            decision explicitly: resolve it for the experiment being served, or pass
+            DEFAULT_EXPOSURE_EVENT where staying on the legacy event is the deliberate choice.
 
     Returns:
         Tuple of (event_name, feature_flag_variant_property)
@@ -171,34 +249,47 @@ def get_exposure_event_and_property(
     # Handle ActionsNode
     if isinstance(exposure_config, ActionsNode):
         # For actions, we don't filter by event name (actions can match multiple events)
-        # The action filter will be applied in build_common_exposure_conditions
+        # The action filter will be applied in build_exposure_event_conditions
         feature_flag_variant_property = f"$feature/{feature_flag_key}"
         event = None
     elif (
         exposure_config
         and hasattr(exposure_config, "event")
         and exposure_config.event
-        and exposure_config.event != "$feature_flag_called"
+        and exposure_config.event not in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
     ):
         # For custom exposure events, we extract the event name from the exposure config
         # and get the variant from the $feature/<key> property
         feature_flag_variant_property = f"$feature/{feature_flag_key}"
         event = exposure_config.event
     else:
-        # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
+        # $experiment_exposure is an ingestion-side duplicate of $feature_flag_called and carries
+        # the same properties, so both resolve the variant from $feature_flag_response. A config
+        # naming $feature_flag_called is the stored default rather than a custom choice, so it
+        # follows the resolved default event the same way an absent config does.
         feature_flag_variant_property = "$feature_flag_response"
-        event = DEFAULT_EXPOSURE_EVENT
+        if exposure_config is not None and getattr(exposure_config, "event", None) == EXPERIMENT_EXPOSURE_EVENT:
+            event = EXPERIMENT_EXPOSURE_EVENT
+        else:
+            event = default_exposure_event
 
     return event, feature_flag_variant_property
 
 
-def _get_event_name_from_config(exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]]) -> str:
-    """Extract event name from exposure config, defaulting to DEFAULT_EXPOSURE_EVENT."""
+def _get_event_name_from_config(
+    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]],
+    default_exposure_event: str,
+) -> str:
+    """Extract event name from exposure config, defaulting to the resolved default exposure event."""
     if not exposure_config or not hasattr(exposure_config, "event"):
-        return DEFAULT_EXPOSURE_EVENT
+        return default_exposure_event
 
     event = exposure_config.event
-    return str(event) if event and event != "$feature_flag_called" else "$feature_flag_called"
+    # An explicit $feature_flag_called config is the stored default, so it resolves like an
+    # absent config instead of pinning the pre-rollout event.
+    if not event or event == DEFAULT_EXPOSURE_EVENT:
+        return default_exposure_event
+    return str(event)
 
 
 def _build_action_filter(action_id: int, team: Team) -> ast.Expr:
@@ -215,6 +306,7 @@ def _build_event_filters(
     exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]],
     team: Team,
     feature_flag_key: Optional[str],
+    default_exposure_event: str,
 ) -> list[ast.Expr]:
     """Build event/action filters based on exposure config."""
     # Handle action-based exposure
@@ -222,7 +314,7 @@ def _build_event_filters(
         return [_build_action_filter(int(exposure_config.id), team)]
 
     # Handle event-based exposure
-    event = _get_event_name_from_config(exposure_config)
+    event = _get_event_name_from_config(exposure_config, default_exposure_event)
     filters: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -231,8 +323,10 @@ def _build_event_filters(
         )
     ]
 
-    # Add feature flag key filter for $feature_flag_called events
-    if event == "$feature_flag_called" and feature_flag_key:
+    # Add feature flag key filter for $feature_flag_called events. $experiment_exposure gets the
+    # same treatment: ingestion emits it for every experiment, so without this filter exposures
+    # of other experiments would count too.
+    if event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT) and feature_flag_key:
         filters.append(
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
@@ -259,65 +353,24 @@ def build_exposure_event_conditions(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
     team: Team,
     feature_flag_key: Optional[str],
+    *,
+    default_exposure_event: str,
 ) -> list[ast.Expr]:
     """
-    Builds the event/action and property filters that define what counts as an exposure event —
-    the exposure-identity subset of build_common_exposure_conditions, without the analysis-only
-    conditions (date range, variant filter, test-account exclusion). Used directly by consumers
-    that need "who was exposed" for serving decisions rather than metric analysis, such as the
-    freeze-exposure snapshot scan.
+    Builds the event/action and property filters that define what counts as an exposure event,
+    without the analysis-only conditions (date range, variant filter, test-account exclusion).
+    Used by consumers that need "who was exposed" for serving decisions rather than metric
+    analysis, such as the freeze-exposure snapshot scan.
+
+    `default_exposure_event` follows the same contract as in `get_exposure_event_and_property`:
+    resolve it per experiment to honor the $experiment_exposure rollout, or pass
+    DEFAULT_EXPOSURE_EVENT where staying on the legacy event is the deliberate choice.
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config = criteria.exposure_config if criteria else None
     return [
-        *_build_event_filters(exposure_config, team, feature_flag_key),
+        *_build_event_filters(exposure_config, team, feature_flag_key, default_exposure_event),
         *_build_property_filters(exposure_config, team),
-    ]
-
-
-def build_common_exposure_conditions(
-    feature_flag_variant_property: str,
-    variants: list[str],
-    date_range_query: QueryDateRange,
-    team: Team,
-    exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None,
-    feature_flag_key: Optional[str] = None,
-) -> list[ast.Expr]:
-    """
-    Builds common exposure conditions that are shared across exposure queries.
-
-    Args:
-        feature_flag_variant_property: Property containing the variant value
-        variants: List of valid variant keys
-        date_range_query: Date range for the query
-        team: Team object for test account filtering
-        exposure_criteria: Experiment exposure criteria configuration
-        feature_flag_key: Feature flag key (required for $feature_flag_called events)
-    """
-    criteria = normalize_to_exposure_criteria(exposure_criteria)
-
-    return [
-        # Date range filters
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Field(chain=["timestamp"]),
-            right=ast.Constant(value=date_range_query.date_from()),
-        ),
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
-            left=ast.Field(chain=["timestamp"]),
-            right=ast.Constant(value=date_range_query.date_to()),
-        ),
-        # Variant filter
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.In,
-            left=ast.Field(chain=["properties", feature_flag_variant_property]),
-            right=ast.Constant(value=variants),
-        ),
-        # Test accounts filter
-        *get_test_accounts_filter(team, criteria),
-        # Event/action and property filters
-        *build_exposure_event_conditions(criteria, team, feature_flag_key),
     ]
 
 

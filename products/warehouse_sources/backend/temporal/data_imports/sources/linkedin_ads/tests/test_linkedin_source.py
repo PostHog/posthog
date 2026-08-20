@@ -1,8 +1,10 @@
 import json
+from datetime import date
 
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
     LinkedinAdsSourceConfig,
 )
@@ -33,6 +35,9 @@ class TestLinkedInAdsSource:
             'LinkedIn API error (401): {"status":401,"serviceErrorCode":65608,"code":"RESTRICTED_MEMBER","message":"Member is restricted"}',
             # Integration.DoesNotExist when the OAuth integration row was deleted/disconnected.
             "Integration matching query does not exist.",
+            # A sunset version header (see `deprecated_versions`) — happens on every call under that
+            # pin regardless of resource, so it must never be left to retry forever.
+            'LinkedIn API error (426): {"status":426,"code":"NONEXISTENT_VERSION","message":"Requested version 20250801 is not active"}',
         ],
     )
     def test_non_retryable_errors_match_upstream_failures(self, observed_error):
@@ -80,6 +85,11 @@ class TestLinkedInAdsSource:
         assert self.source.default_version == LINKEDIN_ADS_VERSION_202607
         assert set(self.source.supported_versions) == {"v1", LINKEDIN_ADS_VERSION_202606, LINKEDIN_ADS_VERSION_202607}
 
+    def test_legacy_v1_pin_is_deprecated(self):
+        # "v1" backs the sunset 202508 header (see client.API_VERSION) — the in-product deprecation
+        # banner depends on this metadata staying declared.
+        assert self.source.deprecated_versions == (VersionDeprecation(version="v1", sunset_at=date(2026, 8, 1)),)
+
     @pytest.mark.parametrize(
         "pinned_version,expected_header",
         [
@@ -120,8 +130,27 @@ class TestLinkedInAdsSource:
 
         assert mock_client_for_integration.call_args.kwargs["api_version"] == "202607"
 
+    def test_demographic_breakdowns_are_offered_but_not_enabled_by_default(self):
+        # These fan out to one row per day per demographic value on top of the performance tables,
+        # so auto-enabling them would multiply every existing connection's sync cost.
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        demographic_tables = [name for name in schemas if name.startswith("member_")]
+        assert sorted(demographic_tables) == [
+            "member_company_size_stats",
+            "member_company_stats",
+            "member_country_stats",
+            "member_industry_stats",
+            "member_job_title_stats",
+            "member_seniority_stats",
+        ]
+        assert all(not schemas[name].should_sync_default for name in demographic_tables)
+        assert all(schemas[name].supports_incremental for name in demographic_tables)
+
+        for name in ("accounts", "campaigns", "campaign_groups", "creatives", "conversions"):
+            assert schemas[name].should_sync_default
+
     def test_validate_credentials_missing_account_id(self):
-        """Test credential validation with missing account ID."""
         invalid_config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=456, account_id="")
 
         is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
@@ -151,8 +180,6 @@ class TestLinkedInAdsSource:
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.Integration")
     def test_validate_credentials_integration_not_found(self, mock_integration_model):
-        """Test credential validation when integration doesn't exist."""
-
         # Mock DoesNotExist exception
         class MockDoesNotExist(Exception):
             pass
@@ -171,8 +198,6 @@ class TestLinkedInAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.capture_exception"
     )
     def test_validate_credentials_unexpected_error(self, mock_capture_exception, mock_integration_model):
-        """Test credential validation with unexpected error."""
-
         # Mock DoesNotExist exception
         class MockDoesNotExist(Exception):
             pass

@@ -880,6 +880,17 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # is entirely manifest-driven, so a 400 is deterministic: the same request recurs on
             # every retry. Stop retrying and point at the config the user can actually change.
             "400 Client Error": "The upstream API rejected the request with HTTP 400. Check the resource's path, query params, and — for an incremental sync — the cursor's date format in the manifest, then try again.",
+            # A configured URL or resource path that doesn't exist. The request shape is
+            # manifest-driven, so the 404 recurs on every retry — stop and point at the config.
+            # The message omits the URL, which carries the customer's hostname.
+            "404 Client Error": "The upstream API returned HTTP 404 Not Found. Check that the base URL and the resource's path in the manifest are correct and that the endpoint exists, then try again.",
+            # A network proxy rejected the request before it reached the upstream API. On PostHog
+            # Cloud this is the egress proxy refusing a URL it isn't allowed to reach (a private or
+            # internal address); it can also be an upstream proxy in front of the customer's API
+            # demanding credentials. The manifest-driven request recurs identically on every retry,
+            # so stop and point at the manifest URLs. The message omits the URL, which carries the
+            # customer's hostname.
+            "407 Client Error": "A network proxy rejected the request before it reached the upstream API (HTTP 407). This usually means a URL in the manifest points at an address PostHog can't reach (for example a private or internal address), or the API sits behind a proxy that needs credentials. Check the URLs in the manifest, then try again.",
             # A schema points to a resource the manifest no longer defines (renamed or removed
             # in an edit while the table's sync stayed scheduled). Permanent until the config is
             # fixed — match the stable suffix, not the variable resource name in the message.
@@ -900,6 +911,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # stop and point at the config the user can change. Matches the stable prefix
             # RESTClientNonRetryableError uses, not the variable URL that follows.
             "Non-JSON response from": "The upstream API returned a non-JSON response (for example an HTML or plain-text error page) instead of data. Check that the resource's URL and path in the manifest point at a JSON API endpoint and that any required authentication is configured, then try again.",
+            # `_is_host_safe` raises this when a manifest's base_url, token_url, or resource
+            # host doesn't resolve via DNS — a hostname the customer typed wrong or a host
+            # that's no longer publicly reachable. Deterministic and permanent until the
+            # manifest is edited, so stop retrying. Match the stable prefix, not the
+            # customer's hostname that follows it.
+            "Couldn't resolve the host": "A host in the manifest (base_url, token_url, or a resource's URL) could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:

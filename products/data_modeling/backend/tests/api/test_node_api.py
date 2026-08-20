@@ -7,14 +7,16 @@ from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
+from posthog.temporal.common.logger import resolve_log_source
 
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.logic.node_suspension import mark_node_suspended, suspension_state
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 
 class TestNodeViewSet(APIBaseTest):
@@ -238,6 +240,14 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_client.start_workflow.assert_called_once()
 
+        # The workflow id must resolve back to the saved query id, or the run's log lines
+        # detach from the materialization history UI (which queries by saved query id).
+        workflow_id = mock_client.start_workflow.call_args.kwargs["id"]
+        self.assertEqual(
+            resolve_log_source("data-modeling-run", workflow_id),
+            ("data_modeling_run", str(self.saved_query.id)),
+        )
+
     def _suspend(self, node: Node) -> None:
         mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid4()), fingerprint=None)
         node.save()
@@ -336,6 +346,9 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-materialize-view")
+        self.assertEqual(call_args.kwargs["id"], f"materialize-view-{self.view_node.id}")
+        self.assertEqual(call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.USE_EXISTING)
+        self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
 
     @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=False)
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")

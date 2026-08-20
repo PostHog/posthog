@@ -53,6 +53,13 @@ from products.signals.backend.temporal.reingestion import (
     restore_grouping_pause_activity,
     soft_delete_report_signals_activity,
 )
+from products.signals.backend.temporal.report_canvas import (
+    SignalReportCanvasWorkflow,
+    fail_report_canvas_generation_activity,
+    poll_report_canvas_generation_activity,
+    report_canvases_enabled_activity,
+    start_report_canvas_generation_activity,
+)
 from products.signals.backend.temporal.report_safety_judge import report_safety_judge_activity
 from products.signals.backend.temporal.safety_filter import safety_filter_activity
 from products.signals.backend.temporal.signal_queries import (
@@ -63,13 +70,16 @@ from products.signals.backend.temporal.signal_queries import (
 )
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
+    check_report_quota_gate_activity,
     dispatch_inbox_slack_notifications_activity,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     publish_report_completed_activity,
+    report_has_assigned_signals_activity,
     reset_report_to_potential_activity,
+    revert_report_to_candidate_activity,
 )
 
 WORKFLOWS = [
@@ -87,6 +97,7 @@ WORKFLOWS = [
     RunSignalsScoutWorkflow,
     SignalsScoutCoordinatorWorkflow,
     SignalReportInboxNotificationWorkflow,
+    SignalReportCanvasWorkflow,
 ]
 
 ACTIVITIES = [
@@ -113,10 +124,17 @@ ACTIVITIES = [
     match_signal_to_report_activity,
     mark_report_failed_activity,
     read_signals_from_s3_activity,
+    check_report_quota_gate_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
+    fail_report_canvas_generation_activity,
+    report_canvases_enabled_activity,
+    start_report_canvas_generation_activity,
+    poll_report_canvas_generation_activity,
     publish_report_completed_activity,
+    report_has_assigned_signals_activity,
+    revert_report_to_candidate_activity,
     delete_team_reports_activity,
     get_grouping_paused_state_activity,
     pause_grouping_until_activity,

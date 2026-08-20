@@ -69,11 +69,15 @@ class SignalSourceProduct(StrEnum):
     INTERCOM = "intercom"
     HUBSPOT = "hubspot"
     ENGINEERING_ANALYTICS = "engineering_analytics"
+    # Search analytics (record kind: search_opportunity)
+    GOOGLE_SEARCH_CONSOLE = "google_search_console"
 
 
 class SignalSourceType(StrEnum):
     SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
     SESSION_PROBLEM = "session_problem"
+    # No emitter produces EVALUATION any more — AI observability only signals whole eval reports.
+    # The value stays in the taxonomy so signals ingested before that still resolve to a label.
     EVALUATION = "evaluation"
     EVALUATION_REPORT = "evaluation_report"
     ISSUE = "issue"
@@ -93,6 +97,7 @@ class SignalSourceType(StrEnum):
     CI_FLAKY_CHECK = "ci_flaky_check"
     CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch"
     CI_DURATION_REGRESSION = "ci_duration_regression"
+    SEARCH_OPPORTUNITY = "search_opportunity"
 
 
 # Plain value lists for ENUM_NAME_OVERRIDES in web.py — drf-spectacular hashes ChoiceField
@@ -151,6 +156,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.INTERCOM: "Intercom",
     SignalSourceProduct.HUBSPOT: "HubSpot",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
+    SignalSourceProduct.GOOGLE_SEARCH_CONSOLE: "Google Search Console",
 }
 
 # The Django model's `source_product` choices, frozen-equivalent to the prior nested TextChoices so

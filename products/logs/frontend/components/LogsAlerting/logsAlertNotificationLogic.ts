@@ -86,17 +86,20 @@ export interface logsAlertNotificationLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -109,6 +112,7 @@ export interface logsAlertNotificationLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -136,17 +140,20 @@ export interface logsAlertNotificationLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -159,6 +166,7 @@ export interface logsAlertNotificationLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     } // integrationsLogic
@@ -439,6 +447,9 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
 
             const failedNotifications = pending.filter((_, i) => results[i].status === 'rejected')
 
+            actions.loadExistingHogFunctions(alertId)
+            actions.destinationsChanged()
+
             if (failedNotifications.length > 0) {
                 lemonToast.error(
                     `Alert saved, but ${failedNotifications.length} notification(s) failed to create. Reopen the alert to add them again.`
@@ -450,9 +461,6 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                 }
                 actions.clearPendingNotifications()
             }
-
-            actions.loadExistingHogFunctions(alertId)
-            actions.destinationsChanged()
         },
     })),
 

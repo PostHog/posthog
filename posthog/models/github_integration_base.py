@@ -22,6 +22,7 @@ import requests
 import structlog
 from prometheus_client import Counter
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
@@ -47,6 +48,11 @@ GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
 
+# Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
+# bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
+# point a comment renders without its pills, which is worse than the extra requests.
+MAX_REACTION_HYDRATIONS = 100
+
 
 class NormalizedPRComment(TypedDict):
     """Wire shape for a PR comment shared by the read path and the review-comment write endpoints."""
@@ -66,6 +72,7 @@ class NormalizedPRComment(TypedDict):
     diff_hunk: str | None
     in_reply_to_id: str | None
     commit_id: str | None
+    reactions: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -87,6 +94,19 @@ class GitHubCommitAttribution:
     is_bot: bool
     # Git author display name — untrusted free text, for display only, never parse it.
     name: str | None = None
+
+
+@frozen
+class PullRequestRef:
+    """A pull request's coordinates, parsed from its GitHub HTML URL."""
+
+    owner: str
+    repo: str
+    number: int
+
+    @property
+    def repository(self) -> str:
+        return f"{self.owner}/{self.repo}"
 
 
 class GitHubIntegrationError(Exception):
@@ -387,6 +407,12 @@ class GitHubIntegrationBase:
             "expires_in": expires_in,
             "refreshed_at": int(time.time()),
         }
+        # The token response names the permissions this installation actually holds. Persisting them
+        # lets the warehouse schema picker mark tables the installation can't read without an API
+        # call, and keeps the copy current as the App's requested permissions change: every hourly
+        # refresh rewrites it, including for integrations connected before this key existed.
+        if isinstance(data.get("permissions"), dict):
+            config["permissions"] = data["permissions"]
         config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
         self.integration.config = config
         self.integration.sensitive_config = {
@@ -839,8 +865,8 @@ class GitHubIntegrationBase:
         return attributions
 
     @staticmethod
-    def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:
-        """Parse a GitHub pull request URL into ``(owner, repo, pr_number)``.
+    def parse_pull_request_url(pr_url: str) -> PullRequestRef | None:
+        """Parse a GitHub pull request URL into a :class:`PullRequestRef`.
 
         Returns ``None`` if the URL does not look like a GitHub PR URL.
         """
@@ -859,7 +885,7 @@ class GitHubIntegrationBase:
             pr_number = int(pr_number_str)
         except ValueError:
             return None
-        return owner, repo, pr_number
+        return PullRequestRef(owner=owner, repo=repo, number=pr_number)
 
     def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
@@ -923,8 +949,7 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.get_pull_request(f"{owner}/{repo}", pr_number)
+        return self.get_pull_request(parsed.repository, parsed.number)
 
     def close_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Close a pull request (``PATCH`` state=closed). ``repository`` is ``owner/repo`` or a bare repo.
@@ -960,8 +985,7 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.close_pull_request(f"{owner}/{repo}", pr_number)
+        return self.close_pull_request(parsed.repository, parsed.number)
 
     def comment_on_pull_request(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
         """Post a comment on a pull request. ``repository`` is ``owner/repo`` or a bare repo.
@@ -990,8 +1014,7 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.comment_on_pull_request(f"{owner}/{repo}", pr_number, body)
+        return self.comment_on_pull_request(parsed.repository, parsed.number, body)
 
     def get_pull_request_checks(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch the CI status for a PR — GitHub Actions check runs plus commit statuses from external
@@ -1077,7 +1100,8 @@ class GitHubIntegrationBase:
 
     @staticmethod
     def normalize_pr_comment(raw: object, comment_type: str) -> NormalizedPRComment | None:
-        """Shape a raw GitHub comment into the wire contract."""
+        """Shape a raw GitHub comment into the wire contract shared by the read path and the write
+        endpoints. ``reactions`` is left empty; the read path fills it for review comments that have any."""
         if not isinstance(raw, dict):
             return None
         user = raw.get("user") or {}
@@ -1100,6 +1124,7 @@ class GitHubIntegrationBase:
             "diff_hunk": raw.get("diff_hunk") if is_review else None,
             "in_reply_to_id": str(raw["in_reply_to_id"]) if is_review and raw.get("in_reply_to_id") else None,
             "commit_id": raw.get("commit_id") if is_review else None,
+            "reactions": [],
         }
 
     def get_pull_request_comments(self, repository: str, pr_number: int) -> dict[str, Any]:
@@ -1112,6 +1137,7 @@ class GitHubIntegrationBase:
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         comments: list[NormalizedPRComment] = []
+        hydrated_reactions = 0
         for path, comment_type, endpoint in (
             (f"issues/{pr_number}/comments", "conversation", "/repos/{owner}/{repo}/issues/{issue_number}/comments"),
             (f"pulls/{pr_number}/comments", "review", "/repos/{owner}/{repo}/pulls/{pull_number}/comments"),
@@ -1137,11 +1163,52 @@ class GitHubIntegrationBase:
                     normalized = self.normalize_pr_comment(raw, comment_type)
                     if normalized is None:
                         continue
+                    if comment_type == "review" and hydrated_reactions < MAX_REACTION_HYDRATIONS:
+                        reaction_summary = raw.get("reactions") or {}
+                        if isinstance(reaction_summary, dict) and reaction_summary.get("total_count"):
+                            normalized["reactions"] = self._get_review_comment_reactions(repo_path, str(raw["id"]))
+                            hydrated_reactions += 1
                     comments.append(normalized)
 
         # Merge both streams into a single chronological thread; entries without a timestamp sort last.
         comments.sort(key=lambda c: c.get("created_at") or "")
         return {"success": True, "comments": comments}
+
+    def _get_review_comment_reactions(self, repo_path: str, comment_id: str) -> list[dict[str, Any]]:
+        """Fetch a review comment's reactions, each with its id, content, and reactor login.
+
+        Returned per-reactor (not just counts) so the frontend can group them, highlight the viewer's
+        own, and delete them by id. Best-effort: returns [] on any non-200 / parse failure.
+        """
+        try:
+            # One page only: a comment past 100 reactions isn't worth extra round trips here.
+            response = self._installation_authenticated_get(
+                f"https://api.github.com/repos/{repo_path}/pulls/comments/{comment_id}/reactions",
+                endpoint="/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
+                params={"per_page": 100},
+            )
+        except Exception:
+            logger.warning("GitHubIntegration: reactions fetch failed", repository=repo_path, comment_id=comment_id)
+            return []
+        if response is None or response.status_code != 200:
+            return []
+        try:
+            body = response.json()
+        except Exception:
+            return []
+        if not isinstance(body, list):
+            return []
+        out: list[dict[str, Any]] = []
+        for reaction in body:
+            if isinstance(reaction, dict) and reaction.get("content") and reaction.get("id") is not None:
+                out.append(
+                    {
+                        "id": str(reaction["id"]),
+                        "content": reaction["content"],
+                        "user_login": (reaction.get("user") or {}).get("login"),
+                    }
+                )
+        return out
 
     def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
         """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.
@@ -1172,12 +1239,12 @@ class GitHubIntegrationBase:
             return []
         return [pr["html_url"] for pr in pulls if isinstance(pr, dict) and isinstance(pr.get("html_url"), str)]
 
-    def get_open_pr_base_for_head(self, repository: str, branch: str) -> str | None:
-        """Return the base branch of an OPEN pull request whose head is ``branch``, if one exists.
+    def get_open_pull_request_for_head(self, repository: str, branch: str) -> dict[str, Any] | None:
+        """Return the OPEN pull request whose head is ``branch`` — its number, HTML url, and base ref.
 
-        ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Distinguishes
-        a branch that *heads* an open PR (work continues on it) from a branch used as a PR *base*.
-        Best-effort: returns None on a bad repo, non-200, no open PR, or any error.
+        ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Lets a caller
+        that owns a deterministic branch name find the PR it already opened, instead of opening a
+        second one. Best-effort: returns None on a bad repo, non-200, no open PR, or any error.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         owner = repo_path.split("/", 1)[0]
@@ -1191,12 +1258,29 @@ class GitHubIntegrationBase:
         try:
             pulls = response.json()
         except Exception:
-            logger.warning("GitHubIntegration: get_open_pr_base_for_head non-JSON response", repository=repo_path)
+            logger.warning("GitHubIntegration: get_open_pull_request_for_head non-JSON response", repository=repo_path)
             return None
         if not isinstance(pulls, list) or not pulls or not isinstance(pulls[0], dict):
             return None
-        base = (pulls[0].get("base") or {}).get("ref")
-        return base if isinstance(base, str) and base else None
+        pull = pulls[0]
+        number = pull.get("number")
+        if not isinstance(number, int):
+            return None
+        base = (pull.get("base") or {}).get("ref")
+        return {
+            "number": number,
+            "url": pull.get("html_url") if isinstance(pull.get("html_url"), str) else None,
+            "base": base if isinstance(base, str) and base else None,
+        }
+
+    def get_open_pr_base_for_head(self, repository: str, branch: str) -> str | None:
+        """Return the base branch of an OPEN pull request whose head is ``branch``, if one exists.
+
+        Distinguishes a branch that *heads* an open PR (work continues on it) from a branch used as
+        a PR *base*. Best-effort: returns None on a bad repo, non-200, no open PR, or any error.
+        """
+        pull = self.get_open_pull_request_for_head(repository, branch)
+        return pull.get("base") if pull else None
 
     _PR_SNAPSHOT_QUERY = """
     query($owner: String!, $repo: String!, $number: Int!) {
@@ -1330,11 +1414,10 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
 
         data = self._gh_graphql(
             self._PR_SNAPSHOT_QUERY,
-            {"owner": owner, "repo": repo, "number": pr_number},
+            {"owner": parsed.owner, "repo": parsed.repo, "number": parsed.number},
             endpoint="/graphql:pullRequestSnapshot",
         )
         pr = ((data or {}).get("repository") or {}).get("pullRequest")
@@ -1374,6 +1457,148 @@ class GitHubIntegrationBase:
             "head_sha": pr.get("headRefOid"),
             "requested_reviewer_logins": reviewer_logins,
             "updated_at": pr.get("updatedAt"),
+        }
+
+    _PR_BABYSIT_SNAPSHOT_QUERY = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          url state isDraft mergeable headRefOid
+          author { login }
+          reviewThreads(first: 100) {
+            nodes {
+              id isResolved path
+              comments(last: 1) {
+                nodes { id url body author { login } authorAssociation }
+              }
+            }
+          }
+          comments(last: 30) {
+            nodes { id url body author { login } authorAssociation }
+          }
+          reviews(last: 10) {
+            nodes { id url body author { login } authorAssociation }
+          }
+          commits(last: 1) {
+            nodes {
+              commit {
+                statusCheckRollup {
+                  state
+                  contexts(first: 100) {
+                    nodes {
+                      __typename
+                      ... on CheckRun {
+                        name conclusion detailsUrl
+                        checkSuite { workflowRun { workflow { name } } }
+                      }
+                      ... on StatusContext { context state targetUrl }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    # Every completed conclusion GitHub does not accept for merging. CANCELLED and STALE
+    # leave a required check unsatisfied with no FAILURE beside it (a stopped run, or a
+    # sibling cancelled by matrix fail-fast), so the loop must still name them.
+    _FAILING_CHECK_RUN_CONCLUSIONS = frozenset(
+        {"FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "CANCELLED", "STALE"}
+    )
+    _FAILING_STATUS_CONTEXT_STATES = frozenset({"FAILURE", "ERROR"})
+    _FAILING_ROLLUP_STATES = frozenset({"FAILURE", "ERROR"})
+    _ROLLUP_FAILING_CHECK_KEY = "ci-rollup-failing"
+
+    @classmethod
+    def _extract_failing_checks(cls, rollup: dict[str, Any] | None) -> list[dict[str, Any]]:
+        failing: list[dict[str, Any]] = []
+        for node in ((rollup or {}).get("contexts") or {}).get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            if node.get("__typename") == "CheckRun":
+                if node.get("conclusion") not in cls._FAILING_CHECK_RUN_CONCLUSIONS:
+                    continue
+                workflow = (((node.get("checkSuite") or {}).get("workflowRun") or {}).get("workflow") or {}).get("name")
+                name = node.get("name") or "unnamed check"
+                failing.append(
+                    {"key": f"{workflow}/{name}" if workflow else name, "details_url": node.get("detailsUrl")}
+                )
+            elif node.get("__typename") == "StatusContext":
+                if node.get("state") not in cls._FAILING_STATUS_CONTEXT_STATES:
+                    continue
+                failing.append({"key": node.get("context") or "unnamed status", "details_url": node.get("targetUrl")})
+        return failing
+
+    @staticmethod
+    def _feedback_item(node: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": node.get("id"),
+            "author": (node.get("author") or {}).get("login"),
+            "author_association": node.get("authorAssociation"),
+            "body": node.get("body") or "",
+            "url": node.get("url"),
+        }
+
+    def get_pull_request_babysit_snapshot(self, pr_url: str) -> dict[str, Any]:
+        """Fetch the per-item PR state the babysit loop dispatches on: every unresolved
+        review thread with its latest comment, top-level comments and review bodies,
+        each failing check with its details URL, and the merge-conflict state."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+
+        data = self._gh_graphql(
+            self._PR_BABYSIT_SNAPSHOT_QUERY,
+            {"owner": parsed.owner, "repo": parsed.repo, "number": parsed.number},
+            endpoint="/graphql:pullRequestBabysitSnapshot",
+        )
+        pr = ((data or {}).get("repository") or {}).get("pullRequest")
+        if not pr:
+            return {"success": False, "error": f"Pull request not found: {pr_url}"}
+
+        author_login = (pr.get("author") or {}).get("login")
+
+        unresolved_threads: list[dict[str, Any]] = []
+        for node in ((pr.get("reviewThreads") or {}).get("nodes")) or []:
+            if not isinstance(node, dict) or node.get("isResolved") is not False:
+                continue
+            comment_nodes = ((node.get("comments") or {}).get("nodes")) or []
+            item = self._feedback_item(comment_nodes[-1] if comment_nodes else {})
+            unresolved_threads.append(
+                {**item, "id": node.get("id"), "path": node.get("path"), "last_comment_id": item["id"] or ""}
+            )
+
+        feedback: list[dict[str, Any]] = []
+        for connection in ("comments", "reviews"):
+            for node in ((pr.get(connection) or {}).get("nodes")) or []:
+                if not isinstance(node, dict):
+                    continue
+                item = self._feedback_item(node)
+                if item["id"] and item["body"].strip() and item["author"] != author_login:
+                    feedback.append(item)
+
+        rollup_nodes = ((pr.get("commits") or {}).get("nodes")) or []
+        rollup = ((rollup_nodes[0] or {}).get("commit") or {}).get("statusCheckRollup") if rollup_nodes else None
+
+        html_url = pr.get("url") or pr_url
+        failing_checks = self._extract_failing_checks(rollup)
+        if not failing_checks and (rollup or {}).get("state") in self._FAILING_ROLLUP_STATES:
+            failing_checks.append({"key": self._ROLLUP_FAILING_CHECK_KEY, "details_url": f"{html_url}/checks"})
+
+        return {
+            "success": True,
+            "url": html_url,
+            "state": self._map_pr_state(pr.get("state"), bool(pr.get("isDraft"))),
+            "head_sha": pr.get("headRefOid") or "",
+            "has_conflict": self._map_mergeable(pr.get("mergeable")) is False,
+            "author_login": author_login,
+            "failing_checks": failing_checks,
+            "unresolved_threads": unresolved_threads,
+            "comments": feedback,
         }
 
     def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:
@@ -1692,10 +1917,12 @@ class GitHubIntegrationBase:
         has_more = offset + limit < len(filtered)
         return result, has_more
 
-    def list_all_cached_repositories(self, max_repos: int | None = None) -> list[dict]:
+    def list_all_cached_repositories(self, max_repos: int | None = None, *, allow_refresh: bool = True) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()
         has_cached_snapshot = self.integration.repository_cache_updated_at is not None
-        should_refresh = cached_repositories is None or self.repository_cache_is_stale()
+        # `allow_refresh=False` keeps this a pure cache read — no live GitHub sync, no token refresh,
+        # no DB write — for callers on a latency-sensitive path that accept a stale snapshot.
+        should_refresh = allow_refresh and (cached_repositories is None or self.repository_cache_is_stale())
         self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:

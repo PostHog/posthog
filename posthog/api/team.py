@@ -11,21 +11,40 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import re2
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
-from pydantic import TypeAdapter
+from pydantic import (
+    RootModel as PydanticRootModel,
+    TypeAdapter,
+)
+from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.schema import AttributionMode, HogQLQueryModifiers
+from posthog.schema import (
+    AttributionMode,
+    CampaignFieldPreference,
+    CohortPropertyFilter,
+    ConversionGoalFilter1,
+    ConversionGoalFilter2,
+    ConversionGoalFilter3,
+    DataWarehousePropertyFilter,
+    ElementPropertyFilter,
+    EventPropertyFilter,
+    HogQLPropertyFilter,
+    HogQLQueryModifiers,
+    PersonPropertyFilter,
+    SourceMap,
+)
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.api.utils import action, validate_authorized_url_wildcards
+from posthog.auth import SessionAuthentication
 from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -67,8 +86,10 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     UserCanCreateProjectPermission,
+    get_authenticator_scoped_organization_ids,
+    get_authenticator_scoped_team_ids,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.access_control_api_mixin import AccessControlSettingsViewSetMixin, AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
@@ -91,7 +112,6 @@ from posthog.utils import (
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig
-from products.signals.backend.models import SignalSourceConfig
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
@@ -129,10 +149,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         max_length=10,
         help_text=(
             "Ordered list of log attribute keys whose values hold the PostHog session ID. "
-            "Detection checks keys in order; the first key with a value wins. Defaults to "
-            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
-            "auto-attach. Add keys only if your pipeline emits the session ID under "
-            "different attributes."
+            "Detection checks keys in order, then falls back to common session ID attribute "
+            "conventions; the first key with a value wins. Defaults to ['sessionId'] — the "
+            "convention documented at https://posthog.com/docs/logs/link-session-replay and "
+            "the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only "
+            "if your pipeline emits the session ID under different attributes."
         ),
     )
 
@@ -163,6 +184,65 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         if keys:
             validated_data["logs_distinct_id_attribute_key"] = keys[0]
         return super().update(instance, validated_data)
+
+
+def handle_experiments_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the experiments_config action — exposed under both the
+    team/environment and project routers so both surfaces stay in parity."""
+    # Keeps the products app import off this module's import path.
+    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig  # noqa: PLC0415
+
+    class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+        class Meta:
+            model = TeamExperimentsConfig
+            fields = [
+                "experiment_recalculation_time",
+                "default_experiment_confidence_level",
+                "default_experiment_stats_method",
+                "experiment_precomputation_enabled",
+                "default_only_count_matured_users",
+                "default_cuped_enabled",
+                "default_cuped_lookback_days",
+                "default_minimum_detectable_effect",
+                "default_sequential_testing_enabled",
+                "default_sequential_tuning_parameter",
+                "flag_cleanup_repository",
+            ]
+
+        def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
+            # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
+            # request import path.
+            from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
+
+            if not value:
+                return None
+            parts = value.split("/")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise serializers.ValidationError("Repository must be in the format organization/repository")
+            value = value.lower()
+            # Reject repos outside the team's GitHub installation now rather than storing a
+            # default the cleanup resolution would silently ignore.
+            github = tasks_repo_selection.resolve_team_github_integration(team.id, team=team, team_only=True)
+            cached = {
+                full_name.lower()
+                for repo in (github.list_all_cached_repositories(max_repos=1000) if github else [])
+                if (full_name := repo.get("full_name"))
+            }
+            if value not in cached:
+                raise serializers.ValidationError(
+                    "This repository is not connected to the project's GitHub integration."
+                )
+            return value
+
+    config = get_or_create_team_extension(team, TeamExperimentsConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamExperimentsConfigSerializer(config).data)
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
@@ -224,6 +304,11 @@ def validate_secret_token_generation(team: Team, user: User) -> None:
     """Rotating an existing legacy secret token stays allowed for safe migration, but minting a
     first one is blocked once the team has access to project secret API keys."""
     if team.secret_api_token or team.secret_api_token_backup:
+        return
+    if team.conversations_enabled:
+        # Support signs widget identity hashes with the raw token and authenticates its external
+        # API against it. Project secret API keys are only ever stored hashed, so they cannot
+        # replace it, which would leave Support with no way to verify identity at all.
         return
     if posthoganalytics.feature_enabled(
         "project-secret-api-keys",
@@ -422,16 +507,164 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
         return internal_value
 
 
+# The filters a conversion goal can carry, rather than every filter HogQL knows about. The goal
+# runtime resolves these through `property_to_expr` with an event scope, where `revenue_analytics`
+# and `account_custom_property` raise and `metric_attribute` is unimplemented, and the goal editor
+# only offers these six. Narrowing here follows `WebAnalyticsPropertyFilter`.
+MarketingAnalyticsConversionGoalPropertyFilter = (
+    EventPropertyFilter
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | ElementPropertyFilter
+    | HogQLPropertyFilter
+    | DataWarehousePropertyFilter
+)
+
+
+# Subclassing the canonical goal schemas rather than redeclaring their ~25 fields keeps this write
+# surface from drifting when the query schema changes. The cost is that narrowing a field's type in
+# a subclass is not assignment-compatible, hence the ignores below: each one marks a deliberate
+# divergence from the query schema, not an oversight.
+#
+# `fixedProperties` stays accepted but leaves the documented schema: nothing in the marketing
+# analytics runtime reads it, and advertising it costs a third of this field's generated schema.
+class MarketingAnalyticsEventConversionGoal(ConversionGoalFilter1):
+    """A conversion goal counted from events."""
+
+    # `validate_conversion_goals` rejects a goal without a string name or an explicit kind, so the
+    # documented schema has to require both. `conversion_goal_id` stays required like the query
+    # schema: nothing here assigns one, and a goal stored without it fails to rebuild for queries.
+    kind: Literal["EventsNode"]
+    name: str
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
+
+
+class MarketingAnalyticsActionConversionGoal(ConversionGoalFilter2):
+    """A conversion goal counted from an action."""
+
+    kind: Literal["ActionsNode"]
+    name: str
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
+
+
+class MarketingAnalyticsWarehouseConversionGoal(ConversionGoalFilter3):
+    """A conversion goal counted from a data warehouse table."""
+
+    kind: Literal["DataWarehouseNode"]
+    name: str
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
+
+
+class MarketingAnalyticsConversionGoalList(PydanticRootModel):
+    """The conversion goals configured for marketing analytics, in display order."""
+
+    root: list[
+        MarketingAnalyticsEventConversionGoal
+        | MarketingAnalyticsActionConversionGoal
+        | MarketingAnalyticsWarehouseConversionGoal
+    ]
+
+
+class MarketingAnalyticsSourceMapping(PydanticRootModel):
+    """Mapping of external data source id to that source's column mapping."""
+
+    root: dict[str, SourceMap]
+
+
+class MarketingAnalyticsCampaignFieldPreferences(PydanticRootModel):
+    """Mapping of integration type to the campaign field used when matching campaigns."""
+
+    root: dict[str, CampaignFieldPreference]
+
+
+class MarketingAnalyticsCampaignNameMappings(PydanticRootModel):
+    """Mapping of integration type to canonical campaign name to the aliases folded into it."""
+
+    root: dict[str, dict[str, list[str]]]
+
+
+class MarketingAnalyticsCustomSourceMappings(PydanticRootModel):
+    """Mapping of integration type to the custom UTM source values folded into it."""
+
+    root: dict[str, list[str]]
+
+
+@extend_schema_field(MarketingAnalyticsCampaignNameMappings)  # type: ignore[arg-type]
+class MarketingAnalyticsCampaignNameMappingsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsCustomSourceMappings)  # type: ignore[arg-type]
+class MarketingAnalyticsCustomSourceMappingsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsConversionGoalList)  # type: ignore[arg-type]
+class MarketingAnalyticsConversionGoalsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsSourceMapping)  # type: ignore[arg-type]
+class MarketingAnalyticsSourcesMapField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsCampaignFieldPreferences)  # type: ignore[arg-type]
+class MarketingAnalyticsCampaignFieldPreferencesField(serializers.JSONField):
+    pass
+
+
 class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
-    sources_map = serializers.JSONField(required=False)
-    conversion_goals = serializers.JSONField(required=False)
-    attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
-    attribution_mode = serializers.ChoiceField(
-        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
+    sources_map = MarketingAnalyticsSourcesMapField(
+        required=False,
+        help_text=(
+            "Column mapping per external data source, keyed by source id. Tells marketing analytics which column "
+            "holds campaign, source, cost, clicks and impressions for that source."
+        ),
     )
-    campaign_name_mappings = serializers.JSONField(required=False)
-    custom_source_mappings = serializers.JSONField(required=False)
-    campaign_field_preferences = serializers.JSONField(required=False)
+    conversion_goals = MarketingAnalyticsConversionGoalsField(
+        required=False,
+        help_text=(
+            "Conversion goals to attribute against, in display order. Each goal points at an event, an action or a "
+            "data warehouse table, and carries a schema_map describing which fields hold the UTM parameters, the "
+            "timestamp and the distinct id. Replaces the whole list on write."
+        ),
+    )
+    attribution_window_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=90,
+        help_text="How many days back a touchpoint can be credited for a conversion. Between 1 and 90.",
+    )
+    attribution_mode = serializers.ChoiceField(
+        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
+        required=False,
+        help_text="How credit is split across touchpoints when a person saw several campaigns before converting.",
+    )
+    campaign_name_mappings = MarketingAnalyticsCampaignNameMappingsField(
+        required=False,
+        help_text=(
+            "Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list "
+            "of names that should be folded into it. Applied before automatic matching."
+        ),
+    )
+    custom_source_mappings = MarketingAnalyticsCustomSourceMappingsField(
+        required=False,
+        help_text=(
+            "Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only "
+            "belong to one integration."
+        ),
+    )
+    campaign_field_preferences = MarketingAnalyticsCampaignFieldPreferencesField(
+        required=False,
+        help_text=(
+            "Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings "
+            "in campaign_name_mappings still take precedence."
+        ),
+    )
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
@@ -610,6 +843,64 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
         raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
 
     return cast(list[dict[str, object]], value)
+
+
+def _alias_backreferences(alias: str) -> list[int]:
+    """Return the capture-group numbers a re2 replacement alias references (`\\1`..`\\9`, `\\0` for the
+    whole match). A doubled `\\\\` is a literal backslash, not a back-reference, so it's skipped."""
+    refs: list[int] = []
+    i = 0
+    while i < len(alias):
+        if alias[i] == "\\" and i + 1 < len(alias):
+            nxt = alias[i + 1]
+            if nxt == "\\":
+                i += 2
+                continue
+            # ASCII digits only. `str.isdigit()` also accepts characters like `²` and `٣`, which re2
+            # substitutes as literal text, and `int()` rejects `²` outright.
+            if "0" <= nxt <= "9":
+                refs.append(int(nxt))
+                i += 2
+                continue
+        i += 1
+    return refs
+
+
+def validate_path_cleaning_filters(value: object) -> object:
+    """Validate path cleaning rules before they're saved. Each regex must compile under re2 (the
+    engine ClickHouse `replaceRegexpAll` uses), and any `\\1`..`\\9` back-reference in the alias must
+    point at a capture group the regex defines. This surfaces a mistake at save time instead of
+    letting it fail the query later, when path cleaning runs."""
+    if not value:
+        return value
+    if not isinstance(value, list):
+        raise exceptions.ValidationError("Must provide a list of path cleaning rules.")
+
+    for rule in value:
+        if not isinstance(rule, dict):
+            continue
+        regex = rule.get("regex")
+        alias = rule.get("alias")
+        # A missing or empty regex still reaches ClickHouse, where `replaceRegexpAll` returns NULL for
+        # a NULL pattern and an empty pattern matches at every position, interleaving the alias
+        # through the whole path. Neither is recoverable at query time, so refuse the rule.
+        if not isinstance(regex, str) or not regex:
+            raise exceptions.ValidationError("A path cleaning rule needs a regex. Remove the rule or give it one.")
+        try:
+            compiled = re2.compile(regex)
+        except re2.error as error:
+            raise exceptions.ValidationError(f"Invalid path cleaning regex '{regex}': {error}") from error
+
+        if not alias or not isinstance(alias, str):
+            continue
+        group_count = compiled.groups
+        for ref in _alias_backreferences(alias):
+            if ref > group_count:
+                raise exceptions.ValidationError(
+                    f"The alias '{alias}' references capture group \\{ref}, but its regex has "
+                    f"{group_count} capture group(s). Add the group to the regex or fix the reference."
+                )
+    return value
 
 
 _default_theme_id_cache: int | None = None
@@ -855,6 +1146,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return validate_test_account_filters(value)
 
     @staticmethod
+    def validate_path_cleaning_filters(value: object) -> object:
+        return validate_path_cleaning_filters(value)
+
+    @staticmethod
     def validate_revenue_analytics_config(value):
         if value is None:
             return None
@@ -915,7 +1210,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
             )
 
-        return value
+        # jsonb containment (`__contains={"id": <int>}`) is type-sensitive, so a non-integer id
+        # makes the flag-delete guard miss this row and delete a flag the team still advertises.
+        # A numeric string is normalized instead of rejected, so a client sending "123" stores a
+        # usable row rather than a broken one. Bools and floats are excluded because
+        # isinstance(True, int) is True, and int(12.5) would silently link flag 12.
+        flag_id = value["id"]
+        if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
+            raise exceptions.ValidationError("Must provide an integer 'id'.")
+        try:
+            return {**value, "id": int(flag_id)}
+        except ValueError:
+            raise exceptions.ValidationError("Must provide an integer 'id'.")
 
     @staticmethod
     def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
@@ -1211,7 +1517,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
             return value
-        return [url for url in value if url]
+        urls = [url for url in value if url]
+        validate_authorized_url_wildcards(urls)
+        return urls
 
     def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -1224,6 +1532,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+            validate_authorized_url_wildcards(value["widget_domains"])
         # Strip widget_public_token from user input - it's auto-generated only
         if "widget_public_token" in value:
             value.pop("widget_public_token")
@@ -1605,22 +1914,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             set_team_in_cache(instance.api_token, instance)
         updated_team = instance
 
-        if "proactive_tasks_enabled" in validated_data:
-            # Backward compat for old proactive tasks enabled field, remove after February 2026
-            if validated_data["proactive_tasks_enabled"]:
-                SignalSourceConfig.objects.get_or_create(
-                    team=instance,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                    defaults={"enabled": True, "config": {}, "created_by": self.context["request"].user},
-                )
-            else:
-                SignalSourceConfig.objects.filter(
-                    team=instance,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).delete()
-
         changes = dict_changes_between("Team", before_update, after_update, use_field_exclusions=True)
 
         log_activity(
@@ -1827,7 +2120,9 @@ class EvaluationContextSuggestionResponseSerializer(serializers.Serializer):
     )
 
 
-class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class TeamViewSet(
+    TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+):
     """
     Projects for the current organization.
     """
@@ -1846,16 +2141,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(user).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
-                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
-            if scoped_teams := self.request.successful_authenticator.personal_api_key.scoped_teams:
-                queryset = queryset.filter(id__in=scoped_teams)
-        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
-                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
-            if scoped_teams := self.request.successful_authenticator.access_token.scoped_teams:
-                queryset = queryset.filter(id__in=scoped_teams)
+        authenticator = self.request.successful_authenticator
+        if scoped_organizations := get_authenticator_scoped_organization_ids(authenticator):
+            queryset = queryset.filter(project__organization_id__in=scoped_organizations)
+        if scoped_teams := get_authenticator_scoped_team_ids(authenticator):
+            queryset = queryset.filter(id__in=scoped_teams)
         return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -1932,6 +2222,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             team = getattr(self.request.user, "team", None)
             if team is None:
                 raise exceptions.NotFound()
+            # This branch answers from the user's own state instead of the scoped queryset. A project
+            # that moved between organizations leaves that state naming an environment the token's
+            # organizations no longer cover, so apply the same restriction the queryset would have.
+            scoped_organizations = get_authenticator_scoped_organization_ids(self.request.successful_authenticator)
+            if scoped_organizations and str(team.organization_id) not in scoped_organizations:
+                raise exceptions.NotFound()
             return team
 
         filter_kwargs = {self.lookup_field: lookup_value}
@@ -1961,11 +2257,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # one). Blocks when duckgres refuses — e.g. the warehouse's last team, which
         # requires deprovisioning the warehouse (or deleting the organization) instead.
         # Keep the product API off the core import path.
-        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-            block_team_deletion,
-        )
+        from products.managed_warehouse.backend.facade.api import get_team_deletion_block_reason  # noqa: PLC0415
 
-        warehouse_block_reason = block_team_deletion(team_id, organization_id)
+        warehouse_block_reason = get_team_deletion_block_reason(team_id, organization_id)
         if warehouse_block_reason:
             raise exceptions.ValidationError(warehouse_block_reason)
 
@@ -2061,36 +2355,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage experiment configuration for this environment."""
-        from rest_framework import serializers
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-        class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
-            class Meta:
-                model = TeamExperimentsConfig
-                fields = [
-                    "experiment_recalculation_time",
-                    "default_experiment_confidence_level",
-                    "default_experiment_stats_method",
-                    "experiment_precomputation_enabled",
-                    "default_only_count_matured_users",
-                    "default_cuped_enabled",
-                    "default_cuped_lookback_days",
-                    "default_minimum_detectable_effect",
-                    "default_sequential_testing_enabled",
-                    "default_sequential_tuning_parameter",
-                ]
-
-        team = self.get_object()
-        config = get_or_create_team_extension(team, TeamExperimentsConfig)
-
-        if request.method == "PATCH":
-            serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return response.Response(serializer.data)
-
-        return response.Response(TeamExperimentsConfigSerializer(config).data)
+        return handle_experiments_config(request, self.get_object())
 
     @extend_schema(
         methods=["POST"],

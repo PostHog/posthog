@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import {
     visionActionsCreate,
+    visionActionsPartialUpdate,
     visionActionsRunCreate,
     visionActionsRunsList,
     visionActionsRunsRetrieve,
@@ -35,6 +36,8 @@ export interface scannerDigestLogicValues {
     latestRun: VisionActionRunApi | null
     latestRunLoading: boolean
     pollUntil: number
+    promotableSummaries: VisionActionApi[]
+    promoting: boolean
     runInProgress: boolean
     runningNow: boolean
     shouldPoll: boolean
@@ -72,6 +75,15 @@ export interface scannerDigestLogicActions {
     loadLatestRunSuccess: (run: VisionActionRunApi | null) => {
         run: VisionActionRunApi | null
     }
+    promoteDigest: (actionId: string) => {
+        actionId: string
+    }
+    promoteDigestFailure: () => {
+        value: true
+    }
+    promoteDigestSuccess: () => {
+        value: true
+    }
     runNow: () => {
         value: true
     }
@@ -91,6 +103,7 @@ export interface scannerDigestLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         digest: (visionActions: VisionActionApi[]) => VisionActionApi | null
+        promotableSummaries: (visionActions: VisionActionApi[]) => VisionActionApi[]
         shouldPoll: (runInProgress: boolean, pollUntil: number) => boolean
     }
 }
@@ -122,6 +135,9 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
         createDigest: true,
         createDigestSuccess: true,
         createDigestFailure: true,
+        promoteDigest: (actionId: string) => ({ actionId }),
+        promoteDigestSuccess: true,
+        promoteDigestFailure: true,
         runNow: true,
         runNowDone: true,
         setRunInProgress: (inProgress: boolean) => ({ inProgress }),
@@ -150,6 +166,15 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                 createDigest: () => true,
                 createDigestSuccess: () => false,
                 createDigestFailure: () => false,
+            },
+        ],
+        // In-flight promotion of an existing summary into the featured slot; disables the dropdown.
+        promoting: [
+            false,
+            {
+                promoteDigest: () => true,
+                promoteDigestSuccess: () => false,
+                promoteDigestFailure: () => false,
             },
         ],
         expanded: [
@@ -188,6 +213,13 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
             (s) => [s.visionActions],
             (visionActions: VisionActionApi[]): VisionActionApi | null =>
                 visionActions.find((a) => a.is_scanner_digest) ?? null,
+        ],
+        // Summaries eligible to be promoted into the featured slot: scheduled group summaries that
+        // aren't already the digest (alerts don't produce a summary the card can render).
+        promotableSummaries: [
+            (s) => [s.visionActions],
+            (visionActions: VisionActionApi[]): VisionActionApi[] =>
+                visionActions.filter((a) => a.mode === 'group_summary' && !a.is_scanner_digest),
         ],
         shouldPoll: [
             (s) => [s.runInProgress, s.pollUntil],
@@ -248,7 +280,7 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                     const created = await visionActionsCreate(String(teamId), {
                         // Mirrors the backend provisioning defaults (digest.py) for scanners created before
                         // digests existed, or after the digest was deleted.
-                        name: `Daily digest: ${props.scannerName}`.slice(0, 255),
+                        name: `Featured digest: ${props.scannerName}`.slice(0, 255),
                         scanner: props.scannerId,
                         is_scanner_digest: true,
                         trigger_config: {
@@ -258,7 +290,7 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                         delivery_config: [],
                     })
                     actions.createDigestSuccess()
-                    lemonToast.success('Daily digest turned on')
+                    lemonToast.success('Featured digest turned on')
                     // Insert the created digest optimistically instead of refetching the list — a refetch
                     // would blank the card (visionActionsLoading true, digest still absent) and flash it.
                     actions.addAction(created)
@@ -267,7 +299,26 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                     actions.loadLatestRunSuccess(null)
                 } catch (error: any) {
                     actions.createDigestFailure()
-                    lemonToast.error(`Couldn't turn on the daily digest${error?.detail ? `: ${error.detail}` : ''}`)
+                    lemonToast.error(`Couldn't turn on the featured digest${error?.detail ? `: ${error.detail}` : ''}`)
+                }
+            },
+
+            promoteDigest: async ({ actionId }) => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    actions.promoteDigestFailure()
+                    return
+                }
+                try {
+                    // Server atomically demotes the scanner's current digest (if any) before flagging this one.
+                    await visionActionsPartialUpdate(String(teamId), actionId, { is_scanner_digest: true })
+                    actions.promoteDigestSuccess()
+                    lemonToast.success('Featured digest updated')
+                    // Refetch rather than patch locally: promotion also demotes the previous digest row.
+                    actions.loadActions()
+                } catch (error: any) {
+                    actions.promoteDigestFailure()
+                    lemonToast.error(`Couldn't update the featured digest${error?.detail ? `: ${error.detail}` : ''}`)
                 }
             },
 

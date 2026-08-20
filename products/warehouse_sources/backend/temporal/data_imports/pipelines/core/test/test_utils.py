@@ -3,7 +3,7 @@ import decimal
 import hashlib
 import datetime
 from ipaddress import IPv4Address, IPv6Address
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,6 +17,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     SchemaColumnTypeChangedException,
@@ -24,11 +25,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     _to_list_array,
     align_incoming_decimals_to_delta,
     apply_enabled_columns_projection,
+    conditional_lru_cache_async,
     evolve_pyarrow_schema,
+    is_safe_numeric_widening,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
+    raise_on_nullability_drift,
+    restrict_schema_to_columns,
     source_uses_delta_write_column_selection,
     table_from_py_list,
 )
@@ -53,6 +58,17 @@ def test_table_from_py_list_uuid():
             ]
         )
     )
+
+
+def test_table_from_py_list_schema_missing_uuid_column():
+    # A UUID column present in the batch but absent from the provided schema has its Arrow field
+    # inferred by `_python_type_to_pyarrow_type`, which must map UUID to string rather than raising.
+    uuid_ = uuid.uuid4()
+    schema = pa.schema(cast(Any, [pa.field("id", pa.int64())]))
+    table = table_from_py_list([{"id": 1, "uid": uuid_}], schema)
+
+    assert table.schema.field("uid").type == pa.string()
+    assert table.column("uid").to_pylist() == [str(uuid_)]
 
 
 def test_table_from_py_list_inconsistent_list():
@@ -92,6 +108,9 @@ def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_e
     assert "revenue" in message
     assert "N/A" in message
     assert "<blank>" in message
+    # The message must stay matched by an Any_Source_Errors entry so the schema is paused with
+    # guidance instead of retrying the same non-numeric cells forever, on every source.
+    assert [key for key in Any_Source_Errors if key in message]
 
 
 def test_table_from_py_list_numeric_column_coerces_numeric_string_values():
@@ -315,6 +334,50 @@ def test_table_from_py_list_with_null_filled_binary_column():
 
 
 @pytest.mark.parametrize(
+    "value, expected_type",
+    [
+        (datetime.datetime(2024, 1, 2, 3, 4, 5), pa.timestamp("us")),
+        (datetime.datetime(2024, 1, 2, 3, 4, 5, tzinfo=datetime.UTC), pa.timestamp("us", tz="UTC")),
+        (datetime.date(2024, 1, 2), pa.date32()),
+        (datetime.time(3, 4, 5), pa.time64("us")),
+    ],
+)
+def test_table_from_py_list_schema_missing_temporal_column(value, expected_type):
+    # A column present in the batch but absent from the provided schema has its Arrow field
+    # inferred by `_python_type_to_pyarrow_type`, which must handle temporal values.
+    schema = pa.schema(cast(Any, [pa.field("id", pa.int64())]))
+    table = table_from_py_list([{"id": 1, "ts": value}], schema)
+
+    assert table.schema.field("ts").type == expected_type
+    assert table.column("ts").to_pylist() == [value]
+
+
+def test_restrict_schema_to_columns_drops_fields_absent_from_the_read():
+    # A SQL source's discovered schema can declare a column the streaming read no longer returns
+    # (dropped at the source, or the table recreated with a narrower shape, between discovery and
+    # the read). `from_pydict` crashes with an opaque KeyError in that case, so the read path first
+    # restricts the schema to the columns it actually got back.
+    schema = pa.schema(
+        cast(Any, [pa.field("id", pa.int64()), pa.field("name", pa.string()), pa.field("dropped", pa.string())])
+    )
+    rows = [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]
+
+    with pytest.raises(KeyError):
+        table_from_py_list(rows, schema)
+
+    restricted = restrict_schema_to_columns(schema, ["id", "name"])
+    assert restricted.names == ["id", "name"]
+    assert restricted.field("id").type == pa.int64()
+
+    table = table_from_py_list(rows, restricted)
+    assert table.schema.names == ["id", "name"]
+    assert table.column("id").to_pylist() == [1, 2]
+
+    # When every schema field is present the schema is returned unchanged (common case).
+    assert restrict_schema_to_columns(restricted, ["id", "name"]) is restricted
+
+
+@pytest.mark.parametrize(
     "error_msg, large_type, values",
     [
         (
@@ -422,7 +485,6 @@ def test_get_max_decimal_type_returns_correct_decimal_type(
     decimals: list[decimal.Decimal],
     expected: pa.Decimal128Type | pa.Decimal256Type,
 ):
-    """Test whether expected PyArrow decimal type variant is returned."""
     result = _get_max_decimal_type(decimals)
     assert result == expected
 
@@ -733,8 +795,42 @@ def test_evolve_pyarrow_schema_integer_overflow_raises_actionable_error(
         pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", delta_type, nullable=True)])
     )
 
-    with pytest.raises(SchemaColumnTypeChangedException, match="Source column type changed"):
+    with pytest.raises(SchemaColumnTypeChangedException, match="Source column type changed") as excinfo:
         evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    # The structured fields drive automatic widening recovery (auto_widen_resync); dropping them
+    # silently disables it.
+    assert excinfo.value.column_name == "val"
+    assert excinfo.value.stored_type == delta_type
+    assert excinfo.value.incoming_type == incoming_type
+
+
+@pytest.mark.parametrize(
+    "stored_type, incoming_type, expected",
+    [
+        (pa.int32(), pa.int64(), True),
+        (pa.int16(), pa.int64(), True),
+        (pa.int64(), pa.float64(), True),
+        (pa.int8(), pa.uint8(), True),
+        (pa.uint8(), pa.int16(), True),
+        (pa.uint32(), pa.uint64(), True),
+        (pa.float32(), pa.float64(), True),
+        (pa.float64(), pa.int64(), True),
+        (pa.int64(), pa.int64(), False),
+        (pa.float64(), pa.float64(), False),
+        (pa.int64(), pa.string(), False),
+        (pa.float64(), pa.string(), False),
+        (pa.string(), pa.int64(), False),
+        (pa.int64(), pa.decimal128(10, 2), False),
+        (pa.decimal128(10, 2), pa.float64(), False),
+        (pa.bool_(), pa.int64(), False),
+        (pa.int64(), pa.bool_(), False),
+        (pa.timestamp("us"), pa.int64(), False),
+        (pa.int64(), pa.binary(), False),
+    ],
+)
+def test_is_safe_numeric_widening(stored_type: pa.DataType, incoming_type: pa.DataType, expected: bool):
+    assert is_safe_numeric_widening(stored_type, incoming_type) is expected
 
 
 def test_evolve_pyarrow_schema_integer_narrowing_within_range_is_preserved():
@@ -848,8 +944,63 @@ def test_evolve_pyarrow_schema_time_columns_reconcile_to_stored_seconds(
     assert evolved_table.column("redeem_time").to_pylist() == expected_values
 
 
+def test_raise_on_nullability_drift_null_in_non_nullable_column_raises():
+    """A batch with a null in a column the table declares non-nullable raises the reset signal,
+    because neither deltalite nor delta-rs can relax an existing column to nullable in place."""
+    pa_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "name": pa.array(["a", None], type=pa.string()),
+        }
+    )
+    delta_fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("name", pa.string(), nullable=False),
+    ]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+
+    with pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls") as excinfo:
+        raise_on_nullability_drift(pa_table, delta_schema)
+
+    # Nullability drift must stay a manual reset: leaving the structured fields unset keeps it out
+    # of automatic widening recovery (auto_widen_resync) by construction.
+    assert excinfo.value.column_name is None
+    assert excinfo.value.stored_type is None
+    assert excinfo.value.incoming_type is None
+
+
+@pytest.mark.parametrize(
+    "delta_fields, batch_columns",
+    [
+        # Null lands in a column the table already marks nullable — the writer accepts it.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=True)],
+            {"id": pa.array([1, 2], type=pa.int64()), "name": pa.array(["a", None], type=pa.string())},
+        ),
+        # No nulls arrive in the non-nullable column — nothing drifts.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=False)],
+            {"id": pa.array([1, 2], type=pa.int64()), "name": pa.array(["a", "b"], type=pa.string())},
+        ),
+        # The non-nullable column is absent from the batch — no null to check.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=False)],
+            {"id": pa.array([1, 2], type=pa.int64())},
+        ),
+    ],
+)
+def test_raise_on_nullability_drift_permits_valid_batches(
+    delta_fields: list[pa.Field], batch_columns: dict[str, pa.Array]
+):
+    """No drift is raised when the null lands in a nullable column, when the non-nullable column
+    carries no nulls, or when it is absent from the batch entirely."""
+    pa_table = pa.table(batch_columns)
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+
+    raise_on_nullability_drift(pa_table, delta_schema)
+
+
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
-    """Test that evolve_pyarrow_schema can handle struct columns with non-JSON-serializable types."""
     metadata_struct_type = pa.struct(
         [
             ("role", pa.string()),
@@ -888,7 +1039,6 @@ def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
 
 
 def test_evolve_pyarrow_schema_with_list_containing_datetime():
-    """Test that evolve_pyarrow_schema can handle list columns with non-JSON-serializable types."""
     arrow_table = pa.table(
         {
             "id": pa.array([1, 2], type=pa.int64()),
@@ -928,9 +1078,13 @@ class TestEvolveSchemaFirstPass:
         assert values[1] == 3661.0
         assert values[2] is None
 
-    def test_nanosecond_timestamp_normalized_to_microseconds(self):
-        ns_ts = pa.array([1_000_000_000, 2_000_000_000], type=pa.timestamp("ns"))
-        arrow_table = pa.table({"ts": ns_ts})
+    @pytest.mark.parametrize("unit", ["ns", "ms", "s"])
+    def test_non_microsecond_timestamp_normalized_to_microseconds(self, unit: Literal["ns", "ms", "s"]):
+        # Delta only accepts microsecond-precision timestamps. "s"/"ms" reach here e.g. when
+        # a Snowflake batch returns zero rows: the connector's empty-table path ignores
+        # `force_microsecond_precision` and falls back to a second-precision schema.
+        ts = pa.array([1_000_000_000, 2_000_000_000], type=pa.timestamp(unit))
+        arrow_table = pa.table({"ts": ts})
         result = evolve_pyarrow_schema(arrow_table, None)
         assert result.schema.field("ts").type == pa.timestamp("us")
 
@@ -1068,9 +1222,8 @@ def test_append_partition_key_numerical_handles_null_key():
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "numerical"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
+    assert result.partition_mode == "numerical"
+    assert result.table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
 
 
 def test_append_partition_key_numerical_handles_non_int_key():
@@ -1091,9 +1244,8 @@ def test_append_partition_key_numerical_handles_non_int_key():
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "numerical"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
+    assert result.partition_mode == "numerical"
+    assert result.table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
 
 
 def _mock_schema(**overrides: Any) -> MagicMock:
@@ -1437,9 +1589,8 @@ def test_append_partition_key_datetime_string_column(value, expected):
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "datetime"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected]
+    assert result.partition_mode == "datetime"
+    assert result.table.column(PARTITION_KEY).to_pylist() == [expected]
 
 
 @pytest.mark.parametrize(
@@ -1486,8 +1637,14 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
     delta_fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("amount", pa.decimal128(38, 32))]
     delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
 
-    with pytest.raises(SchemaColumnTypeChangedException):
+    with pytest.raises(SchemaColumnTypeChangedException) as excinfo:
         align_incoming_decimals_to_delta(arrow_table, delta_schema)
+
+    # Decimal overflow must stay a manual reset: leaving the structured fields unset keeps it out
+    # of automatic widening recovery (auto_widen_resync) by construction.
+    assert excinfo.value.column_name is None
+    assert excinfo.value.stored_type is None
+    assert excinfo.value.incoming_type is None
 
 
 @pytest.mark.parametrize(
@@ -1519,12 +1676,41 @@ def test_append_partition_key_missing_column_buckets_into_fallback(
     )
 
     assert result is not None
-    partitioned_table, resolved_mode, _, _ = result
-    assert resolved_mode == mode
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
+    assert result.partition_mode == mode
+    assert result.table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
 
 
 def test_billing_limit_exception_is_non_reportable_error():
     # Subclassing NonReportableError is what keeps the intentional billing-limit halt out of
     # error tracking (the activity interceptor re-raises these without capturing them).
     assert issubclass(BillingLimitsWillBeReachedException, NonReportableError)
+
+
+class TestConditionalLruCacheAsyncCachePop:
+    @pytest.mark.asyncio
+    async def test_pop_on_cache_miss_returns_none_without_calling_func(self):
+        # A best-effort cleanup path (e.g. releasing an already-fetched delta table) must be able
+        # to check the cache without ever triggering the wrapped function's own I/O — a miss here
+        # used to mean "call the real function", which made cleanup do an unrelated object-storage
+        # call and risk masking the real error with a fresh, spurious one.
+        calls = []
+
+        @conditional_lru_cache_async(maxsize=1)
+        async def fetch(key: str) -> str:
+            calls.append(key)
+            return f"value-{key}"
+
+        assert fetch.cache_pop("a") is None
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_pop_on_cache_hit_returns_and_removes_cached_value(self):
+        @conditional_lru_cache_async(maxsize=1)
+        async def fetch(key: str) -> str:
+            return f"value-{key}"
+
+        assert await fetch("a") == "value-a"
+
+        assert fetch.cache_pop("a") == "value-a"
+        # Popped, not just read — a second pop finds nothing left to remove.
+        assert fetch.cache_pop("a") is None

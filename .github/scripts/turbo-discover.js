@@ -52,7 +52,7 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // backend/temporal, and the turbo-tests runner already provisions the temporal profile). For these,
 // the temporal durations must count toward product sizing so the product is sharded for that load —
 // otherwise a huge suite lands in one unsharded bucket and times out.
-const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['warehouse-sources'])
+const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['managed-warehouse', 'warehouse-sources'])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
@@ -74,8 +74,9 @@ const STALENESS_FALLBACK_SECONDS_PER_FILE = 5
 //
 // .test_durations has migration-tax contamination removed by
 // optimize_test_durations.py: tests recorded far above their JUnit call
-// time (the DB-setup walk lands on whichever test first hits the DB) are
-// floored back to that call time. Durations reflect actual test work.
+// time (the DB-setup walk lands on the first DB-touching test whenever a
+// run built the DB in-pytest) are floored back to that call time.
+// Durations reflect actual test work.
 //
 // Per-segment overhead constants below cover the fixed per-shard cost
 // outside test work: job setup, pytest collection, per-shard DB setup,
@@ -244,20 +245,47 @@ const moduleToProduct = (module) => module.replace(/_/g, '-')
 // aren't products.* so they fall out of the startsWith filter for free. See
 // tachDependents for why routing through them would be wrong, not just
 // inconvenient.
+// TOML comments run to the end of the line, and a `#` inside a double-quoted
+// string does not start one. Comments have to go before the block scan below,
+// because a comment inside a depends_on list can carry a `]`: tach.toml
+// documents a facade-only edge as "enforced by stamphog's [[interfaces]]
+// block", and that bracket ends the non-greedy scan early, dropping every
+// entry after it.
+function stripTomlComments(tomlText) {
+    let out = ''
+    let inString = false
+    for (let index = 0; index < tomlText.length; index++) {
+        const char = tomlText[index]
+        if (char === '"' && tomlText[index - 1] !== '\\') {
+            inString = !inString
+        }
+        if (!inString && char === '#') {
+            while (index < tomlText.length && tomlText[index] !== '\n') {
+                index++
+            }
+            out += '\n'
+            continue
+        }
+        out += char
+    }
+    return out
+}
+
 function parseTachModules(tomlText) {
     const graph = new Map()
     // Each `[[modules]]` block holds exactly one `path` and one `depends_on`
     // before the next block starts — split on the marker and take the first
-    // match of each within a block. depends_on entries are plain quoted
-    // strings with no nested brackets, so a non-greedy scan to the first `]`
-    // is safe even across multi-line lists or lists split across shared lines.
+    // match of each within a block. With comments stripped, depends_on entries
+    // are plain quoted strings with no nested brackets, so a non-greedy scan to
+    // the first `]` is safe even across multi-line lists or lists split across
+    // shared lines.
     //
     // Only double-quoted strings are supported. Other valid TOML (single-quoted
     // literals, inline tables) would be dropped by the regexes without error,
     // silently shrinking the cascade — so any entry the regexes can't represent
     // throws instead, which loadTachModuleGraph turns into "test all products".
     // A false trip over-tests; a silent drop under-tests, so err on throwing.
-    const blocks = tomlText.split('[[modules]]').slice(1)
+    const blocks = stripTomlComments(tomlText).split('[[modules]]').slice(1)
     for (const block of blocks) {
         const pathMatch = block.match(/path\s*=\s*"([^"]+)"/)
         if (!pathMatch) {
@@ -273,7 +301,9 @@ function parseTachModules(tomlText) {
             }
             continue
         }
-        const leftover = dependsMatch[1].replace(/"[^"]*"/g, '').replace(/#[^\n]*/g, '')
+        // Comments are already gone, so anything left beside the quoted entries
+        // is an entry shape these regexes cannot represent.
+        const leftover = dependsMatch[1].replace(/"[^"]*"/g, '')
         if (/[^\s,]/.test(leftover)) {
             throw new Error(
                 `unsupported \`depends_on\` entry for ${pathMatch[1]} in tach.toml (expected double-quoted strings): ${leftover.trim().slice(0, 80)}`
@@ -309,7 +339,13 @@ function parseTachModules(tomlText) {
 // composition-root hubs where "imports Team" doesn't mean "depends on a
 // product's behavior" — the residual after excluding those is a handful of
 // narrow wrappers reaching at most a few products each.
-function tachDependents(changedProducts, moduleGraph) {
+//
+// `direct` stops the walk after the first hop. Test selection must stay
+// transitive, because a change in A can break C's tests through B without C
+// ever importing A. Merge-queue lane assignment asks a narrower question and
+// passes direct: true; see trunk-impacted-targets.js for why one hop is the
+// boundary there.
+function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
     const reverse = new Map()
     for (const [product, deps] of moduleGraph) {
         for (const dep of deps) {
@@ -326,7 +362,7 @@ function tachDependents(changedProducts, moduleGraph) {
         for (const dependent of reverse.get(current) || []) {
             if (visited.has(dependent) || changedSet.has(dependent)) {continue}
             visited.add(dependent)
-            queue.push(dependent)
+            if (!direct) {queue.push(dependent)}
         }
     }
     return [...visited].map(moduleToProduct)
@@ -503,7 +539,7 @@ const DJANGO_SEGMENTS = {
         include: [
             'posthog/clickhouse/',
             'posthog/queries/',
-            'products/product_analytics/backend/api/test/',
+            'products/product_analytics/backend/presentation/test/',
             'posthog/api/test/dashboards/test_dashboard.py',
             'ee/clickhouse/',
         ],
@@ -671,11 +707,16 @@ const allProductSet = new Set(allProducts)
 
 let products
 let runLegacy
+// Why runLegacy was set, so ci-backend's test selection can tell a direct legacy edit
+// (which the diff-based selector handles) from an inferred product->legacy cascade
+// (which it cannot see). Empty when runLegacy is false.
+let runLegacyReason = ''
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
     products = allProducts
     runLegacy = true
+    runLegacyReason = 'legacy_changed'
 } else {
     const isolatedProducts = getIsolatedProducts(contractTasks)
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
@@ -692,6 +733,7 @@ if (legacyChanged) {
         )
         products = allProducts
         runLegacy = true
+        runLegacyReason = 'non_isolated_product'
     } else if (affectedProducts.length > 0) {
         // Only isolated products changed — check whether their contract surface was affected
         const affectedProductSet = new Set(affectedProducts)
@@ -701,6 +743,7 @@ if (legacyChanged) {
         if (affectedContracts.length > 0) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
+            runLegacyReason = 'contract_cascade'
             const tachGraph = loadTachModuleGraph()
             if (tachGraph === null) {
                 // Fail toward over-testing, like the quarantine loaders above: without the
@@ -735,6 +778,7 @@ if (legacyChanged) {
             console.error(`Schema diff unavailable (${impact.reason}) — falling back to all products + Django`)
             products = allProducts
             runLegacy = true
+            runLegacyReason = 'schema'
         } else {
             if (impact.kind === 'impacting') {
                 console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
@@ -749,6 +793,7 @@ if (legacyChanged) {
             }
             // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
             runLegacy = true
+            runLegacyReason = 'schema'
         }
     }
 }
@@ -767,11 +812,13 @@ if (quarantinedProducts.size > 0) {
     products = dropProducts(products, allProducts, quarantinedProducts, 'Quarantined products (mode: skip)')
 }
 
-// Un-quarantining must re-run the suite. Today the ci-backend `legacy` paths-
-// filter already forces a full run on any PR touching the quarantine file, so
-// this diff against the merge base rarely changes the outcome — it is the
-// backstop that keeps product re-runs correct if that coarse trigger is ever
-// narrowed (Turbo itself never sees .test_quarantine.json as a product input).
+// Un-quarantining must re-run the suite. The ci-backend `legacy` paths-filter still
+// pulls every product into the matrix on any PR touching the quarantine file, so this
+// diff against the merge base rarely changes the outcome — it is the backstop that
+// keeps product re-runs correct if that coarse trigger is ever narrowed (Turbo itself
+// never sees .test_quarantine.json as a product input). Django's side of the same
+// invariant is carried by FULL_RUN_PATTERNS in the backend test selector, since a
+// legacy diff no longer implies a full Django run on its own.
 if (process.env.TURBO_SCM_BASE) {
     const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
     const allProductSet = new Set(allProducts)
@@ -786,7 +833,7 @@ if (process.env.TURBO_SCM_BASE) {
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
-console.error(`Run legacy (Django): ${runLegacy}`)
+console.error(`Run legacy (Django): ${runLegacy}${runLegacyReason ? ` (${runLegacyReason})` : ''}`)
 
 const durations = loadTestDurations()
 
@@ -796,6 +843,7 @@ const djangoShards = buildDjangoShards(durations)
 const result = {
     matrix: buildMatrix(products, durations),
     run_legacy: runLegacy,
+    run_legacy_reason: runLegacyReason,
     django_shards: djangoShards,
 }
 // eslint-disable-next-line no-console

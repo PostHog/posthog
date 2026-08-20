@@ -44,8 +44,19 @@ export const surveysCreateBodyResponseSamplingLimitMax = 2147483647
 export const surveysCreateBodyBaseLanguageMax = 20
 
 export const SurveysCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().min(1).max(surveysCreateBodyNameMax).describe('Survey name.'),
-    description: zod.string().optional().describe('Survey description.'),
+    name: zod
+        .string()
+        .min(1)
+        .max(surveysCreateBodyNameMax)
+        .describe(
+            "Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it."
+        ),
+    description: zod
+        .string()
+        .optional()
+        .describe(
+            'Survey description. Internal only: unlike the name and questions, it is never delivered to visitors.'
+        ),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
         .describe(
@@ -109,6 +120,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -117,10 +132,10 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                     'lte',
                                                 ])
                                                 .describe(
-                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 )
                                                 .describe(
-                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 ),
                                         }),
                                         zod.object({
@@ -658,9 +673,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe("Don't show this survey to users who saw any survey in the last x days."),
                 urlMatchType: zod
-                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
+                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(
-                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
                     )
                     .optional()
                     .describe(
@@ -693,9 +708,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe('Device types that should match for this survey to be shown.'),
                 deviceTypesMatchType: zod
-                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
+                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(
-                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
                     )
                     .optional()
                     .describe(
@@ -973,8 +988,20 @@ export const surveysPartialUpdateBodyResponseSamplingLimitMax = 2147483647
 export const surveysPartialUpdateBodyBaseLanguageMax = 20
 
 export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().min(1).max(surveysPartialUpdateBodyNameMax).optional().describe('Survey name.'),
-    description: zod.string().optional().describe('Survey description.'),
+    name: zod
+        .string()
+        .min(1)
+        .max(surveysPartialUpdateBodyNameMax)
+        .optional()
+        .describe(
+            "Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it."
+        ),
+    description: zod
+        .string()
+        .optional()
+        .describe(
+            'Survey description. Internal only: unlike the name and questions, it is never delivered to visitors.'
+        ),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
         .describe(
@@ -1039,6 +1066,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1047,10 +1078,10 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'lte',
                                                 ])
                                                 .describe(
-                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 )
                                                 .describe(
-                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                    'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                                 ),
                                         }),
                                         zod.object({
@@ -1588,9 +1619,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe("Don't show this survey to users who saw any survey in the last x days."),
                 urlMatchType: zod
-                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
+                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(
-                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
                     )
                     .optional()
                     .describe(
@@ -1623,9 +1654,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe('Device types that should match for this survey to be shown.'),
                 deviceTypesMatchType: zod
-                    .enum(['exact', 'is_not', 'icontains', 'not_icontains', 'regex', 'not_regex'])
+                    .enum(['regex', 'not_regex', 'exact', 'is_not', 'icontains', 'not_icontains'])
                     .describe(
-                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                        '\* `regex` - regex\n\* `not_regex` - not_regex\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains'
                     )
                     .optional()
                     .describe(

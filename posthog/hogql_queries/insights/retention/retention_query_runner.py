@@ -38,7 +38,14 @@ from posthog.hogql_queries.insights.retention.retention_base_query_fixed import 
 from posthog.hogql_queries.insights.retention.retention_base_query_rolling import (
     RetentionRollingIntervalBaseQueryBuilder,
 )
-from posthog.hogql_queries.insights.retention.retention_validation_rules import DisallowCumulativeWith24HourWindows
+from posthog.hogql_queries.insights.retention.retention_validation_rules import (
+    DisallowBreakdownsWithDataWarehouse24HourWindows,
+    DisallowCumulativeWith24HourWindows,
+    DisallowGroupAggregationWithDataWarehouse24HourWindows,
+    DisallowPropertyAggregationWith24HourWindows,
+    DisallowUnsupportedDataWarehouseTimestampField,
+    RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget,
+)
 from posthog.hogql_queries.insights.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
     BREAKDOWN_OTHER_STRING_LABEL,
@@ -138,7 +145,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 self.modifiers.inCohortVia = InCohortVia.LEFTJOIN
 
     def validators(self) -> Sequence[QueryValidationRule[RetentionQuery]]:
-        return (DisallowCumulativeWith24HourWindows(), DisallowUnsupportedDataWarehouseSettings())
+        return (
+            DisallowCumulativeWith24HourWindows(),
+            DisallowBreakdownsWithDataWarehouse24HourWindows(),
+            DisallowGroupAggregationWithDataWarehouse24HourWindows(),
+            DisallowPropertyAggregationWith24HourWindows(),
+            DisallowUnsupportedDataWarehouseSettings(),
+            DisallowUnsupportedDataWarehouseTimestampField(),
+            RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget(),
+        )
 
     @cached_property
     def property_aggregation_expr(self) -> ast.Expr | None:
@@ -234,6 +249,20 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             if 0 <= group_index <= 4:
                 return f"$group_{group_index}"
         return "person_id"
+
+    @cached_property
+    def has_data_warehouse_series(self) -> bool:
+        return self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
+
+    def coerce_actor_id_expr(self, actor_id_expr: ast.Expr) -> ast.Expr:
+        # A query's arms resolve actor_id against different sources, which give it different ClickHouse
+        # types — a person_id UUID on the events side, whatever the configured target yields on the
+        # warehouse side. The UNION ALL, the 24-hour-window JOIN, and the actors-modal events JOIN each
+        # need one common type, so coerce to string the way funnels does for its own aggregation_target.
+        # Events-only series keep their UUID keys.
+        if not self.has_data_warehouse_series:
+            return actor_id_expr
+        return ast.Call(name="toString", args=[actor_id_expr])
 
     @cached_property
     def global_event_filters(self) -> list[ast.Expr]:
@@ -1004,7 +1033,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         "actor_subquery": actor_subquery,
                         "join_condition": ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["events", self.aggregation_target_events_column]),
+                            left=self.coerce_actor_id_expr(
+                                ast.Field(chain=["events", self.aggregation_target_events_column])
+                            ),
                             right=ast.Field(chain=["actors", "actor_id"]),
                         ),
                         "start_of_interval_sql": self.query_date_range.get_start_of_interval_hogql(

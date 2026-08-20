@@ -17,6 +17,7 @@ import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
@@ -52,11 +53,14 @@ import {
     WarehouseGroupPropertiesSetting,
     WarehousePersonPropertiesSetting,
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
+import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
+import { CustomerEmailConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/email/CustomerEmailConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
+import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
@@ -125,7 +129,6 @@ import {
     ReplayNetworkCapture,
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
-import { SessionSummariesSettings } from './environment/SessionSummariesSettings'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import {
@@ -154,6 +157,7 @@ import { OrganizationSecuritySettings } from './organization/OrganizationSecurit
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
+import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -172,6 +176,12 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
+import {
+    HomepageSetting,
+    SidebarItemsSetting,
+    SidebarLayoutSetting,
+    SidebarMyToolsSetting,
+} from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -354,12 +364,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'mcp-servers',
         title: 'MCP servers',
         group: 'AI',
-        flag: 'MCP_SERVERS',
+        flag: 'MCP_GATEWAY',
         settings: [
             {
                 id: 'mcp-servers-manage',
-                title: 'MCP servers',
-                description: 'Install and manage MCP servers for your PostHog AI and PostHog Desktop agents.',
+                title: null,
                 component: <McpStoreSettings />,
                 keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
@@ -444,6 +453,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomerAnalyticsAccountConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
+            },
+            {
+                id: 'customer-analytics-calendar-sync',
+                title: 'Google account sync',
+                description:
+                    'Connect your Google account to sync customer meetings and email to matching accounts. Each team member connects their own account.',
+                component: <CalendarSyncConfig />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
+                keywords: ['calendar', 'email', 'meetings', 'google', 'sync', 'accounts'],
+            },
+            {
+                id: 'customer-analytics-email-sync',
+                title: 'Email forwarding',
+                description: 'Manage existing email forwarding connections.',
+                component: <CustomerEmailConfig />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
+                keywords: ['email', 'inbox', 'forwarding', 'sync', 'accounts'],
             },
             {
                 id: 'customer-analytics-event-stream',
@@ -827,13 +853,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: (
                     <>
                         The log attributes PostHog reads to identify which session a log belongs to, checked in order
-                        with the first match winning. Defaults to <code>posthogSessionId</code>, the key the JavaScript
-                        and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under
-                        different attributes.
+                        with the first match winning, followed by other common session ID attributes. Defaults to{' '}
+                        <code>sessionId</code>, the key the JavaScript and React Native SDKs auto-attach. Add keys only
+                        if your pipeline emits the session ID under different attributes.
                     </>
                 ),
                 searchDescription:
-                    'The log attributes PostHog reads to identify which session a log belongs to, checked in order with the first match winning. Defaults to posthogSessionId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.',
+                    'The log attributes PostHog reads to identify which session a log belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.',
                 component: <LogsSessionIdAttributeKeys />,
                 flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'session', 'replay', 'attribute', 'link'],
@@ -849,7 +875,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </span>
                 ),
                 component: <LogsRetentionSettings />,
-                flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
             },
             {
@@ -858,7 +883,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Drop matching log lines before storage using ordered rules. Rules run in ingestion order (after optional scrub and JSON parse).',
                 component: <LogsSamplingSection />,
-                flag: LogsFeatureFlagKeys.dropRules,
                 keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
             },
             {
@@ -869,6 +893,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsMetricRulesSection />,
                 flag: LogsFeatureFlagKeys.metricRules,
                 keywords: ['metric', 'metrics', 'generate', 'count', 'aggregate', 'logs to metrics'],
+            },
+            {
+                id: 'logs-retention-rules',
+                title: 'Retention rules',
+                description:
+                    "Keep matching logs longer or shorter than the environment default using ordered rules. The first matching rule sets a log's retention; retention is applied at ingest.",
+                component: <LogsRetentionSection />,
+                flag: LogsFeatureFlagKeys.retentionRules,
+                keywords: ['retention', 'storage', 'ttl', 'rules', 'filter', 'keep', 'expire'],
             },
             {
                 id: 'logs-alerting',
@@ -1136,22 +1169,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayIntegrations />,
                 keywords: ['integration', 'connect', 'third-party'],
             },
-            {
-                id: 'replay-ai-config',
-                title: (
-                    <>
-                        AI product context
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            New
-                        </LemonTag>
-                    </>
-                ),
-                description:
-                    'Team-wide context the AI uses when summarizing session replays (custom events, intentional behaviors, known friction, etc.)',
-                component: <SessionSummariesSettings />,
-                flag: 'REPLAY_VIDEO_BASED_SUMMARIZATION',
-                keywords: ['ai', 'summary', 'summaries', 'prompt', 'context', 'llm'],
-            },
         ],
     },
     {
@@ -1286,9 +1303,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'cookieless-server-hash-mode',
-                title: 'Cookieless server hash mode',
+                title: 'Cookieless tracking',
                 description:
-                    'Enable cookieless tracking using a privacy-preserving hash to count unique users without cookies. You must enable this here before enabling cookieless in posthog-js.',
+                    'Count unique users with a privacy-preserving hash instead of cookies. Enable this here, then enable cookieless mode in posthog-js.',
                 docsUrl: 'https://posthog.com/tutorials/cookieless-tracking',
                 component: <CookielessServerHashModeSetting />,
                 keywords: ['cookie', 'privacy', 'gdpr', 'tracking', 'consent'],
@@ -1553,7 +1570,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'GitHub integration',
                 description: 'Connect GitHub to link issues and pull requests with PostHog insights.',
                 docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
-                component: <GitHub.SettingsSection />,
+                component: <GitHub.SettingsSection connectSurface="settings" />,
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
             {
@@ -1722,6 +1739,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/settings/sso',
                 component: <VerifiedDomains />,
                 keywords: ['sso', 'saml', 'single sign-on', 'domain verification', 'enforce'],
+            },
+            {
+                id: 'enforce-verified-domains',
+                title: 'Domain enforcement',
+                component: <EnforceVerifiedDomains />,
+                keywords: ['sso', 'verified domain', 'restrict', 'membership', 'invites'],
             },
         ],
     },
@@ -2023,6 +2046,45 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
+        id: 'user-navigation',
+        title: 'Navigation',
+        flag: 'UI_CUSTOMIZATION',
+        settings: [
+            {
+                id: 'homepage',
+                title: 'Homepage',
+                description:
+                    'The page that opens when you open PostHog or select Home in the sidebar. This applies to the current project.',
+                component: <HomepageSetting />,
+                keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
+            },
+            {
+                id: 'sidebar-layout',
+                title: 'Layout',
+                description: 'Control how dense the sidebar rows are.',
+                component: <SidebarLayoutSetting />,
+                keywords: ['sidebar', 'layout', 'density', 'compact', 'comfortable'],
+            },
+            {
+                id: 'sidebar-items',
+                title: 'Navigation items',
+                description:
+                    'Choose which items appear in your sidebar. These preferences only apply to you. Activity and Settings always stay visible.',
+                component: <SidebarItemsSetting />,
+                keywords: ['sidebar', 'navigation', 'navbar', 'menu', 'hide', 'show', 'customize', 'starred'],
+            },
+            {
+                id: 'sidebar-my-tools',
+                title: 'My Tools',
+                description:
+                    'Choose which tools appear in the My Tools section of your sidebar. This selection applies to the current project.',
+                component: <SidebarMyToolsSetting />,
+                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'customize'],
+            },
+        ],
+    },
+    {
+        level: 'user',
         id: 'user-feature-previews',
         title: 'Feature previews',
         settings: [
@@ -2102,6 +2164,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <PersonalSlackIntegrations />,
                 keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
                 flag: 'SLACK_APP_OAUTH',
+            },
+            {
+                id: 'personal-integrations-posthog',
+                title: 'PostHog project',
+                description:
+                    'Connect another PostHog project (in another region or your own) to act in it through its API, for example to dispatch tasks that must run there.',
+                component: <PersonalPosthogConnections />,
+                keywords: ['posthog', 'integration', 'connect', 'region', 'cross-region', 'task', 'personal'],
+                flag: 'POSTHOG_CONNECT',
             },
         ],
     },

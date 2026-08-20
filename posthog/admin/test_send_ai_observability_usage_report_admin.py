@@ -2,8 +2,10 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.contrib import messages
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.management.base import CommandError
 from django.test import RequestFactory
 from django.urls import reverse
 
@@ -31,7 +33,7 @@ class TestSendAIObservabilityUsageReportAdmin(BaseTest):
             "admin:index"
         )  # warm posthog.urls import outside freeze_time: the first reverse() lazily imports pydantic v1, which breaks under a frozen datetime.date
 
-    def _post(self, report_date: str):
+    def _post(self, report_date: str, call_command_side_effect=None):
         http_request = self.factory.post(
             "/admin/posthog/organization/send-ai-observability-usage-report/", {"report_date": report_date}
         )
@@ -39,24 +41,37 @@ class TestSendAIObservabilityUsageReportAdmin(BaseTest):
         _attach_messages(http_request)
         with (
             patch("posthog.admin.admins.organization_admin.reverse", side_effect=_fake_reverse),
-            patch("posthog.admin.admins.organization_admin.call_command") as mock_call_command,
+            patch(
+                "posthog.admin.admins.organization_admin.call_command", side_effect=call_command_side_effect
+            ) as mock_call_command,
         ):
             response = self.admin.send_ai_observability_usage_report_view(http_request)
-        return response, mock_call_command
+        return response, mock_call_command, http_request
 
     @freeze_time("2026-07-22T12:00:00Z")
     def test_valid_post_dispatches_async_command_for_date(self):
-        response, mock_call_command = self._post("2026-07-15")
+        response, mock_call_command, http_request = self._post("2026-07-15")
 
         self.assertEqual(response.status_code, 302)
         mock_call_command.assert_called_once_with("send_ai_observability_usage_report", "--date=2026-07-15", "--async")
+        self.assertEqual([m.level for m in http_request._messages], [messages.SUCCESS])
 
     @freeze_time("2026-07-22T12:00:00Z")
     def test_far_future_date_is_rejected_and_not_dispatched(self):
-        response, mock_call_command = self._post("2026-07-30")
+        response, mock_call_command, _ = self._post("2026-07-30")
 
         self.assertEqual(response.status_code, 200)
         mock_call_command.assert_not_called()
+
+    @freeze_time("2026-07-22T12:00:00Z")
+    def test_refused_dispatch_is_reported_as_an_error_not_a_success(self):
+        response, _, http_request = self._post(
+            "2026-07-15", call_command_side_effect=CommandError("A usage report run for 2026-07-15 was already sent.")
+        )
+
+        self.assertEqual(response.status_code, 302)
+        stored = [(m.level, str(m)) for m in http_request._messages]
+        self.assertEqual(stored, [(messages.ERROR, "A usage report run for 2026-07-15 was already sent.")])
 
     def test_get_renders_form_without_dispatching(self):
         http_request = self.factory.get("/admin/posthog/organization/send-ai-observability-usage-report/")

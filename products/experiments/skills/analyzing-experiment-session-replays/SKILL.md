@@ -1,6 +1,6 @@
 ---
 name: analyzing-experiment-session-replays
-description: 'Analyze session replay patterns across experiment variants to understand user behavior differences. Use when the user wants to see how users interact with different experiment variants, identify usability issues, compare behavior patterns between control and test groups, or get qualitative insights to complement quantitative experiment results.'
+description: 'Analyze session replay patterns across experiment variants to understand user behavior differences. Use when the user wants to see how users interact with different experiment variants, identify usability issues, compare behavior patterns between control and test groups, or get qualitative insights to complement quantitative experiment results. Also covers pairing the observed behavior with a linked survey when the user wants qualitative feedback beyond what recordings show.'
 ---
 
 # Analyzing experiment session replays
@@ -98,7 +98,7 @@ For each variant in the experiment, construct recording filters that match users
 
 **Key points:**
 
-- The `$feature/<flag_key>` event property records which variant the user saw — filtering on it matches recordings containing at least one event from that variant
+- The `$feature/<flag_key>` event property records the flag's value on each event — filtering on it matches recordings where the flag was active with that variant. This is an approximation of exposure, broader than the experiment's exposure event (`$feature_flag_called`, or `$experiment_exposure` on the new rollout — both deduped per identity): right for browsing behavior across variants, but not an exact mirror of the analysis population — the `scanning-experiments-with-replay-vision` skill derives that exact filter when you need it
 - `value` is an array of variant key strings (e.g. `["control"]`); for boolean flags use `["true"]` or `["false"]`
 - Avoid the `type: "flag"` / `flag_evaluates_to` property filter for variant scoping — the recordings query accepts it but silently ignores it, returning unfiltered results (last verified 2026-06-10). If you want to try it anyway, verify it actually filters first: a query with a nonexistent flag key should return zero recordings
 - Set the date range to the experiment's start and end dates
@@ -150,6 +150,20 @@ Summarize the behavioral differences between variants, highlighting:
 - Usability issues or friction points observed
 - Recommendations based on the qualitative data
 
+### 6. Observing shows behavior; asking adds what users think of it
+
+Watching sessions and asking users are different instruments, not substitutes. Recordings show what people
+did with the change; a short survey, shown when they finish the experimented flow, captures what they
+thought of it — a rating and an optional comment, readable per variant. For a user-facing change of real size, the two
+together make a fuller qualitative read than either alone, so mention the option when the behavioral
+comparison in step 4 leaves opinion unaccounted for, or when a pattern in the recordings is a hypothesis
+worth checking with the people who produced it. Once per conversation at most; drop it if declined.
+
+Default to asking every exposed user rather than one variant: a popover shown to only one arm is itself a
+difference between the arms, and the response event carries the variant anyway, so the split survives.
+
+→ See `references/qualitative-feedback.md` in [[diagnosing-experiment-results]]
+
 ## Example interaction
 
 ```text
@@ -199,3 +213,9 @@ Agent steps:
 - `query-session-recordings-list`: Core tool for retrieving session recordings with filters
 - `experiment-get`: Get experiment metadata; `experiment-results-get` for statistical results
 - `execute-sql`: Query experiments table for details via HogQL
+
+## Related skills
+
+- **`diagnosing-experiment-results`** — the quantitative side: bias checks and significance on the same experiment
+- **`investigating-replay`** — deep-dive a single session from either variant
+- **`finding-sessions-to-watch`** — general session shortlisting outside the experiment context

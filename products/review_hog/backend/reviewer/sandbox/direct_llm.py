@@ -34,16 +34,19 @@ async def run_oneshot_review(
     system_prompt: str,
     model_to_validate: type[_ModelT],
     step_name: str,
+    model: str = ONESHOT_MODEL,
+    reasoning_effort: str = ONESHOT_REASONING_EFFORT,
 ) -> _ModelT:
     """Run one review step as a single LLM-gateway call and return its validated output.
 
     The sandbox-free counterpart of ``run_sandbox_review`` for steps whose prompt carries everything
-    inline (chunking, dedup): no repo checkout, no agent loop — one Messages call through the LLM
-    gateway pinned to ``ONESHOT_MODEL`` at ``ONESHOT_REASONING_EFFORT``, with the response
-    schema-constrained to ``model_to_validate`` via structured outputs (so the bare-JSON failure
-    class the sandbox path retried on cannot occur). Bedrock fallback is deliberately off: the
-    gateway's Bedrock path forwards only allowlisted params and would strip ``output_config``,
-    silently losing both the effort pin and the schema constraint.
+    inline (chunking, dedup, outcome judging): no repo checkout, no agent loop — one Messages call
+    through the LLM gateway pinned to ``model`` at ``reasoning_effort`` (defaulting to the one-shot
+    pins), with the response schema-constrained to ``model_to_validate`` via structured outputs (so
+    the bare-JSON failure class the sandbox path retried on cannot occur). Callers that judge on a
+    different model family (the outcome classifier) pass ``model`` explicitly. Bedrock fallback is
+    deliberately off: the gateway's Bedrock path forwards only allowlisted params and would strip
+    ``output_config``, silently losing both the effort pin and the schema constraint.
 
     Raises on failure so the calling Temporal activity retries, mirroring the sandbox contract.
     Anthropic ``APIError``s are re-raised as compact ``ApplicationError``s — a raw ``APIError``
@@ -55,14 +58,14 @@ async def run_oneshot_review(
     async with client:
         try:
             response = await client.messages.parse(
-                model=ONESHOT_MODEL,
+                model=model,
                 max_tokens=_MAX_OUTPUT_TOKENS,
                 system=system_prompt,
                 messages=[{"role": "user", "content": prompt}],
                 thinking={"type": "adaptive"},
                 # The SDK's effort Literal lags the API: "xhigh" is valid for claude-sonnet-5
                 # (verified live) but absent from anthropic 0.80.0's OutputConfigParam type.
-                output_config=cast(OutputConfigParam, {"effort": ONESHOT_REASONING_EFFORT}),
+                output_config=cast(OutputConfigParam, {"effort": reasoning_effort}),
                 output_format=model_to_validate,
                 metadata={"user_id": f"user-{user_id}"},
                 extra_headers={"x-posthog-property-ai_stage": step_name},

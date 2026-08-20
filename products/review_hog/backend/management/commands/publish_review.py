@@ -7,7 +7,8 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import DEFAULT_URGENCY_THRESHOLD, published_priorities_for
+from products.review_hog.backend.reviewer.constants import DEFAULT_URGENCY_THRESHOLD
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 from products.review_hog.backend.reviewer.tools.publish_review import publish_persisted_review
@@ -36,6 +37,14 @@ def _stale_head_warning(
         f"PR head is now {current[:12]} but the stored review is for {reviewed_head[:12]}; publishing the "
         "reviewed commit — its inline comments anchor to that SHA, not the latest one."
     )
+
+
+def _run_threshold(stamped: str | None) -> IssuePriority:
+    """The threshold the run was finalized under; the default for pre-column or unrecognized values."""
+    try:
+        return IssuePriority(stamped)
+    except ValueError:
+        return DEFAULT_URGENCY_THRESHOLD
 
 
 class Command(BaseCommand):
@@ -88,9 +97,10 @@ class Command(BaseCommand):
                 f"ReviewHog ▶ publishing {repository}#{pr_number} · report {report.id} · head {head_sha[:12]}"
             )
         )
-        # A local-only ops command: always the default threshold (consider), not a per-user one —
-        # keeps the frozen body and the freshly built inline comments consistent without needing to
-        # track which threshold the run itself used.
+        # Republish under the threshold the run itself used (stamped at finalize): the stored body's
+        # severity tally was rendered against it, so the freshly built inline comments have to be gated
+        # by the same set or the tally and the posted comments disagree. Rows from before the column
+        # existed, or an unrecognized value, fall back to the default.
         outcome = publish_persisted_review(
             team_id=team_id,
             report_id=str(report.id),
@@ -100,7 +110,7 @@ class Command(BaseCommand):
             repo=repo,
             pr_number=pr_number,
             token=token,
-            published_priorities=published_priorities_for(DEFAULT_URGENCY_THRESHOLD),
+            urgency_threshold=_run_threshold(report.run_urgency_threshold),
             installation_id=installation_id,
         )
         if outcome.posted:

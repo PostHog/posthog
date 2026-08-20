@@ -51,11 +51,11 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
-from posthog.temporal.ducklake.types import DuckLakeCopyModelInput
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.managed_warehouse.backend.facade.temporal import DuckLakeCopyModelInput
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
@@ -1061,14 +1061,19 @@ async def test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures
     """Timeout should pause the schedule when there are 5 consecutive timeout failures."""
     parent_query = saved_queries[0]
 
-    # Create 5 previous timeout failed jobs for this saved query
+    # The run under test is frozen to test_time, so its own job row is stamped then, while these
+    # are created at the wall clock that has already passed it. Dating them back makes them the
+    # history the run counts, rather than rows it is entitled to ignore as newer than itself.
     for i in range(5):
-        await database_sync_to_async(DataModelingJob.objects.create)(
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
             saved_query=parent_query,
             status=DataModelingJob.Status.FAILED,
             error="Query exceeded timeout - we limit queries to a 10-minute timeout.",
             workflow_id=f"prev-workflow-{i}",
+        )
+        await database_sync_to_async(DataModelingJob.objects.filter(id=job.id).update)(
+            created_at=test_time - dt.timedelta(minutes=5 - i)
         )
 
     workflow_id = str(uuid.uuid4())

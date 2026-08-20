@@ -2,6 +2,7 @@
 
 import sys
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock
@@ -11,6 +12,7 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import review_pr  # noqa: E402
 import review_local  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
@@ -258,3 +260,121 @@ def test_fresh_trusted_bot_eyes_reach_pr_data_and_flag_in_flight(monkeypatch) ->
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = pr
     assert pipeline._in_flight_bot_reviewers() == ["greptile-apps[bot]"]
+
+
+def _selfdriving_context(self_driving: bool) -> dict:
+    context: dict[str, Any] = {
+        "repo": "PostHog/posthog",
+        "head_sha": "abc123",
+        "base_sha": "def456",
+        "pr": {
+            "number": 9,
+            "title": "feat: self-driving fix",
+            "state": "OPEN",
+            "draft": True,
+            "user": {"login": "posthog-code[bot]", "type": "Bot"},
+        },
+    }
+    if self_driving:
+        context["self_driving_review"] = True
+    return context
+
+
+def test_bot_authored_context_without_the_flag_is_refused(monkeypatch) -> None:
+    # An Action-shaped context (no self_driving_review key) must keep today's hard refusal for bot
+    # authors — the flag defaulting open would auto-approve every dependabot/renovate PR the hosted
+    # runtime sees.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+
+    result = review_local.run(_selfdriving_context(False))
+
+    assert result["final_verdict"] == "REFUSED"
+    assert "bot" in result["reviewer"]["reasoning"]
+
+
+def test_self_driving_flag_reviews_the_bot_authored_draft(monkeypatch) -> None:
+    # The carve-out's engine half: with the flag set, the run must get PAST the bot-author refusal
+    # AND the draft prerequisite (both would otherwise fire for a self-driving PR, which is a
+    # bot-authored draft by construction) and reach the review stage. Classification and gates run
+    # for real; only the LLM boundary is stubbed.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    seen: dict = {}
+
+    def fake_llm(self, gate_verdict: str) -> None:
+        seen["gate_verdict"] = gate_verdict
+        self.final_verdict = "APPROVED"
+        self.reviewer_output = {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(Pipeline, "_llm_review", fake_llm)
+
+    result = review_local.run(_selfdriving_context(True))
+
+    assert result["final_verdict"] == "APPROVED"
+    assert seen["gate_verdict"] != "DENIED"
+    prerequisites = next(g for g in result["gates"] if g["gate"] == "prerequisites")
+    assert prerequisites["passed"] is True  # the draft issue is carved out for this run
+    assert result["classification"]["self_driving"] is True  # provenance rides into the output contract
+
+
+def _stacked_context(base_ref: str, default_branch: str) -> dict:
+    return {
+        "repo": "PostHog/posthog",
+        "head_sha": "abc123",
+        "base_sha": "def456",
+        "pr": {
+            "number": 11,
+            "title": "feat: child of a stack",
+            "state": "OPEN",
+            "draft": False,
+            "user": {"login": "author", "type": "User"},
+            "base": {"ref": base_ref, "sha": "def456", "repo": {"default_branch": default_branch}},
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "base_ref, default_branch, expect_stacked",
+    [
+        pytest.param("master", "master", False, id="trunk-pr"),
+        pytest.param("feat/parent", "master", True, id="stacked-on-a-parent-branch"),
+        pytest.param("main", "main", False, id="trunk-named-main"),
+    ],
+)
+def test_stacked_detection_follows_the_repo_default_branch(
+    monkeypatch, base_ref: str, default_branch: str, expect_stacked: bool
+) -> None:
+    # The hosted runtime reviews repos whose trunk is "main"; a hardcoded "master" would tag every
+    # PR there as stacked and mis-brief the reviewer.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+
+    pr = review_local._build_pr_data(_stacked_context(base_ref, default_branch))
+
+    assert pr.stacked is expect_stacked
+
+
+def test_hosted_stacked_review_never_creates_a_worktree(monkeypatch) -> None:
+    # The sandbox clones and checks out the PR head before the engine runs, so parent-PR symbols
+    # already resolve. Reviving the Action's stacked-PR worktree here would be a wasted full-tree
+    # checkout per stacked review, plus its symlink-rejection failure mode.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    real_run = review_pr.subprocess.run
+
+    def guarded_run(cmd, *args, **kwargs):
+        assert "worktree" not in cmd, f"hosted review must not create a worktree: {cmd}"
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(review_pr.subprocess, "run", guarded_run)
+    seen: dict = {}
+
+    def fake_review(self, pr, classification, gate_context, diff_path=None):
+        seen["explore_root"] = self.explore_root
+        seen["stacked"] = pr.stacked
+        return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(review_pr.Reviewer, "review", fake_review)
+
+    result = review_local.run(_stacked_context("feat/parent", "master"))
+
+    assert result["final_verdict"] == "APPROVED"
+    assert seen["stacked"] is True
+    assert seen["explore_root"] == review_pr.REPO_ROOT

@@ -331,6 +331,13 @@ export interface PosthogStatusParams {
     sessionId?: string
     status?: string
     isComplete?: boolean
+    /** Failure reason, set on a `*_failed` status (e.g. `clearing_failed`). */
+    error?: string
+}
+
+/** `/clear` boundary — `sessionId` is the fresh agent session swapped in behind it. */
+export interface PosthogConversationClearedParams {
+    sessionId?: string
 }
 
 export interface PosthogCompactBoundaryParams {
@@ -383,6 +390,8 @@ export interface PosthogRunStartedParams {
     runId?: string
     taskId?: string
     agentVersion?: string
+    /** The agent implements `/clear` and honours the conversation-cleared boundary. Absent on older agents. */
+    conversationClear?: boolean
 }
 
 export interface PosthogTurnCompleteParams {
@@ -398,6 +407,7 @@ export interface PosthogNotificationParamsByMethod {
     '_posthog/usage_update': PosthogUsageUpdateParams
     '_posthog/status': PosthogStatusParams
     '_posthog/compact_boundary': PosthogCompactBoundaryParams
+    '_posthog/conversation_cleared': PosthogConversationClearedParams
     '_posthog/task_notification': PosthogTaskNotificationParams
     '_posthog/error': PosthogErrorParams
     '_posthog/sdk_session': PosthogSdkSessionParams

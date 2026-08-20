@@ -74,12 +74,13 @@ from products.feature_flags.backend.api.feature_flag import (
     assert_feature_flag_write_scope,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
     SurveyRates,
     SurveyStats,
     archived_responses_filter,
+    build_choice_translation_map,
     calculate_rates,
     fetch_per_question_stats,
     fetch_response_rows,
@@ -2034,8 +2035,20 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
 
     class Meta(SurveySerializerCreateUpdateOnly.Meta):
         extra_kwargs = {
-            "name": {"help_text": "Survey name.", "min_length": 1},
-            "description": {"help_text": "Survey description."},
+            "name": {
+                "help_text": (
+                    "Survey name. Anyone can read it. In-app surveys send it to every visitor's browser "
+                    "alongside the questions and appearance text, and a hosted survey shows it on its public "
+                    "page. Keep customer names and other private details out of it."
+                ),
+                "min_length": 1,
+            },
+            "description": {
+                "help_text": (
+                    "Survey description. Internal only: unlike the name and questions, it is never delivered "
+                    "to visitors."
+                )
+            },
             "type": {"help_text": "Survey type."},
             "start_date": {
                 "help_text": "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so."
@@ -2874,13 +2887,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         # Extract the question text and choices from the survey
         question_text = None
-        question_choices = None
+        question_dict = None
         if survey.questions and question_id:
             # Find the question with the matching ID
             for idx, question in enumerate(survey.questions):
                 if question.get("id", None) == question_id:
                     question_text = question.get("question")
-                    question_choices = question.get("choices")
+                    question_dict = question
                     # Backfill the index so the index-based response key fallback works.
                     # Without this, fetch_responses passes question_index=None into the
                     # getSurveyResponse() HogQL function, which requires an integer first
@@ -2891,17 +2904,24 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         elif survey.questions and question_index is not None:
             # Fallback to question index if question_id is not provided
             if 0 <= question_index < len(survey.questions):
-                question_text = survey.questions[question_index].get("question")
-                question_choices = survey.questions[question_index].get("choices")
+                question_dict = survey.questions[question_index]
+                question_text = question_dict.get("question")
 
         if question_text is None:
             raise exceptions.ValidationError("the text of the question is required")
+
+        # For choice questions, exclude predefined choices (base and translated) to only get
+        # open-ended "Other" responses — otherwise a predefined answer given in a non-base
+        # language leaks into the free-text set fed to the summarizer. Same translation-aware
+        # matching as per_question_stats' distribution.
+        exclude_values = None
+        if question_dict is not None:
+            exclude_values = list(build_choice_translation_map(question_dict).keys()) or None
 
         # Get archived response UUIDs to exclude
         archived_uuids = get_archived_response_uuids(survey_id, self.team.pk)
 
         # Fetch responses using the new module
-        # For choice questions, exclude predefined choices to only get open-ended "Other" responses
         responses = fetch_responses(
             survey_id=survey_id,
             question_index=question_index,
@@ -2909,7 +2929,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             start_date=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
             end_date=end_date,
             team=self.team,
-            exclude_values=question_choices,
+            exclude_values=exclude_values,
             exclude_uuids=archived_uuids,
         )
         response_count = len(responses)
@@ -3172,8 +3192,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                         "name": f"{source_survey.name} (duplicated at {duplicate_timestamp})",
                         "description": source_survey.description,
                         "type": source_survey.type,
+                        # Per-question translations are stripped here and restored verbatim after
+                        # validation (see below), for the same reason as the survey-level translations.
                         "questions": [
-                            {k: v for k, v in q.items() if k != "id"} for q in (source_survey.questions or [])
+                            {k: v for k, v in q.items() if k not in ("id", "translations")}
+                            for q in (source_survey.questions or [])
                         ],
                         "appearance": source_survey.appearance,
                         "conditions": cleaned_conditions,
@@ -3206,8 +3229,23 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     new_survey = Survey(
                         team=team,
                         created_by=user,
+                        # Copied outside the serializer so a duplicate is never stricter than its source:
+                        # these values are already sanitized, and surveys with grandfathered language keys
+                        # (which only validate against an existing instance) would otherwise fail to copy.
+                        base_language=source_survey.base_language,
+                        translations=source_survey.translations,
                         **serializer.validated_data,
                     )
+
+                    # Restore per-question translations verbatim. The create serializer grandfathers legacy
+                    # language keys only against an existing instance, so re-validating them here would 400
+                    # a copy the source already saved. Order matches: validate_questions keeps input order.
+                    source_questions = source_survey.questions or []
+                    for index, question in enumerate(new_survey.questions or []):
+                        source_translations = source_questions[index].get("translations")
+                        if source_translations is not None:
+                            question["translations"] = source_translations
+
                     surveys_to_create.append(new_survey)
 
                 for survey in surveys_to_create:
@@ -3462,10 +3500,19 @@ def get_surveys_count(team: Team) -> int:
 
 
 def get_surveys_response(team: Team) -> dict[str, Any]:
+    # Every SDK discards surveys that aren't running before evaluating eligibility, so drafts and
+    # stopped surveys are payload every client downloads and throws away. The nullness check mirrors
+    # the SDKs' own `isSurveyRunning`; keeping it time-independent matters because this response is
+    # cached and only rebuilt when a survey is saved, so a comparison against `now` would go stale.
     surveys = SurveyAPISerializer(
         Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
         .filter(team__project_id=team.project_id)
         .exclude(archived=True)
+        .filter(start_date__isnull=False, end_date__isnull=True)
+        # External surveys are their own hosted page, rendered server-side from the database by id.
+        # No SDK can display one: the web SDK renders only in-app types, and the mobile SDKs have no
+        # external_survey case in their type enums at all.
+        .exclude(type=Survey.SurveyType.EXTERNAL_SURVEY)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),
         many=True,

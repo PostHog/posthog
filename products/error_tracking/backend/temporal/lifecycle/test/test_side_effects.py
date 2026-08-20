@@ -33,6 +33,7 @@ def _inputs() -> IssueReopenedWorkflowInputs:
             description="Something failed",
             status="pending_release",
             created_at="2026-07-21T12:00:00Z",
+            severity="high",
         ),
         fingerprint="fingerprint",
         event_uuid="01982721-5e00-7000-8000-000000000003",
@@ -51,6 +52,7 @@ def test_created_internal_event_preserves_raw_status() -> None:
             description="Something failed",
             status="active",
             created_at="2026-07-21T12:00:00Z",
+            severity="critical",
         ),
         fingerprint="fingerprint",
         event_uuid="01982721-5e00-7000-8000-000000000003",
@@ -87,6 +89,7 @@ def test_created_internal_event_preserves_raw_status() -> None:
 
     assert sent_events[0].event == "$error_tracking_issue_created"
     assert sent_events[0].properties["status"] == "active"
+    assert sent_events[0].properties["severity"] == "critical"
 
 
 def test_oversized_internal_event_retries_without_exception_properties() -> None:
@@ -136,6 +139,7 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
         "description": "Something failed",
         "issue_description": "Something failed",
         "first_seen": "2026-07-21T12:00:00Z",
+        "severity": "high",
         "fingerprint": "fingerprint",
         "exception_timestamp": "2026-07-21T12:05:00+00:00",
         "exception_props": event_properties,
@@ -184,7 +188,9 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
         )
 
     assert len(sent_events) == 1
+    assert sent_events[0].event == "$error_tracking_issue_spiking"
     assert "status" not in sent_events[0].properties
+    assert sent_events[0].properties["severity"] == "high"
 
 
 @pytest.mark.asyncio

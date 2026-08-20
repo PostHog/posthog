@@ -26,8 +26,7 @@ import {
     buildComboChartConfig,
     buildLineChartConfig,
     buildSeries,
-    canRenderSqlBarGraph,
-    canRenderSqlComboGraph,
+    sqlChartKind,
 } from '~/queries/nodes/DataVisualization/Components/Charts/sqlLineGraphAdapter'
 import { AxisSeries, dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
@@ -39,7 +38,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AccountBillingLogicProps, accountBillingLogic } from './accountBillingLogic'
+import { AccountBillingLogicProps, accountBillingLogic, getBillingDataVisualizationKey } from './accountBillingLogic'
 import { AccountBillingSeriesToggle } from './AccountBillingSeriesToggle'
 
 const RENDERABLE_DISPLAY_TYPES = new Set<ChartDisplayType>([
@@ -120,13 +119,14 @@ function BillingChartByKind({
     chartProps: BillingChartProps
     hiddenKeys: string[]
 }): JSX.Element | null {
-    if (canRenderSqlComboGraph(chartProps)) {
-        return <BillingComboChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
+    switch (sqlChartKind(chartProps)) {
+        case 'combo':
+            return <BillingComboChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
+        case 'bar':
+            return <BillingBarChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
+        case 'line':
+            return <BillingLineChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
     }
-    if (canRenderSqlBarGraph(chartProps)) {
-        return <BillingBarChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
-    }
-    return <BillingLineChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
 }
 
 // One subcomponent per chart kind because useBillingChartModel's config type follows the builder it's given.
@@ -220,10 +220,10 @@ export function AccountBillingChart({
 }): JSX.Element {
     const billingLogic = accountBillingLogic(logicProps)
     const { ephemeralHiddenSeriesKeysByShortId } = useValues(billingLogic)
-    const { toggleHiddenSeriesKey } = useActions(billingLogic)
+    const { toggleHiddenSeriesKey, setAllSeriesHidden } = useActions(billingLogic)
 
     const vizLogic = dataVisualizationLogic({
-        key: queryKey,
+        key: getBillingDataVisualizationKey(queryKey),
         query,
         dataNodeCollectionId: queryKey,
         variablesOverride,
@@ -272,6 +272,13 @@ export function AccountBillingChart({
                     series={chipItems}
                     hiddenKeys={hiddenKeys}
                     onToggle={(seriesKey) => toggleHiddenSeriesKey(shortId, seriesKey, chipItems.length)}
+                    onToggleAll={(hidden) =>
+                        setAllSeriesHidden(
+                            shortId,
+                            chipItems.map(({ key }) => key),
+                            hidden
+                        )
+                    }
                 />
             )}
         </div>

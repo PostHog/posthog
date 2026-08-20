@@ -18,6 +18,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
+        enrich_url: ?alert_type=insights&alert_id={id}
         title: Create alert
         description: >
             Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For
@@ -42,6 +43,11 @@ tools:
             funnels support only absolute_value conditions; historical-trend funnels also support
             relative_increase/relative_decrease. Anomaly detection (detector_config) is supported for trends and SQL
             insights (not funnels).
+
+            calculation_interval sets how often the alert runs: real_time, every_15_minutes, hourly, daily, weekly, or
+            monthly. real_time needs a Scale or Enterprise plan. every_15_minutes needs a Boost, Scale, or Enterprise
+            add-on. The field is optional and defaults to daily. If the user does not specify a cadence, ask before
+            creating the alert.
 
             Note: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see
             the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe
@@ -74,6 +80,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: ?alert_type=insights&alert_id={id}
         title: Get alert
         description: >
             Get a specific alert by ID. Returns the full alert configuration including check results, threshold
@@ -108,15 +115,18 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
+        enrich_url: ?alert_type=insights&alert_id={id}
         title: Update alert
         description: >
             Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed
-            users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly
-            detection (trends and SQL insights), or set it to null to switch back to threshold mode (threshold mode
-            requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight alerts the
-            config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an
-            alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to
-            null.
+            users, enabled state, calculation_interval, and weekend skipping. calculation_interval sets how often the
+            alert runs: real_time, every_15_minutes, hourly, daily, weekly, or monthly. real_time needs a Scale or
+            Enterprise plan. every_15_minutes needs a Boost, Scale, or Enterprise add-on. Set detector_config to switch
+            to anomaly detection (trends and SQL insights), or set it to null to switch back to threshold mode
+            (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight
+            alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column).
+            To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set
+            snoozed_until to null.
 
             Note: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on
             cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it
@@ -137,6 +147,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: ?alert_type=insights&alert_id={id}
         list: true
         title: List alerts
         description: >
@@ -147,6 +158,9 @@ tools:
             detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
     alerts-simulate-create:
         operation: alerts_simulate_create
+        enabled: false
+    alerts-test-delivery-create:
+        operation: alerts_test_delivery_create
         enabled: false
     alerts-update:
         operation: alerts_update

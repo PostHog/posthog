@@ -243,6 +243,7 @@ mod tests {
                 name: Some("TypeError".to_string()),
                 description: Some("boom".to_string()),
                 status: "active".to_string(),
+                severity: Some("high".to_string()),
                 created_at: Utc::now(),
             },
             event_properties: serde_json::from_value::<ProcessedExceptionProperties>(
@@ -315,6 +316,7 @@ mod tests {
         for value in values {
             assert_eq!(value["team_id"], 42);
             assert_eq!(value["fingerprint"], "fingerprint");
+            assert_eq!(value["issue"]["severity"], "high");
             assert!(value.get("event_properties").is_none());
         }
     }

@@ -34,7 +34,7 @@ export function SecretApiKeySection(): JSX.Element {
         <SceneSection
             title="Secret API key"
             titleSize="sm"
-            description="Used to sign identity hashes for identity verification and to authenticate external API requests for workflows."
+            description="Authenticates workflow actions that read or update tickets, and signs identity hashes for identity verification. Project secret API keys can't be used for either."
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                 <div>
@@ -59,14 +59,20 @@ export function SecretApiKeySection(): JSX.Element {
                         className={currentTeam?.secret_api_token ? '' : 'text-muted'}
                         thing="Secret API key"
                     >
-                        {currentTeam?.secret_api_token || 'Click the generate button on the right to create a new key.'}
+                        {currentTeam?.secret_api_token ||
+                            'No key yet — generate one with the button on the right to start using ticket workflow actions.'}
                     </CodeSnippet>
                 </div>
 
-                {currentTeam?.secret_api_token && (
+                {currentTeam?.secret_api_token ? (
                     <LemonBanner type="warning" className="my-2">
                         Rotating this key will require updating it everywhere it's used. Rotate if it has been
                         compromised or as part of your regular key rotation policy.
+                    </LemonBanner>
+                ) : (
+                    <LemonBanner type="warning" className="my-2">
+                        This project doesn't have a secret API key yet. Workflow steps that get or update tickets will
+                        fail until you generate one.
                     </LemonBanner>
                 )}
 

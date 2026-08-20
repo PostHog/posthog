@@ -39,7 +39,7 @@ from products.endpoints.backend.models import (
     _breakdown_property_names,
     can_materialize_query,
 )
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 
 
 def validate_data_freshness(data_freshness_seconds: int | None) -> None:
@@ -65,9 +65,20 @@ def validate_bucket_overrides(bucket_overrides: dict[str, str] | None) -> None:
         raise ValidationError(f"Invalid bucket override values: {invalid}. Valid options: {valid_options}")
 
 
+DIRECT_CONNECTION_UNSUPPORTED = (
+    "Endpoints can't query a direct connection. "
+    "Switch the connection to PostHog (ClickHouse) and query a synced table instead."
+)
+
+
 def validate_hogql_query(query: HogQLQuery, team: Team, user: User) -> None:
     """Validate that a HogQL query parses, its variables are valid, and the author can
     access every table/view it references."""
+    # A direct connection reads the customer's database live, so there is nothing for an
+    # endpoint to materialize and its table names only exist while that connection is selected.
+    if query.connectionId:
+        raise ValidationError({"query": DIRECT_CONNECTION_UNSUPPORTED})
+
     try:
         ast_node = parse_select(query.query)
     except ExposedHogQLError as e:

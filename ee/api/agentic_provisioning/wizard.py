@@ -20,7 +20,8 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.api.agentic_provisioning import github_grants
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.throttling import enforce_partner_rate_limit, enforce_wizard_run_user_rate_limit
+from ee.api.agentic_provisioning.ratelimits import charge_partner_by_name
+from ee.api.agentic_provisioning.throttling import enforce_wizard_run_user_rate_limit
 
 
 def _drf_validation_error_code(exc: DRFValidationError) -> str | None:
@@ -67,10 +68,6 @@ def link_github_grant_to_team(
         # response must not fail if the installation is already linked to this team.
         existing = Integration.objects.first_github_for_team_installation(team.id, str(installation_id))
         if existing is not None:
-            # Re-apply onboarding flags idempotently: the grant is consumed as the last step,
-            # so a crash between consume and the flag write would otherwise leave them unset
-            # on a retry (this branch runs only once the grant is already gone).
-            apply_provisioned_onboarding_flags(user, team)
             return existing, True
         capture_provisioning_event("github_integration", "error", partner=partner, error_code="grant_not_found")
         raise ProvisioningError("grant_not_found", "Grant not found or expired", resource_id=str(team.id), status=404)
@@ -111,7 +108,6 @@ def link_github_grant_to_team(
         )
 
     github_grants.consume_grant(grant_id)
-    apply_provisioned_onboarding_flags(user, team)
     capture_provisioning_event("github_integration", "success", partner=partner, team_id=team.id)
     return integration, False
 
@@ -133,6 +129,18 @@ def create_wizard_run(
 ) -> dict[str, str]:
     """Gate + throttle + create a cloud wizard run. Returns the run payload;
     raises :class:`ProvisioningError` on failure."""
+    # Checked here rather than in each caller: the resource endpoint and the account-request
+    # wizard block both land on this function, so this is the one place a new caller cannot
+    # forget. Before the rate limits, so a partner without the grant can't spend its quota.
+    if not partner.provisioning.can_start_wizard_runs:
+        capture_provisioning_event("wizard_run", "error", partner=partner, error_code="forbidden")
+        raise ProvisioningError(
+            "forbidden",
+            "Starting wizard runs is not enabled for this partner",
+            resource_id=str(team.id),
+            status=403,
+        )
+
     if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
         capture_provisioning_event("wizard_run", "error", partner=partner, error_code="wizard_unavailable")
         raise ProvisioningError(
@@ -150,7 +158,13 @@ def create_wizard_run(
         )
 
     enforce_wizard_run_user_rate_limit(user_id, resource_id=str(team.id))
-    enforce_partner_rate_limit(partner, "wizard_runs")
+    # By registry name because the budget is declared on WizardRunsView, and this
+    # function is also reached by the bundled account-request wizard block, which
+    # runs outside any view dispatch.
+    # Not refunded past this point: the repository check below is an authenticated
+    # GitHub call, so a partner cycling inaccessible repository names would otherwise
+    # generate unbounded egress for free.
+    charge_partner_by_name("wizard_runs", partner, resource_id=str(team.id))
 
     # Verifying the grant user owns the installation doesn't prove the installation can
     # reach the requested repo — a valid grant for one installation could otherwise report

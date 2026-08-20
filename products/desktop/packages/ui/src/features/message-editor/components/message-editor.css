@@ -1,0 +1,106 @@
+/* Tiptap placeholder - targets empty first paragraph. Laid out like the comment composer's
+   (mention-composer.css): taken out of flow and clipped to a single line. Floated with height:0 it
+   still wraps, and a wrapped placeholder overflows .cli-editor-scroll without being able to grow it,
+   so an empty composer in a narrow side panel gets a scrollbar and a half-cut second line. */
+.cli-editor p.is-editor-empty:first-child {
+  position: relative;
+}
+
+.cli-editor p.is-editor-empty:first-child::before {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  content: attr(data-placeholder);
+}
+
+/* Markdown blocks, styled to match how the chat thread renders the same markdown
+   (ChatMarkdown). Written as CSS rather than classes on the nodes so it applies to
+   every editor instance, including ones built before an extension change. Tailwind
+   preflight strips list styling, hence the list-style declarations. */
+.cli-editor ul,
+.cli-editor ol,
+.cli-editor pre {
+  margin: 0.25em 0;
+}
+
+.cli-editor ul,
+.cli-editor ol {
+  padding-inline-start: 1rem;
+}
+
+.cli-editor ul {
+  list-style: disc;
+}
+
+.cli-editor ul ul {
+  list-style: circle;
+}
+
+.cli-editor ol {
+  padding-inline-start: 1.25rem;
+  list-style: decimal;
+}
+
+.cli-editor li + li {
+  margin-top: 0.125rem;
+}
+
+.cli-editor li > p {
+  margin: 0;
+}
+
+.cli-editor code {
+  padding-inline: 0.25rem;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+.cli-editor pre {
+  padding: 0.75rem;
+  overflow-x: auto;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+}
+
+/* pre already paints the box; the inner code element must not paint a second one. */
+.cli-editor pre code {
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* Ensure Tiptap NodeView wrappers render inline for mention chips */
+.cli-editor [data-node-view-wrapper] {
+  display: inline;
+}
+
+/* Editor scrollbar - slim, transparent track, hugs right edge */
+.cli-editor-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cli-editor-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cli-editor-scroll::-webkit-scrollbar-thumb {
+  background: var(--gray-a5);
+  border-radius: 3px;
+}
+
+.cli-editor-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-a7);
+}

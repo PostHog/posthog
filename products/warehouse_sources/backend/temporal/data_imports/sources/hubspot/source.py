@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_API_VERSION_2026_03,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
+    HUBSPOT_METADATA_ENDPOINTS as HUBSPOT_METADATA_ENDPOINT_CONFIGS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -163,6 +164,12 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             "Hubspot search malformed JSON response (retryable)",
             "Hubspot v4 associations error (retryable): status=",
             "Hubspot v4 associations malformed JSON response (retryable)",
+            # auth.hubspot_refresh_access_token also retries in-process (5 attempts, Retry-After
+            # aware) before re-raising HubspotRetryableError with HubSpot's own 429 body verbatim
+            # (no code-added prefix, unlike the fetch-loop errors above). Match HubSpot's stable,
+            # documented rate-limit wording so this self-recovering condition doesn't get tracked
+            # as noise once Temporal's activity retry picks it back up.
+            "You have reached your rate limit.",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
@@ -186,6 +193,20 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         schemas = []
         for endpoint in HUBSPOT_ENDPOINTS:
             if endpoint in unreadable:
+                continue
+
+            metadata_config = HUBSPOT_METADATA_ENDPOINT_CONFIGS.get(endpoint)
+            if metadata_config is not None:
+                # Lookup tables have no server-side timestamp filter, so they are full refresh only.
+                schemas.append(
+                    SourceSchema(
+                        name=endpoint,
+                        supports_incremental=False,
+                        supports_append=False,
+                        incremental_fields=[],
+                        should_sync_default=metadata_config.should_sync_default,
+                    )
+                )
                 continue
 
             endpoint_config = HUBSPOT_ENDPOINT_CONFIGS[endpoint]

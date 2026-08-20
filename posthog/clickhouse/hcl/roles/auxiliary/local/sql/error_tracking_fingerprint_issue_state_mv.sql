@@ -5,6 +5,7 @@ SELECT
   issue_name,
   issue_description,
   issue_status,
+  issue_severity,
   assigned_user_id,
   assigned_role_id,
   first_seen,

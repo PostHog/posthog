@@ -122,6 +122,17 @@ The routing rule (from the walkthrough, now concrete) — applied by the **backe
 - `node.type == hogql` and **all** inputs are `hogql` → the **direct lane** (`sql_v2_direct.py`): the backend enqueues the inlined query on the async query manager and the run never reaches the sandbox at all — no kernel required, results land on the run row via the result poll. This amends walkthrough decision 4 ("the sandbox drives execution"): the backend routes, and the sandbox drives only kernel-lane runs. The server's own hogql handling (capped fetch, result cache, `/page` re-query) remains only for runs dispatched before the direct lane and is slated for removal.
 - anything else (Python node, DuckDB node, or a HogQL node would go here if we ever allow HogQL over local frames — we don't; that's what DuckDB syntax is for) → materialize `hogql` inputs to frame files, run in the kernel. Dispatch provisions the kernel itself when none is running (the run is the user's ask for compute; the panel is presentation, not a prerequisite).
 
+### External connections
+
+A SQL cell can target a direct-query data source (the SQL editor's connection selector, rendered in the notebook's database tree) instead of PostHog's ClickHouse.
+The cell persists `connectionId` / `sendRawQuery`, the run request carries them, and `NotebookNodeRun` stores them — they reach the query runner as the `HogQLQuery` fields of the same name, so the engine choice is entirely the runner's concern.
+
+Consequences the lanes have to respect:
+
+- A connection run always takes the **direct lane**. The sandbox only reaches PostHog data, so a connection cell that reads a Python frame is rejected at dispatch rather than rerouted to DuckDB.
+- `code` only means something on the engine that ran it, so a ref is inlined as a CTE only when the upstream cell's latest run used the _same_ connection and the same raw mode. Anything else is refused at dispatch with a cross-engine message instead of being silently shipped to the wrong engine.
+- **Raw mode carries no references at all.** The HogQL parser can't read the engine's dialect, so there is nothing to inline and nothing to bound in place: `apply_raw_page_bounds` wraps the query in an aliased derived table (Postgres and MySQL reject an unaliased one) and the engine sees the rest verbatim.
+
 ## Result store and paging
 
 `/page` reads `/data/results/<result_id>.arrow` in the **server** process (pyarrow mmap slice, or a read-only DuckDB connection for sorted/filtered pages). Consequences:
@@ -145,10 +156,14 @@ products/notebooks/kernel/          # or backend/kernel_src/ — sandbox-side co
 └── envelope.py      # envelope construction shared by executor/bootstrap
 ```
 
-Dependencies (`jupyter_client`, `pyarrow`, `duckdb`, `pandas`, `requests`) are already in `Dockerfile.sandbox-notebook`; no new image deps needed. Delivery:
+Dependencies (`jupyter_client`, `pyarrow`, `duckdb`, `pandas`, `requests`) are already in `Dockerfile.sandbox-notebook`; no new image deps needed. Delivery runs on two paths, both landing on the same `python -m nb_kernel.server --port … --secret-file … --version …` launch:
 
-- **Prod**: bake the package into the sandbox image (like Code's agent-server), launched as `python -m …kernel.server --port … --secret-file …`.
-- **Dev / iteration**: keep the `write_file` bootstrap in `ensure_sql_v2_server`, but upload a tarball of the package keyed by content hash; `/health` reports the hash, and a mismatch triggers re-upload + restart. Editing kernel code then needs no image rebuild.
+- **Baked (the normal path)**: `Dockerfile.sandbox-notebook` copies the package to `/opt/nb_kernel_pkg/nb_kernel/` and stamps its content hash into `/opt/nb_kernel_pkg/VERSION`. `_launch_baked_kernel_server` compares that stamp against the hash the backend expects and launches in place when they agree. No upload, no extract.
+- **Tarball (the fallback)**: when the stamp disagrees, the backend uploads the package as a tarball and launches from `/tmp/nb_kernel_pkg` instead. This covers both the dev loop (edit `kernel/`, next run redeploys, no image rebuild) and the window in production between merging a kernel change and its image reaching the registry. A merged kernel fix therefore never waits on an image build.
+
+`kernel_package.py` owns both the destination and the hash: the image build calls it for the bake path (`--baked-root`) and for the stamp, so the Dockerfile holds no second copy of either. A stale stamp is not an outage, only a lost optimization, because the deploy degrades to the tarball path it used before.
+
+`/health` reports the running hash either way, which is what drives the redeploy decision in `ensure_sql_v2_server`. Editing `products/notebooks/backend/sandbox/kernel/**` rebuilds the image through `cd-sandbox-base-image.yml`.
 
 Because the package is plain Python with no Django imports, it gets normal unit tests in CI (auth round-trip, envelope building, run_node against a real in-process DuckDB, data-plane client against a stub Arrow server).
 

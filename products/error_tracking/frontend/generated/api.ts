@@ -17,8 +17,12 @@ import type {
     ErrorTrackingBypassRuleCreateRequestApi,
     ErrorTrackingBypassRuleUpdateRequestApi,
     ErrorTrackingBypassRulesListParams,
+    ErrorTrackingExternalIssueSearchResultApi,
+    ErrorTrackingExternalReferenceCreateApi,
+    ErrorTrackingExternalReferenceLinkApi,
     ErrorTrackingExternalReferenceResultApi,
     ErrorTrackingExternalReferencesListParams,
+    ErrorTrackingExternalReferencesSearchIssuesRetrieveParams,
     ErrorTrackingFingerprintApi,
     ErrorTrackingFingerprintsListParams,
     ErrorTrackingFingerprintsResolveRetrieveParams,
@@ -408,14 +412,14 @@ export const getErrorTrackingExternalReferencesCreateUrl = (projectId: string) =
 
 export const errorTrackingExternalReferencesCreate = async (
     projectId: string,
-    errorTrackingExternalReferenceResultApi: NonReadonly<ErrorTrackingExternalReferenceResultApi>,
+    errorTrackingExternalReferenceCreateApi: NonReadonly<ErrorTrackingExternalReferenceCreateApi>,
     options?: RequestInit
 ): Promise<ErrorTrackingExternalReferenceResultApi> => {
     return apiMutator<ErrorTrackingExternalReferenceResultApi>(getErrorTrackingExternalReferencesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingExternalReferenceResultApi),
+        body: JSON.stringify(errorTrackingExternalReferenceCreateApi),
     })
 }
 
@@ -453,6 +457,65 @@ export const errorTrackingExternalReferencesDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getErrorTrackingExternalReferencesLinkIssueCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/external_references/link_issue/`
+}
+
+/**
+ * Link an error to an issue that already exists in the connected provider.
+ */
+export const errorTrackingExternalReferencesLinkIssueCreate = async (
+    projectId: string,
+    errorTrackingExternalReferenceLinkApi: ErrorTrackingExternalReferenceLinkApi,
+    options?: RequestInit
+): Promise<ErrorTrackingExternalReferenceResultApi> => {
+    return apiMutator<ErrorTrackingExternalReferenceResultApi>(
+        getErrorTrackingExternalReferencesLinkIssueCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingExternalReferenceLinkApi),
+        }
+    )
+}
+
+export const getErrorTrackingExternalReferencesSearchIssuesRetrieveUrl = (
+    projectId: string,
+    params: ErrorTrackingExternalReferencesSearchIssuesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/external_references/search_issues/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/external_references/search_issues/`
+}
+
+/**
+ * Search a connected provider for existing issues to link an error to.
+ */
+export const errorTrackingExternalReferencesSearchIssuesRetrieve = async (
+    projectId: string,
+    params: ErrorTrackingExternalReferencesSearchIssuesRetrieveParams,
+    options?: RequestInit
+): Promise<ErrorTrackingExternalIssueSearchResultApi> => {
+    return apiMutator<ErrorTrackingExternalIssueSearchResultApi>(
+        getErrorTrackingExternalReferencesSearchIssuesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingFingerprintsListUrl = (

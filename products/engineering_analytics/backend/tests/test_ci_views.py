@@ -19,6 +19,11 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    pr_association_entry,
+    repo_id,
+    seeding_object_storage,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
@@ -28,6 +33,7 @@ GITHUB_SOURCE_PREFIX = "myprefix"
 
 _BASE = "2026-01-01 10:00:00"
 _LATER = "2026-01-01 10:10:00"
+_REPO = "PostHog/posthog"
 
 
 def _job_row(job_id: int, run_id: int, name: str) -> dict[str, Any]:
@@ -52,7 +58,12 @@ def _job_row(job_id: int, run_id: int, name: str) -> dict[str, Any]:
 
 
 def _run_row(
-    run_id: int, head_sha: str, pull_requests: list[dict], head_commit: dict, run_attempt: int = 1
+    run_id: int,
+    head_sha: str,
+    pr_numbers: list[int],
+    head_commit: dict,
+    run_attempt: int = 1,
+    fork_pr_numbers: tuple[int, ...] = (),
 ) -> dict[str, Any]:
     return {
         "id": run_id,
@@ -65,8 +76,11 @@ def _run_row(
         "run_started_at": _BASE,
         "updated_at": _LATER,
         "run_attempt": run_attempt,
-        "pull_requests": json.dumps(pull_requests),
-        "repository": json.dumps({"full_name": "PostHog/posthog"}),
+        "pull_requests": json.dumps(
+            [pr_association_entry(number, base_repo="Mu-L/posthog-1") for number in fork_pr_numbers]
+            + [pr_association_entry(number, base_repo=_REPO) for number in pr_numbers]
+        ),
+        "repository": json.dumps({"full_name": _REPO, "id": repo_id(_REPO)}),
         "head_commit": json.dumps(head_commit),
     }
 
@@ -82,7 +96,7 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-        try:
+        with seeding_object_storage(self):
             table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
                 table_name=base_name,
@@ -91,8 +105,6 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 source_prefix=GITHUB_SOURCE_PREFIX,
             )
-        except PermissionError as err:
-            self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
         return table.name
 
@@ -118,7 +130,7 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
                 _run_row(
                     100,
                     head_sha="runsha100",
-                    pull_requests=[{"number": 5}],
+                    pr_numbers=[5],
                     head_commit={
                         "author": {"name": "Alice", "email": "alice@x.com"},
                         "message": "fix(ci): thing (#4242)",
@@ -129,15 +141,18 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
                 _run_row(
                     200,
                     head_sha="runsha200",
-                    pull_requests=[],
+                    pr_numbers=[],
                     head_commit={"author": {"name": "Bob"}, "message": "chore: no pr suffix"},
                 ),
-                # A revert: the message carries the reverted PR's (#N) inside quotes AND the revert
-                # PR's own suffix — the anchored extraction must attribute the reverting PR.
+                # The real master-push shape: GitHub attaches the fork network's PRs (same head SHA,
+                # foreign base repo), which must NOT become pr_number — the commit suffix is the only
+                # attribution. Also a revert, so the reverted PR's (#N) sits inside the quoted title
+                # alongside the revert PR's own suffix and the anchored extraction must pick the latter.
                 _run_row(
                     300,
                     head_sha="runsha300",
-                    pull_requests=[],
+                    pr_numbers=[],
+                    fork_pr_numbers=(1379, 3),
                     head_commit={
                         "author": {"name": "Carol"},
                         "message": 'Revert "feat(ci): thing (#4242)" (#4300)\n\nThis reverts commit abc.',
@@ -148,7 +163,7 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
                 _run_row(
                     400,
                     head_sha="runsha400",
-                    pull_requests=[],
+                    pr_numbers=[],
                     head_commit={"author": {"name": "Dave"}, "message": "fix: rerun me"},
                     run_attempt=2,
                 ),
@@ -194,8 +209,10 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
         assert value("job-b", "commit_message") == "chore: no pr suffix"
 
         # Revert commit: two (#N) occurrences — the anchored extraction must credit the reverting
-        # PR (#4300), never the reverted one quoted in the title (#4242).
+        # PR (#4300), never the reverted one quoted in the title (#4242). Its run also carries the
+        # fork network's PRs; crediting one of those to this repo is the bug pr_number 0 guards.
         assert value("job-d", "commit_pr_number") == 4300
+        assert value("job-d", "pr_number") == 0
 
         # Unjoined run: the LEFT JOIN keeps the job attempt (an INNER join would drop it — the guard
         # here). ClickHouse fills the unmatched run side with type defaults, so attribution is empty
@@ -219,7 +236,7 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
         runs_table = self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
-            [_run_row(100, head_sha="s", pull_requests=[{"number": 1}], head_commit={"message": "m"})],
+            [_run_row(100, head_sha="s", pr_numbers=[1], head_commit={"message": "m"})],
         )
         query = ci_job_history.build_query(jobs_table=jobs_table, runs_table=runs_table)
         unioned = "\nUNION ALL\n".join([query, query])

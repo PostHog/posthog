@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta
 from json import JSONDecodeError, loads
-from typing import Any, List, Literal, cast  # noqa: UP035
+from typing import Any, List, Literal, cast, get_args  # noqa: UP035
 
 from django.core.exceptions import FieldError
 from django.db import transaction
@@ -30,11 +30,13 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -44,9 +46,11 @@ from posthog.rate_limit import (
     AISustainedRateThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    HeatmapPreflightBurstRateThrottle,
+    HeatmapPreflightSustainedRateThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
@@ -56,7 +60,9 @@ from products.web_analytics.backend.api.heatmaps_utils import (
     MAX_TARGET_WIDTHS,
     PREWARM_PREVIEW_WIDTH,
     PREWARM_TTL,
+    heatmaps_flag_enabled,
 )
+from products.web_analytics.backend.heatmap_preflight import BlockedBy, Framing, preflight_page
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
 
@@ -74,24 +80,12 @@ HEATMAP_CONTENT_REQUESTS = Counter(
 
 
 def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
-    distinct_id = getattr(user, "distinct_id", None)
-    if not distinct_id:
-        return False
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                HEATMAPS_COHORT_FILTER_FLAG,
-                str(distinct_id),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return False
+    return heatmaps_flag_enabled(
+        HEATMAPS_COHORT_FILTER_FLAG,
+        str(getattr(user, "distinct_id", "") or ""),
+        team_id=team.id,
+        organization_id=str(team.organization_id),
+    )
 
 
 DEFAULT_QUERY = """
@@ -200,16 +194,22 @@ def anchor_url_pattern(value: str) -> str:
     return validated_value
 
 
-def resolve_url_filter(url_exact: str | None, url_pattern: str | None) -> tuple[str | None, str | None]:
+@frozen
+class ResolvedUrlFilter:
+    url_exact: str | None
+    url_pattern: str | None
+
+
+def resolve_url_filter(url_exact: str | None, url_pattern: str | None) -> ResolvedUrlFilter:
     """Resolve which of url_exact/url_pattern the query actually filters on when both are supplied,
     so every caller (the request serializer and the permission check) authorizes and queries the
     same value: equal values keep url_exact, differing values keep url_pattern (matching
     HeatmapsRequestSerializer.validate())."""
     if isinstance(url_exact, str) and isinstance(url_pattern, str):
         if url_exact == url_pattern:
-            return url_exact, None
-        return None, url_pattern
-    return url_exact, url_pattern
+            return ResolvedUrlFilter(url_exact=url_exact, url_pattern=None)
+        return ResolvedUrlFilter(url_exact=None, url_pattern=url_pattern)
+    return ResolvedUrlFilter(url_exact=url_exact, url_pattern=url_pattern)
 
 
 class HeatmapsRequestSerializer(serializers.Serializer):
@@ -341,10 +341,10 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)
         url_pattern = values.get("url_pattern", None)
-        resolved_exact, resolved_pattern = resolve_url_filter(url_exact, url_pattern)
-        if resolved_exact is None and url_exact is not None:
+        resolved = resolve_url_filter(url_exact, url_pattern)
+        if resolved.url_exact is None and url_exact is not None:
             values.pop("url_exact")
-        if resolved_pattern is None and url_pattern is not None:
+        if resolved.url_pattern is None and url_pattern is not None:
             values.pop("url_pattern")
 
         if values.get("filter_test_accounts") and not isinstance(values.get("filter_test_accounts"), bool):
@@ -495,8 +495,8 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
         # authorized as an exact match while the anchored pattern actually executes.
         raw_url_pattern = request.query_params.get("url_pattern")
         anchored_url_pattern = anchor_url_pattern(raw_url_pattern) if raw_url_pattern else raw_url_pattern
-        url_exact, _ = resolve_url_filter(request.query_params.get("url_exact"), anchored_url_pattern)
-        if not url_exact:
+        resolved = resolve_url_filter(request.query_params.get("url_exact"), anchored_url_pattern)
+        if not resolved.url_exact:
             # A url_pattern query matches every row whose current_url satisfies the pattern, not
             # just the granted SavedHeatmap's URL — an object grant can't bound that, so patterns
             # (and requests with no URL filter at all) require resource-level "heatmap" access.
@@ -510,7 +510,7 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
             candidate_url = candidate.data_url or candidate.url
             # Match the same way the aggregate query does: url_exact ignores a trailing slash
             # (`trimRight(current_url, '/')`).
-            if candidate_url.rstrip("/") == url_exact.rstrip("/") and uac.check_access_level_for_object(
+            if candidate_url.rstrip("/") == resolved.url_exact.rstrip("/") and uac.check_access_level_for_object(
                 candidate, required_level=required_level
             ):
                 return True
@@ -610,9 +610,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
         # The heatmap predicate treats date_to as an inclusive day via `timestamp <= {date_to} + interval 1 day`.
-        # HogQLFilters instead emits a strict `timestamp < date_to`, so when date_from and date_to land on the same
-        # day this events subquery collapses to an impossible range and returns no sessions. Add a day so the
-        # events subquery covers the same date window as the main heatmap query.
+        # Pass the same bound as an explicit next-day-midnight datetime, which HogQLFilters uses verbatim with a
+        # strict `<`, so the events subquery covers the same inclusive days as the main heatmap query. A date-only
+        # value would instead snap to the end of that next day and widen the window by a day.
         events_date_to = (date_to or date.today()) + timedelta(days=1)
         events_select = replace_filters(
             parse_select(
@@ -622,7 +622,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 filterTestAccounts=True,
                 dateRange=DateRange(
                     date_from=date_from.strftime("%Y-%m-%d"),
-                    date_to=events_date_to.strftime("%Y-%m-%d"),
+                    date_to=events_date_to.strftime("%Y-%m-%dT00:00:00"),
                 ),
             ),
             self.team,
@@ -1099,24 +1099,67 @@ class HeatmapPrewarmRequestSerializer(serializers.Serializer):
         return validate_page_url(value)
 
 
-class HeatmapPrewarmResourceAccessPermission(BasePermission):
-    message = "You do not have editor access to this resource."
+class HeatmapPreflightRequestSerializer(serializers.Serializer):
+    url = serializers.CharField(
+        help_text="Exact page URL to probe. Wildcards are not allowed. This is the URL that would be loaded in the "
+        "live preview iframe, not the data URL used to look up heatmap events."
+    )
 
+    def validate_url(self, value: str) -> str:
+        return validate_page_url(value)
+
+
+class HeatmapPreflightResponseSerializer(serializers.Serializer):
+    framing = serializers.ChoiceField(
+        choices=list(get_args(Framing)),
+        help_text="Whether the page can be embedded in the live preview iframe. 'blocked' means the site's own "
+        "headers forbid it, so only a screenshot or session recording background can work. 'unknown' means we "
+        "could not tell, for example because the page was unreachable or redirected.",
+    )
+    blocked_by = serializers.ChoiceField(
+        choices=list(get_args(BlockedBy)),
+        allow_null=True,
+        help_text="Which response header forbids embedding, when framing is 'blocked'. Null otherwise.",
+    )
+    http_status = serializers.IntegerField(
+        allow_null=True,
+        help_text="HTTP status the page returned to us. A 4xx or 5xx here points at the customer's host or CDN "
+        "rather than at PostHog. Null when the page could not be reached at all.",
+    )
+    body_excerpt = serializers.CharField(
+        allow_null=True,
+        help_text="Short whitespace-collapsed excerpt of the response body, only present for non-2xx responses, so "
+        "the user can see what their host returned. Truncated.",
+    )
+
+
+# AccessControlPermission lets a collection action through on a grant over any single heatmap, which
+# for an action that spends something on a caller-supplied URL rather than reading one heatmap is not
+# the boundary we want. These two need resource-level access to the whole kind instead.
+_RESOURCE_LEVEL_ACTIONS: dict[str, AccessControlLevel] = {"prewarm": "editor", "preflight": "viewer"}
+
+
+class HeatmapResourceAccessPermission(BasePermission):
     def has_permission(self, request: request.Request, view: APIView) -> bool:
         saved_heatmap_view = cast("SavedHeatmapViewSet", view)
-        if saved_heatmap_view.action != "prewarm" or is_service_auth(request):
+        required_level = _RESOURCE_LEVEL_ACTIONS.get(saved_heatmap_view.action or "")
+        if required_level is None or is_service_auth(request):
             return True
 
-        return saved_heatmap_view.user_access_control.check_access_level_for_resource(
-            "heatmap", required_level="editor"
-        )
+        if not saved_heatmap_view.user_access_control.check_access_level_for_resource(
+            "heatmap", required_level=required_level
+        ):
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
+
+        return True
 
 
 class SavedHeatmapViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet
 ):
     scope_object = "heatmap"
-    permission_classes = [HeatmapPrewarmResourceAccessPermission]
+    permission_classes = [HeatmapResourceAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
     queryset = SavedHeatmap.objects.all()
@@ -1129,6 +1172,9 @@ class SavedHeatmapViewSet(
         if self.action in ("create", "prewarm"):
             # More restrictive rate limiting for expensive screenshot generation
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        if self.action == "preflight":
+            # One outbound page fetch per uncached probe, blocking a web worker while it runs.
+            return [HeatmapPreflightBurstRateThrottle(), HeatmapPreflightSustainedRateThrottle()]
         return super().get_throttles()
 
     def safely_get_queryset(self, queryset):
@@ -1365,6 +1411,24 @@ class SavedHeatmapViewSet(
         self._regenerate(obj)
         response_serializer = HeatmapScreenshotResponseSerializer(obj, context=self.get_serializer_context())
         return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
+    @validated_request(
+        request_serializer=HeatmapPreflightRequestSerializer,
+        responses={200: OpenApiResponse(response=HeatmapPreflightResponseSerializer)},
+        summary="Check whether a page can back a heatmap",
+        description="Fetch a page URL server-side and report whether it allows being embedded in the live preview "
+        "iframe, plus the HTTP status it returned. The live preview loads the customer's site directly in their "
+        "browser, so a site that sends X-Frame-Options or a restrictive frame-ancestors will never render, and a "
+        "4xx or 5xx from the site's own host or CDN leaves an empty frame with no explanation. This endpoint makes "
+        "both cases explainable. The fetch comes from PostHog's own network rather than from the screenshot "
+        "renderer, so a host that varies its response by IP or user agent can answer this differently than it "
+        "answers a screenshot render. Settled verdicts are cached briefly, so repeat checks for the same URL do "
+        "not refetch it.",
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["heatmap:read"])
+    def preflight(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:
+        result = preflight_page(request.validated_data["url"])
+        return response.Response(HeatmapPreflightResponseSerializer(result).data, status=status.HTTP_200_OK)
 
     def _regenerate(self, obj: SavedHeatmap) -> None:
         obj.status = SavedHeatmap.Status.PROCESSING

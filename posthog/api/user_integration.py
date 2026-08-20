@@ -15,7 +15,6 @@ import os
 from typing import Any, cast
 from urllib.parse import urlencode
 
-import requests
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -26,6 +25,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.github_callback import state as github_callback_state
+from posthog.api.github_callback.personal_state import list_user_github_app_installations
 from posthog.api.github_callback.types import (
     APP_CONNECT_FROM_VALUES,
     PERSONAL_INTEGRATIONS_SETTINGS_PATH,
@@ -44,11 +44,11 @@ from posthog.api.integration import (
     validate_github_repository_name,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.egress.github.transport import GitHubRateLimitError, github_request
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
 from posthog.models.user import User
-from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
@@ -86,6 +86,11 @@ class UserGitHubIntegrationItemSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Installation account metadata from GitHub.",
     )
+    github_login = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The connected user's own GitHub login (distinct from the installation account).",
+    )
     uses_shared_installation = serializers.BooleanField(
         help_text="True when this installation id matches a team-level GitHub integration on the active project.",
     )
@@ -122,6 +127,40 @@ class UserGitHubLinkStartResponseSerializer(serializers.Serializer):
     )
     connect_flow = serializers.CharField(
         help_text="OAuth or install flow used for this GitHub connection.",
+    )
+
+
+class GitHubInstallRequestItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="PostHog GitHubInstallRequest row id.")
+    github_login = serializers.CharField(
+        allow_blank=True,
+        help_text="GitHub login the install was requested under. Blank if it could not be resolved.",
+    )
+    status = serializers.ChoiceField(
+        choices=GitHubInstallRequest.Status.choices,
+        help_text=(
+            "`pending` while waiting on an org owner's approval, `approved` once the installation webhook "
+            "confirms it, `unidentified` when the requesting GitHub account could not be resolved. Approval "
+            "can't be detected for an unidentified request, so the user has to start the connect flow again."
+        ),
+    )
+    installation_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="GitHub App installation id, set once the request is approved.",
+    )
+    requested_at = serializers.DateTimeField(help_text="When the install approval was requested.")
+    resolved_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When an org owner approved the request.",
+    )
+
+
+class GitHubInstallRequestListResponseSerializer(serializers.Serializer):
+    results = GitHubInstallRequestItemSerializer(
+        many=True,
+        help_text="The user's GitHub App install-approval requests, newest first.",
     )
 
 
@@ -209,6 +248,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "retrieve",
         "github_repos",
         "github_branches",
+        "github_install_requests",
         "slack_linkable",
     ]
     scope_object_write_actions = [
@@ -423,6 +463,33 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         )
 
         return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+
+    @extend_schema(
+        summary="List the user's GitHub install-approval requests",
+        responses={200: GitHubInstallRequestListResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="github/install_requests")
+    def github_install_requests(self, request: Request, **_kwargs) -> Response:
+        """Return the requesting user's GitHub App install-approval requests, newest first.
+
+        This is the durable server-side "awaiting org owner approval" state (see
+        ``posthog.models.user_integration.GitHubInstallRequest``), distinct from the in-flight
+        connect spinner, which never touches this table.
+        """
+        user = self._get_user()
+        install_requests = GitHubInstallRequest.objects.filter(user=user).order_by("-requested_at")
+        results = [
+            {
+                "id": install_request.id,
+                "github_login": install_request.github_login,
+                "status": install_request.status,
+                "installation_id": install_request.installation_id,
+                "requested_at": install_request.requested_at,
+                "resolved_at": install_request.resolved_at,
+            }
+            for install_request in install_requests
+        ]
+        return Response({"results": results})
 
     @extend_schema(
         summary="Start GitHub personal integration linking",
@@ -696,45 +763,15 @@ def _resolve_team_for_github_start(user: User, request: Request):
 def _has_unlinked_github_installations(user: User) -> bool | None:
     """Check whether the user has GitHub App installations they haven't linked yet.
 
-    Uses the user's existing OAuth token to call ``GET /user/installations``
-    and compares against their ``UserIntegration`` rows.
-
     Returns ``True`` if unlinked installations exist, ``False`` if all are
     linked, or ``None`` if the check couldn't be performed (no existing
     integration, token refresh failed, network error).
     """
-    any_integration = UserIntegration.objects.filter(user=user, kind="github").exclude(sensitive_config={}).first()
-    if any_integration is None:
+    installations = list_user_github_app_installations(user)
+    if installations is None:
         return None
 
-    github = UserGitHubIntegration(any_integration)
-    try:
-        token = github.get_usable_user_access_token()
-    except Exception:
-        return None
-
-    try:
-        # Identity-blind: user OAuth token, metered against the user's budget, not an installation's.
-        response = github_request(
-            "GET",
-            "https://api.github.com/user/installations",
-            source="integration",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"per_page": 100},
-            timeout=10,
-        )
-    except requests.RequestException:
-        return None
-
-    if response.status_code != 200:
-        return None
-
-    try:
-        installations = response.json().get("installations", [])
-    except Exception:
-        return None
-
-    github_installation_ids = {str(inst["id"]) for inst in installations if isinstance(inst, dict) and "id" in inst}
+    github_installation_ids = {str(installation["id"]) for installation in installations}
     linked_ids = set(UserIntegration.objects.filter(user=user, kind="github").values_list("integration_id", flat=True))
     return bool(github_installation_ids - linked_ids)
 
@@ -792,6 +829,9 @@ def _serialize_github_integration(
         "installation_id": integration.integration_id,
         "repository_selection": integration.config.get("repository_selection"),
         "account": integration.config.get("account"),
+        # The user's own GitHub login (distinct from `account`, which is the installation's
+        # org/user). Lets the frontend tell which PR comments/reactions are the user's own.
+        "github_login": (integration.config.get("github_user") or {}).get("login"),
         "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
         "created_at": integration.created_at,
     }

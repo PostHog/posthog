@@ -16,6 +16,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team import Team
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.scopes import scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
@@ -29,17 +30,21 @@ from ee.api.agentic_provisioning.constants import (
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
-from ee.api.agentic_provisioning.wizard import create_wizard_run, link_github_grant_to_team
+from ee.api.agentic_provisioning.wizard import (
+    apply_provisioned_onboarding_flags,
+    create_wizard_run,
+    link_github_grant_to_team,
+)
 
 
 def partner_label(partner: OAuthApplication | None) -> str:
-    if partner is None:
+    """How a partner is named to a user, in the org it provisions and on the consent screen.
+
+    The app's own name, which is what the user already saw when they authorized it.
+    """
+    if partner is None or not partner.name:
         return "Partner"
-    if partner.provisioning_partner_type:
-        return partner.provisioning_partner_type.capitalize()
-    if partner.name:
-        return partner.name
-    return "Partner"
+    return partner.name
 
 
 def get_callback_url(app: OAuthApplication | None) -> str | None:
@@ -131,7 +136,7 @@ def handle_existing_user(
     Consent also picks the project (see agentic_authorize), so nothing the partner sends can
     select a team for an account it did not create.
     """
-    if partner.provisioning_skip_existing_user_consent:
+    if partner.provisioning.skip_existing_user_consent:
         capture_provisioning_event(
             "account_request",
             "silent_blocked_existing_user",
@@ -262,6 +267,17 @@ def handle_new_user(
         team_id=team.id,
     )
 
+    # Attribute the bootstrap team to the creating partner. The row already exists
+    # (the Team extension signal created it inside bootstrap), so this is an update.
+    # Without it the mapping stays unclaimed, and resource removal treats unclaimed as
+    # fair game for any partner whose token happens to scope the team.
+    TeamProvisioningConfig.objects.filter(team_id=team.id, application__isnull=True).update(application=partner)
+
+    # Every provisioned account is treated as already onboarded — apply the flags at
+    # bootstrap so the account is covered regardless of which follow-up blocks (if any)
+    # run, rather than only on the GitHub wizard path.
+    apply_provisioned_onboarding_flags(user, team)
+
     # Emit the standard signup event so provisioned accounts flow into the shared
     # signup / activation / billing analyses, segmentable by client. Vercel does the
     # same (ee/vercel/integration.py); the agentic path previously skipped it entirely.
@@ -326,6 +342,17 @@ def process_wizard_block(*, partner: OAuthApplication, user: User, team: Team, w
     {"error": {code, message}} for the partner to branch on and retry granularly.
     """
     try:
+        # create_wizard_run refuses an ungranted partner anyway, but checking before the grant
+        # is linked keeps a refused request from consuming a single-use grant the partner
+        # would then have to mint again.
+        if not partner.provisioning.can_start_wizard_runs:
+            return {
+                "error": {
+                    "code": "forbidden",
+                    "message": "Starting wizard runs is not enabled for this partner",
+                }
+            }
+
         grant_id = wizard_config.get("grant_id")
         installation_id = wizard_config.get("installation_id")
         repository = wizard_config.get("repository")

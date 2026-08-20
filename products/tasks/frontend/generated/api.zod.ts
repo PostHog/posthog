@@ -251,11 +251,11 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
         context_target: zod
             .union([
                 zod.object({
-                    folder_id: zod.string().describe('Desktop folder id of the context this loop is attached to.'),
+                    channel_id: zod.string().describe('Id of the channel (context) this loop is attached to.'),
                     name: zod
                         .string()
                         .max(loopsCreateBodyContextTargetOneNameMax)
-                        .describe('Context (channel) name, used to file runs into its feed.'),
+                        .describe("Display name of the context, shown in the loop's publish prompt."),
                     outputs: zod
                         .object({
                             post_to_feed: zod
@@ -307,7 +307,7 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config.'
+                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
                         ),
                 })
             )
@@ -552,11 +552,11 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
         context_target: zod
             .union([
                 zod.object({
-                    folder_id: zod.string().describe('Desktop folder id of the context this loop is attached to.'),
+                    channel_id: zod.string().describe('Id of the channel (context) this loop is attached to.'),
                     name: zod
                         .string()
                         .max(loopsPartialUpdateBodyContextTargetOneNameMax)
-                        .describe('Context (channel) name, used to file runs into its feed.'),
+                        .describe("Display name of the context, shown in the loop's publish prompt."),
                     outputs: zod
                         .object({
                             post_to_feed: zod
@@ -608,7 +608,7 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config.'
+                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
                         ),
                 })
             )
@@ -768,6 +768,8 @@ export const sandboxCreateBodyNameMax = 255
 export const sandboxCreateBodyNetworkAccessLevelDefault = `full`
 export const sandboxCreateBodyAllowedDomainsItemMax = 255
 
+export const sandboxCreateBodyAllowedDomainsMax = 100
+
 export const sandboxCreateBodyIncludeDefaultDomainsDefault = false
 export const sandboxCreateBodyRepositoriesItemMax = 255
 
@@ -785,6 +787,7 @@ export const SandboxCreateBody = /* @__PURE__ */ zod
             ),
         allowed_domains: zod
             .array(zod.string().max(sandboxCreateBodyAllowedDomainsItemMax))
+            .max(sandboxCreateBodyAllowedDomainsMax)
             .optional()
             .describe('Allowed domains for custom network access.'),
         include_default_domains: zod
@@ -820,6 +823,8 @@ export const sandboxPartialUpdateBodyNameMax = 255
 export const sandboxPartialUpdateBodyNetworkAccessLevelDefault = `full`
 export const sandboxPartialUpdateBodyAllowedDomainsItemMax = 255
 
+export const sandboxPartialUpdateBodyAllowedDomainsMax = 100
+
 export const sandboxPartialUpdateBodyIncludeDefaultDomainsDefault = false
 export const sandboxPartialUpdateBodyRepositoriesItemMax = 255
 
@@ -841,6 +846,7 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
             ),
         allowed_domains: zod
             .array(zod.string().max(sandboxPartialUpdateBodyAllowedDomainsItemMax))
+            .max(sandboxPartialUpdateBodyAllowedDomainsMax)
             .optional()
             .describe('Allowed domains for custom network access.'),
         include_default_domains: zod
@@ -869,7 +875,7 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for creating or updating a sandbox environment.')
 
 /**
- * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
+ * Clear collapsed task activity through task timestamps and individual comment activity through activity IDs.
  * @summary Mark task activity read
  */
 export const taskActivityMarkReadCreateBodyActivitiesMax = 500
@@ -880,6 +886,10 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
             .array(
                 zod.object({
                     task_id: zod.uuid().describe('Task whose displayed activity should be marked read.'),
+                    activity_id: zod
+                        .uuid()
+                        .nullish()
+                        .describe('Comment activity row to mark read. Omit for collapsed task activity.'),
                     seen_before: zod.iso
                         .datetime({ offset: true })
                         .describe('Mark activity at or before this timestamp read without clearing newer activity.'),
@@ -891,117 +901,12 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
     .describe('Request body for clearing the unread flag on specific tasks.')
 
 /**
- * API for managing scheduled task automations.
- */
-export const taskAutomationsCreateBodyNameMax = 255
-
-export const taskAutomationsCreateBodyRepositoryMax = 255
-
-export const taskAutomationsCreateBodyCronExpressionMax = 100
-
-export const taskAutomationsCreateBodyTimezoneDefault = `UTC`
-export const taskAutomationsCreateBodyTimezoneMax = 128
-
-export const taskAutomationsCreateBodyTemplateIdMax = 255
-
-export const taskAutomationsCreateBodyEnabledDefault = true
-
-export const TaskAutomationsCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .max(taskAutomationsCreateBodyNameMax)
-            .describe("Display name (stored as the backing task's title)."),
-        prompt: zod.string().describe("The automation prompt (stored as the backing task's description)."),
-        repository: zod
-            .string()
-            .max(taskAutomationsCreateBodyRepositoryMax)
-            .describe('Target repository in the format organization\/repository.'),
-        github_integration: zod
-            .number()
-            .nullish()
-            .describe("GitHub integration to run as. Defaults to the team's GitHub integration when omitted."),
-        cron_expression: zod
-            .string()
-            .max(taskAutomationsCreateBodyCronExpressionMax)
-            .describe('Standard 5-field cron expression (minute hour day month weekday).'),
-        timezone: zod
-            .string()
-            .max(taskAutomationsCreateBodyTimezoneMax)
-            .default(taskAutomationsCreateBodyTimezoneDefault)
-            .describe('IANA timezone the schedule runs in.'),
-        template_id: zod
-            .string()
-            .max(taskAutomationsCreateBodyTemplateIdMax)
-            .nullish()
-            .describe('Optional template identifier this automation was created from.'),
-        enabled: zod
-            .boolean()
-            .default(taskAutomationsCreateBodyEnabledDefault)
-            .describe('Whether the schedule is active; paused when false.'),
-    })
-    .describe('Request body for creating or updating a task automation.')
-
-/**
- * API for managing scheduled task automations.
- */
-export const taskAutomationsPartialUpdateBodyNameMax = 255
-
-export const taskAutomationsPartialUpdateBodyRepositoryMax = 255
-
-export const taskAutomationsPartialUpdateBodyCronExpressionMax = 100
-
-export const taskAutomationsPartialUpdateBodyTimezoneDefault = `UTC`
-export const taskAutomationsPartialUpdateBodyTimezoneMax = 128
-
-export const taskAutomationsPartialUpdateBodyTemplateIdMax = 255
-
-export const taskAutomationsPartialUpdateBodyEnabledDefault = true
-
-export const TaskAutomationsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .max(taskAutomationsPartialUpdateBodyNameMax)
-            .optional()
-            .describe("Display name (stored as the backing task's title)."),
-        prompt: zod.string().optional().describe("The automation prompt (stored as the backing task's description)."),
-        repository: zod
-            .string()
-            .max(taskAutomationsPartialUpdateBodyRepositoryMax)
-            .optional()
-            .describe('Target repository in the format organization\/repository.'),
-        github_integration: zod
-            .number()
-            .nullish()
-            .describe("GitHub integration to run as. Defaults to the team's GitHub integration when omitted."),
-        cron_expression: zod
-            .string()
-            .max(taskAutomationsPartialUpdateBodyCronExpressionMax)
-            .optional()
-            .describe('Standard 5-field cron expression (minute hour day month weekday).'),
-        timezone: zod
-            .string()
-            .max(taskAutomationsPartialUpdateBodyTimezoneMax)
-            .default(taskAutomationsPartialUpdateBodyTimezoneDefault)
-            .describe('IANA timezone the schedule runs in.'),
-        template_id: zod
-            .string()
-            .max(taskAutomationsPartialUpdateBodyTemplateIdMax)
-            .nullish()
-            .describe('Optional template identifier this automation was created from.'),
-        enabled: zod
-            .boolean()
-            .default(taskAutomationsPartialUpdateBodyEnabledDefault)
-            .describe('Whether the schedule is active; paused when false.'),
-    })
-    .describe('Request body for creating or updating a task automation.')
-
-/**
- * Returns the existing public channel with the (normalized) name, creating it if needed.
+ * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false.
  * @summary Resolve or create a public channel
  */
 export const taskChannelsCreateBodyNameMax = 128
+
+export const taskChannelsCreateBodyStarDefault = true
 
 export const TaskChannelsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1009,6 +914,12 @@ export const TaskChannelsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(taskChannelsCreateBodyNameMax)
             .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+        star: zod
+            .boolean()
+            .default(taskChannelsCreateBodyStarDefault)
+            .describe(
+                'Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched.'
+            ),
     })
     .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
 
@@ -1047,15 +958,99 @@ export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
  */
 export const taskChannelsPartialUpdateBodyNameMax = 128
 
-export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod
+export const taskChannelsPartialUpdateBodyRepositoriesItemMax = 255
+
+export const taskChannelsPartialUpdateBodyRepositoriesMax = 10
+
+export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(taskChannelsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+    github_integration: zod
+        .number()
+        .nullish()
+        .describe('Team GitHub integration used for repositories linked to this channel.'),
+    repositories: zod
+        .array(zod.string().max(taskChannelsPartialUpdateBodyRepositoriesItemMax))
+        .max(taskChannelsPartialUpdateBodyRepositoriesMax)
+        .optional()
+        .describe('GitHub repositories inherited by new tasks in this channel.'),
+})
+
+/**
+ * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
+ * provisions the requester's personal "#me" channel; creation is resolve-or-create
+ * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * @summary Set or clear the channel's CONTEXT.md generation task
+ */
+export const TaskChannelsContextGenerationUpdateBody = /* @__PURE__ */ zod
     .object({
-        name: zod
-            .string()
-            .max(taskChannelsPartialUpdateBodyNameMax)
-            .optional()
-            .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+        task_id: zod.uuid().nullable(),
     })
-    .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
+    .describe("The task currently generating this channel's CONTEXT.md, or null.")
+
+/**
+ * Publish a new version of the channel's CONTEXT.md instructions. Pass base_version (the version you read) so a concurrent edit is rejected with 409 instead of overwritten.
+ * @summary Publish channel instructions
+ */
+export const taskChannelsInstructionsUpdateBodyContentMax = 100000
+
+export const taskChannelsInstructionsUpdateBodyBaseVersionMin = 0
+
+export const TaskChannelsInstructionsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .max(taskChannelsInstructionsUpdateBodyContentMax)
+            .describe('The complete markdown instructions (CONTEXT.md) for the channel.'),
+        base_version: zod
+            .number()
+            .min(taskChannelsInstructionsUpdateBodyBaseVersionMin)
+            .nullish()
+            .describe(
+                'Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.'
+            ),
+    })
+    .describe('Request body for publishing a new instructions version.')
+
+/**
+ * Publish a new version of the channel's CONTEXT.md instructions. Pass base_version (the version you read) so a concurrent edit is rejected with 409 instead of overwritten.
+ * @summary Publish channel instructions
+ */
+export const taskChannelsInstructionsPartialUpdateBodyContentMax = 100000
+
+export const taskChannelsInstructionsPartialUpdateBodyBaseVersionMin = 0
+
+export const TaskChannelsInstructionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .max(taskChannelsInstructionsPartialUpdateBodyContentMax)
+            .optional()
+            .describe('The complete markdown instructions (CONTEXT.md) for the channel.'),
+        base_version: zod
+            .number()
+            .min(taskChannelsInstructionsPartialUpdateBodyBaseVersionMin)
+            .nullish()
+            .describe(
+                'Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.'
+            ),
+    })
+    .describe('Request body for publishing a new instructions version.')
+
+/**
+ * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
+ * provisions the requester's personal "#me" channel; creation is resolve-or-create
+ * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * @summary Star or unstar a channel for the requesting user
+ */
+export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
+    .object({
+        starred: zod.boolean(),
+    })
+    .describe('Request body for starring\/unstarring a channel for the requesting user.')
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -1063,6 +1058,10 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod
 export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
+
+export const tasksCreateBodyRepositoriesItemMax = 255
+
+export const tasksCreateBodyRepositoriesMax = 10
 
 export const tasksCreateBodySignalReportTaskRelationshipMax = 200
 
@@ -1091,7 +1090,6 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
-                'automation',
                 'slack',
                 'support_queue',
                 'session_summaries',
@@ -1105,19 +1103,26 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'image_builder',
                 'loop',
                 'mcp_analytics',
+                'signals_chat',
+                'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
             .max(tasksCreateBodyRepositoryMax)
             .nullish()
             .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        repositories: zod
+            .array(zod.string().max(tasksCreateBodyRepositoriesItemMax))
+            .max(tasksCreateBodyRepositoriesMax)
+            .optional()
+            .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
         github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
         github_user_integration: zod
             .uuid()
@@ -1129,13 +1134,9 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .max(tasksCreateBodySignalReportTaskRelationshipMax)
             .optional()
             .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
             ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
-        internal: zod
-            .boolean()
-            .optional()
-            .describe('If true, this task is for internal use and should not be exposed to end users.'),
         archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
         ci_prompt: zod
             .string()
@@ -1219,6 +1220,10 @@ export const tasksUpdateBodyTitleMax = 255
 
 export const tasksUpdateBodyRepositoryMax = 255
 
+export const tasksUpdateBodyRepositoriesItemMax = 255
+
+export const tasksUpdateBodyRepositoriesMax = 10
+
 export const tasksUpdateBodySignalReportTaskRelationshipMax = 200
 
 export const tasksUpdateBodyBranchMax = 255
@@ -1246,7 +1251,6 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
-                'automation',
                 'slack',
                 'support_queue',
                 'session_summaries',
@@ -1260,19 +1264,26 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'image_builder',
                 'loop',
                 'mcp_analytics',
+                'signals_chat',
+                'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
             .max(tasksUpdateBodyRepositoryMax)
             .nullish()
             .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        repositories: zod
+            .array(zod.string().max(tasksUpdateBodyRepositoriesItemMax))
+            .max(tasksUpdateBodyRepositoriesMax)
+            .optional()
+            .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
         github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
         github_user_integration: zod
             .uuid()
@@ -1284,13 +1295,9 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .max(tasksUpdateBodySignalReportTaskRelationshipMax)
             .optional()
             .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
             ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
-        internal: zod
-            .boolean()
-            .optional()
-            .describe('If true, this task is for internal use and should not be exposed to end users.'),
         archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
         ci_prompt: zod
             .string()
@@ -1359,6 +1366,10 @@ export const tasksPartialUpdateBodyTitleMax = 255
 
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
+export const tasksPartialUpdateBodyRepositoriesItemMax = 255
+
+export const tasksPartialUpdateBodyRepositoriesMax = 10
+
 export const tasksPartialUpdateBodySignalReportTaskRelationshipMax = 200
 
 export const tasksPartialUpdateBodyBranchMax = 255
@@ -1386,7 +1397,6 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'error_tracking',
                 'eval_clusters',
                 'user_created',
-                'automation',
                 'slack',
                 'support_queue',
                 'session_summaries',
@@ -1400,19 +1410,26 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'image_builder',
                 'loop',
                 'mcp_analytics',
+                'signals_chat',
+                'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
             .max(tasksPartialUpdateBodyRepositoryMax)
             .nullish()
             .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        repositories: zod
+            .array(zod.string().max(tasksPartialUpdateBodyRepositoriesItemMax))
+            .max(tasksPartialUpdateBodyRepositoriesMax)
+            .optional()
+            .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
         github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
         github_user_integration: zod
             .uuid()
@@ -1424,13 +1441,9 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .max(tasksPartialUpdateBodySignalReportTaskRelationshipMax)
             .optional()
             .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
             ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
-        internal: zod
-            .boolean()
-            .optional()
-            .describe('If true, this task is for internal use and should not be exposed to end users.'),
         archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
         ci_prompt: zod
             .string()
@@ -1491,6 +1504,13 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
     .describe(
         'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
     )
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const TasksPinCreateBody = /* @__PURE__ */ zod.object({
+    pinned: zod.boolean().describe('Whether the task should be pinned for the requester.'),
+})
 
 /**
  * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
@@ -2206,13 +2226,13 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             ),
         model: zod.string().optional().describe('LLM model identifier to run in the selected runtime.'),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
             .describe(
-                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                '\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             )
             .optional()
             .describe(
-                'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                'Reasoning effort to request for models that expose an effort control.\n\n\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             ),
         context_window: zod
             .enum(['200k', '1m'])
@@ -2373,6 +2393,29 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
             })
         )
         .describe('Array of artifacts to upload'),
+})
+
+/**
+ * Hides artifacts from clients without deleting them from storage, so a file dismissed by mistake can be restored.
+ * @summary Dismiss or restore task run artifacts
+ */
+export const tasksRunsArtifactsDismissCreateBodyArtifactIdsItemMax = 128
+
+export const tasksRunsArtifactsDismissCreateBodyArtifactIdsMax = 100
+
+export const tasksRunsArtifactsDismissCreateBodyDismissedDefault = true
+
+export const TasksRunsArtifactsDismissCreateBody = /* @__PURE__ */ zod.object({
+    artifact_ids: zod
+        .array(zod.string().max(tasksRunsArtifactsDismissCreateBodyArtifactIdsItemMax))
+        .max(tasksRunsArtifactsDismissCreateBodyArtifactIdsMax)
+        .describe(
+            'Manifest ids of the artifacts to update. Pass every version of a file together so the whole file is dismissed rather than a single upload of it.'
+        ),
+    dismissed: zod
+        .boolean()
+        .default(tasksRunsArtifactsDismissCreateBodyDismissedDefault)
+        .describe('True to hide the artifacts from clients, false to show them again.'),
 })
 
 /**
@@ -2811,6 +2854,29 @@ export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Renders a PostHog insight (ad-hoc query JSON or a saved insight) to a PNG server-side and registers it as a slack_file living artifact in one call. Blocks until the render finishes.
+ * @summary Render an insight chart and attach it as a living artifact
+ */
+export const tasksRunsLivingArtifactsChartBodyNameMax = 255
+
+export const TasksRunsLivingArtifactsChartBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tasksRunsLivingArtifactsChartBodyNameMax)
+        .describe('Chart title, also used as the delivered file name.'),
+    query: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Insight query JSON to render ad hoc, e.g. {\"kind\": \"InsightVizNode\", \"source\": {\"kind\": \"TrendsQuery\", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id.'
+        ),
+    insight_id: zod
+        .number()
+        .optional()
+        .describe('Numeric id of a saved insight to render. Provide exactly one of query or insight_id.'),
+})
+
+/**
  * API for a task's thread — the human-only side conversation around a task. Messages
  * reach the agent only via the explicit send_to_agent action, gated to the task author.
  * @summary Post a thread message
@@ -2895,6 +2961,10 @@ export const TasksSummariesCreateBody = /* @__PURE__ */ zod.object({
  */
 export const tasksWarmCreateBodyRepositoryMax = 255
 
+export const tasksWarmCreateBodyRepositoriesItemMax = 255
+
+export const tasksWarmCreateBodyRepositoriesMax = 3
+
 export const tasksWarmCreateBodyBranchMax = 255
 
 export const TasksWarmCreateBody = /* @__PURE__ */ zod
@@ -2902,8 +2972,17 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
         repository: zod
             .string()
             .max(tasksWarmCreateBodyRepositoryMax)
-            .describe('Target GitHub repository to clone, in `organization\/repo` format (e.g. `posthog\/posthog`).'),
-        github_integration: zod.number().describe("Primary key of the team's GitHub integration to clone with."),
+            .nullish()
+            .describe('Optional GitHub repository to clone, in `organization\/repo` format (e.g. `posthog\/posthog`).'),
+        repositories: zod
+            .array(zod.string().max(tasksWarmCreateBodyRepositoriesItemMax))
+            .max(tasksWarmCreateBodyRepositoriesMax)
+            .optional()
+            .describe('GitHub repositories to clone into the warm sandbox, each in `organization\/repo` format.'),
+        github_integration: zod
+            .number()
+            .nullish()
+            .describe("Primary key of the team's GitHub integration to clone with when a repository is selected."),
         branch: zod
             .string()
             .max(tasksWarmCreateBodyBranchMax)
@@ -2948,5 +3027,5 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Request body for warming a full idling Run while composing a Code-app cloud task.\n\nCollection-level: no task exists yet at typing time. The warmer births a draft Task and an\ninteractive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting\nthe first message. `github_integration` is a plain integration PK (an integer); the view re-scopes\nit to the caller's team before use."
+        "Request body for warming a full idling Run while composing a Code-app cloud task.\n\nCollection-level: no task exists yet at typing time. The warmer births a draft Task and an\ninteractive Run that boots and starts the agent, optionally cloning and checking out a repository,\nthen idles awaiting the first message. `github_integration` is a plain integration PK (an integer);\nthe view re-scopes it to the caller's team before use."
     )

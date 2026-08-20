@@ -2,6 +2,8 @@ import re
 
 from django import forms
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 
@@ -10,6 +12,7 @@ from products.skills.backend.models.skills import LLMSkill
 from .models import (
     SignalReport,
     SignalReportArtefact,
+    SignalReportCanvasGeneration,
     SignalScoutConfig,
     SignalScoutNote,
     SignalScoutRun,
@@ -84,6 +87,52 @@ class SignalReportAdmin(admin.ModelAdmin):
     inlines = [SignalReportArtefactInline]
 
 
+@admin.register(SignalReportCanvasGeneration)
+class SignalReportCanvasGenerationAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "report_id",
+        "team_id",
+        "status",
+        "validation_status",
+        "review_status",
+        "duration_ms",
+        "created_at",
+    )
+    list_filter = ("status", "validation_status", "review_status", "prompt_version")
+    search_fields = ("id", "report_id", "team_id", "generation_task_id", "generation_run_id")
+    ordering = ("-created_at",)
+    show_full_result_count = False
+    readonly_fields = (
+        "id",
+        "team",
+        "report",
+        "status",
+        "validation_status",
+        "trigger",
+        "prompt_version",
+        "input_fingerprint",
+        "output_source",
+        "output_storage_key",
+        "model_metadata",
+        "error_category",
+        "failure_reason",
+        "duration_ms",
+        "generation_task_id",
+        "generation_run_id",
+        "canvas_id",
+        "started_at",
+        "completed_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[SignalReportCanvasGeneration]:
+        queryset = super().get_queryset(request)
+        url_name = getattr(request.resolver_match, "url_name", "")
+        return queryset if url_name.endswith("_change") else queryset.defer("output_source")
+
+
 @admin.register(SignalScoutConfig)
 class SignalScoutConfigAdmin(admin.ModelAdmin):
     list_display = (
@@ -91,6 +140,7 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "team_link",
         "skill_name",
         "enabled",
+        "status",
         "emit",
         "run_interval_minutes",
         "run_cron_schedule",
@@ -98,10 +148,25 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_display_links = ("id",)
-    list_filter = ("enabled", "emit")
+    list_filter = ("enabled", "status", "emit")
     search_fields = ("id", "skill_name", "team__name", "team__organization__name")
     raw_id_fields = ("team", "created_by", "enabled_by")
-    readonly_fields = ("id", "created_at", "updated_at", "last_run_at")
+    # The status cluster is read-only here: admin's lifecycle control stays the `enabled`
+    # checkbox (the model's save() derives the status pair from it), and a hand-edited status
+    # or attribution stamp would bypass the transition rules the API and system writers
+    # enforce. Read-only also keeps `status_changed_by` off the default user `<select>`,
+    # which would load the whole user table.
+    readonly_fields = (
+        "id",
+        "created_at",
+        "updated_at",
+        "last_run_at",
+        "status",
+        "pause_reason",
+        "status_changed_at",
+        "status_changed_by",
+        "consecutive_failure_count",
+    )
     list_select_related = ("team", "team__organization")
     show_full_result_count = False
 

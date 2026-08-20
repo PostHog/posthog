@@ -51,6 +51,11 @@ describe('subscriptionLogic', () => {
             get: {
                 '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
                 '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1),
+                '/api/projects/:team/subscriptions/1/deliveries/': {
+                    next: null,
+                    previous: null,
+                    results: [],
+                },
                 '/api/projects/:team/integrations': { count: 0, results: [] },
                 '/api/environments/:team/subscriptions/summary_quota': {
                     active_count: 0,
@@ -102,12 +107,78 @@ describe('subscriptionLogic', () => {
         })
     })
 
+    it('loads the latest delivery for the current subscription', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/subscriptions/1/deliveries/': {
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'delivery-1',
+                            created_at: '2026-08-06T13:00:00Z',
+                            finished_at: '2026-08-06T13:01:00Z',
+                        },
+                    ],
+                },
+            },
+        })
+
+        router.actions.push('/insights/123/subscriptions/1')
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadLastDeliverySuccess'])
+
+        expect(existingLogic.values.lastDelivery).toMatchObject({ id: 'delivery-1' })
+    })
+
+    it('uses the UTC weekday for legacy weekly subscriptions', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    frequency: 'weekly',
+                    start_date: '2024-01-01T00:30:00Z',
+                    byweekday: null,
+                    bysetpos: null,
+                }),
+            },
+        })
+
+        router.actions.push('/insights/123/subscriptions/1')
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+
+        expect(existingLogic.values.subscription.byweekday).toEqual(['monday'])
+    })
+
+    it('removes hidden weekday constraints from daily subscriptions with intervals greater than one', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    frequency: 'daily',
+                    interval: 2,
+                    byweekday: ['monday', 'wednesday'],
+                }),
+            },
+        })
+
+        router.actions.push('/insights/123/subscriptions/1')
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+
+        expect(existingLogic.values.subscription.byweekday).toEqual([
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday',
+            'sunday',
+        ])
+    })
+
     it('updates values depending on frequency', async () => {
         router.actions.push('/insights/123/subscriptions/new')
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'weekly',
-            bysetpos: 1,
+            bysetpos: null,
             byweekday: ['monday'],
         })
         // A plain "new subscription" open (no prefill) must not pre-mark the form as changed,
@@ -119,7 +190,43 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'daily',
             bysetpos: null,
-            byweekday: null,
+            byweekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+        })
+
+        newLogic.actions.setSubscriptionValue('interval', 2)
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscription.byweekday).toEqual([
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday',
+            'sunday',
+        ])
+
+        newLogic.actions.setSubscriptionValues({
+            interval: 7,
+            start_date: '2024-01-01T09:00:00Z',
+            byweekday: ['tuesday'],
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.frequency).toBe(
+            'Select the delivery day matching the start date for this interval'
+        )
+
+        newLogic.actions.setSubscriptionValue('byweekday', [])
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.frequency).toBe('Select at least one delivery day')
+
+        newLogic.actions.setSubscriptionValue('frequency', 'weekly')
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscription).toMatchObject({
+            frequency: 'weekly',
+            bysetpos: null,
+            byweekday: ['monday'],
         })
 
         newLogic.actions.setSubscriptionValue('frequency', 'monthly')
@@ -180,49 +287,103 @@ describe('subscriptionLogic', () => {
         expect(promptLogic.values.subscription[field as 'frequency' | 'prompt']).toBe(expected)
     })
 
-    it.each<[string, string, string]>([
-        // The notification's source_url carries via=notification; the transient toast via=toast.
-        // Absent via defaults to notification for safety.
-        ['?prefill=nudge&via=notification', 'notification', 'notification link'],
-        ['?prefill=nudge&via=toast', 'toast', 'toast button'],
-        ['?prefill=nudge', 'notification', 'legacy link without via'],
-    ])('prefills the form from %s and reports the click (via=%s, %s)', async (search, expectedVia) => {
-        // The nudge notification can be clicked days later in a fresh session, so the prefill is
-        // built from the URL param + logic context, not from any preexisting kea state.
-        const prefilledLogic = subscriptionLogic({
-            dashboardId: 9,
-            dashboardName: 'Key metrics',
-            id: 'new',
-        })
-        prefilledLogic.mount()
+    it('prefills an insight nudge with its own title and event', async () => {
+        const insightLogic = subscriptionLogic({ insightShortId: '123' as InsightShortId, id: 'new' })
+        insightLogic.mount()
 
-        router.actions.push(`/dashboard/9/subscriptions/new${search}`)
-        await expectLogic(prefilledLogic).toFinishListeners()
+        router.actions.push('/insights/123/subscriptions/new?prefill=nudge&via=export')
+        await expectLogic(insightLogic).toFinishListeners()
 
-        expect(prefilledLogic.values.subscription).toMatchObject({
-            title: 'Key metrics weekly digest',
+        // An insight reaches this route without a name in hand, so its subscription is named for
+        // the schedule rather than for the insight.
+        expect(insightLogic.values.subscription).toMatchObject({
+            title: 'Weekly digest',
             target_value: MOCK_DEFAULT_USER.email,
-            frequency: 'weekly',
-            target_type: 'email',
         })
-        expect(prefilledLogic.values.subscriptionChanged).toBe(true)
-        const clickedCaptures = (): any[][] =>
-            (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === 'dashboard subscribe nudge clicked')
-        expect(clickedCaptures()).toEqual([
-            ['dashboard subscribe nudge clicked', { dashboard_id: 9, prefilled: true, via: expectedVia }],
+        expect((posthog.capture as jest.Mock).mock.calls.filter(([name]) => name.endsWith('nudge clicked'))).toEqual([
+            [
+                'insight export nudge clicked',
+                { kind: 'insight', insight_short_id: '123', prefilled: true, via: 'export' },
+            ],
         ])
 
-        // The params are consumed on apply, so refreshing the resulting URL neither re-captures
-        // the click nor re-applies a stale prefill.
-        expect(prefilledLogic.values.subscription.title).toBe('Key metrics weekly digest')
-        expect(router.values.searchParams.prefill).toBeUndefined()
-        expect(router.values.searchParams.via).toBeUndefined()
-        router.actions.push(router.values.location.pathname)
-        await expectLogic(prefilledLogic).toFinishListeners()
-        expect(clickedCaptures()).toHaveLength(1)
-
-        prefilledLogic.unmount()
+        insightLogic.unmount()
     })
+
+    it('leaves a nudge for another subject to the form that owns it', async () => {
+        // The route pattern matches any subject's page, so every mounted form sees this navigation.
+        // One prefilling for someone else's nudge would discard what its own user had typed.
+        const dashboardForm = subscriptionLogic({ dashboardId: 9, dashboardName: 'Key metrics', id: 'new' })
+        const insightForm = subscriptionLogic({ insightShortId: '123' as InsightShortId, id: 'new' })
+        dashboardForm.mount()
+        insightForm.mount()
+
+        router.actions.push('/dashboard/9/subscriptions/new?prefill=nudge&via=export')
+        await expectLogic(dashboardForm).toFinishListeners()
+        await expectLogic(insightForm).toFinishListeners()
+
+        expect(dashboardForm.values.subscription).toMatchObject({ title: 'Key metrics weekly digest' })
+        expect(insightForm.values.subscription.title).toBeUndefined()
+        expect(insightForm.values.subscriptionChanged).toBe(false)
+        // One click, reported once, against the dashboard.
+        expect((posthog.capture as jest.Mock).mock.calls.filter(([name]) => name.endsWith('nudge clicked'))).toEqual([
+            ['dashboard export nudge clicked', { kind: 'dashboard', dashboard_id: 9, prefilled: true, via: 'export' }],
+        ])
+
+        dashboardForm.unmount()
+        insightForm.unmount()
+    })
+
+    it.each<[string, string, string, string]>([
+        // The notification's source_url carries via=notification; the transient toast via=toast.
+        // Absent via defaults to notification for safety. The export nudge is its own experiment,
+        // so it reports a separate event instead of another `via` value on this one.
+        ['?prefill=nudge&via=notification', 'notification', 'dashboard subscribe nudge clicked', 'notification link'],
+        ['?prefill=nudge&via=toast', 'toast', 'dashboard subscribe nudge clicked', 'toast button'],
+        ['?prefill=nudge&via=export', 'export', 'dashboard export nudge clicked', 'export toast button'],
+        ['?prefill=nudge', 'notification', 'dashboard subscribe nudge clicked', 'legacy link without via'],
+    ])(
+        'prefills the form from %s and reports the click (via=%s, %s, %s)',
+        async (search, expectedVia, expectedEvent) => {
+            // The nudge notification can be clicked days later in a fresh session, so the prefill is
+            // built from the URL param + logic context, not from any preexisting kea state.
+            const prefilledLogic = subscriptionLogic({
+                dashboardId: 9,
+                dashboardName: 'Key metrics',
+                id: 'new',
+            })
+            prefilledLogic.mount()
+
+            router.actions.push(`/dashboard/9/subscriptions/new${search}`)
+            await expectLogic(prefilledLogic).toFinishListeners()
+
+            expect(prefilledLogic.values.subscription).toMatchObject({
+                title: 'Key metrics weekly digest',
+                target_value: MOCK_DEFAULT_USER.email,
+                frequency: 'weekly',
+                target_type: 'email',
+            })
+            expect(prefilledLogic.values.subscriptionChanged).toBe(true)
+            // Matches on both nudge events, so a `via` routed to the wrong one fails here rather
+            // than silently moving a conversion between the two experiments.
+            const clickedCaptures = (): any[][] =>
+                (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name.endsWith('nudge clicked'))
+            expect(clickedCaptures()).toEqual([
+                [expectedEvent, { kind: 'dashboard', dashboard_id: 9, prefilled: true, via: expectedVia }],
+            ])
+
+            // The params are consumed on apply, so refreshing the resulting URL neither re-captures
+            // the click nor re-applies a stale prefill.
+            expect(prefilledLogic.values.subscription.title).toBe('Key metrics weekly digest')
+            expect(router.values.searchParams.prefill).toBeUndefined()
+            expect(router.values.searchParams.via).toBeUndefined()
+            router.actions.push(router.values.location.pathname)
+            await expectLogic(prefilledLogic).toFinishListeners()
+            expect(clickedCaptures()).toHaveLength(1)
+
+            prefilledLogic.unmount()
+        }
+    )
 
     it.each<[string, boolean, boolean]>([
         // The prefill marks the form "changed" so Create is enabled, but the user never touched it —

@@ -420,6 +420,12 @@ with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
 
+# Fleet-wide, unlike ClickHouse's per-node max_concurrent_queries_for_user, so keep it at or below
+# that user's per-node value for the bound to mean anything.
+CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES: int = get_from_env(
+    "CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES", 8, type_cast=int
+)
+
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:
@@ -545,6 +551,12 @@ INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACK
 # The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
 WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
+# must match the plugin server's minting default so local workflows work with no setup.
+TASKS_CREATE_JWT_SECRETS = get_list(
+    get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
 )
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")

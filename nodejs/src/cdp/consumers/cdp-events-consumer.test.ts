@@ -1159,4 +1159,38 @@ describe('hog flow processing', () => {
             expect(globals.groups).toEqual({})
         })
     })
+
+    describe('push open tracking', () => {
+        it('emits a push_opened app-metric for a $push_notification_opened event, attributed to its workflow', async () => {
+            const flow = await _insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
+
+            const globals = createHogExecutionGlobals({
+                project: { id: team.id } as any,
+                event: {
+                    uuid: 'push-open-uuid',
+                    event: '$push_notification_opened',
+                    properties: {
+                        $notification_workflow_id: flow.id,
+                        $notification_invocation_id: 'inv-open-1',
+                        $notification_action_id: 'push_step_1',
+                    },
+                } as any,
+            })
+
+            const { backgroundTask } = await processor.processBatch([globals])
+            await backgroundTask
+
+            const pushOpened = mockProducerObserver
+                .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                .filter((m: any) => m.value.metric_name === 'push_opened')
+            expect(pushOpened).toHaveLength(1)
+            expect(pushOpened[0].value).toMatchObject({
+                app_source: 'hog_flow',
+                app_source_id: flow.id,
+                instance_id: 'push_step_1',
+                metric_name: 'push_opened',
+                count: 1,
+            })
+        })
+    })
 })

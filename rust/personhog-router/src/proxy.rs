@@ -19,7 +19,7 @@ use tower::{Service, ServiceExt};
 
 use crate::backend::{LeaderBackend, ReplicaBackend};
 use crate::config::RetryConfig;
-use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
+use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_response};
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
@@ -35,9 +35,10 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeleteGroupTypeMappingsBatchForTeam",
     "DeleteGroupsBatchForTeam",
     "DeleteHashKeyOverridesByTeams",
-    "DeletePersonlessDistinctIdsBatchForTeam",
     "DeletePersons",
     "DeletePersonsBatchForTeam",
+    "FencePerson",
+    "FoldPersonDocument",
     "GetDistinctIdsForPerson",
     "GetDistinctIdsForPersons",
     "GetGroup",
@@ -59,6 +60,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "InsertCohortMembers",
     "ListCohortMemberIds",
     "ListGroups",
+    "ReleaseFence",
     "SetPersonDistinctIdVersionFloor",
     "SetPersonVersionFloor",
     "SplitPerson",
@@ -161,6 +163,22 @@ impl RawProxyInner {
                     .await;
                 (resp, "leader", call_ms)
             }
+            // Lifecycle fence RPCs: person writes, so they route to the
+            // owning leader and share the handoff stash discipline.
+            "FencePerson" => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "FencePerson").await;
+                (resp, "leader", call_ms)
+            }
+            "ReleaseFence" => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFence").await;
+                (resp, "leader", call_ms)
+            }
+            // The merge saga's document write: leader-routed like every
+            // person write.
+            "FoldPersonDocument" => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "FoldPersonDocument").await;
+                (resp, "leader", call_ms)
+            }
             "GetPerson" => {
                 let is_strong = req
                     .headers()
@@ -238,6 +256,7 @@ impl RawProxyInner {
                 "method" => method.clone(),
                 "backend" => backend,
                 "client" => client.clone(),
+                "code" => grpc_code_label(grpc_status_code(&response)),
             )
             .increment(1);
         }
@@ -449,6 +468,22 @@ impl RawProxyInner {
                 body_bytes,
             )
             .await
+    }
+}
+
+/// Static label for an error response's gRPC status, separating expected
+/// admission rejections (invalid_argument) from availability and internal
+/// failures on the errors counter.
+fn grpc_code_label(code: Option<i32>) -> &'static str {
+    match code {
+        Some(3) => "invalid_argument",
+        Some(4) => "deadline_exceeded",
+        Some(5) => "not_found",
+        Some(8) => "resource_exhausted",
+        Some(9) => "failed_precondition",
+        Some(13) => "internal",
+        Some(14) => "unavailable",
+        _ => "other",
     }
 }
 

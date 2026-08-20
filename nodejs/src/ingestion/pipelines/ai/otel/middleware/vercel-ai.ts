@@ -213,6 +213,26 @@ function process(event: PluginEvent, next: () => void): void {
     }
     delete props['ai.response.text']
 
+    // Legacy AI SDK telemetry sends the tool catalog as ai.prompt.tools, an
+    // array of individually stringified tool definitions. Parse each entry so
+    // $ai_tools ends up carrying objects, like the current
+    // gen_ai.tool.definitions attribute does.
+    if (props['ai.prompt.tools'] !== undefined && props['gen_ai.tool.definitions'] === undefined) {
+        const tools = props['ai.prompt.tools']
+        if (Array.isArray(tools)) {
+            props['gen_ai.tool.definitions'] = tools.map((tool) => {
+                if (typeof tool !== 'string') {
+                    return tool
+                }
+                try {
+                    return parseJSON(tool)
+                } catch {
+                    return tool
+                }
+            })
+        }
+    }
+
     // Promote groups before the generic mapper runs so it can parse the JSON value.
     const groupsMetadata = getAiContextValue(props, '$groups')
     if (props['$groups'] === undefined && isNonEmptyString(groupsMetadata)) {

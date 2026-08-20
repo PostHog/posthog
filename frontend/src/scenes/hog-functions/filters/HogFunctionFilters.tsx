@@ -119,10 +119,15 @@ export function HogFunctionFilters({
     // The table matcher's column suggestions read from databaseTableListLogic, which isn't loaded
     // automatically in this scene — kick it off when a warehouse table is the source.
     const { dataWarehouseTables, dataWarehouseTablesMap } = useValues(databaseTableListLogic)
-    const { loadDatabase } = useActions(databaseTableListLogic)
+    const { loadDatabase, ensureAllTableFields } = useActions(databaseTableListLogic)
     useEffect(() => {
-        if (isDataWarehouse && !dataWarehouseTables.length) {
-            loadDatabase()
+        if (isDataWarehouse) {
+            if (!dataWarehouseTables.length) {
+                loadDatabase()
+            } else {
+                // The store may hold a shallow (fields-less) schema left by the SQL editor.
+                ensureAllTableFields()
+            }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isDataWarehouse])

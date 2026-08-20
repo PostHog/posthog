@@ -12,6 +12,7 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -92,6 +93,21 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
     if isinstance(node, (ast.Tuple, ast.Array)):
         return [expr for expr in node.exprs if isinstance(expr, ast.Constant) and isinstance(expr.value, str)]
     return []
+
+
+class _ShardedTableFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_table_type(self, node: ast.TableType) -> None:
+        if isinstance(node.table, EventsTable):
+            self.found = True
+
+
+def _select_reads_sharded_table(node: ast.Expr) -> bool:
+    finder = _ShardedTableFinder()
+    finder.visit(node)
+    return finder.found
 
 
 EMPTY_SCOPE = ast.SelectQueryType()
@@ -358,6 +374,10 @@ class Resolver(CloningVisitor):
         self._synthetic_using_join_aliases: set[str] = set()
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
         self._inside_posthog_macro_expansion: bool = False
+        # Marks whether the outermost SELECT has been entered. Used to keep a top-level `SELECT *`
+        # on a direct-connection table literal (so the external server expands the star); nested and
+        # CTE-body stars still expand to explicit columns so enclosing queries can read them.
+        self._entered_root_select: bool = False
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -843,6 +863,11 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
+        # Capture before visiting CTEs/subqueries (which re-enter here), so only the outermost query
+        # counts as root — a top-level `SELECT *` on a direct table is kept literal below.
+        is_root_select = not self._entered_root_select
+        self._entered_root_select = True
+
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -923,6 +948,27 @@ class Resolver(CloningVisitor):
                 # keep `*` literal and let Snowflake expand it. (UNPIVOT output IS knowable, so it
                 # still expands normally.)
                 if self.dialect == "snowflake" and _select_from_is_pivot(new_node.select_from):
+                    select_nodes.append(new_expr)
+                    continue
+                # Direct-connect: keep a top-level `SELECT *` on a direct table literal so the
+                # external server expands the star natively, matching its live schema and skipping
+                # materialized/alias columns that a HogQL-expanded list would break on (CH error 47).
+                # Restricted to the root select (is_direct_query is only set in the direct render
+                # pass) so nested/CTE stars still expand and remain readable by enclosing queries.
+                # Gated on has_complete_columns: a column-picker restriction makes the table's fields
+                # a subset, so the star must expand from them — letting the server expand against the
+                # unrestricted physical table would leak the columns the restriction hides.
+                asterisk_direct_table = (
+                    new_expr.type.table_type.resolve_database_table(self.context)
+                    if isinstance(new_expr.type.table_type, ast.BaseTableType)
+                    else None
+                )
+                if (
+                    self.context.is_direct_query
+                    and is_root_select
+                    and isinstance(asterisk_direct_table, DirectClickHouseTable)
+                    and asterisk_direct_table.has_complete_columns
+                ):
                     select_nodes.append(new_expr)
                     continue
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
@@ -2311,8 +2357,9 @@ class Resolver(CloningVisitor):
         node.type = loop_type
 
         if isinstance(node.type, ast.ExpressionFieldType):
-            # only swap out expression fields in ClickHouse
-            if self.dialect == "clickhouse":
+            # HogQL preserves the virtual field name for display; execution dialects must expand
+            # the expression so its child fields resolve before the target printer sees them.
+            if self.dialect != "hogql":
                 new_expr = clone_expr(node.type.expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
 
@@ -2322,7 +2369,16 @@ class Resolver(CloningVisitor):
                         table_type = table_type.table_type
                     self.scopes.append(ast.SelectQueryType(tables={node.type.name: table_type}))
 
-                new_node = self.visit(new_node)
+                try:
+                    new_node = self.visit(new_node)
+                except RecursionError:
+                    # Saved expressions are validated against a database that may not yet contain a
+                    # concurrently-saved sibling, so a mutually recursive pair can reach this point.
+                    # Surface it as a query error instead of a 500.
+                    raise QueryError(
+                        f'Expression field "{node.type.name}" is nested too deeply. '
+                        f"Expression fields can't reference themselves, directly or through another expression."
+                    )
 
                 if node.type.isolate_scope:
                     self.scopes.pop()
@@ -2495,6 +2551,19 @@ class Resolver(CloningVisitor):
             (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
             and isinstance(node.right, ast.SelectQuery)
             and (self._is_sessions_table(node.left) or self._select_reads_sessions(node.right))
+        ):
+            if node.op == ast.CompareOperationOp.In:
+                node.op = ast.CompareOperationOp.GlobalIn
+            else:
+                node.op = ast.CompareOperationOp.GlobalNotIn
+
+        # An IN-subquery reading a sharded table re-executes on every shard of a distributed
+        # outer scan, multiplying its cost by the shard count. GLOBAL IN builds the set once
+        # on the initiator and ships it to the shards, returning the same rows.
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and isinstance(node.right, (ast.SelectQuery, ast.SelectSetQuery))
+            and _select_reads_sharded_table(node.right)
         ):
             if node.op == ast.CompareOperationOp.In:
                 node.op = ast.CompareOperationOp.GlobalIn

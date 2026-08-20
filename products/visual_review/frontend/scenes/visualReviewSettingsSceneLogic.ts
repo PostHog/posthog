@@ -75,17 +75,20 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -98,6 +101,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -125,17 +129,20 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -148,6 +155,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     } // integrationsLogic
@@ -194,7 +202,7 @@ export interface visualReviewSettingsSceneLogicMeta {
         hasChanges: (formValues: RepoFormValues, editingRepo: RepoApi | null) => boolean
         availableRepos: (
             integrations: IntegrationType[] | null,
-            getGitHubRepositoriesFull: (integrationId: number) => GitHubRepoApi[]
+            getGitHubRepositoriesFull: (integrationId: number) => GitHubRepoApi[] // integrationsLogic
         ) => GitHubRepoApi[]
         existingRepoNames: (repos: RepoApi[]) => Set<string>
         githubManageAccessUrl: (integrations: IntegrationType[] | null) => string | null

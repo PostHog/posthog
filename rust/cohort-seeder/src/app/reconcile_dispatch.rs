@@ -18,7 +18,7 @@ use crate::kafka::producer::{
 };
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::completion::{read_planning_stamp, CompletionStoreError};
-use crate::store::runs::{load_reconcile_run, ReconcileRun, ReconcileRunError, RunStatus};
+use crate::store::runs::{load_reconcile_run, ReconcileRun, ReconcileRunError, RunKind, RunStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionRequirement {
@@ -60,6 +60,10 @@ pub struct PreparedReconcileDispatch {
 impl PreparedReconcileDispatch {
     pub const fn run_id(&self) -> RunId {
         self.run.run_id()
+    }
+
+    pub const fn run_kind(&self) -> RunKind {
+        self.run.kind()
     }
 
     pub const fn run_status(&self) -> RunStatus {
@@ -115,6 +119,10 @@ impl PreparedDispatch {
         self.inner().run_id()
     }
 
+    pub fn run_kind(&self) -> RunKind {
+        self.inner().run_kind()
+    }
+
     pub fn run_status(&self) -> RunStatus {
         self.inner().run_status()
     }
@@ -132,6 +140,8 @@ impl PreparedDispatch {
     }
 }
 
+/// The run's own row decides its kind; every kind-bound read below follows from it, so a caller
+/// never has to name one. [`PreparedDispatch::run_kind`] hands it back for the claim.
 pub async fn prepare_reconcile_dispatch(
     pool: &PgPool,
     run_id: RunId,
@@ -142,7 +152,9 @@ pub async fn prepare_reconcile_dispatch(
     let progress = PgChunkStore::new(pool.clone())
         .chunk_progress(run_id)
         .await?;
-    let planning_proven = read_planning_stamp(pool, run_id).await?.is_some();
+    let planning_proven = read_planning_stamp(pool, run_id, run.kind())
+        .await?
+        .is_some();
     validate_completion(run_id, progress.remaining(), planning_proven, completion)?;
     let prepared = PreparedReconcileDispatch {
         run,
@@ -566,7 +578,9 @@ mod tests {
         ReconcileTile::new(
             TeamId(2),
             CohortId(cohort_id),
-            crate::domain::BehavioralShapeHash::parse("behavioral-shape").unwrap(),
+            crate::domain::ReconcileScope::Behavioral(
+                crate::domain::BehavioralShapeHash::parse("behavioral-shape").unwrap(),
+            ),
             RunId(Uuid::nil()),
         )
     }

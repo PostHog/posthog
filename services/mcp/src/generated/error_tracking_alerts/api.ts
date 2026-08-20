@@ -65,15 +65,16 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     'warehouse_source_webhook',
                     'site_app',
                     'transformation',
+                    'transformation_log',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
         ),
     name: zod.string().max(hogFunctionsCreateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -147,10 +148,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            bytecode: zod.unknown().optional(),
-            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
-            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -164,10 +162,6 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     .describe('Time-to-live in seconds for the masking cache (60–86400).'),
                 threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
                 hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe('Compiled bytecode for the hash expression. Auto-generated.'),
             }),
             zod.null(),
         ])
@@ -309,15 +303,16 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     'warehouse_source_webhook',
                     'site_app',
                     'transformation',
+                    'transformation_log',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
         ),
     name: zod.string().max(hogFunctionsPartialUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -391,10 +386,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            bytecode: zod.unknown().optional(),
-            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
-            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -408,10 +400,6 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .describe('Time-to-live in seconds for the masking cache (60–86400).'),
                 threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
                 hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe('Compiled bytecode for the hash expression. Auto-generated.'),
             }),
             zod.null(),
         ])
@@ -512,6 +500,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(hogFunctionsPartialUpdateBodyExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 /**

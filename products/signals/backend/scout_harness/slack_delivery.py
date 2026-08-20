@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 
+import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
@@ -18,6 +19,8 @@ from products.signals.backend.slack_formatting import (
     strip_chart_references,
     truncate_slack_section,
 )
+
+logger = structlog.get_logger(__name__)
 
 _PERMANENT_SLACK_ERROR_CODES = frozenset(
     {
@@ -36,6 +39,14 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 )
 
 ScoutSlackOutputType = Literal["finding", "report"]
+
+# Bound on the note snapshot a note-only edit carries through the Celery payload. Slack shows at
+# most SLACK_SECTION_TEXT_MAX_LEN characters after conversion, so anything past this headroom is
+# never rendered; the report keeps the full note either way.
+MAX_SLACK_NOTE_SNAPSHOT_LEN = 6000
+
+# Posted as an in-thread reply under every scout Slack message, inviting @PostHog follow-ups.
+_SCOUT_SLACK_REPLY_TEXT = "💬 If you have questions, reply in this thread and mention *`@PostHog`*!"
 
 
 @dataclass(frozen=True)
@@ -69,6 +80,44 @@ def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestin
 def slack_api_error_code(exc: SlackApiError) -> str | None:
     error_code = exc.response.get("error") if exc.response else None
     return error_code if isinstance(error_code, str) else None
+
+
+def _post_scout_slack_reply(
+    client: object,
+    *,
+    channel_id: str,
+    thread_ts: object,
+    scout_team_id: int,
+    integration_team_id: int,
+) -> None:
+    """Invite @PostHog follow-ups when the Slack connection uses the scout's environment.
+
+    Best-effort and non-blocking: the scout message itself has already been delivered, so a failed
+    or missing follow-up never fails the delivery (and so never re-posts the parent on retry).
+    """
+    if integration_team_id != scout_team_id:
+        logger.info(
+            "scout_slack_followup_reply_skipped_environment_mismatch",
+            scout_team_id=scout_team_id,
+            integration_team_id=integration_team_id,
+            channel=channel_id,
+        )
+        return
+    if not isinstance(thread_ts, str) or not thread_ts:
+        return
+    try:
+        client.chat_postMessage(  # type: ignore[attr-defined]
+            channel=channel_id,
+            thread_ts=thread_ts,
+            blocks=[{"type": "context", "elements": [{"type": "mrkdwn", "text": _SCOUT_SLACK_REPLY_TEXT}]}],
+            text=_SCOUT_SLACK_REPLY_TEXT,
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+    except Exception:
+        # Swallow everything (not just SlackApiError): a transport-level failure here must never
+        # fail the task and retry the already-delivered parent message.
+        logger.warning("scout_slack_followup_reply_failed", channel=channel_id, exc_info=True)
 
 
 def _prettify_scout_name(skill_name: str) -> str:
@@ -134,14 +183,14 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "View finding in PostHog"},
+                    "text": {"type": "plain_text", "text": "View signal in PostHog"},
                     "url": finding_url,
                 }
             ],
         }
     )
 
-    first_line = emission.description.strip().splitlines()[0] if emission.description.strip() else "New finding"
+    first_line = emission.description.strip().splitlines()[0] if emission.description.strip() else "New signal"
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(first_line[:200])}"
     return blocks, fallback
 
@@ -159,8 +208,9 @@ def post_scout_emission_to_slack(
     channel_id = _slack_channel_id(channel)
 
     blocks, fallback = build_scout_slack_message(emission)
+    client = SlackIntegration(integration).client
     try:
-        SlackIntegration(integration).client.chat_postMessage(
+        response = client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,
             text=fallback,
@@ -177,11 +227,37 @@ def post_scout_emission_to_slack(
             ) from exc
         raise
 
+    _post_scout_slack_reply(
+        client,
+        channel_id=channel_id,
+        thread_ts=response.get("ts"),
+        scout_team_id=emission.team_id,
+        integration_team_id=integration.team_id,
+    )
+
+
+def _report_header(report: SignalReport) -> str:
+    title = " ".join((report.title or "").split()) or "New scout report"
+    return title if len(title) <= 150 else title[:147].rstrip() + "..."
+
+
+def _report_link_block(report: SignalReport) -> dict:
+    report_url = f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/inbox/reports/{report.id}"
+    return {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "View report in PostHog"},
+                "url": report_url,
+            }
+        ],
+    }
+
 
 def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) -> tuple[list[dict], str]:
     scout_name = _prettify_scout_name(run.skill_name)
-    title = " ".join((report.title or "").split()) or "New scout report"
-    header = title if len(title) <= 150 else title[:147].rstrip() + "..."
+    header = _report_header(report)
     blocks: list[dict] = [
         {
             "type": "context",
@@ -195,20 +271,41 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
     if rendered_summary:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_summary}})
 
-    report_url = f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/inbox/reports/{report.id}"
-    blocks.append(
+    blocks.append(_report_link_block(report))
+    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(header[:200])}"
+    return blocks, fallback
+
+
+def build_scout_report_note_slack_message(
+    report: SignalReport, run: SignalScoutRun, note: str
+) -> tuple[list[dict], str]:
+    """Render a note-only report edit as the note itself, framed as an update.
+
+    A note-only edit leaves the title and summary the report message shows unchanged, so re-sending
+    `build_scout_report_slack_message` would post a message identical to the one already in the
+    channel. The note is what's new, so that's what gets delivered."""
+    scout_name = _prettify_scout_name(run.skill_name)
+    header = _report_header(report)
+    blocks: list[dict] = [
         {
-            "type": "actions",
+            "type": "context",
             "elements": [
                 {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "View report in PostHog"},
-                    "url": report_url,
+                    "type": "mrkdwn",
+                    "text": f"*Scout · {escape_slack_mrkdwn(scout_name)}* added a note to an existing report",
                 }
             ],
-        }
-    )
-    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(title[:200])}"
+        },
+        {"type": "header", "text": {"type": "plain_text", "text": header}},
+    ]
+
+    note_text = strip_chart_references(note.strip())
+    rendered_note = truncate_slack_section(markdown_to_slack_mrkdwn(note_text))
+    if rendered_note:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_note}})
+
+    blocks.append(_report_link_block(report))
+    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} added a note to: {escape_slack_mrkdwn(header[:200])}"
     return blocks, fallback
 
 
@@ -219,6 +316,7 @@ def post_scout_report_to_slack(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    edit_note: str | None = None,
 ) -> None:
     if report.team_id != run.team_id:
         raise ScoutSlackPermanentDeliveryError(
@@ -231,9 +329,14 @@ def post_scout_report_to_slack(
         project_id=report.team.project_id,
     )
     channel_id = _slack_channel_id(channel)
-    blocks, fallback = build_scout_report_slack_message(report, run)
+    blocks, fallback = (
+        build_scout_report_note_slack_message(report, run, edit_note)
+        if edit_note is not None
+        else build_scout_report_slack_message(report, run)
+    )
+    client = SlackIntegration(integration).client
     try:
-        SlackIntegration(integration).client.chat_postMessage(
+        response = client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,
             text=fallback,
@@ -249,3 +352,11 @@ def post_scout_report_to_slack(
                 error_code=error_code,
             ) from exc
         raise
+
+    _post_scout_slack_reply(
+        client,
+        channel_id=channel_id,
+        thread_ts=response.get("ts"),
+        scout_team_id=run.team_id,
+        integration_team_id=integration.team_id,
+    )

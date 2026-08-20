@@ -40,7 +40,7 @@ from posthog.temporal.oauth import create_oauth_access_token_for_user
 
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
-from products.stamphog.backend.logic.audiences import resolve_audience_key
+from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
@@ -48,7 +48,7 @@ from products.stamphog.backend.logic.reviewer import (
     build_reviewer_invocation,
     parse_reviewer_output,
 )
-from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.constants import (
     STAMPHOG_BOT_EYES_MAX_AGE_SECONDS,
     STAMPHOG_OPTIONAL_POLICY_PATHS,
@@ -166,14 +166,16 @@ def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
         value = os.environ.get(key)
         if value:
             env[key] = value
-    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(
-        {
-            "stamphog_runtime": "hosted",
-            "stamphog_team_id": run.team_id,
-            "stamphog_review_run_id": str(run.id),
-        },
-        separators=(",", ":"),
-    )
+    extra_properties: dict[str, object] = {
+        "stamphog_runtime": "hosted",
+        "stamphog_team_id": run.team_id,
+        "stamphog_review_run_id": str(run.id),
+    }
+    # Marks self-driving inbox reviews (never set for human PRs) so analytics can tell the engine's
+    # completed events and LLM traces apart from reviews of human PRs.
+    if (run.output or {}).get("inbox_review"):
+        extra_properties["stamphog_self_driving_review"] = True
+    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(extra_properties, separators=(",", ":"))
     return env
 
 
@@ -229,7 +231,11 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     check_runs = client.get_check_runs(repo, run.head_sha)
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
-    author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author else []
+    # Self-driving runs skip this fetch: the author is the App machine user, so blame familiarity
+    # from its merged PRs would read to the engine as human trust. An empty list only omits the
+    # familiarity section from the reviewer prompt; the review itself proceeds normally.
+    is_inbox_review = bool((run.output or {}).get("inbox_review"))
+    author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
 
     policy_files: dict[str, str] = {}
     for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
@@ -439,6 +445,9 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         repo=repo,
         engine_dir=STAMPHOG_SANDBOX_ENGINE_DIR,
         context_path=STAMPHOG_SANDBOX_CONTEXT_PATH,
+        # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
+        # from the run's inbox provenance, stamped after the PR is linked to a signals run.
+        self_driving_review=bool(output.get("inbox_review")),
     )
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
@@ -662,7 +671,29 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         return {"verdict": "skipped_superseded"}
     current_pr = client.get_pr(repo, pull_request.pr_number)
     current_head = ((current_pr.get("head") or {}).get("sha") or "").strip()
+    # A base retarget (a stacked PR's parent merged, or a manual base switch) rewrites the reviewed
+    # diff with the head SHA unchanged, so the head guard alone can't see it. The retarget delivery
+    # retracts approvals and queues a fresh run, but that delivery can trail this activity. The SHA
+    # is compared too: GitHub pins base.sha at the last PR event rather than tracking the trunk tip,
+    # so it only moves when the PR itself was touched — the diff the sandbox reviewed is stale then.
+    reviewed_base = (output.get("pr") or {}).get("base") or {}
+    current_base = current_pr.get("base") or {}
+    reviewed_base_ref = reviewed_base.get("ref") or ""
+    reviewed_base_sha = reviewed_base.get("sha") or ""
+    current_base_ref = (current_base.get("ref") or "").strip()
+    current_base_sha = (current_base.get("sha") or "").strip()
+    base_ref_moved = bool(reviewed_base_ref and current_base_ref and reviewed_base_ref != current_base_ref)
+    base_sha_moved = bool(reviewed_base_sha and current_base_sha and reviewed_base_sha != current_base_sha)
+    drift: tuple[str, str] | None = None
     if current_head and current_head != run.head_sha:
+        drift = ("head_moved", f"head moved {run.head_sha} -> {current_head}")
+    elif base_ref_moved or base_sha_moved:
+        drift = (
+            "base_retargeted",
+            f"base moved {reviewed_base_ref}@{reviewed_base_sha} -> {current_base_ref}@{current_base_sha}",
+        )
+    if drift is not None:
+        kind, detail = drift
         # Conditional: a retry after the terminal save already committed (e.g. the trailing digest
         # stamp crashed) must not rewrite a delivered COMPLETED outcome to SUPERSEDED — terminal
         # states are history. The stale-approval sweep retires that approval on the next delivery.
@@ -671,16 +702,27 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         )
         if run.verdict != ReviewVerdict.APPROVED:
             _dismiss_orphaned_approval(client, run, input.team_id)
-        activity.logger.info(f"Skipping verdict for run {run.id}: head moved {run.head_sha} -> {current_head}")
-        return {"verdict": "skipped_head_moved"}
+        activity.logger.info(f"Skipping verdict for run {run.id}: {detail}")
+        return {"verdict": f"skipped_{kind}"}
 
     parsed = parse_reviewer_output(raw)
 
     run.gate_result = parsed.gate_result
+    # reviewer_raw was scrubbed on the way into the row; this re-scrub covers the worker's own LLM
+    # env secrets, the same belt-and-braces the review body gets below.
+    run.change_summary = _scrub_credentials(parsed.change_summary)
     if parsed.stamphog_version:
         run.output = {**output, "stamphog_version": parsed.stamphog_version}
 
-    update_fields = ["gate_result", "status", "verdict", "completed_at", "verdict_posted_at", "updated_at"]
+    update_fields = [
+        "gate_result",
+        "change_summary",
+        "status",
+        "verdict",
+        "completed_at",
+        "verdict_posted_at",
+        "updated_at",
+    ]
     if parsed.stamphog_version:
         update_fields.append("output")
 
@@ -1147,10 +1189,10 @@ def _write_sandbox_file(sandbox: SandboxBase, path: str, content: str) -> None:
 def _stamp_digest_audience_if_merged(
     repo_config: StamphogRepoConfig, pull_request: PullRequest, run: ReviewRun, pr_payload: dict
 ) -> None:
-    """Stamp the digest audience if the PR already merged before this approval landed.
+    """Stamp the digest audiences if the PR already merged before this approval landed.
 
-    The merge handler only stamps a merged PR's ``audience_key`` when a stamphog-approved run already
-    exists. In the merge-before-approval race it records the merge with a blank audience and never
+    The merge handler only fans out a merged PR's audiences when a stamphog-approved run already
+    exists. In the merge-before-approval race it records the merge with no audiences and never
     revisits it, so a just-approved-and-already-merged PR would silently miss the digest. Re-reading the
     merge state here — the moment the approval is saved — closes that race from the approval side,
     without depending on a webhook redelivery. Only stamps digest-enabled repos with no audience yet.
@@ -1167,11 +1209,27 @@ def _stamp_digest_audience_if_merged(
             f"Skipping digest stamp for run {run.id}: merged head {merged_head_sha!r} != approved head {run.head_sha!r}"
         )
         return
-    pull_request.refresh_from_db(fields=["merged_at", "audience_key"])
-    if pull_request.merged_at is None or not repo_config.digest_enabled or pull_request.audience_key:
+    pull_request.refresh_from_db(fields=["merged_at"])
+    if pull_request.merged_at is None or not repo_config.digest_enabled:
         return
-    pull_request.audience_key = resolve_audience_key(repo_config, pr_payload)
-    pull_request.save(update_fields=["audience_key", "updated_at"])
+    if PullRequestAudience.objects.for_team(run.team_id).filter(pull_request=pull_request).exists():
+        return
+    pull_request.summary_line = run.change_summary
+    pull_request.save(update_fields=["summary_line", "updated_at"])
+    PullRequestAudience.objects.for_team(run.team_id).bulk_create(
+        [
+            PullRequestAudience(
+                team_id=run.team_id,
+                pull_request=pull_request,
+                audience_key=audience.key,
+                reason=audience.reason,
+                owned_files=audience.owned_files,
+                owned_file_count=audience.owned_file_count,
+            )
+            for audience in resolve_audiences(repo_config, pr_payload, run.gate_result)
+        ],
+        ignore_conflicts=True,
+    )
 
 
 def _post_sticky(client: StamphogGitHubClient, repo: str, pull_request: PullRequest, body: str) -> None:

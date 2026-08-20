@@ -205,7 +205,7 @@ class TestSymbolSetCleanupWorkflow:
             delete_unused=True,
             total_per_run=1000000,
             batch_size=10000,
-            parallelism=8,
+            parallelism=4,
             dry_run=False,
         )
 

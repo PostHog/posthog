@@ -24,6 +24,10 @@ import {
     type CellTagBlock,
 } from './cellTags'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
+import { getNotebookWidgetTagNames, getNotebookWidgetViewError } from './widgetCatalog'
+
+/** The cell header renders a title on a single ellipsized line, so anything longer is cut off anyway. */
+const CELL_TITLE_MAX_LENGTH = 120
 
 export const NotebooksAddCellSchema = z
     .object({
@@ -44,13 +48,13 @@ export const NotebooksAddCellSchema = z
             .regex(COMPONENT_TAG_REGEX)
             .optional()
             .describe(
-                "Component cells: the notebook component to insert, e.g. 'Query' (product analytics charts and event tables via its query prop), 'Image', 'Embed', 'Latex', 'FeatureFlag', 'Survey', 'Experiment', 'Person', 'Cohort', 'Recording', 'RecordingPlaylist'. Executable cells are not allowed here — use cell_type sql/python."
+                `Component cells: the notebook component to insert. Object widgets with named views: ${getNotebookWidgetTagNames().join(', ')}. Other components include Query (product analytics charts and event tables via its query prop), Image, Embed, Latex, Person, Recording, and RecordingPlaylist. Executable cells are not allowed here — use cell_type sql/python.`
             ),
         props: z
             .record(z.string(), z.unknown())
             .optional()
             .describe(
-                'Component cells: the props for the tag, matching what the notebook UI stores for that component. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here — use cell_type sql, which charts its result too.'
+                'Component cells: the props for the tag, matching what the notebook UI stores for that component. Object widgets take their identity prop plus an optional view, for example {"id": 123, "view": "summary"}. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here — use cell_type sql, which charts its result too.'
             ),
         dataframe_name: z
             .string()
@@ -58,6 +62,13 @@ export const NotebooksAddCellSchema = z
             .optional()
             .describe(
                 'Name other cells use to reference this cell\'s result dataframe (e.g. in SQL joins or Python code). Auto-assigned ("sql_df", "df", …) when omitted for sql/python cells.'
+            ),
+        title: z
+            .string()
+            .max(CELL_TITLE_MAX_LENGTH)
+            .optional()
+            .describe(
+                'Short label shown in the cell header, e.g. "Weekly signups by source". Set it on every cell you add so a reader can skim the notebook without reading the code — say what the cell shows, not that it is SQL or Python. Not accepted for markdown cells; give those a markdown heading instead.'
             ),
         after_node_id: z
             .string()
@@ -72,6 +83,13 @@ export interface AddCellResult {
     run?: ShapedRunResult
 }
 
+/**
+ * One blank line separates two blocks of the same card in the notebook editor; a second one starts
+ * a new card. Cells added here are nodes in their own right, so they are separated on both sides —
+ * otherwise consecutive markdown cells land as one card (`startsGroup` in the editor's types.ts).
+ */
+const BLOCK_SEPARATOR = '\n\n\n'
+
 function insertBlock(markdown: string, block: string, afterNodeId: string | undefined): string {
     const trimmed = markdown.replace(/\s+$/, '')
     if (afterNodeId) {
@@ -79,9 +97,11 @@ function insertBlock(markdown: string, block: string, afterNodeId: string | unde
         if (!anchor) {
             throw new Error(`No cell with node_id ${afterNodeId} found to insert after.`)
         }
-        return `${markdown.slice(0, anchor.end)}\n\n${block}${markdown.slice(anchor.end)}`
+        const rest = markdown.slice(anchor.end).replace(/^\n+/, '')
+        const head = `${markdown.slice(0, anchor.end)}${BLOCK_SEPARATOR}${block}`
+        return rest ? `${head}${BLOCK_SEPARATOR}${rest}` : `${head}\n`
     }
-    return trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`
+    return trimmed ? `${trimmed}${BLOCK_SEPARATOR}${block}\n` : `${block}\n`
 }
 
 async function runAndWriteBack(
@@ -169,9 +189,20 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
                 "Use cell_type 'sql' for SQL instead of a component with a HogQLQuery source. A sql cell runs the query, names a dataframe other cells can reference, and charts its result."
             )
         }
+        const widgetViewError = getNotebookWidgetViewError(params.tag_name, params.props?.view)
+        if (widgetViewError) {
+            throw new Error(widgetViewError)
+        }
     }
 
+    const title = params.title?.trim() || undefined
+
     if (params.cell_type === 'markdown') {
+        if (title) {
+            throw new Error(
+                'A markdown cell has no header to title — put the heading in the markdown itself (e.g. "## Weekly signups").'
+            )
+        }
         await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
             insertBlock(markdown, params.markdown!.trim(), params.after_node_id)
         )
@@ -183,8 +214,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     if (params.cell_type === 'saved_insight') {
         const tag = buildCellTag('Query', {
             nodeId,
+            title,
             query: { kind: 'SavedInsightNode', shortId: params.insight_short_id },
-            hideFilters: true,
         })
         await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
             insertBlock(markdown, tag, params.after_node_id)
@@ -193,7 +224,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     }
 
     if (params.cell_type === 'component') {
-        const tag = buildCellTag(params.tag_name!, { ...params.props, nodeId })
+        // `title` last only when set, so a component that carries its own title prop keeps it.
+        const tag = buildCellTag(params.tag_name!, { ...params.props, nodeId, ...(title ? { title } : {}) })
         await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
             insertBlock(markdown, tag, params.after_node_id)
         )
@@ -205,7 +237,7 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     const dataframeName =
         params.dataframe_name ??
         uniqueDataframeName(params.cell_type === 'sql' ? 'sql_df' : 'df', parseCellTags(initial.markdown))
-    const tag = buildCellTag(tagName, { nodeId, code: params.code, returnVariable: dataframeName })
+    const tag = buildCellTag(tagName, { nodeId, title, code: params.code, returnVariable: dataframeName })
 
     const { markdown } = await applyMarkdownEdit(context, params.notebook_id, (current) =>
         insertBlock(current, tag, params.after_node_id)

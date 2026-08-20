@@ -35,7 +35,7 @@ from products.feature_flags.backend.flag_status import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type

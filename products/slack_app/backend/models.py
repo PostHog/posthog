@@ -47,6 +47,17 @@ class SlackThreadTaskMapping(UUIDModel):
                 name="uniq_slack_thread_task_mapping",
             )
         ]
+        indexes = [
+            # Serves the workspace-wide activity aggregates on the App Home tab, which scan a
+            # whole workspace over a date window rather than a single thread. `team_id` rides
+            # along as an INCLUDE column so the accessible-projects filter is evaluated off the
+            # index instead of a heap fetch per candidate row.
+            models.Index(
+                fields=["slack_workspace_id", "created_at"],
+                include=["team_id"],
+                name="slack_thr_map_ws_created_idx",
+            ),
+        ]
 
 
 class SlackUserProfileCache(UUIDModel):
@@ -74,6 +85,19 @@ class SlackUserProfileCache(UUIDModel):
                 name="uniq_slack_user_profile_cache_integration_user",
             )
         ]
+
+
+class UntaggedFollowupMode(models.TextChoices):
+    """What PostHog does with an untagged reply in a thread it already owns.
+
+    Read from the thread creator's settings row, so it governs everyone
+    replying in a thread that user started. ``NEVER`` is what an unset row
+    resolves to, making untagged follow-ups opt-in per person.
+    """
+
+    AUTO = "auto", "Always pick it up"
+    ASK = "ask", "Ask before picking it up"
+    NEVER = "never", "Never pick it up"
 
 
 class SlackSettings(UUIDModel):
@@ -115,6 +139,15 @@ class SlackSettings(UUIDModel):
     )
     # Keys mirror the task-run request serializer.
     ai_preferences = models.JSONField(blank=True, null=True)
+    # NULL means the user has never picked, which resolves to ``NEVER``: nothing
+    # is picked up in their threads until they turn it on from the Home tab.
+    untagged_followup_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=UntaggedFollowupMode.choices,
+        help_text="What PostHog does with untagged replies in threads this user started.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

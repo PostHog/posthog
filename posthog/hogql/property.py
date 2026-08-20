@@ -54,6 +54,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.dataclasses import frozen
 from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
@@ -76,14 +77,21 @@ from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by
 PERSON_METADATA_FIELDS = {"created_at"}
 
 
-def parse_semver(value: str) -> tuple[str, str, str]:
+@frozen
+class SemverParts:
+    major: str
+    minor: str
+    patch: str
+
+
+def parse_semver(value: str) -> SemverParts:
     """
-    Parse a semver string into (major, minor, patch) components.
+    Parse a semver string into major, minor and patch components.
 
     - Strips pre-release suffixes (e.g., -alpha.1)
     - Defaults missing components to "0" (e.g., 1.0 -> 1.0.0)
 
-    Returns tuple of strings for direct use in version string construction.
+    Components stay strings for direct use in version string construction.
     Raises ValueError if parsing fails.
     """
     # Strip pre-release suffix (everything after first hyphen)
@@ -100,7 +108,7 @@ def parse_semver(value: str) -> tuple[str, str, str]:
     # Validate they're actually integers
     int(major), int(minor), int(patch)
 
-    return (major, minor, patch)
+    return SemverParts(major=major, minor=minor, patch=patch)
 
 
 # Anchored, strict-semver validator used to gate semver comparisons. We can't rely on
@@ -172,12 +180,12 @@ def _tilde_bounds(value: str) -> tuple[str, str]:
     ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
     ~1 means >=1.0.0 <2.0.0 (bare major: allows minor+patch changes)
     """
-    major, minor, patch = parse_semver(value)
+    v = parse_semver(value)
     parts = value.split("-")[0].split(".")
     if len(parts) < 2:
-        return f"{major}.0.0", f"{int(major) + 1}.0.0"
-    next_minor = str(int(minor) + 1)
-    return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
+        return f"{v.major}.0.0", f"{int(v.major) + 1}.0.0"
+    next_minor = str(int(v.minor) + 1)
+    return f"{v.major}.{v.minor}.{v.patch}", f"{v.major}.{next_minor}.0"
 
 
 def _caret_bounds(value: str) -> tuple[str, str]:
@@ -188,15 +196,15 @@ def _caret_bounds(value: str) -> tuple[str, str]:
     ^0.0.3 means >=0.0.3 <0.0.4
     The leftmost non-zero component determines the upper bound.
     """
-    major, minor, patch = parse_semver(value)
-    lower_bound = f"{major}.{minor}.{patch}"
+    v = parse_semver(value)
+    lower_bound = f"{v.major}.{v.minor}.{v.patch}"
 
-    if int(major) > 0:
-        upper_bound = f"{int(major) + 1}.0.0"
-    elif int(minor) > 0:
-        upper_bound = f"0.{int(minor) + 1}.0"
+    if int(v.major) > 0:
+        upper_bound = f"{int(v.major) + 1}.0.0"
+    elif int(v.minor) > 0:
+        upper_bound = f"0.{int(v.minor) + 1}.0"
     else:
-        upper_bound = f"0.0.{int(patch) + 1}"
+        upper_bound = f"0.0.{int(v.patch) + 1}"
 
     return lower_bound, upper_bound
 
@@ -524,6 +532,24 @@ def _expr_to_compare_op(
                 left=ast.Call(name="toString", args=[expr]),
                 right=ast.Constant(value=f"%{single_value}%"),
             )
+    elif operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH):
+        single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike
+            if operator == PropertyOperator.STARTS_WITH
+            else ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[expr]),
+            right=ast.Constant(value=f"{single_value}%"),
+        )
+    elif operator in (PropertyOperator.ENDS_WITH, PropertyOperator.NOT_ENDS_WITH):
+        single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike
+            if operator == PropertyOperator.ENDS_WITH
+            else ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[expr]),
+            right=ast.Constant(value=f"%{single_value}"),
+        )
     elif operator == PropertyOperator.ICONTAINS_MULTI:
         # Always expect multiple values for multi-contains operator
         if isinstance(value, list):
@@ -947,6 +973,8 @@ def property_to_expr(
                     operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                     or operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1028,6 +1056,8 @@ def property_to_expr(
             PropertyOperator.NOT_BETWEEN,
             PropertyOperator.ICONTAINS,
             PropertyOperator.NOT_ICONTAINS,
+            # starts_with/ends_with intentionally excluded: no ClickHouse anchored multi-search
+            # primitive exists, so multi-value use falls through to per-value ILIKE scans below.
         ):
             if len(value) == 0:
                 return ast.Constant(value=1)
@@ -1112,6 +1142,8 @@ def property_to_expr(
                     operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                     or operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1179,6 +1211,8 @@ def property_to_expr(
                     operator == PropertyOperator.IS_NOT
                     or operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1240,6 +1274,78 @@ def property_to_expr(
 
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
+    )
+
+
+def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> ast.Expr:
+    """Apply a property filter's operator and value to a caller-supplied expression, instead of
+    resolving the filter's key to a table field. Backs the column-bound `{filters(...)}` placeholder,
+    where the query author maps filter keys onto their own columns. Mirrors `property_to_expr`'s
+    multi-value handling, without the events-table special cases that don't apply to bound columns."""
+    operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+    value = property.value
+
+    if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+        value = _stringify_group_key_value(value)
+
+    if isinstance(value, list) and operator not in (
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+    ):
+        if len(value) == 0:
+            return ast.Constant(value=1)
+        if len(value) == 1:
+            value = value[0]
+        elif operator in (
+            PropertyOperator.EXACT,
+            PropertyOperator.IS_NOT,
+            PropertyOperator.IN_,
+            PropertyOperator.NOT_IN,
+        ):
+            op = (
+                ast.CompareOperationOp.In
+                if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
+                else ast.CompareOperationOp.NotIn
+            )
+            return ast.CompareOperation(
+                op=op,
+                left=clone_expr(expr),
+                right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
+            )
+        else:
+            exprs = [
+                bound_property_to_expr(
+                    Property(
+                        type=property.type,
+                        key=property.key,
+                        operator=property.operator,
+                        group_type_index=property.group_type_index,
+                        value=v,
+                    ),
+                    expr,
+                    team,
+                )
+                for v in value
+            ]
+            if (
+                operator == PropertyOperator.IS_NOT
+                or operator == PropertyOperator.NOT_ICONTAINS
+                or operator == PropertyOperator.NOT_REGEX
+                or operator == PropertyOperator.NOT_STARTS_WITH
+                or operator == PropertyOperator.NOT_ENDS_WITH
+            ):
+                return ast.And(exprs=exprs)
+            return ast.Or(exprs=exprs)
+
+    return _expr_to_compare_op(
+        expr=clone_expr(expr),
+        value=value,
+        operator=operator,
+        property=property,
+        is_json_field=False,
+        team=team,
     )
 
 
@@ -1526,6 +1632,8 @@ def operator_is_negative(operator: PropertyOperator) -> bool:
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,
         PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
         PropertyOperator.NOT_REGEX,
         PropertyOperator.IS_NOT_SET,
         PropertyOperator.NOT_BETWEEN,

@@ -1,4 +1,5 @@
-from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
+from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
+from .bake_dev_stack_image.workflow import BakeDevStackImageWorkflow
 from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
 from .build_image.workflow import BuildSandboxImageWorkflow
 from .create_snapshot.activities import (
@@ -20,6 +21,7 @@ from .process_task.activities import (
     create_resume_snapshot,
     create_sandbox_for_repository,
     emit_progress_activity,
+    enforce_self_driving_run_quota,
     execute_task_in_sandbox,
     forward_pending_user_message,
     get_sandbox_for_repository,
@@ -45,6 +47,7 @@ from .process_task.activities import (
     update_task_run_status,
 )
 from .process_task.activities.feature_flags import is_slack_app_agent_design_enabled_for_task_activity
+from .process_task.activities.get_pr_babysit_snapshot import get_pr_babysit_snapshot
 from .process_task.activities.get_pr_context import get_pr_context
 from .process_task.activities.slack_agent_design import (
     append_slack_agent_design_steps,
@@ -60,9 +63,9 @@ WORKFLOWS = [
     SlackAgentDesignRelayWorkflow,
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
-    RunTaskAutomationWorkflow,
     RunLoopWorkflow,
     BuildSandboxImageWorkflow,
+    BakeDevStackImageWorkflow,
 ]
 
 ACTIVITIES = [
@@ -95,16 +98,17 @@ ACTIVITIES = [
     cleanup_sandbox,
     complete_run_stream,
     emit_progress_activity,
+    enforce_self_driving_run_quota,
     track_workflow_event,
     post_slack_update,
     update_task_run_status,
     get_pr_context,
+    get_pr_babysit_snapshot,
     relay_slack_message,
     is_slack_app_agent_design_enabled_for_task_activity,
     start_slack_agent_design_stream,
     append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
-    run_task_automation_activity,
     run_loop_trigger_activity,
     # create_snapshot activities
     get_snapshot_context,
@@ -117,4 +121,6 @@ ACTIVITIES = [
     scan_image_spec,
     build_and_publish_image,
     mark_image_build_failed,
+    # bake_dev_stack_image activities
+    bake_and_publish_dev_stack_image,
 ]
