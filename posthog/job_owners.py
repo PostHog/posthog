@@ -15,7 +15,6 @@ class JobOwners(str, Enum):
     TEAM_DATA_STACK = "team-data-stack"
     TEAM_DATA_TOOLS = "team-data-tools"
     TEAM_ERROR_TRACKING = "team-error-tracking"
-
     TEAM_GROWTH = "team-growth"
     TEAM_INGESTION = "team-ingestion"
     TEAM_LOGS = "team-logs"
