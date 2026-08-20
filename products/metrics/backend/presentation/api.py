@@ -890,7 +890,12 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"results": [asdict(s) for s in samples]}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_MetricExplainRequestSerializer, responses={200: _MetricExplainResponseSerializer})
-    @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def explain(self, request: Request, *args, **kwargs) -> Response:
         """Take one chart point apart into the series and samples behind it,
         and recompute it independently so the plotted number can be checked
