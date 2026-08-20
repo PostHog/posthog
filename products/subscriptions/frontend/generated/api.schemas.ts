@@ -67,12 +67,14 @@ export interface AIPromptConfigApi {
 /**
  * * `email` - Email
  * * `slack` - Slack
+ * * `teams` - Microsoft Teams
  */
 export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
 
 export const TargetTypeEnumApi = {
     Email: 'email',
     Slack: 'slack',
+    Teams: 'teams',
 } as const
 
 /**
@@ -203,12 +205,13 @@ export interface SubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
-    /** Delivery channel: email or slack.
+    /** Delivery channel: email, slack, or teams.
      *
      * * `email` - Email
-     * * `slack` - Slack */
+     * * `slack` - Slack
+     * * `teams` - Microsoft Teams */
     target_type: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. */
     target_value: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
      *
@@ -351,12 +354,13 @@ export interface PatchedSubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
-    /** Delivery channel: email or slack.
+    /** Delivery channel: email, slack, or teams.
      *
      * * `email` - Email
-     * * `slack` - Slack */
+     * * `slack` - Slack
+     * * `teams` - Microsoft Teams */
     target_type?: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. */
     target_value?: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
      *
@@ -608,6 +612,7 @@ export type SubscriptionsListTargetType = (typeof SubscriptionsListTargetType)[k
 export const SubscriptionsListTargetType = {
     Email: 'email',
     Slack: 'slack',
+    Teams: 'teams',
 } as const
 
 export type SubscriptionsDeliveriesListParams = {

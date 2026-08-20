@@ -705,6 +705,21 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
 
+    def test_can_create_teams_subscription_with_a_webhook_url(self):
+        response = self._create_subscription(
+            target_type="teams",
+            target_value="https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["target_type"] == "teams"
+
+    def test_cannot_create_teams_subscription_with_a_lookalike_url(self):
+        response = self._create_subscription(target_type="teams", target_value="https://evilpowerautomate.com/x")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "target_value"
+        assert "Microsoft Teams webhook URL" in response.json()["detail"]
+
     def test_patch_enabled_true_rejected_when_slack_integration_missing(self):
         """Re-enabling a disabled Slack subscription whose integration is gone must be
         rejected up front — otherwise the next delivery would auto-disable it again

@@ -68,6 +68,7 @@ from products.product_analytics.backend.models.insight import Insight
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, is_teams_webhook_url
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
@@ -308,9 +309,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
-            "target_type": {"help_text": "Delivery channel: email or slack."},
+            "target_type": {"help_text": "Delivery channel: email, slack, or teams."},
             "target_value": {
-                "help_text": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack."
+                "help_text": (
+                    "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, "
+                    "or a Microsoft Teams webhook URL for teams."
+                )
             },
             "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
             "interval": {
@@ -389,8 +393,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if target_type and target_type not in (
             Subscription.SubscriptionTarget.EMAIL,
             Subscription.SubscriptionTarget.SLACK,
+            Subscription.SubscriptionTarget.TEAMS,
         ):
-            raise ValidationError({"target_type": ["AI subscriptions only support email or slack delivery."]})
+            raise ValidationError({"target_type": ["AI subscriptions only support email, slack, or teams delivery."]})
         # Gates fire on create only; existing AI subs stay editable.
         if existing is None:
             gate_reason = _ai_create_gate_reason(self.context["get_organization"](), self._caller_distinct_id())
@@ -503,6 +508,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if self.instance is None:
                 raise ValidationError({"start_date": [f"{base}."]})
             raise ValidationError(f"{base}.")
+
+        if target_type == Subscription.SubscriptionTarget.TEAMS:
+            # Scheme and host only. The delivery activity runs the full SSRF validation, because a
+            # resolver timeout here would add latency to every save and fail some of them outright.
+            target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else "")
+            if not is_teams_webhook_url(target_value):
+                raise ValidationError({"target_value": [TEAMS_WEBHOOK_URL_ERROR]})
 
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:
