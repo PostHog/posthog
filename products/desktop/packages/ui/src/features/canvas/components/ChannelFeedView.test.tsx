@@ -182,7 +182,6 @@ describe("ChannelFeedView", () => {
       },
     },
   ])("offers every task action from the $name", async ({ open }) => {
-    const user = userEvent.setup();
     render(
       <Theme>
         <ChannelFeedView
@@ -195,7 +194,7 @@ describe("ChannelFeedView", () => {
       </Theme>,
     );
 
-    await open(user);
+    await open();
 
     await waitFor(() => expect(screen.getByText("Pin")).toBeInTheDocument());
     for (const label of [
