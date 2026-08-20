@@ -132,8 +132,7 @@ def _evaluate_array(expression: ast.Array) -> _TypedValue:
 
 def _common_array_type(values: list[_TypedValue]) -> str:
     if all(type(value.value) is int for value in values):
-        integers = [cast(int, value.value) for value in values]
-        return _integer_type_for_range(min(integers), max(integers))
+        return _common_integer_type(values)
 
     first_type = values[0].clickhouse_type
     if all(value.clickhouse_type == first_type for value in values):
@@ -141,11 +140,20 @@ def _common_array_type(values: list[_TypedValue]) -> str:
     raise _UnsupportedLocalQuery
 
 
-def _integer_type_for_range(minimum: int, maximum: int) -> str:
-    if minimum >= 0:
-        return _integer_type(maximum)
+def _common_integer_type(values: list[_TypedValue]) -> str:
+    integers = [(cast(int, value.value), value.clickhouse_type) for value in values]
+    signed_bits = [int(clickhouse_type.removeprefix("Int")) for value, clickhouse_type in integers if value < 0]
+    unsigned_bits = [int(clickhouse_type.removeprefix("UInt")) for value, clickhouse_type in integers if value >= 0]
+
+    if not signed_bits:
+        return f"UInt{max(unsigned_bits)}"
+    if not unsigned_bits:
+        return f"Int{max(signed_bits)}"
+
+    minimum_signed_bits = max(signed_bits)
+    minimum_unsigned_bits = max(unsigned_bits)
     for bits in (8, 16, 32, 64):
-        if -(2 ** (bits - 1)) <= minimum and maximum <= 2 ** (bits - 1) - 1:
+        if bits >= minimum_signed_bits and bits > minimum_unsigned_bits:
             return f"Int{bits}"
     raise _UnsupportedLocalQuery
 

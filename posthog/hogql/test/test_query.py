@@ -457,7 +457,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "values",
                 "SELECT 1 AS one, -129 AS negative, 1.5 AS fraction, 'hello' AS text, "
                 "NULL AS missing, true AS yes, false AS no, [1, 256, NULL] AS numbers, "
-                "(1, 'hello') AS pair",
+                "[1, -1] AS mixed, [256, -1] AS wide_mixed, (1, 'hello') AS pair",
             ),
             ("false_where", "SELECT 1 AS one WHERE false"),
             ("zero_limit", "SELECT 1 AS one LIMIT 0"),

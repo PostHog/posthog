@@ -29,12 +29,15 @@ class TestLocalConstantQuery(TestCase):
             ),
             (
                 "aliases and containers",
-                "SELECT [1, 256, NULL] AS numbers, (1, 'hello') AS pair, [] AS empty",
-                ["numbers", "pair", "empty"],
+                "SELECT [1, 256, NULL] AS numbers, [1, -1] AS mixed, [256, -1] AS wide_mixed, "
+                "(1, 'hello') AS pair, [] AS empty",
+                ["numbers", "mixed", "wide_mixed", "pair", "empty"],
                 LocalQueryResult(
-                    results=[([1, 256, None], (1, "hello"), [])],
+                    results=[([1, 256, None], [1, -1], [256, -1], (1, "hello"), [])],
                     types=[
                         ("numbers", "Array(Nullable(UInt16))"),
+                        ("mixed", "Array(Int16)"),
+                        ("wide_mixed", "Array(Int32)"),
                         ("pair", "Tuple(UInt8, String)"),
                         ("empty", "Array(Nothing)"),
                     ],
