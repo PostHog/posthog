@@ -329,6 +329,7 @@ gateway_credential_hypercache = HyperCache(
     value="gateway_credential.json",
     hashed_credential_based=True,
     load_fn=_load_gateway_credential,
+    bucket=settings.OBJECT_STORAGE_BUCKET,
     cache_ttl=GATEWAY_CREDENTIAL_CACHE_TTL,
     cache_miss_ttl=GATEWAY_CREDENTIAL_CACHE_MISS_TTL,
     cache_alias=(AI_GATEWAY_DEDICATED_CACHE_ALIAS if AI_GATEWAY_DEDICATED_CACHE_ALIAS in settings.CACHES else None),

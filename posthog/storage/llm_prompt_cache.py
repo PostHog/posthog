@@ -167,6 +167,7 @@ llm_prompts_hypercache = HyperCache(
     namespace="llm_prompts",
     value="prompt.json",
     load_fn=_load_prompt_cache,
+    bucket=settings.OBJECT_STORAGE_BUCKET,
     cache_ttl=settings.LLM_PROMPTS_CACHE_TTL,
     cache_miss_ttl=settings.LLM_PROMPTS_CACHE_MISS_TTL,
 )
@@ -182,6 +183,7 @@ llm_prompts_label_hypercache = HyperCache(
     namespace="llm_prompts",
     value="prompt.json",
     load_fn=_load_prompt_cache,
+    bucket=None,
     cache_ttl=settings.LLM_PROMPTS_LABEL_CACHE_TTL,
     cache_miss_ttl=settings.LLM_PROMPTS_LABEL_CACHE_TTL,
     s3_enabled=False,

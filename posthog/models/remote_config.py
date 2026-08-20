@@ -91,6 +91,7 @@ class RemoteConfig(UUIDTModel):
             value="config.json",
             token_based=True,  # We store and load via the team token
             load_fn=load_config,
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             cache_ttl=REMOTE_CONFIG_CACHE_TTL,
             cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if has_dedicated_cache else None,
             # Mirror to the shared Redis so the hypercache-server doesn't fall

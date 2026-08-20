@@ -170,6 +170,7 @@ class HyperCache:
         namespace: str,
         value: str,
         load_fn: Callable[[KeyType], dict | HyperCacheStoreMissing],
+        bucket: str | None,
         token_based: bool = False,
         hashed_credential_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
@@ -180,10 +181,11 @@ class HyperCache:
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
         s3_enabled: bool = True,
-        bucket: Optional[str] = None,
     ):
         if token_based and hashed_credential_based:
             raise ValueError("token_based and hashed_credential_based are mutually exclusive")
+        if s3_enabled and bucket is None:
+            raise ValueError("bucket is required unless s3_enabled is False")
 
         self.namespace = namespace
         self.value = value
@@ -202,8 +204,6 @@ class HyperCache:
         # entries whose staleness bound depends on expiry — an S3 copy never expires, so
         # it would restore a stale value past every redis expiry.
         self.s3_enabled = s3_enabled
-        # None keeps the global OBJECT_STORAGE_BUCKET. Set it only when a reader outside
-        # Django resolves the same objects from a bucket of its own.
         self.bucket = bucket
 
         # Derive cache_client and redis_url from cache_alias (single source of truth)
