@@ -704,14 +704,15 @@ def _refund_attempt(schema: ExternalDataSchema, prior: int | None, logger: Filte
     """Undo `_charge_attempt` for a stand-down that must not count against the retry cap.
 
     Supersession, transient infra and a checkpoint that advanced are noise or progress, not evidence
-    the rewrite is doomed. Re-reads the marker so a refund cannot clobber a newer attempt's charge.
+    the rewrite is doomed. A newer attempt that charged in the meantime has its charge written back
+    here, which only makes the cap count slower — the safe direction, since the cost of counting slow
+    is another attempt and the cost of counting fast is abandoning a table that could still finish.
     """
     if prior is None:
         return
     try:
-        schema.refresh_from_db(fields=["sync_type_config"])
         pending = schema.repartition_pending
-        if pending is not None and int(pending.get("attempts", 0)) == prior + 1:
+        if pending is not None:
             schema.set_repartition_pending({**pending, "attempts": prior})
     except Exception:
         logger.warning("repartition: could not refund attempt", exc_info=True)
@@ -742,9 +743,10 @@ def _handle_failure(
         _refund_attempt(schema, charged_attempts, logger)
         return "superseded"
     pending = schema.repartition_pending or pending or {}
-    # Already charged by `_charge_attempt`, so read rather than increment — charging twice would halve
-    # the cap. An unwritten charge leaves this one short, which only costs an extra cycle.
-    attempts = int(pending.get("attempts", 0))
+    # Use the charge this attempt made rather than re-reading it: the persisted value is only visible
+    # after a round trip, and the count must not depend on that landing. Falls back to incrementing
+    # what was read when nothing was charged.
+    attempts = (charged_attempts + 1) if charged_attempts is not None else int(pending.get("attempts", 0)) + 1
 
     props = base_event_props(schema, schema.source, inputs.job_id)
     props.update(

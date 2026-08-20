@@ -86,10 +86,10 @@ CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
 # that matters — the win comes from merging thousands of KB-sized batches, not from filling the cap.
 REWRITE_BUFFER_MAX_BYTES = DEFAULT_MAX_TABLE_BYTES // 2
 
-# Arrow's defaults (16 and 4) keep up to 64 batches in flight, and that memory never reaches the
-# coalescing buffer, so no buffer budget bounds it. One ahead stays pipelined at ~2 batches resident.
+# Arrow's default 16-batch readahead keeps memory in flight that never reaches the coalescing buffer,
+# so no buffer budget bounds it. Fragment readahead is left at its default: serialising file reads
+# would cost the most on the many-small-files tables this module rewrites.
 REWRITE_BATCH_READAHEAD = 1
-REWRITE_FRAGMENT_READAHEAD = 1
 
 TEMP_URI_SUFFIX = "__repartitioned"
 
@@ -735,7 +735,6 @@ async def _rewrite_into_temp(
         lambda: dataset.scanner(
             batch_size=batch_size,
             batch_readahead=REWRITE_BATCH_READAHEAD,
-            fragment_readahead=REWRITE_FRAGMENT_READAHEAD,
         ).to_reader()
     )
     live_schema = await asyncio.to_thread(old_delta.schema)

@@ -239,7 +239,9 @@ class TestBudgetExhaustion:
         if expect_give_up:
             schema.clear_repartition_pending.assert_called_once()
             schema.stamp_last_repartition_at.assert_called_once()
-            schema.set_repartition_pending.assert_not_called()
+            # The charge is the only write; the marker is cleared rather than re-armed at a higher count.
+            assert schema.set_repartition_pending.call_count == 1
+            assert schema.set_repartition_pending.call_args.args[0]["attempts"] == prior_attempts + 1
             # The rewrite checkpoint must be dropped too, or the next flag cycle would resume the same
             # doomed temp and the give-up would never take effect.
             schema.clear_repartition_rewrite.assert_called_once()
@@ -515,7 +517,8 @@ class TestTransientObjectStoreFailure:
 
         emitted = [c.args[0] for c in mock_capture_event.call_args_list]
         assert "warehouse_repartition_failed" not in emitted
-        schema.set_repartition_pending.assert_not_called()
+        # The attempt is charged before the rewrite and refunded here, so the net cost is zero.
+        assert schema.set_repartition_pending.call_args.args[0]["attempts"] == 0
         schema.clear_repartition_pending.assert_not_called()
 
     @parameterized.expand(

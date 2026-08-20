@@ -25,7 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     REWRITE_BATCH_READAHEAD,
-    REWRITE_FRAGMENT_READAHEAD,
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
@@ -562,7 +561,7 @@ class TestRewriteIntoTemp:
         assert sample["peak_buffer_bytes"] > 0
 
     def test_scanner_bounds_readahead_so_the_scan_cannot_outrun_the_buffer(self, tmp_path):
-        # The default 16x4 prefetch is invisible to the coalescing buffer, so nothing else bounds it.
+        # The default 16-batch prefetch is invisible to the coalescing buffer.
         rows = [(i, datetime.datetime(2024, 1, 1 + (i % 28))) for i in range(40)]
         old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
         captured: dict = {}
@@ -591,7 +590,7 @@ class TestRewriteIntoTemp:
             )
 
         assert captured["batch_readahead"] == REWRITE_BATCH_READAHEAD
-        assert captured["fragment_readahead"] == REWRITE_FRAGMENT_READAHEAD
+        assert "fragment_readahead" not in captured
 
     def test_stops_mid_stream_once_the_deadline_passes(self, tmp_path):
         rows = [
