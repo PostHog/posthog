@@ -651,6 +651,26 @@ else
             pass "quote in a config-named path does not disable the sandbox"
         fi
     fi
+    #     A config whose own filename cannot be rendered as a literal cannot be
+    #     write-denied either, so it stays rewritable and must not be trusted to name
+    #     paths. Skipping it quietly is not enough: the declared-include pass would
+    #     still collect the clean $HOME targets it points at, which is exactly the
+    #     capability the taint withdraws.
+    h="$gitcfg_root/badname"
+    mkdir -p "$h" "$gitcfg_root/badfrag"
+    printf '[leak]\n\tmarker = GITCFG_LEAK_MARKER\n' >"$h/secret.cfg"
+    printf '[include]\n\tpath = %s/secret.cfg\n' "$h" >"$gitcfg_root/badfrag/a\"b.cfg"
+    printf '[include]\n\tpath = "%s/badfrag/a\\"b.cfg"\n' "$gitcfg_root" >"$h/.gitconfig"
+    if [[ "$(HOME="$h" git config --global --includes --get leak.marker 2>/dev/null)" != GITCFG_LEAK_MARKER ]]; then
+        die "unrenderable-origin setup is broken: the chain does not reach the payload"
+    else
+        leaked="$(HOME="$h" TMPDIR="$gitcfg_root/tmp" "$repo/bin/dev-sandbox" "cat '$h/secret.cfg'" 2>&1)"
+        if [[ "$leaked" == *GITCFG_LEAK_MARKER* ]]; then
+            die "a config with an unrenderable filename exposed a \$HOME file (taint bypass)"
+        else
+            pass "config with an unrenderable filename cannot expose a \$HOME file"
+        fi
+    fi
     rm -rf "$gitcfg_root"
 fi
 

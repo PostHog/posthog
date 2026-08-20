@@ -222,7 +222,15 @@ _gitcfg_deny_ancestors() {
 _add_gitcfg() {
     local _p="$1" _resolved _dir
     [[ -n "$_p" ]] || return 0
-    _gitcfg_bad_literal "$_p" && return 0
+    # A path that cannot be written as an SBPL literal cannot be write-denied
+    # either, so nothing stops sandboxed code rewriting it into a chooser of paths.
+    # Taint rather than skip: returning quietly would leave the include directives
+    # this file declares trusted by the pass below, which is the whole capability
+    # the taint exists to withdraw. Unrenderable means untrusted, wherever it lives.
+    if _gitcfg_bad_literal "$_p"; then
+        _gitcfg_untrusted=1
+        return 0
+    fi
     # Canonicalize before the containment tests, not after. They are string prefix
     # matches, so a symlink or a `..` component walks straight past them — and git
     # reports the logical path it was given, never the resolved one, so the logical
@@ -362,6 +370,14 @@ if [[ -x "$_git_bin" ]]; then
                 continue
                 ;;
         esac
+        # An unrenderable declaring file is untrusted for the same reason as above,
+        # and its targets must not be collected on its say-so. The origin pass
+        # reaches it too (a file declaring an include has a key, so it is reported
+        # there), but this does not depend on that.
+        if _gitcfg_bad_literal "$_origin_path"; then
+            _gitcfg_untrusted=1
+            continue
+        fi
         _add_gitcfg "$(_gitcfg_include_path "$_origin_path" "${_keyval#*$'\n'}")"
     done < <("$_git_bin" config --global --includes --show-origin -z --get-regexp '^include(if\..*)?\.path$' 2>/dev/null)
 fi
