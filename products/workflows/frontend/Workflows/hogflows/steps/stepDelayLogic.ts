@@ -217,6 +217,12 @@ export interface stepDelayLogicActions {
                   type: 'event'
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
                   condition: {
                       filters?:
                           | {
@@ -471,6 +477,12 @@ export interface stepDelayLogicActions {
                       name?: string | undefined
                   }[]
                   delay_duration?: string | undefined
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   filters: {

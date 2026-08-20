@@ -52,6 +52,8 @@ from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    ON_DEMAND_RESERVED_SCANNER_SLOTS,
+    ON_DEMAND_RESERVED_TEAM_SLOTS,
     SWEEP_READ_BUDGET_BYTES_24H,
     build_process_vision_action_workflow_id,
 )
@@ -1423,13 +1425,33 @@ async def test_child_start_failure_propagates_and_skips_advance() -> None:
         (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER, team=0), None),  # scanner cap → throttled
         (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER + 10, team=0), None),  # over → throttled
         (InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM), None),  # team cap → throttled
-        (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, team=0), 10),  # partial scanner headroom
+        (
+            # At the reserved scanner ceiling the sweep throttles even though on-demand still admits.
+            InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS, team=0),
+            None,
+        ),
+        (
+            # Same for the reserved team ceiling.
+            InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS),
+            None,
+        ),
+        (
+            # Partial scanner headroom below the reserved ceiling.
+            InFlightApplyCounts(
+                scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - 10, team=0
+            ),
+            10,
+        ),
         (
             # Team headroom smaller than scanner headroom → team cap binds the fetch.
-            InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM - 5),
+            InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS - 5),
             5,
         ),
-        (InFlightApplyCounts(scanner=0, team=0), MAX_IN_FLIGHT_APPLIES_PER_SCANNER),  # idle → full headroom
+        (
+            # Idle → full scheduled headroom, i.e. the scanner cap minus the on-demand reserve.
+            InFlightApplyCounts(scanner=0, team=0),
+            MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS,
+        ),
     ],
 )
 @pytest.mark.asyncio

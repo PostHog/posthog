@@ -169,6 +169,7 @@
     'breakdown_colors',
     'created_at',
     'creation_mode',
+    'customization',
     'deleted',
     'deprecated_tags',
     'deprecated_tags_v2',

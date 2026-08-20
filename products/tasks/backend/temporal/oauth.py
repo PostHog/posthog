@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast, get_args
 from uuid import UUID
 
 from django.db import transaction
@@ -9,6 +9,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
+    McpScopePreset,
     PosthogMcpScopes,
     SandboxOAuthApplication,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
@@ -86,6 +87,23 @@ def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
     return [scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES]
 
 
+def _workflow_run_scopes(requested: PosthogMcpScopes, state: dict[str, Any] | None) -> list[str]:
+    """Scopes for a workflow-fired run: the request intersected with the run's snapshotted
+    choice (neither side can widen the other), minus the automation-editing scopes loop
+    runs also strip."""
+    resolved = set(resolve_scopes(requested, include_internal_scopes=True))
+    connectors = ((state or {}).get("config_snapshot") or {}).get("connectors")
+    raw = connectors.get("posthog_mcp_scopes") if isinstance(connectors, dict) else None
+    snapshot: PosthogMcpScopes | None = None
+    if isinstance(raw, list):
+        snapshot = [str(scope) for scope in raw]
+    elif isinstance(raw, str) and raw in get_args(McpScopePreset):
+        snapshot = cast(McpScopePreset, raw)
+    if snapshot is not None:
+        resolved &= set(resolve_scopes(snapshot, include_internal_scopes=True))
+    return sorted(scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES)
+
+
 def create_oauth_access_token(
     task: Task,
     *,
@@ -146,6 +164,28 @@ def create_oauth_access_token_for_run(
     """
     actor_user = get_task_run_credential_user(task, state)
     loop_id = (state or {}).get("loop_id")
+    if task.origin_product == Task.OriginProduct.WORKFLOW:
+        # Workflow-fired runs mirror the loop-run policy below: the owner's eligibility is
+        # rechecked and locked at mint time, and automation-editing scopes are stripped.
+        # The workflow's snapshotted scope choice additionally caps the request, because a
+        # teammate's rerun dispatches with the generic user-run scopes rather than the
+        # ones the workflow selected.
+        effective_scopes = _workflow_run_scopes(scopes, state)
+        credential_owner_id = actor_user.id if actor_user is not None else task.created_by_id
+        with transaction.atomic():
+            if not loop_owner_eligible_for_credentials(credential_owner_id, task.team):
+                raise TaskInvalidStateError(
+                    f"Workflow task {task.id} credential owner can no longer access its team",
+                    {"task_id": task.id},
+                    cause=RuntimeError("workflow credential owner is not an active team member"),
+                )
+            return create_oauth_access_token(
+                task,
+                scopes=effective_scopes,
+                user=actor_user,
+                allow_task_creator_fallback=not is_slack_interaction_state(state),
+                loop_id=None,
+            )
     if loop_id is None:
         return create_oauth_access_token(
             task,

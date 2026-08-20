@@ -418,7 +418,7 @@ class FakeSlackClient:
 
 
 class FakeSlackIntegration:
-    """Stand-in for ``posthog.models.integration.SlackIntegration``.
+    """Stand-in for ``posthog.models.integration.slack.SlackIntegration``.
 
     Class-level state is shared across every instance a run constructs, so a test can read
     ``posted_messages`` and script ``workspace_channels`` regardless of which module built the

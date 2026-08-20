@@ -74,7 +74,7 @@ class FirebaseResumeConfig:
 class FirebaseCredentials:
     project_id: str
     client_email: str
-    private_key: str
+    private_key: str = dataclasses.field(repr=False)
     private_key_id: Optional[str] = None
     # Kept as it was read from the key file, but never used as a request target — see `token_endpoint`.
     token_uri: Optional[str] = None

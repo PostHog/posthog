@@ -46,6 +46,7 @@ import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaul
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
 import {
+  addRecentCommand,
   matchesCommandSearch,
   prioritizeExactCommandMatches,
 } from "@posthog/ui/features/command/commandSearch";
@@ -233,6 +234,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     (state) => state.activeTasks,
   );
   const [query, setQuery] = useState("");
+  const [recentCommands, setRecentCommands] = useState<Command[]>([]);
   const [remoteQuery, setRemoteQuery] = useState("");
   // The legacy title search only ever surfaces while the palette is browsing
   // (see `showRemoteSearch` below). The feed-query `mode` that decides that is
@@ -726,7 +728,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     remoteSearchAllowedRef.current = browsing && !scope;
   }, [mode, scope]);
 
-  const sections = useMemo(() => {
+  const baseSections = useMemo(() => {
     const browsing = mode === "browsing" || mode === "completingKey";
     const showCommands = browsing && (!scope || scope === "command");
     const showChannels = browsing && (!scope || scope === "space");
@@ -753,6 +755,28 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     searchText,
   ]);
 
+  const sections = useMemo(() => {
+    if (query.trim() || recentCommands.length === 0) return baseSections;
+    const currentCommands = new Map(
+      baseSections.flatMap((section) =>
+        section.items.map((command) => [command.id, command] as const),
+      ),
+    );
+    const recentItems = recentCommands.map(
+      (command) => currentCommands.get(command.id) ?? command,
+    );
+    const recentIds = new Set(recentItems.map((command) => command.id));
+    return [
+      { label: "Recent", items: recentItems },
+      ...baseSections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter((command) => !recentIds.has(command.id)),
+        }))
+        .filter((section) => section.items.length > 0),
+    ];
+  }, [baseSections, query, recentCommands]);
+
   const paletteFilter = useCallback(
     (command: { label: string; keywords?: string }) =>
       matchesCommandSearch(command, searchText),
@@ -775,6 +799,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       action_type: cmd.action,
       channel_id: cmd.channelId,
     });
+    if (!cmd.keepOpen) {
+      setRecentCommands((recent) => addRecentCommand(recent, cmd));
+    }
     cmd.onRun();
     if (cmd.keepOpen) return;
     onOpenChange(false);

@@ -86,6 +86,14 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         // Optional row column used as the masking / dedup key in place of distinct_id
         key_property: z.string().optional(),
     }),
+    z.object({
+        type: z.literal('slack-message'),
+        filters: z.object({
+            // Message-property filters only. Channel is one of these rather than a field of its own,
+            // so it composes with poster and text conditions instead of being matched separately.
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
 ])
 
 export const HogFlowActionSchema = z.discriminatedUnion('type', [

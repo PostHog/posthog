@@ -948,6 +948,47 @@ def test_retry_after_head_move_never_rewrites_a_terminal_run(team, stamphog_chai
     assert [w for w in recorder.github_writes if w["kind"] == "dismiss_review"] == []
 
 
+@pytest.mark.parametrize(
+    "live_base",
+    [
+        pytest.param({"sha": "master-tip", "ref": "master"}, id="retargeted-to-master"),
+        pytest.param({"sha": "parent-tip-2", "ref": "feat/parent"}, id="same-ref-parent-moved"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_post_verdict_skips_when_the_base_moved_under_the_run(
+    team, stamphog_chain: StamphogChain, live_base: dict
+) -> None:
+    # A stacked PR's parent merged mid-review (child retargeted to master), or the parent branch
+    # itself moved under the same ref: either rewrites the reviewed diff while the head SHA stays
+    # put. The retarget delivery retracts and re-queues, but it can trail this activity —
+    # post_verdict must recheck the live base itself, or an approval for the old base..head diff
+    # lands on the new one.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha119a"
+    live_pr = _pr_object(119, "devex-dev", head_sha) | {"base": live_base}
+    recorder.register_pr(REPO, 119, live_pr, _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=119, author_login="devex-dev"
+    )
+    reviewed_pr = _pr_object(119, "devex-dev", head_sha) | {"base": {"sha": "parent-tip", "ref": "feat/parent"}}
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"pr": reviewed_pr, "reviewer_raw": fakes.approved_engine_output().splitlines()[-1]},
+    )
+
+    result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"verdict": "skipped_base_retargeted"}
+    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.SUPERSEDED
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(team, stamphog_chain: StamphogChain) -> None:
     # Anyone can react on a public PR, so an author could bury the trusted bot's fresh 👀 past the

@@ -29,7 +29,7 @@ _READ_BYTES_BY_SCANNER_HOUR_SQL = """
 SELECT
     JSONExtractString(log_comment, 'scanner_id') AS scanner_id,
     toStartOfHour(toTimeZone(event_time, 'UTC')) AS hour,
-    sum(read_bytes) AS read_bytes,
+    sum(read_bytes) AS total_read_bytes,
     sumIf(read_bytes, JSONExtractString(log_comment, 'query_type') = %(deep_query_type)s) AS deep_read_bytes,
     sumIf(read_bytes, JSONExtractString(log_comment, 'query_type') IN %(fast_query_types)s) AS fast_read_bytes
 FROM clusterAllReplicas(%(cluster)s, system.query_log)
@@ -68,12 +68,16 @@ def meter_scanner_read_bytes_activity() -> MeterScannerReadsResult:
     )
 
     by_scanner: dict[str, dict[str, tuple[int, int, int]]] = {}
-    for scanner_id, hour, read_bytes, deep_read_bytes, fast_read_bytes in rows:
+    for scanner_id, hour, total_read_bytes, deep_read_bytes, fast_read_bytes in rows:
         # The tag is a free-form string in the query log, so a junk value must not take the run down.
         if not _is_uuid(scanner_id):
             continue
         hour_iso = hour.replace(tzinfo=dt.UTC).isoformat()
-        by_scanner.setdefault(scanner_id, {})[hour_iso] = (int(read_bytes), int(deep_read_bytes), int(fast_read_bytes))
+        by_scanner.setdefault(scanner_id, {})[hour_iso] = (
+            int(total_read_bytes),
+            int(deep_read_bytes),
+            int(fast_read_bytes),
+        )
 
     prune_cutoff = now - dt.timedelta(hours=25)
     # Wider than the sweep's: the deep pass is priced on its average over this window, so a bucket

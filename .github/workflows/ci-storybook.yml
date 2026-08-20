@@ -789,26 +789,26 @@ jobs:
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Complete Visual Review run
+              # Pass the same --purpose vr-setup created the run with. The backend reports zero
+              # unresolved on an observe run however many snapshots drifted, so without the flag
+              # the CLI cannot tell a clean tracking run from a drifting one and reports neither.
+              # With it, drift becomes a warning annotation naming the identifiers and the command
+              # still exits 0, so the run stays non-gating without the finding being dropped.
+              # That signal matters because an identifier drifting on master without being approved
+              # or quarantined reds the next PR that renders it.
+              #
+              # No exit-code branching: an observe run cannot exit 1, so every non-zero exit here
+              # is a real failure (exit 1 unresolved on a review run, exit 2 CLI error) and reds CI.
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  # Master pushes and merge-queue branches create the run with --purpose observe
-                  # (tracking-only), because neither has a PR whose reviewer could approve a diff.
+                  RUN_ID: ${{ needs.vr-setup.outputs.run_id }}
                   VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
               run: |
-                  status=0
-                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete \
-                    --run-id "${{ needs.vr-setup.outputs.run_id }}" \
-                    --baseline frontend/snapshots.yml \
-                    --token "$VR_TOKEN" || status=$?
-
-                  # `vr run complete` exits 1 for unresolved visual changes and 2 when the CLI
-                  # itself failed (auth, network, timeout, backend processing). Only the former
-                  # is expected on an observe run, so exit 2 still reds CI everywhere.
-                  if [ "$status" -eq 1 ] && [ "$VR_OBSERVE" = 'true' ]; then
-                      echo "Observe run: visual changes recorded, not gating."
-                      exit 0
+                  args=(--run-id "$RUN_ID" --baseline frontend/snapshots.yml --token "$VR_TOKEN")
+                  if [ "$VR_OBSERVE" = 'true' ]; then
+                      args+=(--purpose observe)
                   fi
-                  exit "$status"
+                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete "${args[@]}"
 
     calculate-running-time:
         name: Calculate running time

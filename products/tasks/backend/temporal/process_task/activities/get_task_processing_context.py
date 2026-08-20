@@ -12,11 +12,13 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
+    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     get_vm_sandbox_flag_payload,
@@ -86,6 +88,7 @@ class TaskProcessingContext:
     task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
+    pr_babysit_enabled: bool = False
     state: dict | None = None
     _branch: str | None = None
     sandbox_environment_name: str | None = None
@@ -129,6 +132,9 @@ class TaskProcessingContext:
     # default is what pre-existing run histories decode, so replays schedule no new timer
     # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
     interactive_max_run_duration_seconds: int | None = None
+    # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
+    # Exposure only: the peers endpoints re-check authorization server-side on every call.
+    peer_messaging_enabled: bool = False
 
     @property
     def mode(self) -> str:
@@ -347,6 +353,36 @@ def _is_agent_proxy_keep_stream_open_enabled(
         run_id=run_id,
         agent_proxy_keep_stream_open=enabled,
     )
+    return enabled
+
+
+def _is_peer_messaging_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    """Whether the agent peer-messaging tools should surface in the sandbox.
+
+    Fail-closed exposure gate only — the peers list/message endpoints enforce the
+    flag and runtime again server-side, so a stale env var in a resumed sandbox
+    can never authorize anything."""
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                AGENT_PEER_MESSAGING_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("peer_messaging_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+    if enabled:
+        log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
     return enabled
 
 
@@ -720,6 +756,31 @@ def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
     return bool(behaviors.get("watch_ci")) or bool(behaviors.get("fix_review_comments"))
 
 
+def _is_pr_babysit_snapshot_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("pr_babysit_snapshot_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context("pr_babysit_snapshot_flag_checked", run_id=run_id, pr_babysit_enabled=enabled)
+    return enabled
+
+
 def _is_continue_as_new_enabled(
     *,
     distinct_id: str,
@@ -1050,6 +1111,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     ):
         interactive_max_run_duration_seconds = settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS
 
+    pr_babysit_enabled = pr_loop_enabled and _is_pr_babysit_snapshot_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"pr_babysit_enabled: {pr_babysit_enabled} for this task run",
+    )
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
     if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
@@ -1079,6 +1150,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,
+        pr_babysit_enabled=pr_babysit_enabled,
         state=state,
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
@@ -1113,4 +1185,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         ),
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
+        # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
+        # so ACP runs never even evaluate it.
+        peer_messaging_enabled=task.runtime == Task.Runtime.PI
+        and _is_peer_messaging_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
     )

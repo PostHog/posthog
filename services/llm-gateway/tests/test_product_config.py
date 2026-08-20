@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from llm_gateway.baseten import BASETEN_MODELS
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
+from llm_gateway.flags import GLM_BASETEN_FLAG, GLM_MODAL_FLAG
 from llm_gateway.inference_routing import is_inference_routed_model
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.products.config import (
@@ -713,6 +714,7 @@ class TestModelAccessFlag:
     def test_every_gated_model_has_its_own_flag(self):
         flags = list(MODEL_ACCESS_FLAGS.values())
         assert len(flags) == len(set(flags))
+        assert not set(flags) & {GLM_BASETEN_FLAG, GLM_MODAL_FLAG}
 
     @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
     def test_ungated_models_need_no_flag(self, model: str | None):

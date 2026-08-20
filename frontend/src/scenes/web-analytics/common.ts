@@ -17,7 +17,7 @@ import {
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types'
+import { InsightLogicProps, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 /** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
 export const BREAKDOWN_NULL_DISPLAY = '(none)'
@@ -565,6 +565,30 @@ export const sessionPropertiesToPathClean = new Set([
     '$end_current_url',
 ])
 export const personPropertiesToPathClean = new Set(['$initial_pathname', '$initial_current_url'])
+
+/**
+ * Pick the operator for an exact match on a breakdown value. With path cleaning on, the value is a
+ * cleaned path such as `/user/:id`, which no raw property equals. `IsCleanedPathExact` cleans the
+ * stored property too, so the comparison happens on cleaned paths on both sides.
+ */
+export const exactMatchOperatorFor = (
+    key: string,
+    type: PropertyFilterType,
+    doPathCleaning: boolean | undefined
+): PropertyOperator => {
+    if (!doPathCleaning) {
+        return PropertyOperator.Exact
+    }
+
+    const cleanableProperties =
+        type === PropertyFilterType.Session
+            ? sessionPropertiesToPathClean
+            : type === PropertyFilterType.Person
+              ? personPropertiesToPathClean
+              : eventPropertiesToPathClean
+
+    return cleanableProperties.has(key) ? PropertyOperator.IsCleanedPathExact : PropertyOperator.Exact
+}
 
 // Utility function to map SQL/internal column names to UI-friendly display names
 export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreakdown): string => {
