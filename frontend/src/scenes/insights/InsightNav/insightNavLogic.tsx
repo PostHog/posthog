@@ -321,6 +321,13 @@ const retentionEntityToSeriesEntity = (entity: RetentionEntity | undefined): Eve
             ...(entity.custom_name ? { custom_name: entity.custom_name } : {}),
         }
     }
+    // A data warehouse target carries table_name/timestamp_field that no EventsNode can hold, and a
+    // RetentionEntity lacks the id_field/distinct_id_field a DataWarehouseNode needs, so it can't map to
+    // a series. Drop it rather than fabricate an event named after the table; the retentionFilter cache
+    // still holds the intact entity, so it survives a round trip.
+    if (entity.type === EntityTypes.DATA_WAREHOUSE) {
+        return undefined
+    }
     return {
         kind: NodeKind.EventsNode,
         ...(entity.id != null ? { event: String(entity.id) } : {}),
@@ -910,12 +917,16 @@ const buildInsightFilter = (
     }
     if (isRetentionQuery(query)) {
         const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
-        const retentionEntity = cache.series?.length ? seriesEntityToRetentionEntity(cache.series[0]) : undefined
-        const retentionEntities = retentionEntity
+        const seriesEntity = cache.series?.length ? seriesEntityToRetentionEntity(cache.series[0]) : undefined
+        // A data warehouse retention target can't ride the series channel, so an intervening trends/funnels
+        // visit would otherwise overwrite it with an event. Keep the cached warehouse target instead.
+        const cachedTarget = cache.retentionFilter?.targetEntity
+        const targetEntity = cachedTarget?.type === EntityTypes.DATA_WAREHOUSE ? cachedTarget : seriesEntity
+        const retentionEntities = targetEntity
             ? {
-                  targetEntity: retentionEntity,
+                  targetEntity,
                   // Keep a separately configured returning entity; otherwise mirror the target.
-                  returningEntity: cache.retentionFilter?.returningEntity ?? retentionEntity,
+                  returningEntity: cache.retentionFilter?.returningEntity ?? targetEntity,
               }
             : {}
         return {

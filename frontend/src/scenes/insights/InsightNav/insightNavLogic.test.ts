@@ -34,6 +34,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
+    RetentionEntity,
     StepOrderValue,
 } from '~/types'
 
@@ -851,6 +852,49 @@ describe('insightNavLogic', () => {
                 expect(trendsSource.series).toMatchObject([
                     { kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' },
                 ])
+            })
+
+            it('preserves a data warehouse retention target through a trends round trip', async () => {
+                const dwhEntity: RetentionEntity = {
+                    type: 'data_warehouse',
+                    id: 'stripe_customers',
+                    name: 'stripe_customers',
+                    table_name: 'stripe_customers',
+                    timestamp_field: 'created_at',
+                    aggregation_target_field: 'customer_id',
+                }
+                const retentionDwh: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: { targetEntity: dwhEntity, returningEntity: dwhEntity },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(retentionDwh)
+                })
+
+                // Switching to trends must not fabricate a series event named after the warehouse table.
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+                const trendsSource = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(trendsSource.series).not.toContainEqual(expect.objectContaining({ event: 'stripe_customers' }))
+
+                // Switching back must keep the warehouse target intact rather than replacing it with an event.
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+                const retentionSource = (builtInsightDataLogic.values.query as InsightVizNode).source as RetentionQuery
+                expect(retentionSource.retentionFilter?.targetEntity).toMatchObject({
+                    type: 'data_warehouse',
+                    table_name: 'stripe_customers',
+                })
+                expect(retentionSource.retentionFilter?.returningEntity).toMatchObject({
+                    type: 'data_warehouse',
+                    table_name: 'stripe_customers',
+                })
             })
 
             it('does not carry a trends-only display into stickiness', async () => {
