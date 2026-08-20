@@ -179,7 +179,6 @@ export const FEATURE_FLAGS = {
     // UX flags, used to control the UX of the app
     CMD_K_NAV_EXPERIMENT: 'cmd-k-nav-experiment', // owner: @rafaeelaudibert #team-platform-ux multivariate=control,search-bar,footer-hint,tools-row,footer-callout - surfaces the Cmd+K command menu more prominently in the left nav: search-bar = full-width search field below the nav header, footer-hint = extra Search row in the nav footer, tools-row = Search row after the Tools item in the Project section, footer-callout = dismissible callout card in the nav ad slot for users a few days after signup
     CREATE_BUTTON_NAV_EXPERIMENT: 'create-button-nav-experiment', // owner: #team-platform-ux multivariate=control,test — adds a Create dropdown to the top of the Browse tab in the left nav
-    DASHBOARD_INLINE_TILE_INSERTION_EXPERIMENT: 'dashboard-inline-tile-insertion-experiment', // owner: #team-analytics-platform multivariate=control,test — tests whether inline dashboard insertion increases completed tile additions
     FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT: 'feature-flag-disable-and-archive-experiment', // owner: #team-feature-flags multivariate=control,test, adds a destructive "Disable and archive" option alongside "Disable only" in the disable-flag confirmation dialog, control keeps the plain disable confirmation
     INBOX_SELF_DRIVING_EMPTY_STATE: 'inbox-self-driving-empty-state',
     STARRED_REORDER: 'starred-reorder', // owner: #team-platform-ux, drag-and-drop reorder of starred shortcuts in the side panel
@@ -288,7 +287,6 @@ export const FEATURE_FLAGS = {
     DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
     DASHBOARD_CUSTOMIZATION: 'dashboard-customization', // owner: @MattPua #team-analytics-platform
     DASHBOARD_EXPORT_NUDGE: 'dashboard-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported a dashboard toward a recurring subscription
-    DASHBOARD_INLINE_TILE_INSERTION: 'dashboard-inline-tile-insertion', // owner: @MattPua #team-analytics-platform
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
     DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT: 'dashboard-template-chooser-experiment', // owner: @mattp #team-analytics-platform multivariate=control,simple,new
     DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
@@ -297,6 +295,7 @@ export const FEATURE_FLAGS = {
     DATA_MODELING_MULTI_DAG: 'data-modeling-multi-dag', // owner: #team-data-modeling
     DATA_MODELING_SUSPEND_FAILING_NODES: 'data-modeling-suspend-failing-nodes', // owner: #team-data-modeling
     DATA_MODELING_TAB: 'data-modeling-tab', // owner: #team-data-modeling
+    DATA_QUALITY_CHECKS: 'data-quality-checks', // owner: #team-data-modeling
     DATA_WAREHOUSE_COLUMN_STATISTICS: 'data-warehouse-column-statistics', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
@@ -377,7 +376,6 @@ export const FEATURE_FLAGS = {
     MANAGED_MIGRATIONS_IAM_ROLE_AUTH: 'managed-migrations-iam-role-auth', // owner: #team-ingestion, gates IAM role auth for S3 batch imports
     MANAGED_MIGRATIONS_TRIAL_RUNS: 'managed-migrations-trial-runs', // owner: #team-ingestion, gates trial runs for managed migrations
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
-    MANAGED_WAREHOUSE_SQL_EDITOR: 'managed-warehouse-sql-editor', // owner: #team-managed-warehouse, gates managed warehouse connections in the SQL editor
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_ATTRIBUTION: 'marketing-analytics-attribution', // owner: @jabahamondes #team-web-analytics — gates the Attribution tab
     MARKETING_ANALYTICS_COSTS_PRECOMPUTATION: 'marketing-analytics-costs-precomputation', // owner: @jabahamondes #team-web-analytics — gates reading the native cost precompute table
@@ -528,6 +526,7 @@ export const FEATURE_FLAGS = {
     UNIFIED_APM_PRODUCT: 'unified-apm-product', // owner: #team-apm (@jonmcwest, @frankh), gates the shared APM product backing logs, tracing, and metrics
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
+    VISION_ENTRYPOINT_EXPERIMENTS: 'vision-entrypoint-experiments', // owner: #team-replay, cross-sell entry points from experiments
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics

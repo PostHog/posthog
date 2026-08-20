@@ -18,7 +18,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -39,8 +44,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class BloomerangSource(ResumableSource[BloomerangSourceConfig, BloomerangResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    # Bloomerang's v2 REST API has no dated/numbered version token to pin (the "v2" is a fixed
-    # path segment, not a documented choice among several) — only the docs link is set.
+    # The source has always spoken Bloomerang's current v2 REST API on the wire (BASE_URL ends in
+    # `/v2`); the framework label was just the unversioned default. Bloomerang has now deprecated
+    # its v1 REST API, so `v2` is declared as the explicit default and the legacy unversioned `v1`
+    # label is marked deprecated. There is no per-version dispatch — `/v2` is a fixed path segment,
+    # not a request input — so both labels resolve to identical requests. Existing `v1`-pinned rows
+    # keep working unchanged and are repinned to `v2` by data migration (a pure relabel, not a move).
+    # No calendar sunset date is published for v1.
+    supported_versions = (UNVERSIONED_API_VERSION, "v2")
+    default_version = "v2"
+    deprecated_versions = (VersionDeprecation(version=UNVERSIONED_API_VERSION, sunset_at=None),)
     api_docs_url = "https://bloomerang.com/api/rest-api"
 
     @property
