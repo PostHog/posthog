@@ -44,7 +44,7 @@
         },
         "target_type": {
             "description": "Filter by delivery channel (email or Slack).",
-            "enum": ["email", "slack"],
+            "enum": ["email", "slack", "teams"],
             "type": "string"
         }
     },
