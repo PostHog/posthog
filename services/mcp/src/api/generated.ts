@@ -21556,6 +21556,8 @@ export namespace Schemas {
       readonly latest_error: string | null;
       /** @nullable */
       readonly is_materialized: boolean | null;
+      /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
+      readonly is_incremental: boolean;
       /** Where this SavedQuery is created.
        *
        * * `data_warehouse` - Data Warehouse
@@ -39931,6 +39933,7 @@ export namespace Schemas {
      * * `events` - events
      * * `person-updates` - person-updates
      * * `data-warehouse-table` - data-warehouse-table
+     * * `data-warehouse-view` - data-warehouse-view
      */
     export type HogFunctionFiltersSourceEnum = typeof HogFunctionFiltersSourceEnum[keyof typeof HogFunctionFiltersSourceEnum];
 
@@ -39939,6 +39942,7 @@ export namespace Schemas {
       Events: 'events',
       PersonUpdates: 'person-updates',
       DataWarehouseTable: 'data-warehouse-table',
+      DataWarehouseView: 'data-warehouse-view',
     } as const;
 
     export type HogFunctionFiltersActionsItem = { [key: string]: unknown };
