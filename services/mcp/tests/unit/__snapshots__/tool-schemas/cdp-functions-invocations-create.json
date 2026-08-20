@@ -217,8 +217,8 @@
                         },
                         "source": {
                             "default": "events",
-                            "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
-                            "enum": ["events", "person-updates", "data-warehouse-table"],
+                            "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+                            "enum": ["events", "person-updates", "data-warehouse-table", "data-warehouse-view"],
                             "type": "string"
                         },
                         "transpiled": {}
@@ -422,8 +422,13 @@
                                             },
                                             "source": {
                                                 "default": "events",
-                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
-                                                "enum": ["events", "person-updates", "data-warehouse-table"],
+                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+                                                "enum": [
+                                                    "events",
+                                                    "person-updates",
+                                                    "data-warehouse-table",
+                                                    "data-warehouse-view"
+                                                ],
                                                 "type": "string"
                                             },
                                             "transpiled": {}
