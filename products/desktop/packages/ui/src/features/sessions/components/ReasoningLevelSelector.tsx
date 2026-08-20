@@ -87,6 +87,19 @@ interface ReasoningLevelSelectorProps {
    */
   isDefaultSelection?: boolean;
   /**
+   * Clears the explicit pick so the configured project/user default applies again.
+   * When provided, the "Reset to default" row calls this instead of the built-in
+   * reset to the ladder's balanced notch. Matches the web composer's single
+   * reset row.
+   */
+  onResetToDefault?: () => void;
+  /**
+   * Resetting via onResetToDefault would change nothing, so the row reads
+   * disabled. Kept separate from isDefaultSelection, which only drives the
+   * trigger's "Default ·" marker — the two diverge when no default applies.
+   */
+  resetToDefaultDisabled?: boolean;
+  /**
    * Position and size the popup against this element instead of the trigger.
    *
    * The popup takes both its placement and its width from its anchor, and the trigger
@@ -136,6 +149,8 @@ export function ReasoningLevelSelector({
   showBillingMenu,
   workspaceMode,
   isDefaultSelection,
+  onResetToDefault,
+  resetToDefaultDisabled,
   anchor,
 }: ReasoningLevelSelectorProps) {
   const [internalMenuOpen, setInternalMenuOpen] = useState(false);
@@ -355,19 +370,30 @@ export function ReasoningLevelSelector({
     setOpen(false);
   };
 
+  // Where the built-in reset lands: the ladder's balanced middle notch, or the
+  // adapter's default effort for non-ladder pickers. Shared by the reset
+  // handler and the disabled check so the two can never disagree.
+  const middleStop = stops[Math.floor((stops.length - 1) / 2)];
+  const defaultEffortOption = effortOptions.find((option) => option.isDefault);
+
   const resetToDefaults = () => {
+    // One reset for both meanings of "default": drop the pick so the configured
+    // project/user default applies where the surface knows about one, else land
+    // on the ladder's balanced notch.
+    if (onResetToDefault) {
+      selectAndClose(onResetToDefault);
+      return;
+    }
     selectAndClose(() => {
       if (useLadder) {
-        // The middle notch is the balanced default for the whole ladder.
-        const middle = stops[Math.floor((stops.length - 1) / 2)];
-        const [model, effort] = middle?.key.split(STOP_SEPARATOR) ?? [];
+        const [model, effort] = middleStop?.key.split(STOP_SEPARATOR) ?? [];
         if (model && model !== currentModel) changeModel(model);
         if (effort && effort !== currentEffort) onChange?.(effort);
-      } else {
-        const defaultEffort = effortOptions.find((option) => option.isDefault);
-        if (defaultEffort && defaultEffort.value !== currentEffort) {
-          onChange?.(defaultEffort.value);
-        }
+      } else if (
+        defaultEffortOption &&
+        defaultEffortOption.value !== currentEffort
+      ) {
+        onChange?.(defaultEffortOption.value);
       }
       for (const row of toggleRows) {
         if (row.defaultValue && row.defaultValue !== row.value) {
@@ -379,6 +405,34 @@ export function ReasoningLevelSelector({
       }
     });
   };
+
+  const togglesAtDefault =
+    !fastActive &&
+    toggleRows.every(
+      (row) => !row.defaultValue || row.value === row.defaultValue,
+    );
+  // Where a configured default exists the caller says whether resetting would
+  // change anything; otherwise "default" means where the built-in reset lands.
+  const selectionAtDefault = onResetToDefault
+    ? (resetToDefaultDisabled ?? false)
+    : useLadder
+      ? currentStopKey === middleStop?.key
+      : currentEffort === defaultEffortOption?.value;
+
+  // Shown on both faces so a deviation is always one click from the default;
+  // with nothing to undo, the row is disabled rather than a silent no-op.
+  const resetRow = (
+    <>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        disabled={selectionAtDefault && togglesAtDefault}
+        onClick={resetToDefaults}
+      >
+        <ArrowCounterClockwise size={12} weight="bold" />
+        Reset to default
+      </DropdownMenuItem>
+    </>
+  );
 
   // Both labels can be blank while a config reloads. The trigger has no icon
   // to fall back on, so it would render as an empty pill announced as
@@ -571,11 +625,7 @@ export function ReasoningLevelSelector({
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                 ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={resetToDefaults}>
-                  <ArrowCounterClockwise size={12} weight="bold" />
-                  Reset to default
-                </DropdownMenuItem>
+                {resetRow}
               </motion.div>
             ) : (
               <motion.div
@@ -595,6 +645,7 @@ export function ReasoningLevelSelector({
                   }}
                   fastToggle={fastToggle}
                 />
+                {resetRow}
               </motion.div>
             )}
           </AnimatePresence>

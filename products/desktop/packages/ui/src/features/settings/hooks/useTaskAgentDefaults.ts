@@ -5,6 +5,7 @@ import {
   type TaskRunDefaults,
   type TaskRunPreferences,
 } from "@posthog/api-client/posthog-client";
+import { preferredRunAdapter } from "@posthog/core/task-detail/previewConfig";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -92,8 +93,17 @@ export function useTaskAgentDefaults(): TaskAgentDefaultsResult {
       // the new default would be shadowed on any device that has ever picked a model —
       // the setting would look ignored. Choosing a default here is the more deliberate
       // act of the two, so it clears the stale pick. Same reset the v1 migration does.
-      useSettingsStore.getState().setLastUsedModel(null);
-      useSettingsStore.getState().setLastUsedReasoningEffort(null);
+      const settings = useSettingsStore.getState();
+      settings.setLastUsedModel(null);
+      settings.setLastUsedReasoningEffort(null);
+      // The harness has to move with it. The composer opens on whichever adapter it last
+      // used and ignores a default belonging to a different one, so a Claude default set
+      // from a composer left on Codex would be skipped outright — clearing the model
+      // alone doesn't help, because the two never meet.
+      const adapter = preferredRunAdapter(next.resolved);
+      if (adapter) {
+        settings.setLastUsedAdapter(adapter);
+      }
     },
   });
 

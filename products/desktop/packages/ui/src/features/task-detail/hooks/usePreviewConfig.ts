@@ -14,7 +14,9 @@ import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
   deriveInitialConfig,
   FAST_MODE_OPTION_CATEGORY,
+  matchesPreferredRunSelection,
   pickPreferredRunSelection,
+  preferredRunAdapter,
 } from "@posthog/core/task-detail/previewConfig";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import {
@@ -34,6 +36,14 @@ import { useTaskRunDefaults } from "./useTaskRunDefaults";
 
 const log = logger.scope("preview-config");
 
+/** The saved run picks a harness switch or a reset clears, as one write. */
+const CLEARED_RUN_PICKS = {
+  lastUsedModel: null,
+  lastUsedReasoningEffort: null,
+  lastUsedContextWindow: null,
+  lastUsedFastMode: null,
+};
+
 interface PreviewConfigResult {
   configOptions: SessionConfigOption[];
   modeOption: SessionConfigOption | undefined;
@@ -43,6 +53,19 @@ interface PreviewConfigResult {
   fastModeOption: SessionConfigOption | undefined;
   isLoading: boolean;
   setConfigOption: (configId: string, value: string) => void;
+  /**
+   * Drops the explicit local picks and re-derives the selection, landing on the
+   * configured project/user default when one applies, else the ladder's balanced notch.
+   */
+  resetToDefault: () => void;
+  /**
+   * The shown selection sits exactly on the resolved project/user default.
+   * False when no default is configured or it belongs to another harness — a
+   * fallback selection is not "the default".
+   */
+  isDefaultSelection: boolean;
+  /** Resetting would change nothing, so the reset control should read disabled. */
+  resetToDefaultDisabled: boolean;
 }
 
 function getOptionByCategory(
@@ -83,21 +106,205 @@ export function usePreviewConfig(
   );
   const [configOptions, setConfigOptions] = useState<SessionConfigOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const abortRef = useRef<AbortController | null>(null);
+  // Raw server options, tagged with the adapter they were fetched for so the
+  // derivation below can never seat one adapter's selection on another's list.
+  const [fetched, setFetched] = useState<{
+    adapter: Adapter;
+    options: SessionConfigOption[];
+  } | null>(null);
   const prevAdapterRef = useRef<Adapter | null>(null);
   const hasHydrated = useSettingsStore((state) => state._hasHydrated);
+  // Truthiness only: selecting the raw pick values would re-render every
+  // mounted instance of this hook on each pick, even when the answers computed
+  // here don't change.
+  const hasModelPick = useSettingsStore((state) => state.lastUsedModel != null);
+  const hasEffortPick = useSettingsStore(
+    (state) => state.lastUsedReasoningEffort != null,
+  );
   const { defaults: runDefaults, isSettled: runDefaultsSettled } =
     useTaskRunDefaults();
+  // The harness the configured default (user's, else the team's) runs on.
+  const defaultAdapter = preferredRunAdapter(runDefaults);
 
   useEffect(() => {
     if (!apiHost) return;
 
+    const abort = new AbortController();
+    setIsLoading(true);
+    // Drop the previous adapter's options so a stale model id can never be
+    // sent as the current selection while the new adapter's config is loading.
+    setFetched(null);
+    setConfigOptions([]);
+
+    hostClient.agent.getPreviewConfigOptions
+      .query(
+        { apiHost, adapter, allHarnessModels: allHarnessModels || undefined },
+        { signal: abort.signal },
+      )
+      .then((options) => {
+        if (abort.signal.aborted) return;
+        setFetched({ adapter, options });
+      })
+      .catch((error) => {
+        if (abort.signal.aborted) return;
+        log.error("Failed to fetch preview config options", { error });
+        setIsLoading(false);
+      });
+
+    return () => {
+      abort.abort();
+    };
+  }, [adapter, allHarnessModels, apiHost, hostClient]);
+
+  /**
+   * Pure local derivation from the fetched options, the saved picks, and the
+   * configured default. Kept out of the fetch so a reset or a default change
+   * re-seats the selection without a round trip or a loading flash.
+   */
+  const deriveSelection = useCallback(
+    (serverOptions: SessionConfigOption[]): SessionConfigOption[] => {
+      const options = serverOptions
+        .map((option) => stripDisabledModelOption(option, modelFlags))
+        .filter((option) => fastModeFlagEnabled || option.id !== "fast");
+
+      const {
+        defaultInitialTaskMode,
+        lastUsedInitialTaskMode,
+        defaultReasoningEffort,
+        lastUsedReasoningEffort,
+        lastUsedContextWindow,
+        lastUsedFastMode,
+        lastUsedModel,
+      } = useSettingsStore.getState();
+
+      let initial = deriveInitialConfig(
+        options,
+        {
+          defaultInitialTaskMode,
+          lastUsedInitialTaskMode,
+          defaultReasoningEffort,
+          lastUsedReasoningEffort,
+          lastUsedContextWindow,
+          lastUsedFastMode,
+        },
+        adapter,
+      );
+
+      // Seeding a selection is always "set the model, then carry an effort if the
+      // model still offers that tier" — the restore, preference, and ladder paths
+      // below differ only in where the pair comes from.
+      const seedSettings = {
+        defaultInitialTaskMode: "",
+        lastUsedInitialTaskMode: undefined,
+        defaultReasoningEffort,
+        lastUsedReasoningEffort,
+        lastUsedContextWindow,
+        lastUsedFastMode,
+      };
+      const seedSelection = (
+        config: SessionConfigOption[],
+        model: string,
+        effort?: string | null,
+      ): SessionConfigOption[] => {
+        const modelId = getOptionByCategory(config, "model")?.id ?? "model";
+        let seeded = applyConfigChange(config, {
+          adapter,
+          configId: modelId,
+          value: model,
+          effortOptions: getReasoningEffortOptions(adapter, model) ?? undefined,
+          contextWindowOptions:
+            getContextWindowOptions(adapter, model) ?? undefined,
+          fastModeOptions: fastModeFlagEnabled
+            ? (getFastModeOptions(adapter, model) ?? undefined)
+            : undefined,
+          settings: seedSettings,
+        });
+        const thoughtOpt = getOptionByCategory(seeded, "thought_level");
+        if (
+          effort &&
+          thoughtOpt &&
+          flattenConfigValues(thoughtOpt).includes(effort)
+        ) {
+          seeded = applyConfigChange(seeded, {
+            adapter,
+            configId: thoughtOpt.id,
+            value: effort,
+            effortOptions: undefined,
+            settings: seedSettings,
+          });
+        }
+        return seeded;
+      };
+
+      // The server always returns its default model as the current value, so
+      // without this the user's last (default-eligible) pick is lost on every
+      // refetch/remount. Restore it through applyConfigChange so the
+      // dependent effort options are recomputed for the restored model.
+      const modelOpt = getOptionByCategory(initial, "model");
+      // The user's explicit last pick always restores, premium families
+      // included — a fresh launch must not silently downgrade the model.
+      // A grouped list also holds the other harness's models, so the pick has
+      // to belong to this harness or it would run on the wrong one.
+      const restorableModel =
+        lastUsedModel &&
+        harnessForModelValue(modelOpt, lastUsedModel) === adapter
+          ? lastUsedModel
+          : undefined;
+      if (
+        restorableModel &&
+        modelOpt?.type === "select" &&
+        modelOpt.currentValue !== restorableModel &&
+        flattenConfigValues(modelOpt).includes(restorableModel)
+      ) {
+        initial = seedSelection(initial, restorableModel);
+      }
+
+      // With no local pick (fresh install or a harness switch), the project or
+      // user preference stored server-side decides what the composer opens on,
+      // ahead of the ladder's middle notch.
+      const preferred = pickPreferredRunSelection(
+        runDefaults,
+        adapter,
+        getOptionByCategory(initial, "model"),
+        lastUsedModel,
+      );
+      if (preferred) {
+        initial = seedSelection(
+          initial,
+          preferred.model,
+          preferred.reasoningEffort,
+        );
+      }
+
+      // With no saved picks and no server-side preference, land on the ladder's
+      // middle notch so the slider face is the default view.
+      if (!preferred && !lastUsedModel && !lastUsedReasoningEffort) {
+        const ladder = getCapabilityLadder(adapter);
+        const middle = ladder[Math.floor((ladder.length - 1) / 2)];
+        const midModelOpt = getOptionByCategory(initial, "model");
+        if (
+          middle &&
+          midModelOpt?.type === "select" &&
+          flattenConfigValues(midModelOpt).includes(middle.model)
+        ) {
+          initial = seedSelection(initial, middle.model, middle.effort);
+        }
+      }
+
+      return initial;
+    },
+    [adapter, modelFlags, fastModeFlagEnabled, runDefaults],
+  );
+
+  useEffect(() => {
+    if (!fetched || fetched.adapter !== adapter) return;
+
     // Wait for the settings store to finish its async hydration before
     // resolving the model. Otherwise lastUsedModel and lastUsedAdapter read as
-    // their pre-hydration defaults, the restore below is skipped, and the
-    // selector silently falls back to the server default (Opus for Claude).
-    // isLoading initializes to true, so the picker stays loading until hydration
-    // lands and the fetch below resolves.
+    // their pre-hydration defaults, the restore is skipped, and the selector
+    // silently falls back to the server default (Opus for Claude). isLoading
+    // initializes to true, so the picker stays loading until hydration lands
+    // and the derivation below runs.
     if (!hasHydrated) return;
 
     // Same reasoning for the server-side defaults: resolving before they land
@@ -111,186 +318,35 @@ export function usePreviewConfig(
     if (prevAdapterRef.current !== null && prevAdapterRef.current !== adapter) {
       const { lastUsedModel } = useSettingsStore.getState();
       useSettingsStore.setState({
+        ...CLEARED_RUN_PICKS,
         lastUsedModel:
           lastUsedModel && adapterForModelId(lastUsedModel) === adapter
             ? lastUsedModel
             : null,
-        lastUsedReasoningEffort: null,
-        lastUsedContextWindow: null,
-        lastUsedFastMode: null,
       });
     }
     prevAdapterRef.current = adapter;
 
-    abortRef.current?.abort();
-    const abort = new AbortController();
-    abortRef.current = abort;
+    setConfigOptions(deriveSelection(fetched.options));
+    setIsLoading(false);
+  }, [fetched, adapter, hasHydrated, runDefaultsSettled, deriveSelection]);
 
-    setIsLoading(true);
-    // Drop the previous adapter's options so a stale model id can never be sent
-    // as the current selection while the new adapter's config is loading.
-    setConfigOptions([]);
-
-    hostClient.agent.getPreviewConfigOptions
-      .query(
-        { apiHost, adapter, allHarnessModels: allHarnessModels || undefined },
-        { signal: abort.signal },
-      )
-      .then((serverOptions) => {
-        if (abort.signal.aborted) return;
-
-        const options = serverOptions
-          .map((option) => stripDisabledModelOption(option, modelFlags))
-          .filter((option) => fastModeFlagEnabled || option.id !== "fast");
-
-        const {
-          defaultInitialTaskMode,
-          lastUsedInitialTaskMode,
-          defaultReasoningEffort,
-          lastUsedReasoningEffort,
-          lastUsedContextWindow,
-          lastUsedFastMode,
-          lastUsedModel,
-        } = useSettingsStore.getState();
-
-        let initial = deriveInitialConfig(
-          options,
-          {
-            defaultInitialTaskMode,
-            lastUsedInitialTaskMode,
-            defaultReasoningEffort,
-            lastUsedReasoningEffort,
-            lastUsedContextWindow,
-            lastUsedFastMode,
-          },
-          adapter,
-        );
-
-        // Seeding a selection is always "set the model, then carry an effort if the
-        // model still offers that tier" — the restore, preference, and ladder paths
-        // below differ only in where the pair comes from.
-        const seedSettings = {
-          defaultInitialTaskMode: "",
-          lastUsedInitialTaskMode: undefined,
-          defaultReasoningEffort,
-          lastUsedReasoningEffort,
-          lastUsedContextWindow,
-          lastUsedFastMode,
-        };
-        const seedSelection = (
-          config: SessionConfigOption[],
-          model: string,
-          effort?: string | null,
-        ): SessionConfigOption[] => {
-          const modelId = getOptionByCategory(config, "model")?.id ?? "model";
-          let seeded = applyConfigChange(config, {
-            adapter,
-            configId: modelId,
-            value: model,
-            effortOptions:
-              getReasoningEffortOptions(adapter, model) ?? undefined,
-            contextWindowOptions:
-              getContextWindowOptions(adapter, model) ?? undefined,
-            fastModeOptions: fastModeFlagEnabled
-              ? (getFastModeOptions(adapter, model) ?? undefined)
-              : undefined,
-            settings: seedSettings,
-          });
-          const thoughtOpt = getOptionByCategory(seeded, "thought_level");
-          if (
-            effort &&
-            thoughtOpt &&
-            flattenConfigValues(thoughtOpt).includes(effort)
-          ) {
-            seeded = applyConfigChange(seeded, {
-              adapter,
-              configId: thoughtOpt.id,
-              value: effort,
-              effortOptions: undefined,
-              settings: seedSettings,
-            });
-          }
-          return seeded;
-        };
-
-        // The server always returns its default model as the current value, so
-        // without this the user's last (default-eligible) pick is lost on every
-        // refetch/remount. Restore it through applyConfigChange so the
-        // dependent effort options are recomputed for the restored model.
-        const modelOpt = getOptionByCategory(initial, "model");
-        // The user's explicit last pick always restores, premium families
-        // included — a fresh launch must not silently downgrade the model.
-        // A grouped list also holds the other harness's models, so the pick has
-        // to belong to this harness or it would run on the wrong one.
-        const restorableModel =
-          lastUsedModel &&
-          harnessForModelValue(modelOpt, lastUsedModel) === adapter
-            ? lastUsedModel
-            : undefined;
-        if (
-          restorableModel &&
-          modelOpt?.type === "select" &&
-          modelOpt.currentValue !== restorableModel &&
-          flattenConfigValues(modelOpt).includes(restorableModel)
-        ) {
-          initial = seedSelection(initial, restorableModel);
-        }
-
-        // With no local pick (fresh install or a harness switch), the project or
-        // user preference stored server-side decides what the composer opens on,
-        // ahead of the ladder's middle notch.
-        const preferred = pickPreferredRunSelection(
-          runDefaults,
-          adapter,
-          getOptionByCategory(initial, "model"),
-          lastUsedModel,
-        );
-        if (preferred) {
-          initial = seedSelection(
-            initial,
-            preferred.model,
-            preferred.reasoningEffort,
-          );
-        }
-
-        // With no saved picks and no server-side preference, land on the ladder's
-        // middle notch so the slider face is the default view.
-        if (!preferred && !lastUsedModel && !lastUsedReasoningEffort) {
-          const ladder = getCapabilityLadder(adapter);
-          const middle = ladder[Math.floor((ladder.length - 1) / 2)];
-          const midModelOpt = getOptionByCategory(initial, "model");
-          if (
-            middle &&
-            midModelOpt?.type === "select" &&
-            flattenConfigValues(midModelOpt).includes(middle.model)
-          ) {
-            initial = seedSelection(initial, middle.model, middle.effort);
-          }
-        }
-
-        setConfigOptions(initial);
-        setIsLoading(false);
-      })
-      .catch((error) => {
-        if (abort.signal.aborted) return;
-        log.error("Failed to fetch preview config options", { error });
-        setIsLoading(false);
-      });
-
-    return () => {
-      abort.abort();
-    };
-  }, [
-    adapter,
-    allHarnessModels,
-    apiHost,
-    hostClient,
-    hasHydrated,
-    modelFlags,
-    fastModeFlagEnabled,
-    runDefaults,
-    runDefaultsSettled,
-  ]);
+  const resetToDefault = useCallback(() => {
+    useSettingsStore.setState({
+      ...CLEARED_RUN_PICKS,
+      // The default names its harness, and it is unreachable from the other
+      // one — so reset moves the adapter with it rather than being skipped.
+      ...(defaultAdapter ? { lastUsedAdapter: defaultAdapter } : {}),
+    });
+    // Moving the harness re-renders with the new adapter and refetches; on the
+    // same harness, re-seat locally from the options already in hand.
+    if (
+      (!defaultAdapter || defaultAdapter === adapter) &&
+      fetched?.adapter === adapter
+    ) {
+      setConfigOptions(deriveSelection(fetched.options));
+    }
+  }, [adapter, defaultAdapter, deriveSelection, fetched]);
 
   const setConfigOption = useCallback(
     (configId: string, value: string) => {
@@ -348,6 +404,38 @@ export function usePreviewConfig(
     FAST_MODE_OPTION_CATEGORY,
   );
 
+  // lastUsedModel is passed as null: the question here is whether a preference
+  // applies to this surface at all, not whether it outranks an explicit pick.
+  const preferred = pickPreferredRunSelection(
+    runDefaults,
+    adapter,
+    modelOption,
+    null,
+  );
+  const isDefaultSelection = matchesPreferredRunSelection(
+    preferred,
+    {
+      model:
+        modelOption?.type === "select" ? modelOption.currentValue : undefined,
+      reasoningEffort:
+        thoughtOption?.type === "select"
+          ? thoughtOption.currentValue
+          : undefined,
+    },
+    hasEffortPick,
+  );
+  // A default on the other harness always leaves reset live — it switches the
+  // adapter over. On this harness it's live until the selection matches; with
+  // no applicable default a reset just clears picks, pointless only while
+  // nothing was picked.
+  const resetSwitchesHarness =
+    defaultAdapter !== null && defaultAdapter !== adapter;
+  const resetToDefaultDisabled = resetSwitchesHarness
+    ? false
+    : preferred
+      ? isDefaultSelection
+      : !hasModelPick && !hasEffortPick;
+
   return {
     configOptions,
     modeOption,
@@ -357,5 +445,8 @@ export function usePreviewConfig(
     fastModeOption,
     isLoading,
     setConfigOption,
+    resetToDefault,
+    isDefaultSelection,
+    resetToDefaultDisabled,
   };
 }

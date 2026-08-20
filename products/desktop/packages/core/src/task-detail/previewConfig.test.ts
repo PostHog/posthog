@@ -5,6 +5,7 @@ import {
   applyConfigChange,
   clampEffortToAvailable,
   deriveInitialConfig,
+  matchesPreferredRunSelection,
   type PreviewSettingsSnapshot,
   pickPreferredRunSelection,
 } from "./previewConfig";
@@ -306,5 +307,60 @@ describe("pickPreferredRunSelection", () => {
     expect(
       pickPreferredRunSelection(defaults, "claude", modelOption, lastUsedModel),
     ).toEqual(expected);
+  });
+});
+
+describe("matchesPreferredRunSelection", () => {
+  const preferred = { model: "claude-opus-5", reasoningEffort: "high" };
+
+  it.each([
+    {
+      label: "no applicable preference never reads as the default",
+      pref: null,
+      current: { model: "gpt-5.6-sol", reasoningEffort: "medium" },
+      effortPicked: false,
+      expected: false,
+    },
+    {
+      label: "a selection sitting exactly on the preference is the default",
+      pref: preferred,
+      current: { model: "claude-opus-5", reasoningEffort: "high" },
+      effortPicked: true,
+      expected: true,
+    },
+    {
+      label: "a different model deviates",
+      pref: preferred,
+      current: { model: "claude-sonnet-5", reasoningEffort: "high" },
+      effortPicked: false,
+      expected: false,
+    },
+    {
+      label: "a different effort deviates",
+      pref: preferred,
+      current: { model: "claude-opus-5", reasoningEffort: "max" },
+      effortPicked: true,
+      expected: false,
+    },
+    {
+      label:
+        "an effort-less preference matches on model while the effort is inherited",
+      pref: { model: "claude-opus-5", reasoningEffort: null },
+      current: { model: "claude-opus-5", reasoningEffort: "medium" },
+      effortPicked: false,
+      expected: true,
+    },
+    {
+      label:
+        "an explicit effort pick against an effort-less preference deviates",
+      pref: { model: "claude-opus-5", reasoningEffort: null },
+      current: { model: "claude-opus-5", reasoningEffort: "max" },
+      effortPicked: true,
+      expected: false,
+    },
+  ])("$label", ({ pref, current, effortPicked, expected }) => {
+    expect(matchesPreferredRunSelection(pref, current, effortPicked)).toBe(
+      expected,
+    );
   });
 });

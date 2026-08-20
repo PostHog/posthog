@@ -13,6 +13,7 @@ const mockClient = vi.hoisted(() => ({
 const settingsStore = vi.hoisted(() => ({
   setLastUsedModel: vi.fn(),
   setLastUsedReasoningEffort: vi.fn(),
+  setLastUsedAdapter: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -118,6 +119,31 @@ describe("useTaskAgentDefaults", () => {
       expect(settingsStore.setLastUsedModel).toHaveBeenCalledWith(null),
     );
     expect(settingsStore.setLastUsedReasoningEffort).toHaveBeenCalledWith(null);
+  });
+
+  // The composer opens on the adapter it last used and skips a default belonging to a
+  // different one, so a Claude default set from a composer left on Codex was ignored
+  // outright — the model shown never changed.
+  it("moves the harness to the one the new default runs on", async () => {
+    const claudeDefault = {
+      runtime_adapter: "claude",
+      model: "claude-opus-4-8",
+      reasoning_effort: "medium",
+    };
+    mockClient.updateMyTaskRunPreferences.mockResolvedValue({
+      preferences: claudeDefault,
+      resolved: { ...claudeDefault, source: "user" },
+    });
+    const { result } = await mounted();
+
+    act(() => result.current.save(claudeDefault));
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    await waitFor(() =>
+      expect(settingsStore.setLastUsedAdapter).toHaveBeenCalledWith("claude"),
+    );
   });
 
   // Picking a model and then its effort is two interactions moments apart; writing on each
