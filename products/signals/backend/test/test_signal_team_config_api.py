@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.signals.backend.models import SignalReport, SignalTeamConfig
 
 
@@ -16,6 +18,9 @@ class TestSignalTeamConfigAPI(APIBaseTest):
 
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/config/"
+
+    def _activity(self) -> list[ActivityLog]:
+        return list(ActivityLog.objects.filter(team_id=self.team.pk, scope="SignalTeamConfig").order_by("created_at"))
 
     def test_get_config_includes_default_slack_notification_channel(self):
         response = self.client.get(self._url())
@@ -210,3 +215,59 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is False
+
+    # Each case starts from the model default, so the POST is the only change on the row.
+    @parameterized.expand(
+        [
+            ("threshold", "default_autostart_priority", "P1", "project PR threshold", "changed", "P4", "P1"),
+            ("pr_generation", "autostart_enabled", False, "PR generation", "created", None, False),
+            (
+                "slack_channel",
+                "default_slack_notification_channel",
+                "C123|#posthog-signals",
+                "team Slack channel",
+                "created",
+                None,
+                "C123|#posthog-signals",
+            ),
+            (
+                "base_branches",
+                "autostart_base_branches",
+                {"acme/web": "staging"},
+                "base branch overrides",
+                "created",
+                None,
+                {"acme/web": "staging"},
+            ),
+        ]
+    )
+    def test_update_is_recorded_in_the_activity_log(self, _name, field, sent, label, action, before, after):
+        response = self.client.post(self._url(), data={field: sent}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        entries = self._activity()
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry.activity == "updated"
+        assert entry.item_id == str(self.config.id)
+        assert entry.user == self.user
+        assert entry.detail["changes"] == [
+            {"type": "SignalTeamConfig", "action": action, "field": label, "before": before, "after": after}
+        ]
+
+    def test_reading_config_does_not_record_activity(self):
+        # The viewset materializes a missing row on read. That is bookkeeping, so it must not
+        # show up as whoever opened the settings having changed something.
+        self.config.delete()
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert SignalTeamConfig.objects.filter(team=self.team).exists()
+        assert self._activity() == []
+
+    def test_resending_the_same_values_does_not_record_activity(self):
+        self.client.post(self._url(), data={"default_autostart_priority": "P1"}, format="json")
+        assert len(self._activity()) == 1
+
+        response = self.client.post(self._url(), data={"default_autostart_priority": "P1"}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(self._activity()) == 1
