@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { createElement, Fragment } from 'react'
 
@@ -418,6 +418,13 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
         deleteDashboardTemplateSuccess: async () => {
             refreshDashboardTemplateListsAfterMutation()
         },
+        openDashboardTemplateEditor: () => {
+            // The schema only powers JSON validation inside this modal, so fetch it when the
+            // editor opens rather than on every page where this logic mounts.
+            if (!values.templateSchema) {
+                actions.getTemplateSchema()
+            }
+        },
         closeDashboardTemplateEditor: () => {
             actions.clear()
         },
@@ -503,7 +510,4 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.getTemplateSchema()
-    }),
 ])
