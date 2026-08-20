@@ -1331,7 +1331,8 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         help_text=(
             "Person sources only: how key_column resolves to a person. 'distinct_id' treats the key as "
             "a PostHog distinct ID; 'email' matches an existing person by their email property. "
-            "Create-only. Ignored for account and group sources."
+            "Create-only. Only person sources may set 'email'; account and group sources must leave the "
+            "default 'distinct_id'."
         ),
     )
     is_enabled = serializers.BooleanField(

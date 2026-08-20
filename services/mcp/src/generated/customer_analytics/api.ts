@@ -789,7 +789,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .describe('\* `distinct_id` - distinct_id\n\* `email` - email')
             .default(customPropertySourcesCreateBodyMatchModeDefault)
             .describe(
-                "Person sources only: how key_column resolves to a person. 'distinct_id' treats the key as a PostHog distinct ID; 'email' matches an existing person by their email property. Create-only. Ignored for account and group sources.\n\n\* `distinct_id` - distinct_id\n\* `email` - email"
+                "Person sources only: how key_column resolves to a person. 'distinct_id' treats the key as a PostHog distinct ID; 'email' matches an existing person by their email property. Create-only. Only person sources may set 'email'; account and group sources must leave the default 'distinct_id'.\n\n\* `distinct_id` - distinct_id\n\* `email` - email"
             ),
         is_enabled: zod
             .boolean()
