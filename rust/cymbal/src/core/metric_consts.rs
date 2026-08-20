@@ -168,6 +168,6 @@ pub const REMOTE_RESOLUTION_REROUTE_DEPTH: &str = "cymbal_remote_resolution_rero
 pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
     "cymbal_remote_resolution_load_subscriptions_total";
 
-// Per-team cap on issue lifecycle workflow starts, applied in notifications mode.
-pub const LIFECYCLE_RATE_LIMIT_OUTCOMES: &str = "cymbal_lifecycle_rate_limit_outcomes";
-pub const LIFECYCLE_RATE_LIMIT_FAIL_OPEN: &str = "cymbal_lifecycle_rate_limit_fail_open";
+// Per-team cap on issue-created workflow starts, applied in notifications mode.
+pub const ISSUE_CREATED_RATE_LIMIT_OUTCOMES: &str = "cymbal_issue_created_rate_limit_outcomes";
+pub const ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN: &str = "cymbal_issue_created_rate_limit_fail_open";

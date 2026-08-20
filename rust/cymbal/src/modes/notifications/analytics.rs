@@ -10,7 +10,7 @@ pub fn capture_issue_created(
     team_id: i32,
     issue_id: Uuid,
     sentry_integration: bool,
-    lifecycle_rate_limited: bool,
+    workflow_rate_limited: bool,
 ) {
     let mut event = Event::new_anon(ISSUE_CREATED);
     event.insert_prop("team_id", team_id).unwrap();
@@ -19,17 +19,14 @@ pub fn capture_issue_created(
         .insert_prop("sentry_integration", sentry_integration)
         .unwrap();
     event
-        .insert_prop("lifecycle_rate_limited", lifecycle_rate_limited)
+        .insert_prop("workflow_rate_limited", workflow_rate_limited)
         .unwrap();
     capture_event(event);
 }
 
-pub fn capture_issue_reopened(team_id: i32, issue_id: Uuid, lifecycle_rate_limited: bool) {
+pub fn capture_issue_reopened(team_id: i32, issue_id: Uuid) {
     let mut event = Event::new_anon(ISSUE_REOPENED);
     event.insert_prop("team_id", team_id).unwrap();
     event.insert_prop("issue_id", issue_id.to_string()).unwrap();
-    event
-        .insert_prop("lifecycle_rate_limited", lifecycle_rate_limited)
-        .unwrap();
     capture_event(event);
 }

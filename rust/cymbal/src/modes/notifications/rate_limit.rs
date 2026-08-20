@@ -1,8 +1,14 @@
-//! Per-team cap on issue lifecycle workflow starts.
+//! Per-team cap on issue-created workflow starts.
 //!
-//! One bucket per team, charged by every notification type. A team that exhausts
-//! it gets no lifecycle workflow, and therefore no embedding and no alert, until
-//! the bucket refills.
+//! Only issue-created is charged. It is the one notification type with no ceiling
+//! of its own: a high-cardinality fingerprint mints issues as fast as a team sends
+//! events. Reopens need somebody to have resolved the issue first, and spikes
+//! already carry a per-issue Redis cooldown. Issue-created is also the only type
+//! that runs an embedding.
+//!
+//! A team that exhausts its bucket gets no issue-created workflow, and therefore
+//! no embedding and no alert for new issues, until the bucket refills. Its reopen
+//! and spike alerts keep working.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -11,16 +17,18 @@ use common_redis::RedisClient;
 use tracing::{info, warn};
 
 use crate::core::error::UnhandledError;
-use crate::core::metric_consts::{LIFECYCLE_RATE_LIMIT_FAIL_OPEN, LIFECYCLE_RATE_LIMIT_OUTCOMES};
+use crate::core::metric_consts::{
+    ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN, ISSUE_CREATED_RATE_LIMIT_OUTCOMES,
+};
 use crate::modes::notifications::config::NotificationsConfig;
 use crate::modes::notifications::temporal::WorkflowStart;
 use crate::modes::notifications::token_bucket::TokenBucket;
 
 /// What the handler should do with one notification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LifecycleDecision {
+pub enum Decision {
     /// A token was spent. Start the workflow, then hand the outcome to
-    /// [`LifecycleRateLimiter::settle`].
+    /// [`IssueCreatedRateLimiter::settle`].
     Admitted,
     /// The team is out of budget. Start no workflow.
     Limited,
@@ -29,38 +37,38 @@ pub enum LifecycleDecision {
     Uncharged,
 }
 
-impl LifecycleDecision {
+impl Decision {
     pub fn is_limited(self) -> bool {
-        self == LifecycleDecision::Limited
+        self == Decision::Limited
     }
 }
 
-pub struct LifecycleRateLimiter {
+pub struct IssueCreatedRateLimiter {
     /// `None` disables the limit: every notification comes back `Uncharged`.
     bucket: Option<TokenBucket>,
     /// `None` covers every team.
     enabled_team_ids: Option<HashSet<i32>>,
 }
 
-impl LifecycleRateLimiter {
+impl IssueCreatedRateLimiter {
     pub async fn from_config(config: &NotificationsConfig) -> Result<Self, UnhandledError> {
         let disabled = |reason: &str| {
-            info!("Error-tracking lifecycle rate limiter disabled: {reason}");
+            info!("Error-tracking issue-created rate limiter disabled: {reason}");
             Self {
                 bucket: None,
                 enabled_team_ids: None,
             }
         };
 
-        if config.lifecycle_rate_limit_redis_url.is_empty() {
+        if config.issue_created_rate_limit_redis_url.is_empty() {
             return Ok(disabled("no Redis URL"));
         }
-        if config.lifecycle_rate_limit_per_hour <= 0 {
+        if config.issue_created_rate_limit_per_hour <= 0 {
             return Ok(disabled("limit is zero or less"));
         }
 
         let client = RedisClient::with_config(
-            config.lifecycle_rate_limit_redis_url.clone(),
+            config.issue_created_rate_limit_redis_url.clone(),
             common_redis::CompressionConfig::disabled(),
             common_redis::RedisValueFormat::Utf8,
             optional_millis(config.redis_response_timeout_ms),
@@ -69,19 +77,19 @@ impl LifecycleRateLimiter {
         .await?;
 
         let enabled_team_ids =
-            parse_team_id_allowlist(&config.lifecycle_rate_limit_enabled_team_ids);
+            parse_team_id_allowlist(&config.issue_created_rate_limit_enabled_team_ids);
         info!(
-            per_hour = config.lifecycle_rate_limit_per_hour,
+            per_hour = config.issue_created_rate_limit_per_hour,
             teams = enabled_team_ids.as_ref().map_or(0, HashSet::len),
-            "Error-tracking lifecycle rate limiter enabled",
+            "Error-tracking issue-created rate limiter enabled",
         );
 
         Ok(Self {
             bucket: Some(TokenBucket::per_hour(
                 Arc::new(client),
-                config.lifecycle_rate_limit_key_prefix.clone(),
-                config.lifecycle_rate_limit_per_hour as f64,
-                config.lifecycle_rate_limit_bucket_ttl_seconds,
+                config.issue_created_rate_limit_key_prefix.clone(),
+                config.issue_created_rate_limit_per_hour as f64,
+                config.issue_created_rate_limit_bucket_ttl_seconds,
             )),
             enabled_team_ids,
         })
@@ -89,31 +97,31 @@ impl LifecycleRateLimiter {
 
     /// Charge one token for a team, and say what the handler should do next.
     /// Redis failures fail open: a limiter outage must not silence alerts.
-    pub async fn decide(&self, team_id: i32, notification_type: &'static str) -> LifecycleDecision {
+    pub async fn decide(&self, team_id: i32) -> Decision {
         let Some(bucket) = self.bucket.as_ref() else {
-            return LifecycleDecision::Uncharged;
+            return Decision::Uncharged;
         };
         if self
             .enabled_team_ids
             .as_ref()
             .is_some_and(|allowed| !allowed.contains(&team_id))
         {
-            return LifecycleDecision::Uncharged;
+            return Decision::Uncharged;
         }
 
         match bucket.charge(team_id).await {
             Ok(true) => {
-                record("admitted", notification_type);
-                LifecycleDecision::Admitted
+                record("admitted");
+                Decision::Admitted
             }
             Ok(false) => {
-                record("limited", notification_type);
-                LifecycleDecision::Limited
+                record("limited");
+                Decision::Limited
             }
             Err(e) => {
-                warn!("lifecycle rate limiter failed open for team {team_id}: {e}");
-                metrics::counter!(LIFECYCLE_RATE_LIMIT_FAIL_OPEN).increment(1);
-                LifecycleDecision::Uncharged
+                warn!("issue-created rate limiter failed open for team {team_id}: {e}");
+                metrics::counter!(ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN).increment(1);
+                Decision::Uncharged
             }
         }
     }
@@ -122,14 +130,8 @@ impl LifecycleRateLimiter {
     /// The consumer replays a batch after a restart, and `start_workflow` is
     /// idempotent on the workflow id, so a replay does no work and must cost
     /// nothing. This is what keeps the charge idempotent.
-    pub async fn settle(
-        &self,
-        team_id: i32,
-        notification_type: &'static str,
-        decision: LifecycleDecision,
-        start: WorkflowStart,
-    ) {
-        if decision != LifecycleDecision::Admitted || start != WorkflowStart::AlreadyRunning {
+    pub async fn settle(&self, team_id: i32, decision: Decision, start: WorkflowStart) {
+        if decision != Decision::Admitted || start != WorkflowStart::AlreadyRunning {
             return;
         }
         let Some(bucket) = self.bucket.as_ref() else {
@@ -137,20 +139,15 @@ impl LifecycleRateLimiter {
         };
 
         match bucket.refund(team_id).await {
-            Ok(()) => record("refunded", notification_type),
+            Ok(()) => record("refunded"),
             // A lost refund costs the team one token out of its hourly budget.
-            Err(e) => warn!("lifecycle rate limiter refund failed for team {team_id}: {e}"),
+            Err(e) => warn!("issue-created rate limiter refund failed for team {team_id}: {e}"),
         }
     }
 }
 
-fn record(outcome: &'static str, notification_type: &'static str) {
-    metrics::counter!(
-        LIFECYCLE_RATE_LIMIT_OUTCOMES,
-        "outcome" => outcome,
-        "type" => notification_type,
-    )
-    .increment(1);
+fn record(outcome: &'static str) {
+    metrics::counter!(ISSUE_CREATED_RATE_LIMIT_OUTCOMES, "outcome" => outcome).increment(1);
 }
 
 fn optional_millis(millis: u64) -> Option<std::time::Duration> {
@@ -229,8 +226,8 @@ mod tests {
         }
     }
 
-    fn limiter_with(runner: Arc<FakeRunner>) -> LifecycleRateLimiter {
-        LifecycleRateLimiter {
+    fn limiter_with(runner: Arc<FakeRunner>) -> IssueCreatedRateLimiter {
+        IssueCreatedRateLimiter {
             bucket: Some(TokenBucket::per_hour(
                 runner,
                 "test".to_string(),
@@ -241,8 +238,8 @@ mod tests {
         }
     }
 
-    fn disabled_limiter() -> LifecycleRateLimiter {
-        LifecycleRateLimiter {
+    fn disabled_limiter() -> IssueCreatedRateLimiter {
+        IssueCreatedRateLimiter {
             bucket: None,
             enabled_team_ids: None,
         }
@@ -251,19 +248,13 @@ mod tests {
     #[tokio::test]
     async fn a_denied_charge_limits_the_notification() {
         let limiter = limiter_with(FakeRunner::returning(vec![0]));
-        assert_eq!(
-            limiter.decide(42, "issue_created").await,
-            LifecycleDecision::Limited
-        );
+        assert_eq!(limiter.decide(42).await, Decision::Limited);
     }
 
     #[tokio::test]
     async fn a_redis_error_fails_open() {
         let limiter = limiter_with(FakeRunner::failing());
-        assert_eq!(
-            limiter.decide(42, "issue_created").await,
-            LifecycleDecision::Uncharged
-        );
+        assert_eq!(limiter.decide(42).await, Decision::Uncharged);
     }
 
     #[tokio::test]
@@ -272,42 +263,28 @@ mod tests {
         let mut limiter = limiter_with(runner.clone());
         limiter.enabled_team_ids = Some(HashSet::from([7]));
 
-        assert_eq!(
-            limiter.decide(42, "issue_created").await,
-            LifecycleDecision::Uncharged
-        );
+        assert_eq!(limiter.decide(42).await, Decision::Uncharged);
         assert_eq!(runner.call_count(), 0);
     }
 
     #[tokio::test]
     async fn a_disabled_limiter_charges_nothing() {
         let limiter = disabled_limiter();
-        assert_eq!(
-            limiter.decide(42, "issue_created").await,
-            LifecycleDecision::Uncharged
-        );
+        assert_eq!(limiter.decide(42).await, Decision::Uncharged);
     }
 
     #[tokio::test]
     async fn only_an_already_running_workflow_refunds() {
         let cases = [
-            (
-                LifecycleDecision::Admitted,
-                WorkflowStart::AlreadyRunning,
-                1,
-            ),
-            (LifecycleDecision::Admitted, WorkflowStart::Started, 0),
-            (
-                LifecycleDecision::Uncharged,
-                WorkflowStart::AlreadyRunning,
-                0,
-            ),
+            (Decision::Admitted, WorkflowStart::AlreadyRunning, 1),
+            (Decision::Admitted, WorkflowStart::Started, 0),
+            (Decision::Uncharged, WorkflowStart::AlreadyRunning, 0),
         ];
 
         for (decision, start, expected_refunds) in cases {
             let runner = FakeRunner::returning(vec![1]);
             let limiter = limiter_with(runner.clone());
-            limiter.settle(42, "issue_created", decision, start).await;
+            limiter.settle(42, decision, start).await;
             assert_eq!(runner.refunds(), expected_refunds, "{decision:?} {start:?}");
         }
     }

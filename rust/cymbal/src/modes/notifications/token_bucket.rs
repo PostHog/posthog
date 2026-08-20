@@ -1,4 +1,4 @@
-//! The per-team token bucket behind the lifecycle rate limit.
+//! The per-team token bucket behind the issue-created rate limit.
 //!
 //! Independent of the per-event limiter in
 //! [`crate::modes::processing::stages::rate_limiting`]. That one runs at event
@@ -156,7 +156,7 @@ impl TokenBucket {
 
     fn key(&self, team_id: i32) -> String {
         // The braces are a Redis Cluster hash tag, so a team's keys share one slot.
-        format!("{}/{{{team_id}}}/lifecycle", self.key_prefix)
+        format!("{}/{{{team_id}}}/issue_created", self.key_prefix)
     }
 }
 

@@ -55,37 +55,40 @@ pub struct NotificationsConfig {
     )]
     pub error_tracking_lifecycle_task_queue: String,
 
-    /// Redis backing the per-team lifecycle rate limit. An empty URL builds no
-    /// limiter, so every notification starts its workflow.
-    #[envconfig(from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_REDIS_URL", default = "")]
-    pub lifecycle_rate_limit_redis_url: String,
-
-    /// Workflow starts a team may make per hour, across all notification types.
-    /// Zero or less disables the limit.
+    /// Redis backing the per-team cap on issue-created workflows. An empty URL
+    /// builds no limiter, so every notification starts its workflow.
     #[envconfig(
-        from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_PER_HOUR",
+        from = "ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_REDIS_URL",
+        default = ""
+    )]
+    pub issue_created_rate_limit_redis_url: String,
+
+    /// Issue-created workflows a team may start per hour. Zero or less disables
+    /// the limit.
+    #[envconfig(
+        from = "ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_PER_HOUR",
         default = "1000"
     )]
-    pub lifecycle_rate_limit_per_hour: i64,
+    pub issue_created_rate_limit_per_hour: i64,
 
     #[envconfig(
-        from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_KEY_PREFIX",
-        default = "@posthog/error-tracking-lifecycle-rate-limiter"
+        from = "ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_KEY_PREFIX",
+        default = "@posthog/error-tracking-issue-created-rate-limiter"
     )]
-    pub lifecycle_rate_limit_key_prefix: String,
+    pub issue_created_rate_limit_key_prefix: String,
 
     #[envconfig(
-        from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_BUCKET_TTL_SECONDS",
+        from = "ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_BUCKET_TTL_SECONDS",
         default = "3600"
     )]
-    pub lifecycle_rate_limit_bucket_ttl_seconds: u64,
+    pub issue_created_rate_limit_bucket_ttl_seconds: u64,
 
     /// Comma-separated team ids the limit applies to. Empty means all teams.
     #[envconfig(
-        from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_ENABLED_TEAM_IDS",
+        from = "ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_ENABLED_TEAM_IDS",
         default = ""
     )]
-    pub lifecycle_rate_limit_enabled_team_ids: String,
+    pub issue_created_rate_limit_enabled_team_ids: String,
 
     #[envconfig(default = "100")]
     pub redis_response_timeout_ms: u64,

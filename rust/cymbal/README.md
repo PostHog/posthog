@@ -9,15 +9,22 @@ pipeline, the `cymbal.resolution.v1` gRPC symbol-resolution service
 (`CYMBAL_MODE=resolution`), or the Kafka notification consumer
 (`CYMBAL_MODE=notifications`). The notification consumer starts the matching
 Temporal lifecycle workflow for every issue-created, issue-reopened, or
-issue-spiking notification that stays within the team's hourly budget (see
-[Lifecycle rate limit](#lifecycle-rate-limit-notifications-mode)).
+issue-spiking notification. Issue-created is capped per team per hour (see
+[Issue-created rate limit](#issue-created-rate-limit-notifications-mode)).
 
-## Lifecycle rate limit (notifications mode)
+## Issue-created rate limit (notifications mode)
 
-Notifications mode caps issue lifecycle workflow starts per team per hour. One
-Redis token bucket per team is charged by every notification type, so a team
-that exhausts it gets no workflow, and therefore no embedding and no alert,
-until the bucket refills.
+Notifications mode caps issue-created workflow starts per team per hour. One
+Redis token bucket per team, so a team that exhausts it gets no issue-created
+workflow, and therefore no embedding and no alert for new issues, until the
+bucket refills.
+
+Only issue-created is charged. It is the one notification type with no ceiling of
+its own, because a high-cardinality fingerprint mints issues as fast as a team
+sends events. Reopens need somebody to have resolved the issue first, and spikes
+already carry a per-issue Redis cooldown. Issue-created is also the only type
+that runs an embedding. A throttled team therefore keeps its reopen and spike
+alerts.
 
 The gate sits in the consumer rather than in processing mode, because the
 consumer is what starts the workflows. The Kafka payload carries no decision, so
@@ -27,20 +34,19 @@ idempotent on the workflow id, so a replay starts nothing and Temporal answers
 idempotent across a consumer restart.
 
 Redis failures fail open: a limiter outage admits the notification and
-increments `cymbal_lifecycle_rate_limit_fail_open`.
+increments `cymbal_issue_created_rate_limit_fail_open`.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_REDIS_URL` | empty | An empty URL builds no limiter, so every notification starts its workflow. |
-| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_PER_HOUR` | `1000` | Workflow starts a team may make per hour. Zero or less disables the limit. |
-| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-lifecycle-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
-| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. |
-| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_ENABLED_TEAM_IDS` | empty | Comma-separated allowlist. Empty covers all teams. |
+| `ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_REDIS_URL` | empty | An empty URL builds no limiter, so every notification starts its workflow. |
+| `ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_PER_HOUR` | `1000` | Issue-created workflows a team may start per hour. Zero or less disables the limit. |
+| `ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-issue-created-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
+| `ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. |
+| `ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_ENABLED_TEAM_IDS` | empty | Comma-separated allowlist. Empty covers all teams. |
 
-Roll out through the allowlist. Set the Redis URL with
-`ENABLED_TEAM_IDS` naming a few teams, watch
-`cymbal_lifecycle_rate_limit_outcomes`, then clear the allowlist to cover
-everyone. Clearing the Redis URL switches the limit off again.
+Roll out through the allowlist. Set the Redis URL with `ENABLED_TEAM_IDS` naming
+a few teams, watch `cymbal_issue_created_rate_limit_outcomes`, then clear the
+allowlist to cover everyone. Clearing the Redis URL switches the limit off again.
 
 The bucket lives in
 [`src/modes/notifications/token_bucket.rs`](src/modes/notifications/token_bucket.rs).
