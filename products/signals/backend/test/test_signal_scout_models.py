@@ -119,6 +119,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
             delivery_id=str(emission.id),
             integration_id=17,
             channel="CSCOUTS|#scout-findings",
+            is_edit=False,
             edit_note=None,
         )
 

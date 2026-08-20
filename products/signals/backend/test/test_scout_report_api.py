@@ -160,10 +160,14 @@ class TestScoutReportAPI(APIBaseTest):
         # Emit deliveries are keyed on the report id (idempotent); each edit gets its own id.
         assert enqueue.call_args_list[0].kwargs["delivery_id"] == report_id
         assert enqueue.call_args_list[1].kwargs["delivery_id"] != report_id
-        # Only the note-only edit delivers as a note; an emit and a content rewrite post the report
-        # message, even when the rewrite also appended a note.
+        # The emit posts a first-time report; both edits post an update (no header). Only the
+        # note-only edit carries the note; a content rewrite shows the new summary instead, even when
+        # it also appended a note.
+        assert enqueue.call_args_list[0].kwargs.get("is_edit", False) is False
         assert enqueue.call_args_list[0].kwargs["edit_note"] is None
+        assert enqueue.call_args_list[1].kwargs["is_edit"] is True
         assert enqueue.call_args_list[1].kwargs["edit_note"] == "Re-validated on the next run"
+        assert enqueue.call_args_list[2].kwargs["is_edit"] is True
         assert enqueue.call_args_list[2].kwargs["edit_note"] is None
 
     def test_emit_report_unsafe_suppresses_but_returns_id(self) -> None:

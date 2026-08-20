@@ -25,13 +25,16 @@ def queue_configured_scout_slack_delivery(
     output_type: ScoutSlackOutputType,
     output_id: str,
     delivery_id: str | None = None,
+    is_edit: bool = False,
     edit_note: str | None = None,
 ) -> None:
     """Snapshot a run's configured destination and enqueue delivery after the current commit.
 
-    `edit_note` marks a note-only report edit: the delivery posts the note as an update instead of
-    re-posting the report message the channel already has. Snapshotted here (rather than re-read at
-    send time) because the report's work log can gain further notes before the worker runs."""
+    `is_edit` marks a report edit so the delivery posts an update (no `header` block, led by an
+    update line) instead of a message shaped like a fresh report. `edit_note` carries a note-only
+    edit's note, which the update shows in place of the summary. Snapshotted here (rather than
+    re-read at send time) because the report's work log can gain further notes before the worker
+    runs."""
     try:
         run = SignalScoutRun.all_teams.select_related("scout_config").filter(pk=run_id).first()
         if run is None:
@@ -54,6 +57,7 @@ def queue_configured_scout_slack_delivery(
                 delivery_id=delivery_id or str(uuid.uuid4()),
                 integration_id=destination.integration_id,
                 channel=destination.channel,
+                is_edit=is_edit,
                 edit_note=edit_note[:MAX_SLACK_NOTE_SNAPSHOT_LEN] if edit_note is not None else None,
             ),
             robust=True,

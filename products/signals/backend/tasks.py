@@ -137,6 +137,7 @@ def deliver_scout_slack_output(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    is_edit: bool = False,
     edit_note: str | None = None,
 ) -> None:
     context = {
@@ -180,6 +181,7 @@ def deliver_scout_slack_output(
                 delivery_id=delivery_id,
                 integration_id=integration_id,
                 channel=channel,
+                is_edit=is_edit,
                 edit_note=edit_note,
             )
         else:
@@ -232,13 +234,18 @@ def enqueue_scout_slack_delivery(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    is_edit: bool = False,
     edit_note: str | None = None,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
     try:
-        # `edit_note` rides as a kwarg only when set, so every delivery without one keeps the
-        # payload shape workers running the previous task signature still accept.
-        extra_kwargs: dict[str, str] = {"edit_note": edit_note} if edit_note is not None else {}
+        # `is_edit` / `edit_note` ride as kwargs only when set, so every first-delivery payload keeps
+        # the shape workers running the previous task signature still accept.
+        extra_kwargs: dict[str, object] = {}
+        if is_edit:
+            extra_kwargs["is_edit"] = True
+        if edit_note is not None:
+            extra_kwargs["edit_note"] = edit_note
         deliver_scout_slack_output.delay(
             team_id,
             output_type,
