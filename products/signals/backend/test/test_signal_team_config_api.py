@@ -251,6 +251,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert entry.activity == "updated"
         assert entry.item_id == str(self.config.id)
         assert entry.user == self.user
+        assert entry.detail is not None
         assert entry.detail["changes"] == [
             {"type": "SignalTeamConfig", "action": action, "field": label, "before": before, "after": after}
         ]
