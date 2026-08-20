@@ -99,6 +99,10 @@ export interface ConversationViewProps {
    * plain Up/Down presses (caret at the input boundary) to it.
    */
   promptRecallRef?: RefObject<PromptRecallHandler | null>;
+  /** See `SharedChatThreadProps.olderHistoryCursor`. */
+  olderHistoryCursor?: number;
+  isLoadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
 }
 
 export function ConversationView({
@@ -145,6 +149,7 @@ export function ConversationView({
     lastTurnInfo,
     isCompacting,
     isClearing,
+    isBackgroundTurnActive,
     completedToolCallCount,
     lastActivityAt,
   } = useConversationItems(events, isPromptPending, {
@@ -493,6 +498,7 @@ export function ConversationView({
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
         isClearing={isClearing}
+        isBackgroundTurnActive={isBackgroundTurnActive}
         completedToolCallCount={completedToolCallCount}
         lastActivityAt={lastActivityAt}
       />

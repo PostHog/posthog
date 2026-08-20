@@ -22,6 +22,8 @@ export type DataPipelinesHogFunctionsProps = {
     action?: JSX.Element
 }
 
+// `site_app` is intentionally absent: web scripts renders the scene-level product
+// empty state instead (products/cdp/frontend/emptyState).
 export const MAPPING: Partial<Record<HogFunctionTypeType, { key: ProductKey; description: string }>> = {
     destination: {
         key: ProductKey.PIPELINE_DESTINATIONS,
@@ -31,10 +33,6 @@ export const MAPPING: Partial<Record<HogFunctionTypeType, { key: ProductKey; des
         key: ProductKey.PIPELINE_TRANSFORMATIONS,
         description:
             'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
-    },
-    site_app: {
-        key: ProductKey.SITE_APPS,
-        description: 'Web scripts allow you to add custom tags and functionality to your website using PostHog.',
     },
 }
 

@@ -27,81 +27,34 @@ export function isCampaignPayload(value: unknown): value is CampaignPayload {
     )
 }
 
+/** Where the hog sits along the card's bottom edge, so each illustration can be framed on its own terms. */
+export interface HoggieOffset {
+    /** Horizontal center of the hog, as a percentage of the card's width. 0 is the left edge, 100 the right. */
+    x?: number
+    /** Share of the hog's own height hidden below the card's bottom edge. */
+    y?: number
+}
+
 export interface ProductPushDisplay {
-    /** Hoggie illustration shown in the promo card's hero image (a PNG, via `pngHoggie`) */
+    /** Hoggie illustration shown at the bottom of the promo card (a PNG, via `pngHoggie`) */
     Hoggie: React.ComponentType<AssetSvgProps>
-    /** Product brand color driving the hero's geometric background */
+    /** Product brand color, used for the title and - mixed down - its highlight */
     accentColor: string
     /** Default promo copy, used when the campaign has no custom reason text */
     tagline: string
+    /** Overrides the default framing of `Hoggie`, for illustrations that sit off-balance in their own bounds */
+    hoggieOffset?: HoggieOffset
 }
 
-// Playful scattered shapes behind the hoggie, tinted white over the product's brand color
-function GeometricPattern(): JSX.Element {
-    return (
-        <svg
-            className="absolute inset-0 h-full w-full text-white"
-            viewBox="0 0 232 96"
-            preserveAspectRatio="xMidYMid slice"
-            aria-hidden="true"
-        >
-            <circle cx="26" cy="22" r="11" fill="currentColor" opacity="0.25" />
-            <circle cx="204" cy="66" r="17" fill="none" stroke="currentColor" strokeWidth="3" opacity="0.3" />
-            <rect
-                x="176"
-                y="10"
-                width="15"
-                height="15"
-                rx="2"
-                transform="rotate(18 183 17)"
-                fill="currentColor"
-                opacity="0.2"
-            />
-            <polygon points="64,10 75,30 53,30" fill="currentColor" opacity="0.3" />
-            <path
-                d="M8 62 l7 -8 7 8 7 -8 7 8"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity="0.35"
-            />
-            <circle cx="118" cy="14" r="4" fill="currentColor" opacity="0.35" />
-            <path
-                d="M148 78 h12 M154 72 v12"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-                opacity="0.3"
-            />
-            <circle cx="52" cy="78" r="6" fill="none" stroke="currentColor" strokeWidth="2.5" opacity="0.25" />
-            <rect
-                x="96"
-                y="70"
-                width="10"
-                height="10"
-                transform="rotate(-12 101 75)"
-                fill="currentColor"
-                opacity="0.18"
-            />
-            <polygon
-                points="206,18 214,32 198,32"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinejoin="round"
-                opacity="0.3"
-            />
-        </svg>
-    )
-}
+const DEFAULT_HOGGIE_OFFSET: Required<HoggieOffset> = { x: 50, y: 22 }
 
 /**
- * Presentational product "hog + text" hero: a Hoggie illustration over the product's brand-tinted
- * geometric background, with a title and blurb below. Shared by the nav advertisement card and the
- * welcome dialog's flagship-products showcase so both read as one visual. ``topRight`` is an optional
- * slot for an overlay control (e.g. a dismiss button); the welcome showcase leaves it empty.
+ * Presentational product "text + hog" promo: the product name highlighted in its brand color, a
+ * blurb, and a Hoggie illustration running off the card's bottom edge. Shared by the nav
+ * advertisement card and the welcome dialog's flagship-products showcase so both read as one
+ * visual. The illustration is clipped by the caller's `overflow-hidden`. ``topRight`` is an
+ * optional slot for a control next to the title (e.g. a dismiss button); the welcome showcase
+ * leaves it empty.
  */
 export function ProductHogHero({
     hero,
@@ -114,22 +67,36 @@ export function ProductHogHero({
     text: React.ReactNode
     topRight?: JSX.Element
 }): JSX.Element {
+    const { x, y } = { ...DEFAULT_HOGGIE_OFFSET, ...hero.hoggieOffset }
+
     return (
-        <>
-            <div
-                className="relative flex h-24 items-center justify-center"
-                style={{ backgroundColor: hero.accentColor }}
-            >
-                <GeometricPattern />
-                <hero.Hoggie className="relative h-20 w-auto" aria-hidden="true" />
-                <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-surface-primary" />
-                {topRight ? <div className="absolute top-1 right-1">{topRight}</div> : null}
+        <div className="flex flex-col gap-1 px-2 pt-2">
+            <div className="flex items-start justify-between gap-1">
+                <strong
+                    className="rounded-sm px-1 py-px text-sm leading-tight"
+                    style={{
+                        // Pulled towards the theme's text color so pale brand accents stay legible on
+                        // light backgrounds and dark ones on the dark theme, without losing their hue.
+                        color: `color-mix(in srgb, ${hero.accentColor} 78%, var(--color-text-primary))`,
+                        backgroundColor: `color-mix(in srgb, ${hero.accentColor} 18%, transparent)`,
+                    }}
+                >
+                    {title}
+                </strong>
+                {topRight}
             </div>
-            <div className="flex flex-col gap-1 px-2 pt-0.5 pb-2">
-                <strong className="text-sm leading-tight">{title}</strong>
-                <p className="mb-0 text-secondary">{text}</p>
+            <p className="mb-0 text-secondary">{text}</p>
+            {/* Pulled out of the card's horizontal padding so `x` is a share of the full card width */}
+            <div className="relative -mx-2 -mt-1 h-32">
+                {/* Oversized rather than nudged down, so the part `y` hides below the edge does not
+                    open an equal gap above the hog. */}
+                <hero.Hoggie
+                    className="absolute top-0 w-auto max-w-none"
+                    style={{ left: `${x}%`, height: `${100 / (1 - y / 100)}%`, transform: 'translateX(-50%)' }}
+                    aria-hidden="true"
+                />
             </div>
-        </>
+        </div>
     )
 }
 
@@ -152,11 +119,10 @@ export function AdvertisementCard({
 
     const dismissButton = (
         <LemonButton
-            icon={<IconX className={hero ? 'text-white' : 'text-muted'} />}
+            icon={<IconX className="text-muted" />}
             tooltip="Dismiss"
             tooltipPlacement="right"
             size="xxsmall"
-            className={hero ? 'bg-black/20 hover:bg-black/30' : undefined}
             onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()

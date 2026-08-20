@@ -24,6 +24,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.temporal.babysit_pr.snapshot import BabysitJournal
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_USER_SECONDS, WARM_IDLE_TIMEOUT
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
@@ -60,6 +61,8 @@ from products.tasks.backend.temporal.process_task.activities import (
     track_workflow_event,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
+from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import SendFollowupToSandboxInput
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
@@ -592,6 +595,54 @@ class TestProcessTaskFollowupDispatch:
         assert workflow._pending_followups == []
 
 
+class TestFollowupDeliveryFailureBookkeeping:
+    def _workflow(self, monkeypatch, *, mode: str, patched: bool):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": mode})
+        emitted: list[EmitProgressInput] = []
+
+        async def fake_execute_activity(_activity, activity_input, **_kwargs):
+            if isinstance(activity_input, SendFollowupToSandboxInput):
+                raise RuntimeError("delivery failed")
+            if isinstance(activity_input, EmitProgressInput):
+                emitted.append(activity_input)
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=patched))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        return workflow, emitted
+
+    async def test_failed_interactive_delivery_releases_the_message_for_retry(self, monkeypatch):
+        workflow, emitted = self._workflow(monkeypatch, mode="interactive", patched=True)
+
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert len(workflow._pending_followups) == 1
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is False
+        assert workflow._completion_status == "completed"
+        assert [(e.step, e.status) for e in emitted] == [("followup_delivery", "failed")]
+
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert len(workflow._pending_followups) == 2
+
+    @pytest.mark.parametrize("mode,patched", [("interactive", False), ("background", True)])
+    async def test_failed_delivery_terminalizes_when_keep_alive_does_not_apply(self, monkeypatch, mode, patched):
+        workflow, emitted = self._workflow(monkeypatch, mode=mode, patched=patched)
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error_type == "followup_delivery_failed"
+        assert emitted == []
+
+
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
     def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
@@ -906,6 +957,37 @@ class TestProcessTaskWorkflowUnit:
     def test_parse_inputs_reads_prewarmed(self, payload: dict, expected_prewarmed: bool):
         parsed = ProcessTaskWorkflow.parse_inputs([json.dumps(payload)])
         assert parsed.prewarmed is expected_prewarmed
+
+    def test_parse_inputs_rebuilds_babysit_journal_from_resumed_sandbox(self):
+        payload = {
+            "run_id": "r1",
+            "resumed_sandbox": {
+                "sandbox_id": "s1",
+                "sandbox_url": "https://sandbox",
+                "connect_token": None,
+                "ci_repetitions": 0,
+                "pr_fingerprint": None,
+                "pr_progress_emitted": False,
+                "first_user_message_received": False,
+                "is_agent_design_enabled": False,
+                "last_active_time": None,
+                "babysit_journal": {
+                    "threads": {"T1": "C1"},
+                    "comment_ids": ["M1"],
+                    "head_sha": "abc",
+                    "head_keys": ["CI/backend"],
+                },
+            },
+        }
+
+        parsed = ProcessTaskWorkflow.parse_inputs([json.dumps(payload)])
+
+        # Must come back as a BabysitJournal, not a raw dict, so the next babysit poll can
+        # call .attention() on it instead of raising AttributeError.
+        assert parsed.resumed_sandbox is not None
+        journal = parsed.resumed_sandbox.babysit_journal
+        assert isinstance(journal, BabysitJournal)
+        assert journal.threads == {"T1": "C1"}
 
     def test_warm_idle_timeout_is_shorter_than_active_inactivity(self):
         assert WARM_IDLE_TIMEOUT < timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS)
@@ -2306,6 +2388,16 @@ class TestContinueAsNew:
         wf._context = ctx
         return wf
 
+    async def test_agent_state_tracks_end_of_turn(self) -> None:
+        workflow_instance = ProcessTaskWorkflow()
+
+        await workflow_instance.agent_state_changed(True)
+        assert workflow_instance._agent_active is True
+        assert workflow_instance._end_of_turn_received is False
+
+        await workflow_instance.agent_state_changed(False)
+        assert (workflow_instance._agent_active, workflow_instance._end_of_turn_received) == (False, True)
+
     def test_build_and_restore_round_trips_loop_state(self, monkeypatch) -> None:
         chain_start = datetime(2026, 7, 16, 9, 0, tzinfo=UTC)
         monkeypatch.setattr(
@@ -2321,6 +2413,9 @@ class TestContinueAsNew:
         wf._first_user_message_received = True
         wf._is_agent_design_enabled = True
         wf._last_active_time = datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+        wf._agent_active = False
+        wf._end_of_turn_received = True
+        wf._last_agent_heartbeat_at = datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         wf._slack_thread_context = {"channel": "C1"}
         wf._posthog_mcp_scopes = "full"
 
@@ -2344,6 +2439,9 @@ class TestContinueAsNew:
         assert restored._is_agent_design_enabled is True
         # The datetime survives the ISO round-trip.
         assert restored._last_active_time == datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+        assert restored._agent_active is False
+        assert restored._end_of_turn_received is True
+        assert restored._last_agent_heartbeat_at == datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         # The wall-clock cap anchors on the chain start, so the first execution seeds it from
         # its own start_time and every later continuation carries that same value forward.
         assert restored._chain_started_at == chain_start

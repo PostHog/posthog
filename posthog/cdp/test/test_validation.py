@@ -16,19 +16,20 @@ from posthog.cdp.validation import (
     compile_hog,
     generate_template_bytecode,
 )
+from posthog.models.integration import Integration
 
 from products.messaging.backend.api.design_validation import validate_design
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
-def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False):
+def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False, context_extra=None):
     serializer = MappingsSerializer(
         data={
             "inputs_schema": schema,
             "inputs": inputs,
         },
-        context={"function_type": function_type, "is_dwh_source": is_dwh_source},
+        context={"function_type": function_type, "is_dwh_source": is_dwh_source, **(context_extra or {})},
     )
     serializer.is_valid(raise_exception=True)
     return serializer.validated_data["inputs"]
@@ -550,6 +551,159 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         with pytest.raises(ValidationError) as ctx:
             validate_inputs(inputs_schema, {"email": {"value": value}})
         assert "At most 10 email senders are allowed." in str(ctx.value.detail)
+
+    def _create_email_integration(self, domain="posthog.com"):
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": f"sender@{domain}", "name": "Sender", "domain": domain, "verified": True},
+        )
+
+    def _validate_email_from(self, from_value, existing_from=None, get_team=True, cache=None):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {"from": from_value, "to": "a@b.com", "subject": "hi", "text": "hi"}
+        context_extra = {"existing_email_from": existing_from}
+        if get_team:
+            context_extra["get_team"] = lambda: self.team
+        if cache is not None:
+            context_extra["email_integration_domain_cache"] = cache
+        return validate_inputs(inputs_schema, {"email": {"value": value}}, context_extra=context_extra)
+
+    @parameterized.expand(
+        [
+            ("off_domain", "sales@evil.com", 'is not on the verified domain "posthog.com"'),
+            ("planted_placeholder", "default@example.com", 'is not on the verified domain "posthog.com"'),
+            ("not_an_email", "not-an-email", "is not a valid email address"),
+            ("address_list", "a@posthog.com, b@posthog.com", "is not a valid email address"),
+        ]
+    )
+    def test_email_literal_sender_override_rejected_at_save(self, _name, address, expected):
+        # A literal override that the runtime would refuse (or silently fall back from) must be
+        # rejected when the workflow is saved, while the author can still act on it.
+        integration = self._create_email_integration()
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from({"integrationId": integration.id, "email": address})
+        assert expected in str(ctx.value.detail)
+
+    @parameterized.expand(
+        [
+            ("on_domain", "community@posthog.com"),
+            ("case_insensitive", "Community@PostHog.com"),
+            ("liquid_template", "{{ event.properties.sender }}"),
+            ("hog_template", "{event.properties.sender}"),
+            ("empty_means_integration_default", ""),
+        ]
+    )
+    def test_email_sender_override_accepted_at_save(self, _name, address):
+        integration = self._create_email_integration()
+
+        validated = self._validate_email_from({"integrationId": integration.id, "email": address})
+        assert validated["email"]["value"]["from"]["email"] == address
+
+    def test_email_sender_override_unchanged_stored_value_is_not_revalidated(self):
+        # Workflows written before June 2026 carry a placeholder address the author never typed.
+        # Re-saving one of them must not fail on that stored value; only a newly written address
+        # is held to the domain rule. The stored placeholders are removed by a separate backfill.
+        integration = self._create_email_integration()
+
+        self._validate_email_from(
+            {"integrationId": integration.id, "email": "default@example.com"},
+            existing_from={"integrationId": integration.id, "email": "default@example.com"},
+        )
+
+    def test_email_sender_override_changed_value_is_validated(self):
+        integration = self._create_email_integration()
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(
+                {"integrationId": integration.id, "email": "new@evil.com"},
+                existing_from={"integrationId": integration.id, "email": "old@evil.com"},
+            )
+        assert 'is not on the verified domain "posthog.com"' in str(ctx.value.detail)
+
+    def test_email_sender_override_kept_address_with_changed_sender_is_validated(self):
+        # Selecting a different sender re-runs the domain check even when the address is kept.
+        # Grandfathering on the address alone let a sender change save an off-domain pair that
+        # silently falls back at send time - the failure this validation exists to surface.
+        posthog_integration = self._create_email_integration("posthog.com")
+        other_integration = self._create_email_integration("example.dev")
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(
+                {"integrationId": other_integration.id, "email": "community@posthog.com"},
+                existing_from={"integrationId": posthog_integration.id, "email": "community@posthog.com"},
+            )
+        assert 'is not on the verified domain "example.dev"' in str(ctx.value.detail)
+
+    def test_email_sender_override_added_rotation_sender_is_validated(self):
+        # Adding a rotation sender keeps the stored address, so an address-only grandfather
+        # would skip the multi-sender domain loop entirely.
+        posthog_integration = self._create_email_integration("posthog.com")
+        other_integration = self._create_email_integration("example.dev")
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(
+                {
+                    "integrationId": posthog_integration.id,
+                    "integrationIds": [posthog_integration.id, other_integration.id],
+                    "email": "community@posthog.com",
+                },
+                existing_from={"integrationId": posthog_integration.id, "email": "community@posthog.com"},
+            )
+        assert 'is not on the verified domain "example.dev"' in str(ctx.value.detail)
+
+    def test_email_sender_override_grandfathers_either_live_or_draft_value(self):
+        # A raw-API live save is compared against both stored variants: an address unchanged
+        # from the live value must not be blocked because a divergent draft exists.
+        integration = self._create_email_integration()
+
+        self._validate_email_from(
+            {"integrationId": integration.id, "email": "legacy@evil.com"},
+            existing_from=[
+                {"integrationId": integration.id, "email": "legacy@evil.com"},
+                {"integrationId": integration.id, "email": "draft@evil.com"},
+            ],
+        )
+
+    def test_email_sender_domain_lookup_is_cached_per_save(self):
+        # A drip sequence validates one action at a time, so each email step re-queries the
+        # same sender row unless the domain lookup shares a request-scoped cache (mirrors
+        # _message_template_cache).
+        integration = self._create_email_integration()
+        cache: dict = {}
+
+        self._validate_email_from({"integrationId": integration.id, "email": "a@posthog.com"}, cache=cache)
+        with self.assertNumQueries(0):
+            self._validate_email_from({"integrationId": integration.id, "email": "b@posthog.com"}, cache=cache)
+
+    def test_email_sender_override_must_be_on_every_rotation_domain(self):
+        # Sender rotation picks one integration per send, so a literal address that is off-domain
+        # for any of them would make a fraction of sends fall back to a different sender.
+        posthog_integration = self._create_email_integration("posthog.com")
+        other_integration = self._create_email_integration("example.dev")
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(
+                {
+                    "integrationId": posthog_integration.id,
+                    "integrationIds": [posthog_integration.id, other_integration.id],
+                    "email": "community@posthog.com",
+                }
+            )
+        assert 'is not on the verified domain "example.dev"' in str(ctx.value.detail)
+
+    @parameterized.expand(
+        [
+            ("no_team_in_context", False, 1),
+            ("unknown_integration", True, 999999),
+        ]
+    )
+    def test_email_sender_override_skips_when_domain_is_unresolvable(self, _name, get_team, integration_id):
+        # Internal re-saves run without a request (no get_team), and an integration id that does
+        # not resolve has no domain to compare against. Both must not block the save; the runtime
+        # still enforces the domain at send time.
+        self._validate_email_from({"integrationId": integration_id, "email": "sales@evil.com"}, get_team=get_team)
 
     @parameterized.expand(
         [

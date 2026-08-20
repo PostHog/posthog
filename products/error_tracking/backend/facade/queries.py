@@ -17,6 +17,9 @@ from posthog.models.team.team import Team
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
 )
+from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_projection_query_runner import (
+    ErrorTrackingFingerprintProjectionQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
     ErrorTrackingIssueCorrelationQueryRunner,
 )
@@ -27,6 +30,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues
 
 __all__ = [
     "ErrorTrackingBreakdownsQueryRunner",
+    "ErrorTrackingFingerprintProjectionQueryRunner",
     "ErrorTrackingIssueCorrelationQueryRunner",
     "ErrorTrackingQueryRunner",
     "ErrorTrackingSimilarIssuesQueryRunner",
