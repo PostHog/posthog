@@ -11,6 +11,7 @@ import {
   publishedCanvasBuild,
 } from "./canvasBuildSchemas";
 import { DashboardsService } from "./dashboardsService";
+import type { InstanceApiClient } from "./instanceApiClient";
 import type { ProjectApiClient } from "./projectApiClient";
 
 function build(
@@ -214,12 +215,16 @@ describe("canvas build lifecycle", () => {
           { status: 200 },
         ),
     );
-    const service = new DashboardsService({
-      json: async (path: string) => {
-        expect(path).toBe("canvases/canvas-1/builds/");
-        return (await fetchMock()).json();
-      },
-    } as unknown as ProjectApiClient);
+    const service = new DashboardsService(
+      {
+        json: async (path: string) => {
+          expect(path).toBe("canvases/canvas-1/builds/");
+          return (await fetchMock()).json();
+        },
+      } as unknown as ProjectApiClient,
+      // This case never reaches the instance-level location endpoint.
+      {} as unknown as InstanceApiClient,
+    );
 
     const result = await service.getBuilds({ id: "canvas-1" });
 

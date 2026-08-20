@@ -8,6 +8,7 @@ import type {
   CanvasActionDefinition,
   CanvasActionResult,
   CanvasDraft,
+  CanvasLocation,
   CanvasSource,
   CanvasStateEntry,
   CanvasStateScope,
@@ -43,6 +44,8 @@ export interface IDashboardsService {
   // The component store: component-kind canvases visible to the caller.
   listComponents(input: { search?: string }): Promise<DashboardRecord[]>;
   get(id: string): Promise<DashboardRecord | null>;
+  // Which project owns a canvas, for one the signed-in project does not have.
+  location(id: string): Promise<CanvasLocation | null>;
   create(input: {
     channelId: string;
     name: string;

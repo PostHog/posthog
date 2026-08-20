@@ -5,16 +5,18 @@ import {
   type CanvasBuildRecord,
   canvasBuildRecordSchema,
 } from "./canvasBuildSchemas";
-import type {
-  CanvasActionDefinition,
-  CanvasActionResult,
-  CanvasDraft,
-  CanvasSource,
-  CanvasSourceProject,
-  CanvasStateEntry,
-  CanvasStateScope,
-  CanvasVersion,
-  DashboardRecord,
+import {
+  type CanvasActionDefinition,
+  type CanvasActionResult,
+  type CanvasDraft,
+  type CanvasLocation,
+  type CanvasSource,
+  type CanvasSourceProject,
+  type CanvasStateEntry,
+  type CanvasStateScope,
+  type CanvasVersion,
+  canvasLocationSchema,
+  type DashboardRecord,
 } from "./dashboardSchemas";
 import {
   type CanvasAgentRequestResult,
@@ -27,6 +29,10 @@ import {
   componentMetaSchema,
   type LayoutOperation,
 } from "./gridLayoutSchemas";
+import {
+  INSTANCE_API_CLIENT,
+  type InstanceApiClient,
+} from "./instanceApiClient";
 import {
   PROJECT_API_CLIENT,
   type ProjectApiClient,
@@ -151,6 +157,8 @@ export class DashboardsService {
   constructor(
     @inject(PROJECT_API_CLIENT)
     private readonly api: ProjectApiClient,
+    @inject(INSTANCE_API_CLIENT)
+    private readonly instanceApi: InstanceApiClient,
   ) {}
 
   async list(channelId: string): Promise<DashboardRecord[]> {
@@ -167,6 +175,32 @@ export class DashboardsService {
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`Failed to load canvas (${res.status})`);
     return toRecord((await res.json()) as ApiCanvas);
+  }
+
+  /**
+   * Which project owns a canvas the signed-in project does not have.
+   *
+   * Null when the instance will not say: the canvas does not exist, the account cannot reach
+   * its project, or the session token is scoped to a single project. Those are settled answers
+   * rather than failures, so callers show the plain not-found state and offer no retry.
+   */
+  async location(id: string): Promise<CanvasLocation | null> {
+    const res = await this.instanceApi.fetch(
+      `canvas_locations/${encodeURIComponent(id)}/`,
+    );
+    if (res.status === 404 || res.status === 403) return null;
+    if (!res.ok) throw new Error(`Failed to locate canvas (${res.status})`);
+    const body = (await res.json()) as Record<string, unknown>;
+    return canvasLocationSchema.parse({
+      canvasId: body.canvas_id,
+      canvasName: body.canvas_name,
+      channelId: body.channel_id,
+      projectId: body.project_id,
+      projectName: body.project_name,
+      organizationId: body.organization_id,
+      organizationName: body.organization_name,
+      url: body.url,
+    });
   }
 
   // The component store: component-kind canvases across every channel visible

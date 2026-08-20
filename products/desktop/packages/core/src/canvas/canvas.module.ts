@@ -11,6 +11,7 @@ import {
   CHANNEL_TASKS_SERVICE,
   DASHBOARDS_SERVICE,
 } from "./identifiers";
+import { INSTANCE_API_CLIENT, InstanceApiClient } from "./instanceApiClient";
 import { PROJECT_API_CLIENT, ProjectApiClient } from "./projectApiClient";
 
 // Host-agnostic canvas services (dashboards + freeform canvas data). They only
@@ -19,6 +20,8 @@ import { PROJECT_API_CLIENT, ProjectApiClient } from "./projectApiClient";
 export const canvasCoreModule = new ContainerModule(({ bind }) => {
   bind(ProjectApiClient).toSelf().inSingletonScope();
   bind(PROJECT_API_CLIENT).toService(ProjectApiClient);
+  bind(InstanceApiClient).toSelf().inSingletonScope();
+  bind(INSTANCE_API_CLIENT).toService(InstanceApiClient);
 
   bind(CanvasDataService).toSelf().inSingletonScope();
   bind(CANVAS_DATA_SERVICE).toService(CanvasDataService);

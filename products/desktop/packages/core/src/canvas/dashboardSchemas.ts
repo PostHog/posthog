@@ -235,3 +235,16 @@ export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;
 export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
   id: z.string().min(1),
 });
+
+/** Where a canvas lives, for a canvas the signed-in project does not have. */
+export const canvasLocationSchema = z.object({
+  canvasId: z.string(),
+  canvasName: z.string(),
+  channelId: z.string(),
+  projectId: z.number(),
+  projectName: z.string(),
+  organizationId: z.string(),
+  organizationName: z.string(),
+  url: z.string(),
+});
+export type CanvasLocation = z.infer<typeof canvasLocationSchema>;

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DashboardsService } from "./dashboardsService";
+import type { InstanceApiClient } from "./instanceApiClient";
 import type { ProjectApiClient } from "./projectApiClient";
 
 // A canvas as the PostHog canvases API returns it.
@@ -52,12 +53,29 @@ function fakeApi(
   return { api: api as unknown as ProjectApiClient, calls };
 }
 
+// The location endpoint is instance-level, so it takes its own client. Most cases never
+// reach it; those pass this stub and assert nothing about it.
+function fakeInstanceApi(
+  responses: Record<string, { status: number; body?: unknown }> = {},
+): InstanceApiClient {
+  return {
+    fetch: async (path: string) => {
+      const match = responses[path] ?? { status: 404 };
+      return {
+        ok: match.status >= 200 && match.status < 300,
+        status: match.status,
+        json: async () => match.body,
+      } as Response;
+    },
+  } as unknown as InstanceApiClient;
+}
+
 describe("DashboardsService.list", () => {
   it("maps API canvases to camelCase records", async () => {
     const { api, calls } = fakeApi({
       "canvases/?channel=chan-1": [apiCanvas()],
     });
-    const service = new DashboardsService(api);
+    const service = new DashboardsService(api, fakeInstanceApi());
 
     const rows = await service.list("chan-1");
 
@@ -95,12 +113,70 @@ describe("DashboardsService.getBuilds", () => {
         ],
       },
     });
-    const service = new DashboardsService(api);
+    const service = new DashboardsService(api, fakeInstanceApi());
 
     const lifecycle = await service.getBuilds({ id: "c1", versionId: "v1" });
 
     expect(lifecycle.publishedBuildId).toBe("b1");
     expect(lifecycle.currentVersionId).toBe("v1");
     expect(lifecycle.builds[0].buildStatus).toBe("ready");
+  });
+});
+
+describe("DashboardsService.location", () => {
+  const path = "canvas_locations/c1/";
+
+  it("maps the API body to a camelCase location", async () => {
+    const service = new DashboardsService(
+      fakeApi({}).api,
+      fakeInstanceApi({
+        [path]: {
+          status: 200,
+          body: {
+            canvas_id: "c1",
+            canvas_name: "Revenue",
+            channel_id: "chan-1",
+            project_id: 42,
+            project_name: "Marketing",
+            organization_id: "org-1",
+            organization_name: "Acme",
+            url: "https://us.posthog.com/code/canvas/chan-1/c1",
+          },
+        },
+      }),
+    );
+
+    const location = await service.location("c1");
+
+    expect(location).toEqual({
+      canvasId: "c1",
+      canvasName: "Revenue",
+      channelId: "chan-1",
+      projectId: 42,
+      projectName: "Marketing",
+      organizationId: "org-1",
+      organizationName: "Acme",
+      url: "https://us.posthog.com/code/canvas/chan-1/c1",
+    });
+  });
+
+  // 403 is the scoped-token case: the instance will not say where the canvas is. Treating it
+  // as an error instead would put a pointless retry button in front of a settled answer.
+  it.each([[404], [403]])("returns null for %i", async (status) => {
+    const service = new DashboardsService(
+      fakeApi({}).api,
+      fakeInstanceApi({ [path]: { status } }),
+    );
+
+    await expect(service.location("c1")).resolves.toBeNull();
+  });
+
+  it("throws on an unexpected status", async () => {
+    const service = new DashboardsService(
+      fakeApi({}).api,
+      fakeInstanceApi({ [path]: { status: 500 } }),
+    );
+
+    await expect(service.location("c1")).rejects.toThrow("500");
   });
 });
