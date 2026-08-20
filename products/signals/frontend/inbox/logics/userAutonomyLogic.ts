@@ -56,7 +56,9 @@ export type userAutonomyLogicType = MakeLogicType<userAutonomyLogicValues, userA
 /**
  * Per-user Self-driving autonomy override. Wraps the `users/@me/signal_autonomy`
  * endpoint via `api.signalUserAutonomy`. The only field surfaced here is the PR
- * auto-start priority threshold; `null` means "never auto-start" (review first).
+ * auto-start priority threshold; when set it overrides the team default for
+ * reports suggesting this user as reviewer, and `null` inherits the team default
+ * (see the backend `_effective_threshold`).
  */
 export const userAutonomyLogic = kea<userAutonomyLogicType>([
     path(['scenes', 'inbox', 'logics', 'userAutonomyLogic']),
