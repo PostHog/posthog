@@ -179,6 +179,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Aircall'
                       | 'AirOps'
                       | 'Airtable'
+                      | 'Airwallex'
                       | 'Aiven'
                       | 'AkamaiReporting'
                       | 'Akeneo'
