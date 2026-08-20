@@ -240,7 +240,7 @@ reference and worked query examples.
 7. **Serve** -> DRF viewsets at
    `/api/projects/{id}/mcp_analytics/{sessions,intent_clusters,feedback,missing_capabilities}`
    (router in `backend/presentation/urls.py`) plus custom actions
-   (`sessions/{id}/tool_calls`, `sessions/{id}/generate_intent`, `sessions/intent_digest`,
+   (`sessions/tool_calls`, `sessions/generate_intent`, `sessions/intent_digest`,
    `sessions/activity_overview`, `intent_clusters/recompute`). Parallel surface: step 4's
    runners, exposed to agents as the `query-mcp-*` tools.
 8. **Frontend** -> Kea scene `MCPAnalyticsScene.tsx`, with tabs enumerated by

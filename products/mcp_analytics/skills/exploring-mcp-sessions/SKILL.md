@@ -83,7 +83,7 @@ Three sharp edges:
 
 ```json
 posthog:mcp-analytics-sessions-tool-calls
-{ "id": "<session_id>", "date_from": "<session_start>", "limit": 500 }
+{ "session_id": "<session_id>", "date_from": "<session_start>", "limit": 500 }
 ```
 
 Chronological `tool_name`, `intent`, `timestamp`, `duration_ms`, `is_error`,
@@ -102,7 +102,7 @@ tool through a run), use the SQL recipe below instead. The same applies to
 
 ```json
 posthog:mcp-analytics-sessions-generate-intent
-{ "id": "<session_id>", "date_from": "<session_start>" }
+{ "session_id": "<session_id>", "date_from": "<session_start>" }
 ```
 
 Summarises the session's recorded `$mcp_intent` values via an LLM and persists
