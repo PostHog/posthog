@@ -1144,14 +1144,55 @@ class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "12000/hour"
 
 
+class RefundableRateThrottleMixin:
+    """Lets a view hand back the slot a request took once it knows the request did no work.
+
+    DRF charges a request the moment it passes the throttle, before the view body runs, so a
+    failed attempt costs the same as a successful one. That is the wrong shape for a flow where
+    failures are expected and the user's only recourse is to retry: a broken upstream drains the
+    budget, and the resulting 429 then hides the error that actually needs fixing.
+
+    Apply this to the long-window throttle only. The short-window one should still charge for
+    failures, since that is what stops a retry loop from hammering an upstream provider.
+    """
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        allowed = super().allow_request(request, view)  # type: ignore[misc]
+        if allowed:
+            refundable = getattr(request, "_refundable_throttles", None)
+            if refundable is None:
+                refundable = []
+                request._refundable_throttles = refundable  # type: ignore[attr-defined]
+            refundable.append(self)
+        return allowed
+
+    def refund(self) -> None:
+        # SimpleRateThrottle.throttle_success() puts the timestamp it just charged at index 0.
+        key = getattr(self, "key", None)
+        history = getattr(self, "history", None)
+        if not key or not history:
+            return
+        history.pop(0)
+        self.cache.set(key, history, self.duration)  # type: ignore[attr-defined]
+
+
+def refund_rate_limit(request: "Request") -> None:
+    """Give back every refundable throttle slot this request consumed."""
+    for throttle in getattr(request, "_refundable_throttles", []):
+        throttle.refund()
+
+
 class MCPOAuthBurstThrottle(UserRateThrottle):
     scope = "mcp_oauth_burst"
     rate = "10/minute"
 
 
-class MCPOAuthSustainedThrottle(UserRateThrottle):
+class MCPOAuthSustainedThrottle(RefundableRateThrottleMixin, UserRateThrottle):
     scope = "mcp_oauth_sustained"
-    rate = "50/hour"
+    # Connecting a server is interactive and often takes several rounds against the provider, so
+    # the hourly budget only needs to be high enough that ordinary use never reaches it. The
+    # 10/minute burst above is what actually bounds abuse.
+    rate = "200/hour"
 
 
 class MCPOAuthRedirectBurstThrottle(SimpleRateThrottle):

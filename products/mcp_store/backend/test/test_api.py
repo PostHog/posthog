@@ -3969,6 +3969,70 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert not MCPOAuthState.objects.filter(team=self.team).exists()
 
 
+class TestInstallTemplateRateLimit(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _template(self, **overrides) -> MCPServerTemplate:
+        import uuid as _uuid
+
+        defaults = {
+            "name": f"Template-{_uuid.uuid4().hex[:6]}",
+            "url": f"https://mcp-{_uuid.uuid4().hex[:8]}.test.example.com/mcp",
+            "auth_type": "oauth",
+            "is_active": True,
+            "oauth_metadata": {
+                "authorization_endpoint": "https://auth.test.example.com/authorize",
+                "token_endpoint": "https://auth.test.example.com/token",
+            },
+            "oauth_credentials": {"client_id": "template-client-id"},
+        }
+        defaults.update(overrides)
+        return MCPServerTemplate.objects.create(**defaults)
+
+    def _install(self, template: MCPServerTemplate) -> HttpResponse:
+        return self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+    def test_failed_install_does_not_spend_the_hourly_budget(self) -> None:
+        inactive = self._template(is_active=False)
+        working = self._template()
+
+        with patch("posthog.rate_limit.MCPOAuthSustainedThrottle.rate", "1/hour"):
+            first = self._install(inactive)
+            second = self._install(working)
+
+        assert first.status_code == status.HTTP_404_NOT_FOUND
+        assert second.status_code == status.HTTP_200_OK, second.content
+
+    def test_successful_install_spends_the_hourly_budget(self) -> None:
+        first_template = self._template()
+        second_template = self._template()
+
+        with patch("posthog.rate_limit.MCPOAuthSustainedThrottle.rate", "1/hour"):
+            first = self._install(first_template)
+            second = self._install(second_template)
+
+        assert first.status_code == status.HTTP_200_OK, first.content
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_failed_install_still_spends_the_burst_budget(self) -> None:
+        inactive = self._template(is_active=False)
+        working = self._template()
+
+        with patch("posthog.rate_limit.MCPOAuthBurstThrottle.rate", "1/minute"):
+            first = self._install(inactive)
+            second = self._install(working)
+
+        assert first.status_code == status.HTTP_404_NOT_FOUND
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
 class TestInstallationToolsAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _installation(self, **kwargs) -> MCPServerInstallation:
         import uuid as _uuid

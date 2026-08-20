@@ -45,6 +45,7 @@ from posthog.rate_limit import (
     MCPOAuthSustainedThrottle,
     MCPProxyBurstThrottle,
     MCPProxySustainedThrottle,
+    refund_rate_limit,
 )
 from posthog.security.url_validation import is_url_allowed
 
@@ -712,6 +713,15 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if self.action in self._USER_SCOPED_ACTIONS:
             return ["project:read"]
         return None
+
+    def finalize_response(self, request: Request, response: Any, *args: Any, **kwargs: Any) -> Any:
+        # An attempt that errored left the user with no server connected, so it shouldn't spend
+        # their hourly budget. Charging for it means a provider that keeps rejecting the handshake
+        # exhausts the budget within a few clicks, and the 429 then replaces the error the user
+        # needs to see. 429 is excluded because refunding it would undo the limit being enforced.
+        if response.status_code >= 400 and response.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+            refund_rate_limit(request)
+        return super().finalize_response(request, response, *args, **kwargs)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
