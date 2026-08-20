@@ -55,6 +55,8 @@ export function Login2FA(): JSX.Element {
                     )}
                 </p>
 
+                {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}
+
                 {passkeysAvailable && (
                     <>
                         <LemonButton
@@ -80,7 +82,6 @@ export function Login2FA(): JSX.Element {
                         enableFormOnSubmit
                         className="deprecated-space-y-4"
                     >
-                        {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}
                         <LemonField name="token" label="Authenticator token">
                             <LemonInput
                                 className="ph-ignore-input"
