@@ -243,6 +243,9 @@ export interface featureFlagsLogicActions {
         featureFlags: FeatureFlagsResult
         payload?: void
     }
+    resetFilters: () => {
+        value: true
+    }
     setActiveTab: (tabKey: FeatureFlagsTab) => {
         tabKey: FeatureFlagsTab
     }
@@ -259,9 +262,6 @@ export interface featureFlagsLogicActions {
     ) => {
         filters: Partial<FeatureFlagsFilters>
         replace: boolean | undefined
-    }
-    resetFilters: () => {
-        value: true
     }
     toggleFeatureFlagActive: (
         id: number,
@@ -398,6 +398,7 @@ export interface featureFlagsLogicMeta {
             tags?: string[] | undefined
             type?: string | undefined
         }
+        hasActiveFilters: (filters: FeatureFlagsFilters) => boolean
         shouldShowEmptyState: (
             featureFlagsLoading: boolean,
             featureFlags: FeatureFlagsResult,
