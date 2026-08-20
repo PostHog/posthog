@@ -11,7 +11,7 @@ import {
     ActionsRetrieveParams,
 } from '@/generated/actions/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { castStringToInt } from '@/tools/cast-helpers'
+import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -56,7 +56,12 @@ const actionCreate = (): ToolBase<typeof ActionCreateSchema, WithPostHogUrl<Sche
         },
     })
 
-const ActionDeleteSchema = ActionsDestroyParams.omit({ project_id: true })
+const ActionDeleteSchema = z.preprocess(
+    normalizeParamAliases({ id: ['actionId', 'action_id'] }),
+    ActionsDestroyParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ActionsDestroyParams.shape['id']),
+    })
+)
 
 const actionDelete = (): ToolBase<typeof ActionDeleteSchema, Schemas.Action> => ({
     name: 'action-delete',
@@ -72,9 +77,12 @@ const actionDelete = (): ToolBase<typeof ActionDeleteSchema, Schemas.Action> => 
     },
 })
 
-const ActionGetSchema = ActionsRetrieveParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ActionsRetrieveParams.shape['id']),
-})
+const ActionGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['actionId', 'action_id'] }),
+    ActionsRetrieveParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ActionsRetrieveParams.shape['id']),
+    })
+)
 
 const actionGet = (): ToolBase<typeof ActionGetSchema, WithPostHogUrl<Schemas.Action>> =>
     withUiApp('action', {
@@ -90,8 +98,11 @@ const actionGet = (): ToolBase<typeof ActionGetSchema, WithPostHogUrl<Schemas.Ac
         },
     })
 
-const ActionUpdateSchema = ActionsPartialUpdateParams.omit({ project_id: true }).extend(
-    ActionsPartialUpdateBody.omit({ _create_in_folder: true }).shape
+const ActionUpdateSchema = z.preprocess(
+    normalizeParamAliases({ id: ['actionId', 'action_id'] }),
+    ActionsPartialUpdateParams.omit({ project_id: true })
+        .extend(ActionsPartialUpdateBody.omit({ _create_in_folder: true }).shape)
+        .extend({ id: z.preprocess(castStringToInt, ActionsPartialUpdateParams.shape['id']) })
 )
 
 const actionUpdate = (): ToolBase<typeof ActionUpdateSchema, WithPostHogUrl<Schemas.Action>> =>

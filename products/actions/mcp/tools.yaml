@@ -54,6 +54,12 @@ tools:
         description: >
             Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but
             historical data is preserved.
+        param_overrides:
+            id:
+                cast: string-int
+                aliases:
+                    - actionId
+                    - action_id
         soft_delete: true
     action-get:
         operation: actions_retrieve
@@ -72,6 +78,9 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+                aliases:
+                    - actionId
+                    - action_id
         ui_app: action
     action-update:
         operation: actions_partial_update
@@ -92,6 +101,12 @@ tools:
             - bytecode_error
             - creation_context
             - last_calculated_at
+        param_overrides:
+            id:
+                cast: string-int
+                aliases:
+                    - actionId
+                    - action_id
         ui_app: action
     actions-bulk-update-tags-create:
         operation: actions_bulk_update_tags_create
