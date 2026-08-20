@@ -259,7 +259,7 @@ def _filter_condition(filter: MetricFilter) -> ast.Expr:
     raise ValueError(f"Unsupported filter op: {filter.op!r}")
 
 
-def _filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
+def filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
     """AND of all filter conditions; TRUE when there are none."""
     if not filters:
         return ast.Constant(value=True)
@@ -267,6 +267,18 @@ def _filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
     if len(conditions) == 1:
         return conditions[0]
     return ast.And(exprs=conditions)
+
+
+def type_filter_expr(metric_type: str | None) -> ast.Expr:
+    """Constrains rows to one metric type. A name can exist as several
+    types (a counter and a gauge); their series are distinct and must not
+    blend into one aggregate. TRUE when no type was requested.
+
+    Both `metrics` and `metric_series` name the column `metric_type`, so the
+    same expression works against either table."""
+    if metric_type is None:
+        return ast.Constant(value=True)
+    return parse_expr("metric_type = {metric_type}", placeholders={"metric_type": ast.Constant(value=metric_type)})
 
 
 class MetricQueryRunner:
@@ -413,14 +425,7 @@ class MetricQueryRunner:
             query.group_by.append(ast.Field(chain=[f"group_{index}"]))
 
     def _type_filter_expr(self) -> ast.Expr:
-        """Constrains rows to one metric type. A name can exist as several
-        types (a counter and a gauge); their series are distinct and must not
-        blend into one aggregate. TRUE when no type was requested."""
-        if self.metric_type is None:
-            return ast.Constant(value=True)
-        return parse_expr(
-            "metric_type = {metric_type}", placeholders={"metric_type": ast.Constant(value=self.metric_type)}
-        )
+        return type_filter_expr(self.metric_type)
 
     def _build_simple_query(self) -> ast.SelectQuery:
         """sum/avg/count/p95: collapse each series to one value per bucket,
@@ -472,7 +477,7 @@ class MetricQueryRunner:
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
-                "filters": _filters_expr(self.filters),
+                "filters": filters_expr(self.filters),
                 "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
@@ -556,7 +561,7 @@ class MetricQueryRunner:
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
-                "filters": _filters_expr(self.filters),
+                "filters": filters_expr(self.filters),
                 "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
@@ -623,7 +628,7 @@ class MetricQueryRunner:
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
-                "filters": _filters_expr(self.filters),
+                "filters": filters_expr(self.filters),
                 "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },

@@ -952,7 +952,7 @@
         "feature_flag": "billing-mcp-read-tools"
     },
     "billing-spend-get": {
-        "description": "Fetch time-series spend (cost in USD) breakdowns for the organization across a date range. Same dimensional parameters as billing-usage-get, but values are dollar amounts rather than usage volumes. Requires org admin-level access. Use this to investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.",
+        "description": "Fetch time-series spend (cost in USD) breakdowns for the organization across a date range. Same dimensional parameters as billing-usage-get, but values are dollar amounts rather than usage volumes. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get spend breakdown",
@@ -967,7 +967,7 @@
         "feature_flag": "billing-mcp-read-tools"
     },
     "billing-usage-get": {
-        "description": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires org admin-level access. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get; for cost (spend) breakdowns call billing-spend-get.",
+        "description": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get when the caller has full billing access; for cost (spend) breakdowns call billing-spend-get.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get usage breakdown",
