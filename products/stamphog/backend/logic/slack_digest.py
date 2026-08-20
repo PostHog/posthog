@@ -69,7 +69,7 @@ def _scope_line(shown: int, considered: int) -> str:
     """
     if considered > shown:
         return f"{shown} of {considered} stamphog-approved merges."
-    return f"{shown} stamphog-approved merges."
+    return f"{shown} stamphog-approved {'merge' if shown == 1 else 'merges'}."
 
 
 def _build_blocks(summary: DigestSummary) -> list[dict]:

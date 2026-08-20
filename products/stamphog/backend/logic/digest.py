@@ -1,8 +1,8 @@
 """LLM summarization of merged PRs for the daily digest.
 
 Boring by design: ask a cheap model to drop the PRs that changed nothing a reader can observe, and
-give the few that survive one plain sentence each. Any failure falls back to a deterministic list of
-every PR with its title as the summary, so a flaky model never loses a digest.
+give the few that survive one plain sentence each. Any failure falls back to a deterministic list
+using each PR's title as its sentence, so a flaky model never loses a digest.
 
 The model writes sentences and nothing else. Counts, links, names and the "3 of 11" scope line are
 built from the captured rows in ``slack_digest`` — a model that both writes the list and counts it
@@ -32,9 +32,10 @@ _DIGEST_MODEL = "claude-haiku-4-5"
 _SOURCE_PRODUCT = "stamphog_digest"
 
 # A payload rail, not an editorial rule. The bar in the prompt is what keeps a digest short, and a
-# day that genuinely produces eight things a team needs to know should show eight. This only binds
-# on the deterministic fallback, which keeps every PR: a model outage must not dump a hundred lines
-# into a channel, and Slack rejects the message outright past 50 blocks.
+# day that genuinely produces eight things a team needs to know should show eight. In practice it
+# binds on the deterministic fallback, which judges nothing: a model outage must not dump a hundred
+# lines into a channel, and Slack rejects the message outright past 50 blocks. What it removes is
+# deferred to the next run rather than dropped (see _capped_summary).
 MAX_DIGEST_PRS = 10
 
 
@@ -56,6 +57,10 @@ class DigestSummary:
     # line that stops a short digest from reading as everything that happened.
     considered: int
     prs: list[DigestPRSummary] = field(default_factory=list)
+    # PR URLs that cleared the bar but did not fit under MAX_DIGEST_PRS. The task releases their
+    # audience rows so a later run posts them. They are not the same as the PRs the model dropped
+    # as routine: those got a decision and stay consumed, while these got no reader.
+    deferred_urls: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -67,12 +72,23 @@ def _capped_summary(considered: int, prs: list[DigestPRSummary]) -> DigestSummar
     Capping at render time instead would let the fallback path persist every PR in
     ``DigestRun.summary`` while the post showed ten, leaving the record of a digest disagreeing
     with the digest.
+
+    Whatever the cap removes is named rather than dropped. The claim marks every PR in a run as
+    handled once it posts, so a truncated PR that nobody releases is not delayed, it is gone.
     """
-    return DigestSummary(considered=considered, prs=prs[:MAX_DIGEST_PRS])
+    return DigestSummary(
+        considered=considered,
+        prs=prs[:MAX_DIGEST_PRS],
+        deferred_urls=[pr.url for pr in prs[MAX_DIGEST_PRS:]],
+    )
 
 
 def _fallback_summary(prs: list[PullRequest]) -> DigestSummary:
-    """Deterministic no-LLM summary: keep every PR, use its title as the one-liner."""
+    """Deterministic no-LLM summary: no PR is judged, and each one's title becomes its sentence.
+
+    Keeps every PR up to MAX_DIGEST_PRS, and the rest are deferred rather than dropped. Without a
+    model there is nothing to rank, so which PRs land in the overflow is merge order and not merit.
+    """
     return _capped_summary(
         len(prs),
         [

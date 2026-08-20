@@ -12,7 +12,7 @@ from parameterized import parameterized
 from products.stamphog.backend.facade.enums import AudienceReason
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
 from products.stamphog.backend.logic.audiences import resolve_audiences
-from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
+from products.stamphog.backend.logic.digest import MAX_DIGEST_PRS, DigestPRSummary, DigestSummary, _capped_summary
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
 from products.stamphog.backend.logic.github_client import (
     MAX_COMPARE_DIFF_BYTES,
@@ -132,6 +132,34 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         assert context["review_threads"] == review_threads
 
 
+class DigestCapTests(SimpleTestCase):
+    def test_the_cap_names_what_it_removed(self) -> None:
+        # The claim marks every PR in a run as handled once it posts, so a PR the cap removes is
+        # gone rather than delayed unless the summary reports it. Dropping deferred_urls here would
+        # lose the overflow of any digest that exceeds the cap.
+        prs = [
+            DigestPRSummary(
+                pr_number=n,
+                title=f"t{n}",
+                url=f"https://github.com/o/r/pull/{n}",
+                author_login="dev",
+                summary=f"Something changed, number {n}.",
+                repository="o/r",
+            )
+            for n in range(MAX_DIGEST_PRS + 3)
+        ]
+
+        summary = _capped_summary(considered=100, prs=prs)
+
+        assert len(summary.prs) == MAX_DIGEST_PRS
+        assert summary.deferred_urls == [pr.url for pr in prs[MAX_DIGEST_PRS:]]
+        assert not set(summary.deferred_urls) & {pr.url for pr in summary.prs}
+
+    def test_a_digest_under_the_cap_defers_nothing(self) -> None:
+        summary = _capped_summary(considered=9, prs=[])
+        assert summary.deferred_urls == []
+
+
 class SlackDigestEscapingTests(SimpleTestCase):
     def _summary(self, *, author: str, body: str, considered: int = 1) -> DigestSummary:
         pr = DigestPRSummary(
@@ -179,7 +207,7 @@ class SlackDigestEscapingTests(SimpleTestCase):
 
         assert _footer(9) == "1 of 9 stamphog-approved merges."
         # Nothing left out means no denominator to name, and no claim about a day it cannot see.
-        assert _footer(1) == "1 stamphog-approved merges."
+        assert _footer(1) == "1 stamphog-approved merge."
 
     def test_section_text_is_capped_below_slack_limit(self) -> None:
         # Slack rejects sections whose mrkdwn text exceeds 3000 chars, and a rejected post unlinks the

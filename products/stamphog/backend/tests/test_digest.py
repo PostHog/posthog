@@ -19,8 +19,10 @@ from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import AudienceReason, DigestRunStatus
 from products.stamphog.backend.logic.digest import (
+    MAX_DIGEST_PRS,
     DigestPRSummary,
     DigestSummary,
+    _capped_summary,
     _parse_llm_response,
     summarize_merged_prs,
 )
@@ -47,10 +49,13 @@ AUDIENCE = "team-devex"
 
 def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
     """Stand in for the LLM so the task never reaches a gateway. Keeps every PR: a summary that
-    keeps nothing is its own path (the digest posts nothing and releases the claim)."""
-    return DigestSummary(
-        considered=len(prs),
-        prs=[
+    keeps nothing is its own path (the digest posts nothing and releases the claim).
+
+    Goes through _capped_summary rather than building a DigestSummary, so a task test sees the same
+    truncation a real run would."""
+    return _capped_summary(
+        len(prs),
+        [
             DigestPRSummary(
                 pr_number=pr.pr_number,
                 title=pr.title,
@@ -269,6 +274,28 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
     assert batch_sizes == [2, 1]
     with team_scope(team.id):
         assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
+    # Claiming marks every PR in a run as handled, so a PR the cap truncates is consumed by a
+    # digest that never showed it and no later digest can reach it. The overflow has to go back to
+    # unclaimed, while the PRs the summarizer deliberately left out stay consumed.
+    overflow = 2
+    channel_id = _seed_channel_and_prs(team.id, pr_count=MAX_DIGEST_PRS + overflow)
+
+    with (
+        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-1") as post,
+        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+    ):
+        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+
+    assert post.called
+    posted = post.call_args.args[2]
+    assert len(posted.prs) == MAX_DIGEST_PRS
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == overflow
+        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

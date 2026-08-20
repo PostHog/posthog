@@ -201,6 +201,15 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
             slack_message_ts=message_ts or "",
             posted_at=now,
         )
+        # Release the PRs the digest kept but had no room for, so the next run posts them. Every
+        # other claimed PR stays linked: the model saw it and left it out, which is a decision and
+        # not a backlog. Runs after the proof-of-post write, so a crash here loses a day for those
+        # PRs rather than re-sending the whole digest.
+        if summary.deferred_urls:
+            deferred = set(summary.deferred_urls)
+            PullRequestAudience.objects.for_team(team_id).filter(
+                id__in=[a.id for a in audiences if a.pull_request.pr_url in deferred]
+            ).update(digest_run=None)
         DigestChannel.objects.for_team(team_id).filter(id=channel.id).update(last_digest_at=now)
 
     logger.info("stamphog_digest_posted", digest_channel_id=digest_channel_id, pr_count=len(prs), run_id=str(run.id))
