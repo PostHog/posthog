@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
+    get_fast_returned_run_metric,
     get_v3_lock_skipped_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
@@ -95,6 +96,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.probe_source_changes import (
+    ProbeSourceChangesActivityInputs,
+    probe_source_changes_activity,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
@@ -592,6 +597,29 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
+
+            # A schema that tracks a cursor, is past its initial sync, and owes no repair work can
+            # ask the source whether anything changed for far less than a sync costs. Eligibility
+            # comes from recorded activity output (absent on old histories, so they replay the full
+            # sequence) and patched() keeps in-flight pre-patch executions on it too. The probe
+            # answers True for anything it cannot prove, so only a definite "nothing new" returns
+            # here — with the job row, COMPLETED status and last_synced_at all written as usual.
+            if create_job_result.fast_return_eligible and workflow.patched("dwh-fast-return-2026-08"):
+                source_has_new_data = await workflow.execute_activity(
+                    probe_source_changes_activity,
+                    ProbeSourceChangesActivityInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                        source_id=inputs.external_data_source_id,
+                        run_id=str(job_id),
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                if not source_has_new_data:
+                    get_fast_returned_run_metric(source_type=source_type).add(1)
+                    update_inputs.status = ExternalDataJob.Status.COMPLETED
+                    return
 
             # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
             # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.

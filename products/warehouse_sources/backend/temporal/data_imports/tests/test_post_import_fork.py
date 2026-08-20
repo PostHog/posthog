@@ -48,6 +48,9 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.probe_source_changes import (
+    ProbeSourceChangesActivityInputs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
 )
@@ -56,7 +59,13 @@ _JOB_ID = "01960000-0000-0000-0000-000000000000"
 
 
 def _stub_activities(
-    executed: list[str], *, is_v3: bool, consumer_manages_job_status: bool, skip_post_import_activities: bool = False
+    executed: list[str],
+    *,
+    is_v3: bool,
+    consumer_manages_job_status: bool,
+    skip_post_import_activities: bool = False,
+    fast_return_eligible: bool = False,
+    source_has_new_data: bool = True,
 ) -> list:
     @activity.defn(name="check_pipeline_version_activity")
     async def check_pipeline_version(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
@@ -85,12 +94,18 @@ def _stub_activities(
             enrichment_needed=True,
             statistics_needed=True,
             person_property_sync_enabled=True,
+            fast_return_eligible=fast_return_eligible,
         )
 
     @activity.defn(name="check_billing_limits_activity")
     async def check_billing(inputs: CheckBillingLimitsActivityInputs) -> bool:
         executed.append("check_billing_limits_activity")
         return False
+
+    @activity.defn(name="probe_source_changes_activity")
+    async def probe_source_changes(inputs: ProbeSourceChangesActivityInputs) -> bool:
+        executed.append("probe_source_changes_activity")
+        return source_has_new_data
 
     @activity.defn(name="maybe_repartition_table_activity")
     async def maybe_repartition(inputs: RepartitionActivityInputs) -> None:
@@ -123,6 +138,7 @@ def _stub_activities(
         release_lock,
         create_job,
         check_billing,
+        probe_source_changes,
         maybe_repartition,
         import_data,
         create_templates,
@@ -132,7 +148,12 @@ def _stub_activities(
 
 
 async def _run_workflow(
-    *, is_v3: bool, consumer_manages_job_status: bool, skip_post_import_activities: bool = False
+    *,
+    is_v3: bool,
+    consumer_manages_job_status: bool,
+    skip_post_import_activities: bool = False,
+    fast_return_eligible: bool = False,
+    source_has_new_data: bool = True,
 ) -> tuple[list[str], list[str]]:
     """Run the workflow with stubbed activities; return (executed activities + child starts in
     order, started child ids)."""
@@ -161,6 +182,8 @@ async def _run_workflow(
                     is_v3=is_v3,
                     consumer_manages_job_status=consumer_manages_job_status,
                     skip_post_import_activities=skip_post_import_activities,
+                    fast_return_eligible=fast_return_eligible,
+                    source_has_new_data=source_has_new_data,
                 ),
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -238,6 +261,34 @@ async def test_post_import_fork(
         assert any(c.startswith("sync-warehouse-person-properties-") for c in child_ids)
         # Steps that don't read the loaded table stay inline.
         assert "create_source_templates" in executed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fast_return_eligible,source_has_new_data,expect_import",
+    [
+        pytest.param(True, False, False, id="eligible_and_source_unchanged_returns_early"),
+        pytest.param(True, True, True, id="eligible_but_source_changed_syncs"),
+        pytest.param(False, False, True, id="not_eligible_never_probes"),
+    ],
+)
+async def test_fast_return_skips_the_sync_only_when_the_source_is_unchanged(
+    fast_return_eligible: bool, source_has_new_data: bool, expect_import: bool
+):
+    executed, child_ids = await _run_workflow(
+        is_v3=False,
+        consumer_manages_job_status=False,
+        fast_return_eligible=fast_return_eligible,
+        source_has_new_data=source_has_new_data,
+    )
+
+    assert ("import_data_activity_sync" in executed) is expect_import
+    assert ("probe_source_changes_activity" in executed) is fast_return_eligible
+    assert "update_external_data_job_model" in executed
+    if not expect_import:
+        assert "maybe_repartition_table_activity" not in executed
+        assert "create_source_templates" not in executed
+        assert child_ids == []
 
 
 @pytest.mark.asyncio

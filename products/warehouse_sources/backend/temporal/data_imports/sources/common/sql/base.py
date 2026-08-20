@@ -157,6 +157,9 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         return self.get_implementation.build_pipeline(config, inputs)
 
+    def probe_new_data(self, config: ConfigType, inputs: SourceInputs) -> bool | None:
+        return self.get_implementation.has_new_rows(config, inputs)
+
     def reconcile_schema_metadata(
         self,
         source: ExternalDataSource,

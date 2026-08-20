@@ -49,6 +49,8 @@ WAREHOUSE_AUTO_COARSEN_FLAG = "data-warehouse-auto-coarsen"
 # repartition flag, and off by default: repartitioning a table costs us worker time, pausing its
 # imports costs the customer freshness, so the second is not a decision the first should make.
 WAREHOUSE_REPARTITION_HOLD_FLAG = "data-warehouse-repartition-hold"
+# Rollout for completing a run on a negative source probe (see `_fast_return_eligible`).
+WAREHOUSE_FAST_RETURN_FLAG = "data-warehouse-fast-return"
 
 # Coarsening gates. The two directions deliberately don't meet: a table is split finer above the budget
 # and merged coarser only below an eighth of it, and a coarsen aims at half the budget. So a freshly
@@ -112,6 +114,10 @@ def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
 
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
     return _is_flag_enabled(schema, WAREHOUSE_REPARTITION_HOLD_FLAG)
+
+
+def is_fast_return_enabled(schema: ExternalDataSchema) -> bool:
+    return _is_flag_enabled(schema, WAREHOUSE_FAST_RETURN_FLAG)
 
 
 def _is_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:

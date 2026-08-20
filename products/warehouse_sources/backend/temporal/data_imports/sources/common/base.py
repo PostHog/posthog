@@ -348,6 +348,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         instance being validated, or ``None`` (→ `default_version`) before a row exists."""
         return True, None
 
+    def probe_new_data(self, config: ConfigType, inputs: SourceInputs) -> bool | None:
+        """Whether the source has data past this schema's stored watermark.
+
+        `False` lets the workflow complete the run without extracting anything, so only return it
+        when the source is provably unchanged. `None` (the default) means "unknown" and runs the
+        normal sync, which is also the right answer for any error: never let a probe failure
+        suppress a sync. Callers guarantee the schema is incremental/append, past its initial
+        sync, and has no repair work pending.
+        """
+        return None
+
     def get_endpoint_permissions(
         self, config: ConfigType, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:

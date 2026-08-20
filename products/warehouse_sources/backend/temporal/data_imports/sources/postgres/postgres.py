@@ -2155,6 +2155,24 @@ def _build_count_query(
     )
 
 
+def build_has_new_rows_query(
+    schema: str,
+    table_name: str,
+    incremental_field: str,
+    incremental_field_type: IncrementalFieldType,
+    db_incremental_field_last_value: Any,
+) -> sql.Composed:
+    """Existence check sharing `_build_count_query`'s predicate, stopping at the first match."""
+    operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
+    return sql.SQL("SELECT 1 FROM {schema}.{table} WHERE {incremental_field} {op} {last_value} LIMIT 1").format(
+        schema=sql.Identifier(schema),
+        table=sql.Identifier(table_name),
+        incremental_field=sql.Identifier(incremental_field),
+        op=operator,
+        last_value=sql.Literal(db_incremental_field_last_value),
+    )
+
+
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 

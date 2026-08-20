@@ -1259,6 +1259,55 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             finally:
                 conn.close()
 
+    def probe_new_data(self, config: PostgresSourceConfig, inputs: SourceInputs) -> bool | None:
+        """One indexed existence check against the same predicate the sync would run.
+
+        Returns None for anything this cannot answer with certainty — a non-incremental schema, a
+        cursor Postgres tracks itself (xmin, CDC), or any error reaching the source — so the
+        caller runs the full sync.
+        """
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
+            resolve_source_location,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+            build_has_new_rows_query,
+        )
+
+        if (
+            not inputs.should_use_incremental_field
+            or inputs.incremental_field is None
+            or inputs.incremental_field_type is None
+            or inputs.incremental_field_type == IncrementalFieldType.XID
+            or inputs.db_incremental_field_last_value is None
+        ):
+            return None
+
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+            if schema.is_cdc or schema.is_xmin:
+                return None
+
+            location = resolve_source_location(inputs, config_namespace=config.schema, default="public")
+            if location.schema is None:
+                return None
+
+            query = build_has_new_rows_query(
+                schema=location.schema,
+                table_name=location.table_name,
+                incremental_field=inputs.incremental_field,
+                incremental_field_type=inputs.incremental_field_type,
+                db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            )
+            require_ssl = source_requires_ssl(schema.source, config)
+            with self.get_implementation.connect(config, require_ssl=require_ssl) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(query)
+                    return cursor.fetchone() is not None
+        except Exception as e:
+            inputs.logger.debug(f"probe_new_data: falling back to a full sync: {e}", exc_info=e)
+            return None
+
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
