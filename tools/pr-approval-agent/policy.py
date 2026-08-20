@@ -219,12 +219,12 @@ class PolicyError(ValueError):
 # ── Global policy loading + validation ───────────────────────────
 
 _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides", "familiarity", "ownership"}
-# Keys the hosted server owns and parses itself, not the engine. Allowed at the top level so a repo
-# declaring one doesn't hard-fail every review, but never required and never read here — the engine
-# ignores their contents. `digest` is read by logic/digest_config.py. `dismiss` is tolerated for
-# policies that still declare it and read nowhere: whether a push may retain a standing approval is
-# decided server-side (logic/approval_retention.py), because a repo able to widen those rules could
-# keep an approval standing across arbitrary code pushes.
+# Keys that the hosted server owns and parses itself, and that the engine does not. The top level
+# allows them, so a repo that declares one does not hard-fail every review. They are never required,
+# and the engine never reads their contents. `digest` is read by logic/digest_config.py. `dismiss`
+# is tolerated for policies that still declare it, and nothing reads it: the server decides whether
+# a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
+# rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}

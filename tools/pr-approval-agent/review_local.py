@@ -9,32 +9,32 @@
 # ]
 # ///
 # ruff: noqa: T201
-"""Offline PR review entrypoint — the hosted sandbox runs this instead of review_pr.py.
+"""Offline PR review entrypoint. The hosted sandbox runs this instead of review_pr.py.
 
-review_pr.py is the manual entrypoint: it fetches everything over the network
+review_pr.py is the manual entrypoint. It fetches everything over the network
 (`gh`, GraphQL, git) and posts the verdict. This script runs the SAME engine
 (gates, tier classification, git-blame familiarity, the LLM reviewer with the
-same prompt/version) against a LOCAL checkout, with NO GitHub access and NO token. All GitHub-sourced data the
-engine needs is handed in via a `--context` JSON file that the server (which
-holds the token) assembles from the API; the only thing that flows back out is
-the JSON on the last stdout line — the same `to_dict()` contract review_pr.py
-emits with `--output-json`.
+same prompt and version) against a LOCAL checkout, with NO GitHub access and NO
+token. The server holds the token, assembles every GitHub-sourced value that the
+engine needs from the API, and passes them in through a `--context` JSON file.
+Only one value flows back out: the JSON on the last stdout line, which is the
+same `to_dict()` contract that review_pr.py emits with `--output-json`.
 
-Reuse: it drives review_pr.Pipeline's own steps (classify, gates, the LLM
-review, to_dict) so both entrypoints share one implementation of the engine
-logic. Only the steps that touch the network are replaced with injected data:
-- _fetch (gh) → a PRData built from the context.
-- the two `gh` calls review_pr.py makes inside gate/familiarity — the author-team
-  membership lookup and the author's merged-PR set — are injected through the
-  context instead. Familiarity's blame math is mirrored here with the injected PR
-  set (see _familiarity_offline) because Pipeline._compute_familiarity hardcodes
+This script drives review_pr.Pipeline's own steps (classify, gates, the LLM
+review, to_dict), so both entrypoints share one implementation of the engine
+logic. It replaces only the steps that touch the network with injected data:
+- _fetch (gh) becomes a PRData built from the context.
+- The context injects the two `gh` calls that review_pr.py makes inside gate and
+  familiarity, which are the author-team membership lookup and the author's
+  merged-PR set. Familiarity's blame math is mirrored here with the injected PR
+  set (see _familiarity_offline), because Pipeline._compute_familiarity hardcodes
   the `gh` fetch that only the networked entrypoint can make.
 
-Trusted policy (`.stamphog/policy.yml`, `.stamphog/review-guidance.md`) is read
-by the engine from the checkout at import time; the server overwrites those paths
-in the checkout with the default-branch versions before this runs, so a PR head
-can't substitute its own gate. The reviewer key comes from the environment
-(ANTHROPIC_API_KEY), same as before.
+The engine reads the trusted policy (`.stamphog/policy.yml`,
+`.stamphog/review-guidance.md`) from the checkout at import time. The server
+overwrites those paths in the checkout with the default-branch versions before
+this script runs, so a PR head cannot substitute its own gate. The reviewer key
+comes from the environment (ANTHROPIC_API_KEY).
 """
 
 import os
@@ -108,20 +108,22 @@ def _convert_api_file(f: dict) -> dict:
 def _build_pr_data(context: dict) -> PRData:
     """Build the engine's PRData from the injected context.
 
-    File stats are recomputed locally with the exact function review_pr.py uses
-    (`git diff --numstat` over base...head) so PRData.files is identical to a
-    networked run; the context's file list is only a fallback if the local diff is
-    empty (e.g. a sha failed to fetch). Reviews, top-level discussion comments,
-    and head-commit check runs are carried in the context (reviews/discussion
-    normalized with the same helpers review_pr.py uses, check runs passed
-    through raw the same way) — so the prerequisite gate blocks on an active
+    File stats are recomputed locally with the exact function that review_pr.py
+    uses (`git diff --numstat` over base...head), so PRData.files is identical to
+    a networked run. The context's file list is only a fallback for an empty
+    local diff, which happens when a sha failed to fetch. The context also
+    carries reviews, top-level discussion comments, and head-commit check runs.
+    Reviews and discussion are normalized with the same helpers that review_pr.py
+    uses, and check runs are passed through raw the same way. The prerequisite
+    gate therefore blocks on an active
     CHANGES_REQUESTED, the agent sees maintainer discussion, and the migration
     gate can see a passing "Migration risk" check. Inline review-thread comments
     (a GraphQL-only surface with thread-resolution state) are carried when the
     hosted context supplies "review_threads"; only UNRESOLVED threads flow into
     the prompt, since an unresolved inline "do not merge" is the blocker the
-    reviewer must see and resolved threads are noise. An absent key (a local review_pr.py run
-    runtime doesn't pass it) means an empty list — a clean no-op, never a crash.
+    reviewer must see, and resolved threads are noise. An absent key means an
+    empty list, which is a clean no-op and never a crash. A local review_pr.py
+    run does not pass the key.
     Reactions on those inline comments are not carried, so they default empty.
     """
     pr = context.get("pr") or {}
@@ -150,9 +152,10 @@ def _build_pr_data(context: dict) -> PRData:
         r for r in (context.get("reviews") or []) if r.get("state") != "COMMENTED" or (r.get("body") or "").strip()
     ]
 
-    # Trusted-bot reactions only: the offline path has no token for the org-membership check the
-    # networked reactor predicate performs, and the in-flight wait consumes only allowlisted bot 👀
-    # anyway — human reactions are never waited on. REST content values lowercase-match the mapper.
+    # Trusted-bot reactions only. The offline path has no token for the org-membership check that
+    # the networked reactor predicate performs, and the in-flight wait consumes only allowlisted bot
+    # 👀 in any case, because the code never waits on human reactions. REST content values
+    # lowercase-match the mapper.
     author_login = user.get("login") or ""
     pr_reactions = [
         {"user": login, "emoji": _reaction_emoji(r.get("content", "")), "created_at": r.get("created_at")}
@@ -164,9 +167,9 @@ def _build_pr_data(context: dict) -> PRData:
     # consumes. Only UNRESOLVED threads reach the prompt (see _build_pr_data's docstring); the full
     # list stays in the context. Each comment passes the same author-trust gate as reviews and
     # discussion — an untrusted external commenter must not plant a fake maintainer hold, and
-    # stamphog's own prior comments must not feed back as third-party claims. Absent key -> empty, so
-    # a local review_pr.py run (which doesn't pass it) is unaffected and the prompt renders no
-    # inline-comments section, exactly as before.
+    # stamphog's own prior comments must not feed back as third-party claims. An absent key yields
+    # an empty list, so a local review_pr.py run, which does not pass the key, is unaffected and the
+    # prompt renders no inline-comments section.
     review_comments: list[dict] = []
     for thread in context.get("review_threads") or []:
         if thread.get("is_resolved"):
@@ -179,10 +182,11 @@ def _build_pr_data(context: dict) -> PRData:
             # Real reply ids aren't carried in the lean shape; a truthy placeholder on the replies
             # only marks reply-ness — the prompt's "(reply)" label and _summarize_assurance's
             # "count threads (in_reply_to_id is None), not comments" semantic both key off it.
-            # Parity with the networked path (github.py): only the TRUE thread root (index 0) may carry None.
-            # When the root is filtered (untrusted author, or stamphog's own finding), every survivor
-            # is a reply, so the thread contributes 0 to unresolved_threads — exactly like the networked path,
-            # whose surviving replies keep their real non-None replyTo ids.
+            # Parity with the networked path (github.py): only the TRUE thread root (index 0) may
+            # carry None. When a filter removes the root (untrusted author, or stamphog's own
+            # finding), every survivor is a reply, so the thread contributes 0 to
+            # unresolved_threads. The networked path behaves the same way, because its surviving
+            # replies keep their real non-None replyTo ids.
             review_comments.append(
                 {
                     "user": comment.get("author") or "ghost",

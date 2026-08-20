@@ -616,22 +616,24 @@ _BOT_AUTHOR_LABEL_MESSAGE = (
 
 
 def _clear_trigger_label_from_bot_pr(installation_id: str, repo: str, pr: dict[str, Any], action: str) -> None:
-    """Take the trigger label back off a bot-authored PR somebody labeled.
+    """Remove the trigger label from a bot-authored PR that somebody labeled.
 
-    Without this the label sits there forever while every later delivery silently takes the
-    bot-author skip, so the PR looks reviewed and never is. Explained once on the paths where a
-    person just acted; a later synchronize only cleans up.
+    Without this removal the label stays on the PR, and every later delivery silently takes the
+    bot-author skip. The PR then looks reviewed, but it never is. The comment explains the removal
+    only on the paths where a person just acted, because a later synchronize is a cleanup and not a
+    response.
 
-    Best effort: a bot PR carrying a stray label is cosmetic next to the review path this runs
-    beside, so a GitHub failure is logged rather than retried.
+    This is best effort. A bot PR that carries a stray label is a cosmetic problem next to the
+    review path that runs beside it, so a GitHub failure is logged and not retried.
     """
     pr_number = pr.get("number")
     if pr_number is None:
         return
     try:
         repo_config = _resolve_repo_config(installation_id, repo)
-        # LABEL mode only: elsewhere the trigger label carries no meaning, and taking back a label the
-        # repo does not act on would be a surprise rather than a cleanup.
+        # LABEL mode only. In other modes the trigger label carries no meaning, and the removal of
+        # a label that the repo does not act on would surprise the author rather than clean
+        # anything up.
         if repo_config is None or not repo_config.enabled or repo_config.review_mode != ReviewMode.LABEL:
             return
         label_names = {(label or {}).get("name") for label in pr.get("labels") or []}

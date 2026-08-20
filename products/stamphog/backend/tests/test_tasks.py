@@ -1434,9 +1434,10 @@ def test_retention_needs_a_usable_approved_base_sha(team, repo_config, output):
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize("action,expect_comment", [("labeled", True), ("synchronize", False)])
 def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, expect_comment):
-    # Labeling a dependabot PR used to get an explanation and the label back off. Without that the
-    # label sits there while every later delivery silently takes the bot-author skip, so the PR looks
-    # reviewed and never is. The explanation is posted only where a person just acted.
+    # A labeled dependabot PR gets an explanation and loses the label again. Without that removal
+    # the label stays on the PR while every later delivery silently takes the bot-author skip, so
+    # the PR looks reviewed but never is. The explanation is posted only where a person just
+    # acted.
     with team_scope(team.id):
         repo_config.review_mode = ReviewMode.LABEL
         repo_config.save()

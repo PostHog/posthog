@@ -35,8 +35,8 @@ _OWNERS_PKG = Path(__file__).resolve().parents[1] / "owners"
 #
 # Source of truth for how each package ecosystem pairs manifests with
 # lockfiles. The deps_toolchain deny patterns and the manifest/lockfile
-# helper sets all derive from this table — add a new
-# ecosystem here, not in several places. (requirements*.{txt,in} stays out:
+# helper sets all derive from this table, so add a new ecosystem here, and
+# not in several places. (requirements*.{txt,in} stays out:
 # a pinned requirements.txt is arguably both manifest and lockfile, so
 # has_dependency_changes recognizes it directly instead of forcing it into
 # one column of this table.)
@@ -281,11 +281,10 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
 # The deny/allow/size/tier data lives in .stamphog/policy.yml and is
 # loaded here at import time, keeping the existing module-level constant names
 # populated so importers and tests are unchanged. DEPENDENCY_ECOSYSTEMS stays
-# code-derived; the loader splices the
-# lockfile names into the deps_toolchain deny paths and validates the declared
-# ownership formats against OWNERSHIP_FORMATS. A malformed policy raises at
-# import - fail closed, the tool crashes rather than gating on a half-loaded
-# policy.
+# code-derived; the loader splices the lockfile names into the deps_toolchain
+# deny paths and validates the declared ownership formats against
+# OWNERSHIP_FORMATS. A malformed policy raises at import. The tool fails
+# closed, and crashes rather than gating on a half-loaded policy.
 POLICY = load_policy(lockfile_names=_ALL_LOCKFILE_NAMES, ownership_formats=OWNERSHIP_FORMAT_LOCATORS)
 
 _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = POLICY.deny_pattern_defs()

@@ -381,10 +381,10 @@ class Reviewer:
             extra_args={"no-session-persistence": None},
         )
 
-        # Shared by both routes; the full set is always on the separate
-        # stamphog_review_completed event. Extras first so the base props win:
-        # the hosted server stamps runtime/team context via STAMPHOG_EXTRA_PROPERTIES,
-        # absent on a local run.
+        # Shared by both routes. The full set is always on the separate
+        # stamphog_review_completed event. Extras first, so the base props win.
+        # The hosted server stamps runtime and team context through
+        # STAMPHOG_EXTRA_PROPERTIES, and a local run sets no such variable.
         attribution = {
             **analytics_extra_properties(),
             "stamphog_pr_number": pr.number,
