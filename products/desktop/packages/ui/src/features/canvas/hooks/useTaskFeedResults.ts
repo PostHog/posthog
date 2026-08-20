@@ -19,6 +19,7 @@ import {
 
 const TASK_FEED_POLL_INTERVAL_MS = 15_000;
 const TASK_FEED_MAX_PAGES = 5;
+export const taskFeedResultsQueryRoot = ["task-feed-results"] as const;
 
 function isPersonToken(token: FeedQueryToken): boolean {
   return (
@@ -35,7 +36,7 @@ function isCurrentUserToken(token: FeedQueryToken): boolean {
 }
 
 export function taskFeedResultsQueryKey(query: string) {
-  return ["task-feed-results", query] as const;
+  return [...taskFeedResultsQueryRoot, query] as const;
 }
 
 export function useFeedQueryPlan(query: string | undefined): {

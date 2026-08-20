@@ -10,6 +10,7 @@ import orjson
 import pyarrow as pa
 import pyarrow.fs as pa_fs
 import pyarrow.parquet as pq
+from prometheus_client import Counter
 from pyarrow.parquet import write_table
 from structlog.types import FilteringBoundLogger
 
@@ -26,6 +27,20 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+# Per-file exceptions are swallowed (the file is deleted and the run continues), so a failed file
+# is silently dropped rows. The outcome label is what makes that visible to alerting.
+CDP_PRODUCER_FILES_TOTAL = Counter(
+    "warehouse_cdp_producer_files_total",
+    "Staged CDP files read from S3 and produced to Kafka, by outcome",
+    labelnames=["team_id", "outcome"],
+)
+
+CDP_PRODUCER_ROWS_TOTAL = Counter(
+    "warehouse_cdp_producer_rows_total",
+    "Warehouse rows produced to the CDP raw-table Kafka topic",
+    labelnames=["team_id"],
+)
 
 
 class CDPProducer:
@@ -235,12 +250,16 @@ class CDPProducer:
                                 row_index += 1
 
                     await kafka_producer.flush()
+                    CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="produced").inc()
                     await self.logger.adebug(f"Finished producing file {file_path} to Kafka")
                 except Exception as e:
+                    CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="failed").inc()
                     capture_exception(e)
                     await self.logger.adebug(f"Error producing file {file_path} to Kafka: {e}")
                 finally:
                     # TODO(Gilbert09): have better row tracking so we can retry from a particular row
+                    if row_index:
+                        CDP_PRODUCER_ROWS_TOTAL.labels(team_id=str(self.team_id)).inc(row_index)
                     await self.logger.adebug(f"Produced {row_index} rows")
                     await self.logger.adebug(f"Deleting file {file_path}")
                     await asyncio.to_thread(fs.delete_file, file_path)

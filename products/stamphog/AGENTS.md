@@ -42,6 +42,25 @@ head-changing event must retract standing approvals itself:
   legit approval. UNLIKE the fail-closed startup sweep, the terminal sweep is fail-open: a GitHub error
   must not block the terminal save (the integrity gap on error is the pre-existing exposure, no worse).
 
+The one deliberate exception is **approval retention**.
+A head-changing delivery whose push left the PR's own diff byte-identical skips both the retraction and the review (`_standing_approval_retention` in the Celery task, deciding through [`logic/approval_retention.py`](backend/logic/approval_retention.py)).
+It is content-based rather than commit-based: the PR's own unified diff at the approved head against the same at the current head.
+So a merge of the base branch that touches none of the PR's files retains, and a merge that resolves a conflict inside one of them re-reviews.
+Comparing the diff text rather than per-file blob shas is deliberate, because the text carries file modes and renames, and a blob sha covers contents only.
+The one thing the text does not carry is binary content, which git renders as `Binary files ... differ` over an abbreviated blob id, so a diff mentioning one is refused rather than compared.
+
+There is deliberately no "this file is harmless" rule, and adding one back needs a very good argument.
+Successive review passes found every candidate wrong in this repository: lockfiles select the dependency code that gets installed, tests run in CI with CI's credentials, a file under a `generated/` directory can be hand-edited and still compiles into a service, `docs/onboarding` is aliased into the production frontend, MDX compiles to JavaScript, snapshot files are JavaScript modules the test runner executes, and even plain Markdown ships, because `services/mcp` imports `.md` templates and product `tools.yaml` files compile `.md` prompts into shipped tool definitions.
+
+Both sides are read with `compare_diff`, from the base and head shas the run and the payload already fixed.
+That is load-bearing rather than incidental: `get_pr_files` answers for whichever head is live when the request runs, so a contributor could push the approved content, let the comparison run, and push the unreviewed head back.
+Retention must never consult that endpoint.
+
+Everything ambiguous falls through to the normal path, which dismisses first: no standing approval, an approval already at this head, a run with no recorded base sha, an empty diff on either side, a diff describing a binary change, or any GitHub error, a diff too large for GitHub to render included.
+Retention also re-checks GitHub that the stored approval is still active, because a maintainer dismissing it by hand updates nothing in the product DB, and skipping the review over a dismissed approval would leave the PR with neither.
+A retained head is recorded on the approving run (`retained_head_shas`), because `_record_merged_pull_request` matches an approving run on `head_sha` alone and would otherwise treat every retained merge as unapproved and drop it from the digest for good.
+Self-driving inbox runs are excluded so the carve-out's head pinning stays untouched.
+
 ## Supersession and terminal states
 
 A newer relevant delivery supersedes older non-terminal runs. Rules that keep this sound:
@@ -69,8 +88,8 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   and `include_internal_scopes=False`. Never switch to `include_internal_scopes=True` — that
   drags `task:write` into a sandbox running an LLM over untrusted PR content. The
   `internal_run:read` marker is what satisfies the gateway route's `requires_server_credential`.
-- The raw-Anthropic fallback is for the Action runtime only; hosted runs fail closed without a
-  gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
+- The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
+  without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
 - Egress is an explicit domain allowlist (`_sandbox_egress_allowlist`). Additions go through
   `STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS`, not code edits.
 - Everything posted to GitHub goes through `_scrub_credentials` AND `_neutralize_active_markdown`
@@ -80,9 +99,9 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 
 ## The self-driving inbox carve-out (the one exception to the bot-author refusal)
 
-Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review_skip_reason`),
-the engine (`review_pr.py::_refuse_bot_author`, mirrored by `review_local.py`), and the
-Action's job gates — with ONE deliberate exception: a PR **positively linked** to a
+Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review_skip_reason`) and
+the engine (`review_pr.py::_refuse_bot_author`, called by `review_local.py`) — with ONE deliberate
+exception: a PR **positively linked** to a
 self-driving Inbox implementation run (a signal-report-carrying TaskRun at
 `ai_stage="implementation"`, matched through the tasks facade), one of whose assigned reviewers
 opted in via ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exception
@@ -110,8 +129,8 @@ narrow:
   PR #72680), and a teammate who can edit the _report_ before auto-start still influences what
   the implementation agent builds — that is the product working as designed, reviewed as any PR.
 - The engine flag (`self_driving_review` in the hosted context JSON →
-  `Pipeline(self_driving=...)`) defaults closed and the Action never sets it, so Action
-  behavior is unchanged by construction. It relaxes exactly two gates — the bot-author
+  `Pipeline(self_driving=...)`) defaults closed, so a local `review_pr.py` run never turns it on.
+  It relaxes exactly two gates — the bot-author
   refusal and the draft prerequisite (the verdict must exist at Inbox triage time, while the
   PR is still a draft) — and swaps human-author trust context for a TRUSTED provenance block
   in the prompt. The hosted server sets the flag exclusively from the run's persisted inbox
@@ -160,13 +179,26 @@ narrow:
   in reviewer prompts and error messages persisted to API-readable fields (`run.error` keeps only
   a truncated first line for exactly this reason).
 
-## Engine parity (tools/pr-approval-agent)
+## Engine parity (packages/pr-approval-agent)
 
-`review_local.py` (hosted) must mirror `review_pr.py` (Action) semantics wherever both apply:
+`review_local.py` is the entrypoint the sandbox runs. It drives `review_pr.Pipeline`'s own steps, so
 gate order, review filtering (bare COMMENTED reviews dropped, non-empty ones kept), in-flight
 bot-reviewer WAIT behavior (`TRUSTED_REACTOR_BOTS` mirrored in `temporal/constants.py`), and
-ownership summaries (individual owners count, not just teams). When you change one runtime,
-check the other; divergence here has produced real approve-when-should-wait findings.
+ownership summaries (individual owners count, not just teams) all come from shared code. `review_pr.py`
+remains as the manual entrypoint for reviewing a PR from a local checkout; changing a `Pipeline` method
+changes both, and divergence here has produced real approve-when-should-wait findings.
+
+Inputs `review_pr.py` fetches over the network reach the sandbox through the context JSON instead, and
+dropping one is a silent behavior change rather than a missing section. `author_team_slugs` feeds
+`author_on_owning_team`, which the reviewer prompt reads with a default of `True`, so an unset key
+tells the reviewer that every author owns the code they touched. `pr_provenance` needs no token and
+is computed in the sandbox from the checkout.
+
+A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
+refusal costs a ReviewHog handoff and a trigger-label strip over what is a race with CI. It can't
+reuse `Pipeline._only_pending_migration_check`: that method disqualifies on any failing gate other
+than the deny-list, and a migrations deny always drags the tier gate to T2-never with it, so it
+answers False for every PR it exists to catch.
 
 ## Temporal specifics
 
@@ -178,6 +210,6 @@ check the other; divergence here has produced real approve-when-should-wait find
 ## Tests
 
 `hogli test products/stamphog/backend/tests/` (Django; `--reuse-db` after the first run) plus
-`tools/pr-approval-agent/` tests for engine changes. The integration tests drive the full chain
+`packages/pr-approval-agent/` tests for engine changes. The integration tests drive the full chain
 through fakes (`tests/fakes.py`, `tests/conftest.py`) — extend the fakes rather than mocking
 internals, and prefer adding a parameterized case to an existing test over a new function.

@@ -638,6 +638,18 @@ def segments_for_test_file(path: str) -> frozenset[str]:
     return frozenset()
 
 
+def selected_seconds_by_segment(test_files: list[str], durations: dict[str, float]) -> dict[str, int]:
+    """Selected test-execution seconds per Django matrix segment.
+    .github/scripts/selected-django-shards.js runs these through turbo-discover's shard
+    sizing, so a narrowed run gets the same per-shard budget as a full one instead of a
+    fixed single shard. POE files count in both core and poe, matching the two matrix
+    legs that run them."""
+    return {
+        segment: round(estimate_duration([f for f in test_files if segment in segments_for_test_file(f)], durations))
+        for segment in ("core", "poe", "temporal")
+    }
+
+
 def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
     """Total test-execution seconds across the Core/POE/Temporal universe that
     selection can narrow. Excludes product/turbo tests, which run regardless of selection,
@@ -685,6 +697,7 @@ def build_result(base_ref: str) -> dict[str, object]:
             "narrowable_baseline_seconds": round(baseline_seconds),
             "selected_seconds": round(selected_seconds),
             "skipped_seconds": round(max(baseline_seconds - selected_seconds, 0.0)),
+            "selected_seconds_by_segment": selected_seconds_by_segment(combined_tests, durations),
         },
     }
 
