@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -12,7 +13,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use crate::config::Config;
+use crate::config::{Config, LIVENESS_HEARTBEAT_INTERVAL};
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::{Dispatcher, EagerFlush, SubBatch};
@@ -350,14 +351,22 @@ impl IngestionConsumer {
             return Ok(());
         };
 
-        let batch_id = batch.batch_id.clone();
-        let mut processed = self.await_processed_batch(batch).await?;
+        let InFlightBatch { batch_id, handle } = batch;
+
+        // Both waits below run on the consumer loop and can hold it for many
+        // seconds on a saturated pool, reaching no other heartbeat site.
+        // `with_heartbeat` keeps the loop visibly scheduled so each wait's own
+        // bound — a batch error, the deferred flush timeout — decides the
+        // outcome instead of the liveness monitor exiting the process first.
+        let mut processed = self.with_heartbeat(handle).await??;
+        info!(batch_id = %batch_id, "Kafka batch processing completed");
 
         // Flush this batch's deferred groups (keys whose worker was draining/dead)
         // in order, re-routing them to healthy workers. Doing it here — serialized,
         // oldest batch first — preserves per-distinct_id order across batches. The
         // batch isn't committable until all its messages are accepted.
-        self.flush_deferred(&batch_id, &mut processed).await?;
+        self.with_heartbeat(self.flush_deferred(&batch_id, &mut processed))
+            .await?;
 
         if processed.total_accepted < processed.batch_size {
             anyhow::bail!(
@@ -390,21 +399,18 @@ impl IngestionConsumer {
         Ok(())
     }
 
-    async fn await_processed_batch(&self, batch: InFlightBatch) -> anyhow::Result<ProcessedBatch> {
-        let batch_id = batch.batch_id;
-        let mut handle = batch.handle;
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
-
+    /// Await `fut` while heartbeating the lifecycle handle every
+    /// [`LIVENESS_HEARTBEAT_INTERVAL`], for waits the consumer loop performs
+    /// inline. A wait that outlives the liveness deadline without a heartbeat
+    /// is read as a stalled loop and takes the process down, however healthy
+    /// the wait itself is.
+    async fn with_heartbeat<F: Future>(&self, fut: F) -> F::Output {
+        tokio::pin!(fut);
+        let mut heartbeat = tokio::time::interval(LIVENESS_HEARTBEAT_INTERVAL);
         loop {
             tokio::select! {
-                result = &mut handle => {
-                    let processed = result??;
-                    info!(batch_id = %batch_id, "Kafka batch processing completed");
-                    return Ok(processed);
-                }
-                _ = heartbeat.tick() => {
-                    self.handle.report_healthy();
-                }
+                output = &mut fut => return output,
+                _ = heartbeat.tick() => self.handle.report_healthy(),
             }
         }
     }

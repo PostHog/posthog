@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
@@ -6,6 +8,12 @@ use tracing::info;
 use crate::discovery::DiscoveryMode;
 use crate::kafka_config::ConsumerConfigBuilder;
 use crate::routing::RoutingStrategy;
+
+/// How often the consumer loop heartbeats the lifecycle handle while waiting on
+/// a bounded operation (a batch completing, a deferred flush draining). The
+/// heartbeat says the loop is still scheduled; whether the wait is making
+/// progress is bounded separately, by each wait's own timeout.
+pub const LIVENESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Configuration for the ingestion consumer.
 ///
