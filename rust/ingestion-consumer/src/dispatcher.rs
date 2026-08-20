@@ -663,7 +663,12 @@ impl Dispatcher {
             .increment(message_count as u64);
             histogram!("ingestion_consumer_sub_batch_events").record(message_count as f64);
         }
-        histogram!("ingestion_consumer_chunks_per_batch").record(chunk_count as f64);
+        if self.chunking.enabled() {
+            // Only a chunk count while chunking is on. With it off the same
+            // number would read as "workers touched by this batch", which is a
+            // different quantity under the same name.
+            histogram!("ingestion_consumer_chunks_per_batch").record(chunk_count as f64);
+        }
 
         if drain_deferred_count > 0 {
             counter!(
