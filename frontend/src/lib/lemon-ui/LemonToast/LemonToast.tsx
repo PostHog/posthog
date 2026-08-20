@@ -185,6 +185,15 @@ interface ToastError {
 // appearing if dismiss() is called synchronously after creation in the same tick.
 const cancelledIds = new Set<number | string>()
 
+// When each visible error toast appeared, so a scene change can clear ones left over from
+// a previous page. Only errors are tracked: success, info, and loading toasts can carry
+// meaning across navigation (for example an export that is still running).
+const errorToastShownAt = new Map<number | string, number>()
+
+// Errors raised in the same tick as a navigation stay this long, so an error about the
+// page we are leaving is not wiped the instant the next scene mounts.
+const STALE_ERROR_TOAST_GRACE_MS = 1000
+
 export const lemonToast = {
     info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'info', message)
@@ -278,6 +287,7 @@ export const lemonToast = {
                     ...options,
                 }
             )
+            errorToastShownAt.set(id, Date.now())
         })
         return id
     },
@@ -353,7 +363,25 @@ export const lemonToast = {
         // queueMicrotask deferral), mark the ID as cancelled so the microtask skips it.
         if (id) {
             cancelledIds.add(id)
+            errorToastShownAt.delete(id)
+        } else {
+            errorToastShownAt.clear()
         }
         toast.dismiss(id)
+    },
+    // Clear error toasts left over from a previous page. Called on scene change so a red
+    // "failure" toast does not follow the user onto an unrelated page.
+    dismissStaleErrors(): void {
+        const now = Date.now()
+        for (const [id, shownAt] of errorToastShownAt) {
+            if (!toast.isActive(id)) {
+                errorToastShownAt.delete(id)
+                continue
+            }
+            if (now - shownAt >= STALE_ERROR_TOAST_GRACE_MS) {
+                toast.dismiss(id)
+                errorToastShownAt.delete(id)
+            }
+        }
     },
 }

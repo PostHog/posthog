@@ -1,6 +1,7 @@
-import { act, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { ToastContainer, toast } from 'react-toastify'
 
-import { GET_HELP_BUTTON, ToastContent } from './LemonToast'
+import { GET_HELP_BUTTON, ToastContent, lemonToast } from './LemonToast'
 
 describe('LemonToast', () => {
     const writeText = jest.fn((_text: string) => Promise.resolve())
@@ -33,5 +34,59 @@ describe('LemonToast', () => {
         const { container } = render(<ToastContent type={type} message="A message" />)
 
         expect(!!container.querySelector('[data-attr="toast-copy-button"]')).toBe(expected)
+    })
+
+    // react-toastify's exit animation never finishes in jsdom, so a dismissed toast lingers in the
+    // DOM. isActive() is its source of truth for whether a toast is still up, so assert on that.
+    describe('dismissStaleErrors', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            act(() => {
+                toast.dismiss()
+            })
+            cleanup()
+            jest.useRealTimers()
+        })
+
+        it('dismisses an error left over from a previous page', async () => {
+            render(<ToastContainer autoClose={false} />)
+            let id: number | string = ''
+            await act(async () => {
+                id = lemonToast.error('boom')
+                await jest.advanceTimersByTimeAsync(300)
+            })
+            expect(toast.isActive(id)).toBe(true)
+
+            // Age the toast past the grace window, then navigate.
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(1500)
+                lemonToast.dismissStaleErrors()
+            })
+            expect(toast.isActive(id)).toBe(false)
+        })
+
+        it('keeps a just-raised error and any success toast', async () => {
+            render(<ToastContainer autoClose={false} />)
+            let successId: number | string = ''
+            let errorId: number | string = ''
+            await act(async () => {
+                successId = lemonToast.success('saved')
+                await jest.advanceTimersByTimeAsync(300)
+            })
+            await act(async () => {
+                errorId = lemonToast.error('boom')
+                await jest.advanceTimersByTimeAsync(300)
+            })
+
+            await act(async () => {
+                lemonToast.dismissStaleErrors()
+            })
+            // The error is younger than the grace window; the success is never a dismiss target.
+            expect(toast.isActive(errorId)).toBe(true)
+            expect(toast.isActive(successId)).toBe(true)
+        })
     })
 })

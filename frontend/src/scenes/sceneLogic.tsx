@@ -706,6 +706,11 @@ export const sceneLogic = kea<sceneLogicType>([
                 posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
             }
 
+            // Moving to a different scene: drop error toasts from the page we just left.
+            if (lastSceneId !== sceneId || lastSceneKey !== sceneKey) {
+                lemonToast.dismissStaleErrors()
+            }
+
             const previousScene = selectors.sceneId(previousState)
             if (scrollToTop && sceneId !== previousScene) {
                 // Forward navigation (link click) scrolls to top. There is no back/forward scroll
