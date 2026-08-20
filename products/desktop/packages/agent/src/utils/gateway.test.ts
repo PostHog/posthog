@@ -6,6 +6,7 @@ import {
   resolveGatewayTarget,
   resolveLlmGatewayUrl,
 } from "./gateway";
+import routingCases from "./gateway-routing-cases.json";
 
 describe("resolveGatewayProduct", () => {
   it.each([
@@ -420,4 +421,38 @@ describe("resolveAiProduct", () => {
   ] as const)("keeps %s unchanged", (product) => {
     expect(resolveAiProduct({ product })).toBe(product);
   });
+});
+
+// Shared contract with the Python mirror (test_ai_gateway_token.py) — both suites
+// consume gateway-routing-cases.json so the resolvers cannot drift independently.
+describe("shared routing contract", () => {
+  it.each(routingCases.resolve_ai_product)(
+    "resolves $origin_product/$ai_stage -> $expected",
+    ({ origin_product, ai_stage, internal, expected }) => {
+      const product = resolveGatewayProduct({
+        isInternal: internal,
+        originProduct: origin_product,
+      });
+      expect(resolveAiProduct({ product, aiStage: ai_stage })).toBe(expected);
+    },
+  );
+
+  it.each(routingCases.routed)(
+    "routes $origin_product/$ai_stage under [$allowlist] -> $expected",
+    ({ origin_product, ai_stage, internal, allowlist, expected }) => {
+      const target = resolveGatewayTarget({
+        product: resolveGatewayProduct({
+          isInternal: internal,
+          originProduct: origin_product,
+        }),
+        aiStage: ai_stage,
+        posthogHost: "https://us.posthog.com",
+        env: {
+          AI_GATEWAY_URL: "https://ai-gateway.us.posthog.com",
+          AI_GATEWAY_PRODUCTS: allowlist,
+        },
+      });
+      expect(target.isAiGateway).toBe(expected);
+    },
+  );
 });

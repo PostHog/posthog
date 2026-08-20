@@ -82,7 +82,6 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     set_git_remote_token,
 )
 from products.tasks.backend.temporal.process_task.utils import (
-    ai_gateway_env_vars,
     get_git_identity_env_vars,
     get_readonly_github_token,
     get_sandbox_api_url,
@@ -92,6 +91,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
     parse_run_state,
+    run_gateway_env_vars,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -465,7 +465,7 @@ def _build_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
-    environment_variables.update(ai_gateway_env_vars())
+    environment_variables.update(run_gateway_env_vars(ctx, task))
 
     if settings.DEBUG:
         # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
