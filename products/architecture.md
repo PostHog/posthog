@@ -146,6 +146,10 @@ myproduct/
       tasks.py         # Celery entrypoints (call facade)
       schedules.py     # Celery beat / periodic config (optional)
 
+    management/
+      commands/
+        <command>.py   # CLI entrypoints (parse args, call facade)
+
     facade/
       __init__.py
       api.py           # Facade (the only thing other products may import)
@@ -350,6 +354,14 @@ The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` /
 ### Don't API views leak implementation?
 
 No. Views only call facades, and facades only return frozen dataclasses. The presentation layer remains decoupled from internal details — when the facade hasn't changed, nothing outside the product is affected.
+
+### Management commands
+
+`backend/management/commands/` is an entrypoint, the same as presentation and `tasks/`. A command reads its arguments, calls the facade, and writes its output through `self.stdout` and `self.stderr`. Do not put business logic in a command.
+
+The import-linter contract applies only to `presentation/`. It does not include this directory. Reviewers must enforce this rule.
+
+A command sometimes needs a capability that the facade does not have. Add the necessary facade function. Do not import `logic` or `models` in the command.
 
 # 8. Isolation Rules
 
