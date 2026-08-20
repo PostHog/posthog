@@ -21,6 +21,10 @@ import type {
   SetSessionConfigOptionResponse,
   StopReason,
 } from "@agentclientprotocol/sdk";
+import {
+  buildContextWikiInstructions,
+  resolveContextWikiPath,
+} from "../../context-wiki";
 import { RequestError } from "@agentclientprotocol/sdk";
 import {
   classifyGatewayLimitError,
@@ -584,11 +588,15 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.usage.setBaseline(buildBaseline(params.meta));
     // Flatten the {append} form (else "[object Object]") and dedupe identical parts
     // (the host pre-flattens into developerInstructions, so the prod prompt would duplicate).
+    const contextWikiPath = resolveContextWikiPath();
     const developerInstructions = [
       ...new Set(
         [
           this.developerInstructions,
           flattenSystemPrompt(params.meta?.systemPrompt),
+          contextWikiPath
+            ? buildContextWikiInstructions(contextWikiPath)
+            : undefined,
         ].filter((s): s is string => !!s),
       ),
     ].join("\n\n");

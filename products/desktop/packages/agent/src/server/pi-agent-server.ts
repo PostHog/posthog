@@ -1,3 +1,4 @@
+import { resolveContextWikiPath } from "../context-wiki";
 import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -529,7 +530,7 @@ export class PiAgentServer {
       ...createRuntimeMcpStdioServers(localTools ? [localTools] : []),
     };
 
-    const extensions: PiRuntimeExtension[] = [];
+    const extensions: PiRuntimeExtension[] = ["context-wiki"];
     if (!this.config.repositoryPath) {
       extensions.push("repository-tools");
     }
@@ -551,6 +552,7 @@ export class PiAgentServer {
         ),
       },
       extensions,
+      contextWikiPath: resolveContextWikiPath(),
     });
     const runtime = new PiRuntime(client);
     const unsubscribeConversation = runtime.onConversationEvent((event) =>

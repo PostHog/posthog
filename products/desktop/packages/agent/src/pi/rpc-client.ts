@@ -24,7 +24,10 @@ import type {
 } from "./types";
 
 export type PiRpcEvent = JsonAgentSessionEvent | PiExtensionEvent;
-export type PiRuntimeExtension = "repository-tools" | "auto-publish";
+export type PiRuntimeExtension =
+  | "repository-tools"
+  | "auto-publish"
+  | "context-wiki";
 
 type PiRpcEventListener = (event: PiRpcEvent) => void;
 
@@ -54,6 +57,8 @@ export interface PiRpcBootstrap {
   mcpToolPolicies?: McpToolPolicy[];
   projectTrusted?: boolean;
   extensions?: PiRuntimeExtension[];
+  /** Local checkout of the org's context wiki, when one is mounted. */
+  contextWikiPath?: string;
 }
 
 type RpcClientProcessAccess = {
@@ -435,6 +440,7 @@ export type PiRpcClientOptions = Pick<
   mcpToolPolicies?: McpToolPolicy[];
   projectTrusted?: boolean;
   extensions?: PiRuntimeExtension[];
+  contextWikiPath?: string;
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
@@ -445,6 +451,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     mcpToolPolicies,
     projectTrusted,
     extensions,
+    contextWikiPath,
     ...rpcOptions
   } = options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
@@ -464,6 +471,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       mcpToolPolicies,
       projectTrusted: projectTrusted ?? false,
       extensions,
+      contextWikiPath,
     } satisfies PiRpcBootstrap,
   );
 }
