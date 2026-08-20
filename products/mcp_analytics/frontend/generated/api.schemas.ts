@@ -502,13 +502,6 @@ export interface PaginatedMCPSessionListApi {
     has_next: boolean
 }
 
-export interface MCPSessionIntentApi {
-    /** $mcp_session_id the intent summary was generated for. */
-    readonly session_id: string
-    /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. */
-    readonly intent: string
-}
-
 export interface MCPActivityStatsApi {
     /** $mcp_tool_call events captured in the last 30 days. */
     readonly total_calls: number
@@ -580,6 +573,13 @@ export interface MCPActivityOverviewApi {
     readonly clients: readonly MCPActivityClientRowApi[]
     /** The 20 most recent tool calls, newest first. */
     readonly recent_calls: readonly MCPActivityRecentCallApi[]
+}
+
+export interface MCPSessionIntentApi {
+    /** $mcp_session_id the intent summary was generated for. */
+    readonly session_id: string
+    /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. */
+    readonly intent: string
 }
 
 export interface MCPIntentThemeApi {
@@ -694,9 +694,14 @@ export type McpAnalyticsSessionsListParams = {
 
 export type McpAnalyticsSessionsGenerateIntentParams = {
     /**
-     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
      */
     date_from?: string
+    /**
+     * $mcp_session_id to summarise. A query parameter rather than a path segment so ids containing '.' or '/' resolve.
+     * @minLength 1
+     */
+    session_id: string
 }
 
 export type McpAnalyticsSessionsToolCallsParams = {

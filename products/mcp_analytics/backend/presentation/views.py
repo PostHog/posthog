@@ -1,10 +1,7 @@
-from datetime import datetime
 from typing import Any, cast
 
 from django.db.models import QuerySet
-from django.utils.dateparse import parse_datetime
 
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -31,21 +28,13 @@ from .serializers import (
     MCPIntentClusterSnapshotSerializer,
     MCPIntentDigestSerializer,
     MCPMissingCapabilityCreateSerializer,
+    MCPSessionGenerateIntentQuerySerializer,
     MCPSessionIntentSerializer,
     MCPSessionListQuerySerializer,
     MCPSessionSerializer,
     MCPSessionToolCallsQuerySerializer,
     MCPToolCallSerializer,
 )
-
-
-def _parse_detail_date_from(raw: str | None) -> datetime | None:
-    """Parse the optional session-start bound for detail queries (an absolute ISO timestamp).
-
-    Returns None on missing or unparseable input so the logic layer falls back to its default
-    lookback rather than 400-ing — the bound is only a scan-pruning hint, never a filter.
-    """
-    return parse_datetime(raw) if raw else None
 
 
 class MCPAnalyticsPagination(LimitOffsetPagination):
@@ -169,10 +158,6 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = "mcp-analytics"
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPSessionPagination
-    # Session ids are free-form strings from whatever harness reported them, so a dot is legal.
-    # The DRF default lookup regex ``[^/.]+`` rejects any id with a dot, 404-ing the detail route
-    # generate_intent; widen it to allow every character except the path separator.
-    lookup_value_regex = "[^/]+"
 
     def dangerously_get_queryset(self) -> QuerySet:
         # Sessions live in ClickHouse, not a Django model, but GenericViewSet still needs a
@@ -223,36 +208,23 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = MCPToolCallSerializer(page.results, many=True)
         return MCPSessionPagination().get_paginated_response(serializer.data, has_next=page.has_next)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=MCPSessionGenerateIntentQuerySerializer,
+        responses={200: OpenApiResponse(response=MCPSessionIntentSerializer)},
         operation_id="mcp_analytics_sessions_generate_intent",
         description=(
             "Generate (or return the cached) LLM summary of the agent's goal for a session, derived from its "
             "recorded $mcp_intents. The first call summarises and persists the result; subsequent calls return "
             "the stored summary."
         ),
-        request=None,
-        parameters=[
-            OpenApiParameter(
-                name="date_from",
-                type=OpenApiTypes.DATETIME,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Absolute ISO timestamp lower bound for the intent scan — pass the session's "
-                    "start so older sessions resolve. Defaults to a 7-day lookback when omitted."
-                ),
-            ),
-        ],
-        responses={200: MCPSessionIntentSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="generate_intent")
-    def generate_intent(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
-        session_id = str(pk or "")
-        if not session_id:
-            return Response({"detail": "session_id is required."}, status=status.HTTP_400_BAD_REQUEST)
-        date_from = _parse_detail_date_from(request.query_params.get("date_from"))
+    @action(detail=False, methods=["post"], url_path="generate_intent")
+    def generate_intent(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        # session_id rides in the query string, not the path, so ids with a dot or a slash resolve.
+        params = request.validated_query_data
+        session_id = params["session_id"]
         try:
-            intent = api.generate_session_intent(self.team, session_id=session_id, date_from=date_from)
+            intent = api.generate_session_intent(self.team, session_id=session_id, date_from=params.get("date_from"))
         except contracts.IntentGenerationUnavailable:
             return Response(
                 {"detail": "Intent generation is unavailable (LLM not configured)."},

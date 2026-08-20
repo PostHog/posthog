@@ -90914,9 +90914,14 @@ export namespace Schemas {
 
     export type McpAnalyticsSessionsGenerateIntentParams = {
     /**
-     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
      */
     date_from?: string;
+    /**
+     * $mcp_session_id to summarise. A query parameter rather than a path segment so ids containing '.' or '/' resolve.
+     * @minLength 1
+     */
+    session_id: string;
     };
 
     export type McpAnalyticsSessionsToolCallsParams = {

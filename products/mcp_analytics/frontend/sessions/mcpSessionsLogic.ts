@@ -354,19 +354,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !sessionId) {
                         return EMPTY_TOOL_CALLS
                     }
-                    // Fail soft: auto-select loads the first row's calls with no user action, so a
-                    // failed fetch shows an empty panel for the session rather than a hard error.
-                    let page: { calls: MCPToolCallApi[]; hasNext: boolean }
-                    try {
-                        page = await fetchToolCallsPage(
-                            values.currentProjectId,
-                            sessionId,
-                            values.selectedSession?.session_start,
-                            0
-                        )
-                    } catch {
-                        page = { calls: [], hasNext: false }
-                    }
+                    const page = await fetchToolCallsPage(
+                        values.currentProjectId,
+                        sessionId,
+                        values.selectedSession?.session_start,
+                        0
+                    )
                     breakpoint()
                     return { sessionId, ...page }
                 },
@@ -399,14 +392,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId || !sessionId) {
                         return null
                     }
-                    // session_id comes from untrusted event properties — encode it so path/query
-                    // delimiters can't redirect this POST to another same-origin endpoint. Bound the
+                    // session_id is a query parameter, so ids containing '.' or '/' resolve. Bound the
                     // intent scan by the session's start so older sessions resolve, mirroring loadToolCalls.
-                    return await mcpAnalyticsSessionsGenerateIntent(
-                        String(values.currentProjectId),
-                        encodeURIComponent(sessionId),
-                        { date_from: values.selectedSession?.session_start || undefined }
-                    )
+                    return await mcpAnalyticsSessionsGenerateIntent(String(values.currentProjectId), {
+                        session_id: sessionId,
+                        date_from: values.selectedSession?.session_start || undefined,
+                    })
                 },
             },
         ],

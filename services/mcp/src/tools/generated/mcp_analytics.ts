@@ -6,7 +6,6 @@ import {
     McpAnalyticsFeedbackCreateBody,
     McpAnalyticsIntentClustersRetrieveQueryParams,
     McpAnalyticsMissingCapabilitiesCreateBody,
-    McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
     McpAnalyticsSessionsListQueryParams,
     McpAnalyticsSessionsToolCallsQueryParams,
@@ -55,9 +54,7 @@ const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
     },
 })
 
-const McpAnalyticsSessionsGenerateIntentSchema = McpAnalyticsSessionsGenerateIntentParams.omit({
-    project_id: true,
-}).extend(McpAnalyticsSessionsGenerateIntentQueryParams.shape)
+const McpAnalyticsSessionsGenerateIntentSchema = McpAnalyticsSessionsGenerateIntentQueryParams
 
 const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
     typeof McpAnalyticsSessionsGenerateIntentSchema,
@@ -69,9 +66,10 @@ const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPSessionIntent>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/generate_intent/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/generate_intent/`,
             query: {
                 date_from: params.date_from,
+                session_id: params.session_id,
             },
         })
         return result

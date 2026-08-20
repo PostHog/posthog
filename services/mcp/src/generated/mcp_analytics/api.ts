@@ -281,10 +281,7 @@ export const McpAnalyticsSessionsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Generate (or return the cached) LLM summary of the agent's goal for a session, derived from its recorded $mcp_intents. The first call summarises and persists the result; subsequent calls return the stored summary.
  */
-export const mcpAnalyticsSessionsGenerateIntentPathIdRegExp = new RegExp('^[^\/]+$')
-
 export const McpAnalyticsSessionsGenerateIntentParams = /* @__PURE__ */ zod.object({
-    id: zod.string().regex(mcpAnalyticsSessionsGenerateIntentPathIdRegExp),
     project_id: zod
         .string()
         .describe(
@@ -297,7 +294,13 @@ export const McpAnalyticsSessionsGenerateIntentQueryParams = /* @__PURE__ */ zod
         .datetime({ offset: true })
         .optional()
         .describe(
-            "Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+            "Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    session_id: zod
+        .string()
+        .min(1)
+        .describe(
+            "$mcp_session_id to summarise. A query parameter rather than a path segment so ids containing '.' or '\/' resolve."
         ),
 })
 

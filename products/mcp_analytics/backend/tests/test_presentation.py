@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -588,7 +589,8 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     def _url(self, session_id: str) -> str:
-        return f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/generate_intent/"
+        query = urlencode({"session_id": session_id})
+        return f"/api/environments/{self.team.id}/mcp_analytics/sessions/generate_intent/?{query}"
 
     def test_requires_authentication(self) -> None:
         self.client.logout()
@@ -610,10 +612,10 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
 
-    def test_resolves_id_with_dot(self) -> None:
-        # A dot in the id used to 404 this path-based route via the DRF default lookup regex; the
-        # widened lookup_value_regex lets it resolve.
-        session_id = "1.2.3-session"
+    @parameterized.expand([("dot", "1.2.3-session"), ("slash", "harness/session/42")])
+    def test_resolves_ids_with_path_delimiters(self, _name: str, session_id: str) -> None:
+        # A dot or slash in the id used to 404 this route while the id sat in the URL path. As a query
+        # parameter it resolves, matching the tool_calls action on the same viewset.
         MCPSession.objects.create(team=self.team, session_id=session_id, intent="A persisted summary.")
 
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -621,6 +623,11 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
+
+    def test_requires_session_id(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(f"/api/environments/{self.team.id}/mcp_analytics/sessions/generate_intent/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_generates_and_persists_when_empty(self) -> None:
         session_id = "session-fresh"

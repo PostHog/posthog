@@ -257,6 +257,22 @@ class MCPSessionToolCallsQuerySerializer(serializers.Serializer):
     )
 
 
+class MCPSessionGenerateIntentQuerySerializer(serializers.Serializer):
+    session_id = serializers.CharField(
+        help_text=(
+            "$mcp_session_id to summarise. A query parameter rather than a path segment so ids containing "
+            "'.' or '/' resolve."
+        ),
+    )
+    date_from = LenientDateTimeField(
+        required=False,
+        help_text=(
+            "Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older "
+            "sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    )
+
+
 class MCPSessionSerializer(serializers.Serializer):
     session_id = serializers.CharField(
         read_only=True, help_text="$mcp_session_id grouping all $mcp_tool_call events in the session."
