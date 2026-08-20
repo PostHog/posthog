@@ -6,7 +6,11 @@ from typing import Any
 
 from django.db import models
 
+import structlog
+
 from posthog.settings import CONSTANCE_CONFIG, CONSTANCE_DATABASE_PREFIX
+
+logger = structlog.get_logger(__name__)
 
 
 class InstanceSetting(models.Model):
@@ -56,10 +60,17 @@ def get_instance_setting(key: str) -> Any:
     # Fetch outside the lock so a slow query doesn't block other readers.
     try:
         saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
-    except Exception:
+    except Exception as e:
         # The refresh read failed, e.g. a pgbouncer blip. Serve the last known value instead of
         # letting the error reach the caller. These settings change rarely, so a stale read is safe.
         if cached is not None:
+            # Surface the degraded read so operators can tell workers are serving stale settings
+            # during a DB outage. Log the key and error type only — the value may be a secret.
+            logger.warning(
+                "instance_setting_refresh_failed_serving_stale",
+                key=key,
+                error_type=type(e).__name__,
+            )
             return cached[1]
         raise
     value = saved_setting.value if saved_setting is not None else CONSTANCE_CONFIG[key][0]
