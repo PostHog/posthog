@@ -11,6 +11,7 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -44,6 +45,7 @@ from products.tasks.backend.management.commands.run_task_workflow_dispatcher imp
 )
 from products.tasks.backend.metrics import WORKFLOW_DISPATCH_ATTEMPT_TOTAL
 from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch
+from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
 
 
@@ -293,6 +295,30 @@ class TestWorkflowDispatchPersistence(TestCase):
         marker = run.state["pending_dispatch"]
         self.assertFalse(marker["create_pr"])
         self.assertEqual(marker["posthog_mcp_scopes"], "full")
+
+    @parameterized.expand(
+        [
+            ("already_started_keeps_run_alive", WorkflowAlreadyStartedError("wf", "process-task"), False, "queued"),
+            ("durable_dispatch_leaves_retry_to_dispatcher", RuntimeError("temporal down"), True, "queued"),
+            ("no_durable_dispatch_terminalizes", RuntimeError("temporal down"), False, "failed"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.sync_connect")
+    def test_sync_start_failure_only_terminalizes_without_durable_dispatch(
+        self, _name: str, error: Exception, durable_dispatch: bool, expected_status: str, connect: Mock
+    ) -> None:
+        connect.side_effect = error
+
+        with self.captureOnCommitCallbacks(execute=True):
+            execute_task_processing_workflow(
+                task_id=str(self.task_run.task_id),
+                run_id=str(self.task_run.id),
+                team_id=self.team.id,
+                durable_dispatch=durable_dispatch,
+            )
+
+        self.task_run.refresh_from_db()
+        self.assertEqual(self.task_run.status, expected_status)
 
     def test_dispatch_facade_normalizes_slack_context_into_shadow_row(self) -> None:
         class Context:

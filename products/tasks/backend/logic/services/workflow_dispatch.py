@@ -2,7 +2,7 @@ import random
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 from django.db import close_old_connections, transaction
 from django.db.models import Count, F, Min, Q
@@ -51,6 +51,10 @@ class RestartSnapshot:
 class WorkflowDispatchFlags:
     shadow_enabled: bool
     async_enabled: bool
+
+
+class SlackThreadContextLike(Protocol):
+    def to_dict(self) -> dict[str, Any]: ...
 
 
 def build_create_payload(options: WorkflowDispatchOptions) -> dict[str, Any]:
@@ -315,6 +319,7 @@ def enqueue_or_start_workflow(
     if options.workflow_id_prefix:
         TaskRun.update_state_atomic(task_run.id, updates={"workflow_id": workflow_id})
         task_run.state = {**(task_run.state or {}), "workflow_id": workflow_id}
+    dispatch_written = False
     if flags.shadow_enabled or flags.async_enabled:
         if transaction.get_connection().in_atomic_block:
             create_dispatch(task_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id)
@@ -326,6 +331,7 @@ def enqueue_or_start_workflow(
                 create_dispatch(
                     locked_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id
                 )
+        dispatch_written = True
     if flags.async_enabled:
         return
 
@@ -350,6 +356,8 @@ def enqueue_or_start_workflow(
             workflow_kwargs["initial_message"] = options.initial_message
         if options.skip_user_check:
             workflow_kwargs["skip_user_check"] = True
+        if dispatch_written:
+            workflow_kwargs["durable_dispatch"] = True
         start_workflow(**workflow_kwargs)
 
     execute_after_commit(start_synchronously)
@@ -367,13 +375,15 @@ def dispatch_task_processing_workflow(
     team_id: int,
     user_id: int | None = None,
     create_pr: bool = True,
-    slack_thread_context: Any | None = None,
+    slack_thread_context: "SlackThreadContextLike | dict[str, Any] | None" = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
 ) -> None:
     """Outbox-aware drop-in for ``execute_task_processing_workflow`` when the caller did not create the run itself."""
-    from products.tasks.backend.temporal.client import _normalize_slack_context
-
+    if slack_thread_context is None or isinstance(slack_thread_context, dict):
+        normalized_context = slack_thread_context
+    else:
+        normalized_context = slack_thread_context.to_dict()
     task_run = TaskRun.objects.select_related("task", "task__team", "task__created_by").get(
         id=run_id, task_id=task_id, team_id=team_id
     )
@@ -382,7 +392,7 @@ def dispatch_task_processing_workflow(
         options=WorkflowDispatchOptions(
             user_id=user_id,
             create_pr=create_pr,
-            slack_thread_context=_normalize_slack_context(slack_thread_context),
+            slack_thread_context=normalized_context,
             posthog_mcp_scopes=posthog_mcp_scopes,
             skip_user_check=skip_user_check,
         ),
