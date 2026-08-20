@@ -107,6 +107,24 @@ describe("MemoryWatchdog", () => {
     expect(await listReports(watchdog)).toHaveLength(1);
   });
 
+  it("does not let a non-threshold capture suppress a later threshold report", async () => {
+    collectSample.mockResolvedValue(sampleWithRss(2 * GB));
+    const watchdog = createWatchdog({
+      POSTHOG_CODE_WATCHDOG_SUSTAINED_SAMPLES: "1",
+      POSTHOG_CODE_WATCHDOG_COOLDOWN_MS: "600000",
+    });
+
+    // A manual snapshot must not start the threshold cooldown; the cooldown
+    // only dedupes a sustained spike, not unrelated captures.
+    await watchdog.capture("manual", "manual snapshot");
+    await tick(watchdog);
+
+    const triggers = (await listReports(watchdog)).map(
+      (report) => report.trigger,
+    );
+    expect(triggers).toContain("threshold");
+  });
+
   it("records the samples leading up to the spike", async () => {
     collectSample.mockResolvedValue(sampleWithRss(2 * GB));
     const watchdog = createWatchdog({

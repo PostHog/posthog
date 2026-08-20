@@ -58,7 +58,7 @@ export class MemoryWatchdog {
   private history: MemorySample[] = [];
   private latestSample: MemorySample | null = null;
   private consecutiveBreaches = 0;
-  private lastCaptureAt = 0;
+  private lastThresholdCaptureAt = 0;
   private sampling = false;
   private capturing = false;
 
@@ -182,7 +182,13 @@ export class MemoryWatchdog {
         onError: (message, error) => this.log.error(message, error),
       });
 
-      this.lastCaptureAt = Date.now();
+      // Only the threshold path is rate-limited by the cooldown, so only it
+      // arms the timestamp. A manual, crash, or unclean-shutdown report must
+      // not suppress the next spike report — the unclean-shutdown capture at
+      // boot would otherwise blank the threshold path right after an OOM kill.
+      if (trigger === "threshold") {
+        this.lastThresholdCaptureAt = Date.now();
+      }
       this.log.warn("Captured memory report", {
         trigger,
         directory: report.directory,
@@ -237,7 +243,7 @@ export class MemoryWatchdog {
       }
 
       // A spike that stays up is one report, not one per sample.
-      if (Date.now() - this.lastCaptureAt < this.config.cooldownMs) {
+      if (Date.now() - this.lastThresholdCaptureAt < this.config.cooldownMs) {
         return;
       }
 
