@@ -2,14 +2,18 @@ import math
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.response import Response
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import ErrorTrackingFingerprintProjectionBurstRateThrottle
 
 from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_projection_query_runner import (
     FingerprintEmbedding,
@@ -41,6 +45,14 @@ class TestFingerprintEmbeddingProjection(SimpleTestCase):
 
 
 class TestFingerprintProjectionQueryScope(APIBaseTest):
+    def _query(self, *, headers: dict[str, str] | None = None) -> Response:
+        return self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {"query": {"kind": "ErrorTrackingFingerprintProjectionQuery", "issueId": str(uuid4())}},
+            format="json",
+            headers=headers,
+        )
+
     @parameterized.expand(
         [
             (["query:read"], status.HTTP_403_FORBIDDEN),
@@ -59,11 +71,14 @@ class TestFingerprintProjectionQueryScope(APIBaseTest):
             scopes=scopes,
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/query/",
-            {"query": {"kind": "ErrorTrackingFingerprintProjectionQuery", "issueId": str(uuid4())}},
-            format="json",
-            headers={"authorization": f"Bearer {value}"},
-        )
+        response = self._query(headers={"authorization": f"Bearer {value}"})
 
         assert response.status_code == expected_status, response.json()
+
+    def test_query_endpoint_throttles_session_requests(self) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        with patch.object(ErrorTrackingFingerprintProjectionBurstRateThrottle, "rate", "1/minute"):
+            assert self._query().status_code == status.HTTP_200_OK
+            assert self._query().status_code == status.HTTP_429_TOO_MANY_REQUESTS
