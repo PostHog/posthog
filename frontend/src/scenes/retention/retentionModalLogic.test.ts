@@ -25,6 +25,24 @@ const retentionQuery: RetentionQuery = {
     },
 }
 
+const dataWarehouseEntity = {
+    id: 'warehouse_orders',
+    type: 'data_warehouse' as const,
+    table_name: 'warehouse_orders',
+    timestamp_field: 'created_at',
+    aggregation_target_field: 'order_id',
+}
+
+const dataWarehouseQuery: RetentionQuery = {
+    kind: NodeKind.RetentionQuery,
+    retentionFilter: {
+        period: RetentionPeriod.Day,
+        targetEntity: dataWarehouseEntity,
+        returningEntity: dataWarehouseEntity,
+        customAggregationTarget: true,
+    },
+}
+
 const cohortRow = (
     label: string,
     count: number,
@@ -191,23 +209,6 @@ describe('retentionModalLogic', () => {
     })
 
     it('disables the person modal and relabels actors for a custom aggregation target', async () => {
-        const dataWarehouseEntity = {
-            id: 'warehouse_orders',
-            type: 'data_warehouse' as const,
-            table_name: 'warehouse_orders',
-            timestamp_field: 'created_at',
-            aggregation_target_field: 'order_id',
-        }
-        const dataWarehouseQuery: RetentionQuery = {
-            kind: NodeKind.RetentionQuery,
-            retentionFilter: {
-                period: RetentionPeriod.Day,
-                targetEntity: dataWarehouseEntity,
-                returningEntity: dataWarehouseEntity,
-                customAggregationTarget: true,
-            },
-        }
-
         await expectLogic(logic, () => {
             retentionLogic(insightProps).actions.updateQuerySource(dataWarehouseQuery)
         }).toMatchValues({
@@ -229,5 +230,21 @@ describe('retentionModalLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.openModal(0)
         }).toDispatchActions(['loadPeople'])
+    })
+
+    it('closes an open modal when the aggregation target becomes custom', async () => {
+        await loadResults(fourCohorts)
+        await expectLogic(logic, () => {
+            logic.actions.openModal(1)
+        }).toFinishAllListeners()
+        expect(logic.values.selectedRow?.values[0].count).toBe(90)
+
+        await expectLogic(logic, () => {
+            retentionLogic(insightProps).actions.updateQuerySource(dataWarehouseQuery)
+        }).toFinishAllListeners()
+
+        // Cleared, not just hidden: switching back must not restore the old cohort
+        expect(logic.values.selectedInterval).toBeNull()
+        expect(logic.values.selectedRow).toBeNull()
     })
 })

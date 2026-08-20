@@ -343,6 +343,13 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 actions.closeModal()
             }
         },
+        // Drop the selection rather than just hiding the modal, so switching the target back
+        // can't restore a cohort whose actors were never loaded.
+        canOpenPersonModal: (canOpenPersonModal: boolean) => {
+            if (!canOpenPersonModal && values.selectedInterval !== null) {
+                actions.closeModal()
+            }
+        },
     })),
     listeners(({ actions, values }) => ({
         openModal: ({ rowIndex, breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) => {
