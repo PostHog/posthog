@@ -158,6 +158,8 @@ myproduct/
       views.py         # DRF views (HTTP endpoints)
       urls.py          # HTTP routing
 
+    routes.py          # register_routes(routers): the one module core reads to mount the views
+
     tests/
       test_models.py
       test_logic.py
@@ -173,6 +175,18 @@ myproduct/
 - Keeps the product root clean
 - Provides an explicit, enforced boundary (`facade/`)
 - Scales naturally with contract-based selective testing
+
+### Which locations are fixed, and which are yours
+
+Only the paths the tooling is pointed at have fixed names: `facade/`, `presentation/`, `tasks/`, `routes.py`, and the wiring locations (`hogql_queries/`, `max_tools.py`, `temporal/`) — see [Wiring couplings](#wiring-couplings).
+They are the narrowed `backend:contract-check` inputs, and two import-linter contracts hold the HTTP surface inside them by shape: `routes.py` may only import `presentation/`, and `presentation/` may only import `facade/`.
+Core reaches a product's views only through `routes.py`, so the chain core → routes → presentation → facade is three import edges, and a view anywhere else simply cannot be routed.
+`hogli product:lint` holds the same two rules by reading the imports directly, because import-linter cannot see a module under a directory without `__init__.py`.
+
+Everything else under `backend/` is internal implementation.
+`logic/` is the default home and the scaffold creates it as a package, but as a domain grows into `services/`, `queries/`, `reviewer/`, or whatever it is called in that product, no lint polices the name.
+Nothing outside the product can import those packages, and their changes are exactly what the isolation skip is meant to skip.
+The boundary is the shape of what crosses the facade, not the location of what stays behind it.
 
 For the broader monorepo structure (products, services, platform), see [monorepo-layout.md](/docs/internal/monorepo-layout.md).
 
@@ -292,9 +306,10 @@ The value isn't the copying — it's having **one place** where "internal" becom
 
 The alternative — returning ORM objects — works until it doesn't, then you're retrofitting isolation under pressure.
 
-# 6. Business Logic (backend/logic.py)
+# 6. Business Logic (backend/logic/)
 
 Business logic lives here: validation, calculations, business rules, ORM queries.
+Further internal packages beside it are fine (see [Which locations are fixed](#which-locations-are-fixed-and-which-are-yours)).
 
 Start as a single `logic.py`.
 Once it outgrows one file, split it into a `logic/` package with one module per concern and mirror that split in `tests/logic/` — `products/visual_review/backend/logic/` is the reference, and `/splitting-oversized-modules` does the move.
@@ -327,6 +342,8 @@ Responsibilities:
 - No business logic
 
 Presentation may only import `facade` and other `presentation` modules within the same product. It must not import `models`, `logic`, or any other internal module directly — even utility modules like `cache.py` or `permissions.py`. This is enforced by import-linter in CI.
+
+`backend/routes.py` may only import `presentation` — it exists to hand the views to core's router (`register_routes(routers)`), nothing else. Also enforced by import-linter; a product whose routes still register views from `backend/api/` carries a grandfathered `ignore_imports` line, and `hogli product:maturity` counts it as an open presentation bypass until `hogli product:isolate:move` relocates them.
 
 ### Where do cross-cutting utilities go?
 
