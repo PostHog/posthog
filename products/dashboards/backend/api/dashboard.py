@@ -150,7 +150,8 @@ from products.notifications.backend.facade.api import (
     create_notification,
     has_been_dispatched,
 )
-from products.product_analytics.backend.api.insight import (
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.product_analytics.backend.presentation.insight import (
     INCLUDE_DASHBOARDS_PARAMETER,
     DashboardTileBasicSerializer,
     InsightBasicSerializer,
@@ -158,8 +159,6 @@ from products.product_analytics.backend.api.insight import (
     InsightViewSet,
     get_insight_type,
 )
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.hogai.utils.aio import async_to_sync
 
