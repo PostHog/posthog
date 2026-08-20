@@ -1,4 +1,10 @@
-import { BillingUsageResponse, BillingUsageResponseBreakdownType, convertDesktopUsageSeries } from './billingUsageLogic'
+import {
+    BILLING_USAGE_QUERY_TOO_LARGE_CODE,
+    BillingUsageResponse,
+    BillingUsageResponseBreakdownType,
+    convertDesktopUsageSeries,
+    getBillingUsageError,
+} from './billingUsageLogic'
 
 const series = (label: string, usageType: string, data: number[]): BillingUsageResponse['results'][number] => ({
     id: 1,
@@ -56,5 +62,24 @@ describe('convertDesktopUsageSeries', () => {
             label: 'my-project::PostHog Desktop token spend (USD)',
             data: [12.34],
         })
+    })
+})
+
+describe('getBillingUsageError', () => {
+    it('preserves the actionable query-size error', () => {
+        expect(
+            getBillingUsageError({
+                code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
+                detail: 'Select a product.',
+            })
+        ).toEqual({
+            code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
+            detail: 'Select a product.',
+        })
+    })
+
+    it('ignores errors without the expected API shape', () => {
+        expect(getBillingUsageError(new Error('request failed'))).toBeNull()
+        expect(getBillingUsageError({ code: BILLING_USAGE_QUERY_TOO_LARGE_CODE })).toBeNull()
     })
 })
