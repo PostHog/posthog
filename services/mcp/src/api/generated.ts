@@ -6275,6 +6275,7 @@ export namespace Schemas {
       Gitlab: 'gitlab',
       MetaAds: 'meta-ads',
       Instagram: 'instagram',
+      FacebookPages: 'facebook-pages',
       Clickup: 'clickup',
       RedditAds: 'reddit-ads',
       Databricks: 'databricks',
@@ -43557,6 +43558,7 @@ export namespace Schemas {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `facebook-pages` - Facebook Pages
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -43609,6 +43611,7 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
       Email: 'email',
+      FacebookPages: 'facebook-pages',
       Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
@@ -43661,6 +43664,7 @@ export namespace Schemas {
        * * `customerio-webhook` - Customerio Webhook
        * * `databricks` - Databricks
        * * `email` - Email
+       * * `facebook-pages` - Facebook Pages
        * * `firebase` - Firebase
        * * `github` - Github
        * * `gitlab` - Gitlab
@@ -89999,6 +90003,7 @@ export namespace Schemas {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `facebook-pages` - Facebook Pages
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -90062,6 +90067,7 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       Databricks: 'databricks',
       Email: 'email',
+      FacebookPages: 'facebook-pages',
       Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',

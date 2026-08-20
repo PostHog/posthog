@@ -132,6 +132,7 @@ class Integration(models.Model):
         CUSTOMERIO_WEBHOOK = "customerio-webhook"
         DATABRICKS = "databricks"
         EMAIL = "email"
+        FACEBOOK_PAGES = "facebook-pages"
         FIREBASE = "firebase"
         GITHUB = "github"
         GITLAB = "gitlab"

@@ -84,3 +84,9 @@ class MetaAdsIntegration(MetaGraphIntegration):
 
 class InstagramIntegration(MetaGraphIntegration):
     kind = "instagram"
+
+
+class FacebookPagesIntegration(MetaGraphIntegration):
+    """Facebook Pages runs on the same Meta app as Meta Ads, so token handling is identical."""
+
+    kind = "facebook-pages"

@@ -88,6 +88,11 @@ INSTAGRAM_OAUTH_SCOPE = (
     " pages_show_list pages_read_engagement"
 )
 
+# Page permissions the Facebook Pages warehouse source reads with. Meta accepts a comma- or
+# space-separated scope list; space matches the `requiredScopes` format the source declares, so the
+# two stay comparable. https://developers.facebook.com/docs/permissions/
+FACEBOOK_PAGES_SCOPE = "pages_show_list pages_read_engagement pages_read_user_content read_insights"
+
 
 @frozen
 class OauthConfig:
@@ -246,6 +251,7 @@ class OauthIntegration:
         "bing-ads",
         "meta-ads",
         "instagram",
+        "facebook-pages",
         "intercom",
         "linear",
         "clickup",
@@ -617,6 +623,24 @@ class OauthIntegration:
                 client_id=settings.INSTAGRAM_APP_CLIENT_ID,
                 client_secret=settings.INSTAGRAM_APP_CLIENT_SECRET,
                 scope=INSTAGRAM_OAUTH_SCOPE,
+                id_path="id",
+                name_path="name",
+            )
+        elif kind == "facebook-pages":
+            # Shares the Meta Ads app registration: one Meta app, two grants. A separate kind keeps
+            # the Pages permissions off the Meta Ads consent screen (and vice versa), so connecting
+            # one never asks for access the other needs.
+            if not settings.META_ADS_APP_CLIENT_ID or not settings.META_ADS_APP_CLIENT_SECRET:
+                raise NotImplementedError("Facebook Pages app not configured")
+
+            return OauthConfig(
+                authorize_url=f"https://www.facebook.com/{common.META_GRAPH_API_VERSION}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{common.META_GRAPH_API_VERSION}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{common.META_GRAPH_API_VERSION}/me",
+                token_info_config_fields=["id", "name"],
+                client_id=settings.META_ADS_APP_CLIENT_ID,
+                client_secret=settings.META_ADS_APP_CLIENT_SECRET,
+                scope=FACEBOOK_PAGES_SCOPE,
                 id_path="id",
                 name_path="name",
             )
