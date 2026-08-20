@@ -1963,6 +1963,15 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
             "Null while choosing a channel; no messages are sent until it is set."
         ),
     )
+    thread_reports = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, post a report as a thread: a short lead in the channel and the rest split "
+            "by the report's Markdown headings into replies. Keeps a long summary from being clipped "
+            "at Slack's section limit. Off by default, and it does not change how findings post."
+        ),
+    )
 
 
 class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
