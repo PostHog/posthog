@@ -291,6 +291,26 @@ export function formatFunctionName(
         .otherwise(() => functionName)
 }
 
+/**
+ * Whether the SDK reported this frame without any code position.
+ *
+ * posthog-js builds a stack line out of `window.onerror`'s filename, lineno and colno, and
+ * defaults the last two to 0 when the browser omits them. Browser stack lines are 1-indexed, so
+ * a zeroed pair means the browser never located the error, and the filename paired with it is
+ * the document URL rather than a script. Reading the raw frame rather than `line`/`column` keeps
+ * this independent of what symbolication later writes onto the resolved frame.
+ *
+ * Scoped to JavaScript because other SDKs express "no position" differently: a Java pass-through
+ * frame carries no line either, but its filename is real and worth showing.
+ */
+export function hasNoCodeLocation(frame: Pick<ErrorTrackingStackFrame, 'lang' | 'junk_drawer'>): boolean {
+    if (frame.lang !== 'javascript') {
+        return false
+    }
+    const rawFrame = frame.junk_drawer?.raw_frame
+    return rawFrame?.lineno === 0 && rawFrame?.colno === 0
+}
+
 export function getInstructionAddress(frame: Pick<ErrorTrackingStackFrame, 'junk_drawer'>): string | null {
     const address = frame.junk_drawer?.raw_frame?.instruction_addr
     if (typeof address !== 'string') {

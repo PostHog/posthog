@@ -41,6 +41,16 @@ pub struct FrameLocation {
     pub column: u32,
 }
 
+impl FrameLocation {
+    // Browser stack lines are 1-indexed, so line 0 never names real code. posthog-js pairs a
+    // zeroed location with the document URL as the filename when `window.onerror` fires with
+    // no Error object, which is how browsers report messages like the ResizeObserver loop
+    // warning. There is no minified code behind such a frame, so no source map can resolve it.
+    fn is_absent(&self) -> bool {
+        self.line == 0 && self.column == 0
+    }
+}
+
 impl RawJSFrame {
     pub async fn resolve_frame<C>(
         &self,
@@ -79,6 +89,14 @@ impl RawJSFrame {
         let Some(location) = &self.location else {
             return Ok(Frame::from(self)); // We're probably an unminified frame
         };
+
+        // Short-circuit before `get_ref`, so a frame the browser never located costs no symbol
+        // set lookup. Resolving one means fetching the document URL it carries as a filename,
+        // and single-page apps answer 200 with HTML for the probed `<path>.map`, which lands as
+        // an `InvalidSourceMap` failure stored against a ref that can never resolve.
+        if location.is_absent() {
+            return Ok(Frame::from((self, location)));
+        }
 
         let r = self.get_ref()?; // We need either a chunk ID or a source URL to resolve a frame
 
@@ -312,6 +330,50 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
     }
 }
 
+// Pass-through conversion for a frame carrying a zeroed location. The browser reported no
+// code position, so there is nothing to demangle and no failure worth recording against it.
+//
+// INVARIANT: `resolved_name` stays `None` and `line`/`column` keep their zeroes, so this frame
+// hashes exactly as the failure frame it replaces. `update_frame` in
+// `modes/processing/fingerprinting/mod.rs` branches on `resolved_name`: when it is `Some` it
+// hashes source + module + resolved_name and returns, and when it is `None` it hashes source +
+// module + mangled_name + line + column + lang. Populating the name, or dropping the zeroes,
+// would silently re-key this traffic into new issues. Intentional regrouping belongs behind a
+// `FingerprintVersion` bump instead.
+//
+// Frame selection is stable here for the same reason it is in the java pass-through: these
+// frames arrive alone, so `FrameSelection::InAppResolvedElseAll` sees no mixed stack to narrow.
+//
+// The success metric is not emitted here, because the `RawFrame` dispatcher in
+// `symbolication/resolve.rs` already counts every frame returning `resolved: true`.
+impl From<(&RawJSFrame, &FrameLocation)> for Frame {
+    fn from((raw_frame, location): (&RawJSFrame, &FrameLocation)) -> Self {
+        let mut res = Self {
+            frame_id: FrameId::placeholder(),
+            mangled_name: raw_frame.fn_name.clone(),
+            line: Some(location.line),
+            column: Some(location.column),
+            source: raw_frame.source_url().map(|u| u.path().to_string()).ok(),
+            in_app: raw_frame.meta.in_app,
+            resolved_name: None,
+            lang: "javascript".to_string(),
+            resolved: true,
+            resolve_failure: None,
+
+            junk_drawer: None,
+            code_variables: None,
+            context: None,
+            synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
+            module: None,
+        };
+
+        add_raw_to_junk(&mut res, raw_frame);
+
+        res
+    }
+}
+
 // Finally, if we have a frame that has NO location information, we treat it as not minified, since it's
 // probably a native function or something else weird
 impl From<&RawJSFrame> for Frame {
@@ -357,7 +419,7 @@ fn is_dependency_source(source: &str) -> bool {
 
 #[cfg(test)]
 mod test {
-    use super::is_dependency_source;
+    use super::{is_dependency_source, Frame, JsResolveErr};
 
     #[test]
     fn detects_dependency_sources() {
@@ -457,5 +519,62 @@ mod test {
         }
 
         assert!(!frame_from(None).is_suspicious());
+    }
+
+    fn located_frame(line: u32, column: u32) -> super::RawJSFrame {
+        super::RawJSFrame {
+            location: Some(super::FrameLocation { line, column }),
+            source_url: Some("https://app.example.com/dashboard/1".to_string()),
+            fn_name: "?".to_string(),
+            chunk_id: None,
+            meta: Default::default(),
+        }
+    }
+
+    #[test]
+    fn only_a_fully_zeroed_location_counts_as_absent() {
+        let cases = [
+            ((0, 0), true),
+            ((1, 0), false),
+            ((0, 1), false),
+            ((1, 662), false),
+        ];
+
+        for ((line, column), expected) in cases {
+            let location = super::FrameLocation { line, column };
+            assert_eq!(location.is_absent(), expected, "{line}:{column}");
+        }
+    }
+
+    #[test]
+    fn zeroed_location_pass_through_hashes_as_the_failure_frame_it_replaces() {
+        let raw = located_frame(0, 0);
+        let location = raw.location.as_ref().unwrap();
+
+        let passed_through: Frame = (&raw, location).into();
+        let failed: Frame = (
+            &raw,
+            JsResolveErr::InvalidSourceMap(
+                "bad json: expected value at line 1 column 1".to_string(),
+            ),
+            location,
+        )
+            .into();
+
+        assert_eq!(passed_through.resolved_name, None);
+        assert_eq!(failed.resolved_name, None);
+
+        // Everything `update_frame` hashes in the unresolved branch it selects.
+        assert_eq!(passed_through.source, failed.source);
+        assert_eq!(passed_through.module, failed.module);
+        assert_eq!(passed_through.mangled_name, failed.mangled_name);
+        assert_eq!(passed_through.line, failed.line);
+        assert_eq!(passed_through.column, failed.column);
+        assert_eq!(passed_through.lang, failed.lang);
+
+        // The behavior that actually changed.
+        assert!(passed_through.resolved);
+        assert!(!failed.resolved);
+        assert_eq!(passed_through.resolve_failure, None);
     }
 }

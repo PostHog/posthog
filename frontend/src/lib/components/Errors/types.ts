@@ -66,6 +66,8 @@ export type ErrorTrackingStackFrameContextLine = { number: number; line: string 
 export interface ErrorTrackingStackFrameJunkDrawer {
     raw_frame?: {
         instruction_addr?: string | null
+        lineno?: number | null
+        colno?: number | null
     }
 }
 

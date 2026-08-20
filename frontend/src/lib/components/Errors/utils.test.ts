@@ -6,6 +6,7 @@ import {
     getInstructionAddress,
     getRuntimeFromLib,
     getSessionId,
+    hasNoCodeLocation,
 } from './utils'
 
 describe('Error Display', () => {
@@ -274,5 +275,20 @@ describe('Error Display', () => {
         ['a padded address', { raw_frame: { instruction_addr: '  0x00000001010444e4 ' } }, '0x00000001010444e4'],
     ])('reads the instruction address from %s', (_name, junk_drawer, expected) => {
         expect(getInstructionAddress({ junk_drawer } as ErrorTrackingStackFrame)).toEqual(expected)
+    })
+
+    test.each([
+        ['a zeroed line and column', 'javascript', { lineno: 0, colno: 0 }, true],
+        ['a real line at column zero', 'javascript', { lineno: 1, colno: 0 }, false],
+        ['column one on line zero', 'javascript', { lineno: 0, colno: 1 }, false],
+        ['a real position', 'javascript', { lineno: 1, colno: 662 }, false],
+        ['a missing position', 'javascript', {}, false],
+        ['a zeroed position on a non-JavaScript frame', 'java', { lineno: 0, colno: 0 }, false],
+    ])('detects a missing code location from %s', (_name, lang, raw_frame, expected) => {
+        expect(hasNoCodeLocation({ lang, junk_drawer: { raw_frame } } as ErrorTrackingStackFrame)).toEqual(expected)
+    })
+
+    it('treats a frame with no junk drawer as located', () => {
+        expect(hasNoCodeLocation({ lang: 'javascript' } as ErrorTrackingStackFrame)).toBe(false)
     })
 })
