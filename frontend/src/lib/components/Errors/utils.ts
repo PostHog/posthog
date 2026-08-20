@@ -79,7 +79,6 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         $lib_version: libVersion,
         $browser: browser,
         $browser_version: browserVersion,
-        $os: os,
         $os_version: osVersion,
         $sentry_url: sentryUrl,
         $exception_level: level,
@@ -111,6 +110,8 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
     const appNamespace = properties.$app_namespace
     const appVersion = properties.$app_version
+    // Mobile SDKs report the platform in $os_name and leave $os unset; web SDKs do the opposite.
+    const os = properties.$os_name ?? properties.$os
 
     return {
         type,
