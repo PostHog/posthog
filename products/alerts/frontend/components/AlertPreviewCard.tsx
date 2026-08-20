@@ -53,14 +53,7 @@ function AlertPreviewChart({
                 }}
                 onError={handleChartError}
             >
-                <ReferenceLines
-                    lines={referenceLines.map((line) => ({
-                        value: line.value,
-                        label: line.label,
-                        labelPosition: line.labelPosition,
-                        variant: 'alert' as const,
-                    }))}
-                />
+                <ReferenceLines lines={referenceLines.map((line) => ({ ...line, variant: 'alert' as const }))} />
             </LineChart>
         </div>
     )

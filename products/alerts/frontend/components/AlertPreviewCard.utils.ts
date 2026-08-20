@@ -1,3 +1,5 @@
+import type { ReferenceLineLabelPosition } from '@posthog/quill-charts'
+
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
@@ -7,7 +9,7 @@ import type { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogi
 export interface AlertThresholdLine {
     value: number
     label: string
-    labelPosition: 'start' | 'end'
+    labelPosition: ReferenceLineLabelPosition
 }
 
 export function thresholdReferenceLines(alertForm: AlertFormType): AlertThresholdLine[] {
