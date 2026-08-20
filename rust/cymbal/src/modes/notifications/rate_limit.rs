@@ -3,11 +3,6 @@
 //! One bucket per team, charged by every notification type. A team that exhausts
 //! it gets no lifecycle workflow, and therefore no embedding and no alert, until
 //! the bucket refills.
-//!
-//! The bucket is charged here rather than in processing mode for two reasons.
-//! The consumer is what starts the workflows, so a limit here counts the thing we
-//! are capping. And the decision needs no room on the Kafka payload, so replays
-//! of an already-handled notification stay correct (see [`LifecycleRateLimiter::settle`]).
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -47,7 +42,6 @@ pub struct LifecycleRateLimiter {
     bucket: Option<TokenBucket>,
     key_prefix: String,
     params: Bucket,
-    enforced: bool,
     /// `None` covers every team.
     enabled_team_ids: Option<HashSet<i32>>,
 }
@@ -60,7 +54,6 @@ impl LifecycleRateLimiter {
                 bucket: None,
                 key_prefix: config.lifecycle_rate_limit_key_prefix.clone(),
                 params: Bucket::per_window(0.0, SECONDS_PER_HOUR),
-                enforced: false,
                 enabled_team_ids: None,
             }
         };
@@ -85,7 +78,6 @@ impl LifecycleRateLimiter {
             parse_team_id_allowlist(&config.lifecycle_rate_limit_enabled_team_ids);
         info!(
             per_hour = config.lifecycle_rate_limit_per_hour,
-            enforced = config.lifecycle_rate_limit_enforced,
             teams = enabled_team_ids.as_ref().map_or(0, HashSet::len),
             "Error-tracking lifecycle rate limiter enabled",
         );
@@ -100,7 +92,6 @@ impl LifecycleRateLimiter {
                 config.lifecycle_rate_limit_per_hour as f64,
                 SECONDS_PER_HOUR,
             ),
-            enforced: config.lifecycle_rate_limit_enforced,
             enabled_team_ids,
         })
     }
@@ -124,15 +115,9 @@ impl LifecycleRateLimiter {
                 record("admitted", notification_type);
                 LifecycleDecision::Admitted
             }
-            Ok(_) if self.enforced => {
-                record("limited", notification_type);
-                LifecycleDecision::Limited
-            }
-            // Shadow mode: record what the limit would have cut, then start the
-            // workflow anyway. A denial charges nothing, so no token is held.
             Ok(_) => {
                 record("limited", notification_type);
-                LifecycleDecision::Uncharged
+                LifecycleDecision::Limited
             }
             Err(e) => {
                 warn!("lifecycle rate limiter failed open for team {team_id}: {e}");
@@ -258,12 +243,11 @@ mod tests {
         }
     }
 
-    fn limiter_with(runner: Arc<FakeRunner>, enforced: bool) -> LifecycleRateLimiter {
+    fn limiter_with(runner: Arc<FakeRunner>) -> LifecycleRateLimiter {
         LifecycleRateLimiter {
             bucket: Some(TokenBucket::new(runner, 3600)),
             key_prefix: "test".to_string(),
             params: Bucket::per_window(1000.0, SECONDS_PER_HOUR),
-            enforced,
             enabled_team_ids: None,
         }
     }
@@ -273,14 +257,13 @@ mod tests {
             bucket: None,
             key_prefix: "test".to_string(),
             params: Bucket::per_window(0.0, SECONDS_PER_HOUR),
-            enforced: true,
             enabled_team_ids: None,
         }
     }
 
     #[tokio::test]
-    async fn a_denied_charge_limits_the_notification_when_enforced() {
-        let limiter = limiter_with(FakeRunner::returning(vec![0]), true);
+    async fn a_denied_charge_limits_the_notification() {
+        let limiter = limiter_with(FakeRunner::returning(vec![0]));
         assert_eq!(
             limiter.decide(42, "issue_created").await,
             LifecycleDecision::Limited
@@ -288,17 +271,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_denied_charge_starts_the_workflow_when_enforcement_is_off() {
-        let limiter = limiter_with(FakeRunner::returning(vec![0]), false);
-        assert_eq!(
-            limiter.decide(42, "issue_created").await,
-            LifecycleDecision::Uncharged
-        );
-    }
-
-    #[tokio::test]
     async fn a_redis_error_fails_open() {
-        let limiter = limiter_with(FakeRunner::failing(), true);
+        let limiter = limiter_with(FakeRunner::failing());
         assert_eq!(
             limiter.decide(42, "issue_created").await,
             LifecycleDecision::Uncharged
@@ -308,7 +282,7 @@ mod tests {
     #[tokio::test]
     async fn a_team_outside_the_allowlist_is_never_charged() {
         let runner = FakeRunner::returning(vec![0]);
-        let mut limiter = limiter_with(runner.clone(), true);
+        let mut limiter = limiter_with(runner.clone());
         limiter.enabled_team_ids = Some(HashSet::from([7]));
 
         assert_eq!(
@@ -345,7 +319,7 @@ mod tests {
 
         for (decision, start, expected_refunds) in cases {
             let runner = FakeRunner::returning(vec![1]);
-            let limiter = limiter_with(runner.clone(), true);
+            let limiter = limiter_with(runner.clone());
             limiter.settle(42, "issue_created", decision, start).await;
             assert_eq!(runner.refunds(), expected_refunds, "{decision:?} {start:?}");
         }

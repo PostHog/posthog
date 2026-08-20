@@ -36,11 +36,11 @@ increments `cymbal_lifecycle_rate_limit_fail_open`.
 | `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-lifecycle-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
 | `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. |
 | `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_ENABLED_TEAM_IDS` | empty | Comma-separated allowlist. Empty covers all teams. |
-| `ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_ENFORCED` | `false` | `false` charges the bucket and records the outcome, but starts every workflow. |
 
-Deploy with `ENFORCED=false` first: the bucket drains for real, so
-`cymbal_lifecycle_rate_limit_outcomes{outcome="limited"}` sizes the limit before
-it cuts anything.
+Roll out through the allowlist. Set the Redis URL with
+`ENABLED_TEAM_IDS` naming a few teams, watch
+`cymbal_lifecycle_rate_limit_outcomes`, then clear the allowlist to cover
+everyone. Clearing the Redis URL switches the limit off again.
 
 The token bucket itself lives in
 [`src/modes/shared/token_bucket.rs`](src/modes/shared/token_bucket.rs), shared

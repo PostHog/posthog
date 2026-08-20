@@ -68,8 +68,6 @@ pub struct NotificationsConfig {
     )]
     pub lifecycle_rate_limit_per_hour: i64,
 
-    /// Key namespace. It must differ from the event limiter's prefix, or the two
-    /// limits share one bucket.
     #[envconfig(
         from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_KEY_PREFIX",
         default = "@posthog/error-tracking-lifecycle-rate-limiter"
@@ -88,14 +86,6 @@ pub struct NotificationsConfig {
         default = ""
     )]
     pub lifecycle_rate_limit_enabled_team_ids: String,
-
-    /// False charges the bucket and records the outcome, but starts every
-    /// workflow anyway. Deploy in this state to size the limit before it bites.
-    #[envconfig(
-        from = "ERROR_TRACKING_LIFECYCLE_RATE_LIMIT_ENFORCED",
-        default = "false"
-    )]
-    pub lifecycle_rate_limit_enforced: bool,
 
     #[envconfig(default = "100")]
     pub redis_response_timeout_ms: u64,

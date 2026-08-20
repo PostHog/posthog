@@ -3,7 +3,6 @@ use crate::core::{
     types::notification::{IssueCreated, IssueReopened, IssueSpiking},
 };
 use crate::modes::notifications::analytics::{capture_issue_created, capture_issue_reopened};
-use crate::modes::notifications::consumer_loop::NOTIFICATIONS_SKIPPED_TOTAL;
 use crate::modes::notifications::context::NotificationsContext;
 
 const ISSUE_CREATED: &str = "issue_created";
@@ -27,7 +26,6 @@ pub async fn handle_issue_created(
         .decide(team_id, ISSUE_CREATED)
         .await;
     if decision.is_limited() {
-        record_skip();
         // The issue itself was still created, so keep counting it. Only the
         // lifecycle workflow, and with it the embedding and the alert, was cut.
         capture_issue_created(team_id, issue_id, sentry_integration, true);
@@ -59,7 +57,6 @@ pub async fn handle_issue_reopened(
         .decide(team_id, ISSUE_REOPENED)
         .await;
     if decision.is_limited() {
-        record_skip();
         capture_issue_reopened(team_id, issue_id, true);
         return Ok(());
     }
@@ -88,7 +85,6 @@ pub async fn handle_issue_spiking(
         .decide(team_id, ISSUE_SPIKING)
         .await;
     if decision.is_limited() {
-        record_skip();
         return Ok(());
     }
 
@@ -102,11 +98,4 @@ pub async fn handle_issue_spiking(
         .await;
 
     Ok(())
-}
-
-/// A rate-limited notification is handled, not failed: the loop stores its offset
-/// and moves on, so a team that is over budget cannot stall the partition.
-fn record_skip() {
-    metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "lifecycle_rate_limited")
-        .increment(1);
 }
