@@ -13,6 +13,7 @@ import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { useLingeringTooltip } from 'lib/hooks/useLingeringTooltip'
 import { hexToRGBA } from 'lib/utils/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -115,6 +116,12 @@ export interface SparklineProps {
      * `indices` array to clear.
      */
     incompleteBars?: { indices: number[]; tooltip?: string } | null
+    /**
+     * Let the pointer move onto the tooltip without dismissing it, so a tooltip taller than its
+     * max height can be scrolled. Off by default: an interactive tooltip sits over the canvas and
+     * would swallow clicks meant for the chart (e.g. clickable markers or drag-to-select).
+     */
+    interactiveTooltip?: boolean
 }
 
 /** Normalize the permissive `data` prop into one `SparklineTimeSeries` per series. */
@@ -310,6 +317,7 @@ function LegacySparkline({
     highlightedRange,
     incompleteBars,
     markers,
+    interactiveTooltip = false,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -547,7 +555,13 @@ function LegacySparkline({
 
     const finalClassName = sparklineClassName(adjustedData[0]?.values?.length || 0, className)
 
-    const tooltipVisible = !!(tooltip && tooltip.opacity > 0)
+    // Chart.js keeps `dataPoints` populated after it zeroes `opacity`, so the content survives the
+    // linger — only visibility needs holding open.
+    const {
+        visible: tooltipVisible,
+        onMouseEnter: onTooltipMouseEnter,
+        onMouseLeave: onTooltipMouseLeave,
+    } = useLingeringTooltip(!!(tooltip && tooltip.opacity > 0), interactiveTooltip)
     const toolTipDataPoints = tooltip && tooltip.dataPoints ? tooltip.dataPoints : []
 
     const hoveredElementX = toolTipDataPoints[0]?.element?.x ?? 0
@@ -676,6 +690,8 @@ function LegacySparkline({
                     }
                     placement="bottom-start"
                     padded={false}
+                    onMouseEnterInside={interactiveTooltip ? onTooltipMouseEnter : undefined}
+                    onMouseLeaveInside={interactiveTooltip ? onTooltipMouseLeave : undefined}
                 >
                     <div ref={tooltipRef} />
                 </Popover>

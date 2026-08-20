@@ -157,6 +157,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         persons: 'Person',
         user: 'User',
         group: 'Group',
+        account: 'Account',
         heatmap: 'Heatmap',
         sql_editor: 'SQL query',
         logs: 'Logs',

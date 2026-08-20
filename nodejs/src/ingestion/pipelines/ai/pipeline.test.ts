@@ -185,6 +185,13 @@ describe('AiIngestionPipeline', () => {
         expect(producedForTopic(DLQ_TOPIC)).toHaveLength(0)
     })
 
+    it('nulls invalid AI token properties before emitting', async () => {
+        await runPipeline([createMessage('$ai_generation', { $ai_input_tokens: 'not-a-number' })])
+
+        const [emitted] = producedForTopic(AI_EVENTS_TOPIC)
+        expect(parseJSON(emitted.properties).$ai_input_tokens).toBeNull()
+    })
+
     it.each(['$pageview', '$autocapture', '$identify', '$exception', 'custom_event'])(
         'DLQs non-AI %s events instead of processing them',
         async (eventName) => {

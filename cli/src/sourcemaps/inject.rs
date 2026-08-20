@@ -6,7 +6,8 @@ use walkdir::DirEntry;
 use crate::{
     api::releases::{Release, ReleaseBuilder},
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs},
+        args::{FileSelectionArgs, ReleaseArgs, ReleaseMode},
+        constant::CHUNK_ID_NAMESPACE,
         content::SourceMapFile,
         source_pairs::{read_pairs, SourcePair},
     },
@@ -26,6 +27,20 @@ pub struct InjectArgs {
 
     #[clap(flatten)]
     pub release: ReleaseArgs,
+
+    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
+    /// release id into the sourcemap so the uploaded symbol set is bound to it: the previous
+    /// behavior. EXPERIMENTAL `event` injects the release id into each chunk as
+    /// `_posthogReleaseId` so the SDK emits it on every exception, and derives
+    /// content-addressed chunk ids that are stable across rebuilds. Also settable via
+    /// `POSTHOG_RELEASE_MODE`.
+    #[arg(
+        long,
+        env = "POSTHOG_RELEASE_MODE",
+        value_enum,
+        default_value = "symbol-set"
+    )]
+    pub release_mode: ReleaseMode,
 }
 
 impl InjectArgs {
@@ -43,6 +58,7 @@ pub fn inject_impl(
         file_selection,
         public_path_prefix,
         release,
+        release_mode,
     } = args;
 
     info!("injecting selection: {}", file_selection);
@@ -57,16 +73,33 @@ pub fn inject_impl(
         bail!("no source files found");
     }
 
-    let created_release_id = if let Some(r) = existing_release {
-        Some(r.id.to_string())
-    } else {
-        let cwd = std::env::current_dir()?;
-        get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
-            .as_ref()
-            .map(|r| r.id.to_string())
-    };
-
-    pairs = inject_pairs(pairs, created_release_id)?;
+    match release_mode {
+        ReleaseMode::Event => {
+            // The release id travels inside each chunk for the SDK to emit, rather than being
+            // stamped into the sourcemap, so the release exists but nothing binds a symbol set
+            // to it.
+            let release_id = resolve_release_id(release.clone(), existing_release)?;
+            if release_id.is_none() {
+                warn!(
+                    "no release could be resolved, injecting chunk ids only — events will carry no release"
+                );
+            }
+            pairs = inject_pairs(pairs, release_id.as_deref())?;
+        }
+        ReleaseMode::SymbolSet => {
+            // Fetch or create a release over the API and stamp its id into the sourcemap,
+            // binding the uploaded symbol set to it.
+            let created_release_id = if let Some(r) = existing_release {
+                Some(r.id.to_string())
+            } else {
+                let cwd = std::env::current_dir()?;
+                get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
+                    .as_ref()
+                    .map(|r| r.id.to_string())
+            };
+            pairs = inject_pairs_legacy(pairs, created_release_id)?;
+        }
+    }
 
     // Write the source and sourcemaps back to disk
     for pair in &pairs {
@@ -76,7 +109,41 @@ pub fn inject_impl(
     Ok(())
 }
 
+/// Event-mode injection (`--release-mode=event`): content-addressed chunk ids plus an optional
+/// `_posthogReleaseId` payload.
 pub fn inject_pairs(
+    mut pairs: Vec<SourcePair>,
+    release_id: Option<&str>,
+) -> Result<Vec<SourcePair>> {
+    for pair in &mut pairs {
+        let Some(chunk_id) = pair.get_chunk_id() else {
+            let chunk_id = stable_chunk_id(&pair.source.inner.content);
+            pair.add_chunk_id(chunk_id, release_id)?;
+            continue;
+        };
+
+        // Already injected: the chunk id is content-addressed and the content didn't change,
+        // so keep it — but refresh the embedded release id when a different release resolved,
+        // or a re-run over an existing dist would keep reporting the old release on every
+        // event. When no release resolves, leave the pair untouched: failing to resolve is
+        // missing information (e.g. no git context), not evidence the embedded id is stale.
+        let Some(release_id) = release_id else {
+            continue;
+        };
+        if pair.get_injected_release_id().as_deref() == Some(release_id) {
+            continue;
+        }
+        pair.remove_chunk_id(chunk_id.clone())?;
+        pair.add_chunk_id(chunk_id, Some(release_id))?;
+    }
+
+    Ok(pairs)
+}
+
+/// Symbol-set-mode injection (the default): a random per-build chunk id and the created release
+/// id stamped into the sourcemap. Regenerates the chunk id whenever the release id changes or is
+/// missing.
+pub fn inject_pairs_legacy(
     mut pairs: Vec<SourcePair>,
     created_release_id: Option<String>,
 ) -> Result<Vec<SourcePair>> {
@@ -90,12 +157,57 @@ pub fn inject_pairs(
             if let Some(previous_chunk_id) = pair.get_chunk_id() {
                 pair.update_chunk_id(previous_chunk_id, chunk_id)?;
             } else {
-                pair.add_chunk_id(chunk_id)?;
+                pair.add_chunk_id(chunk_id, None)?;
             }
         }
     }
 
     Ok(pairs)
+}
+
+/// Deterministically derive a chunk id from the pristine minified source (UUIDv5). Identical
+/// builds produce identical ids on every machine and rebuild, so uploads dedupe instead of
+/// minting a per-build random id.
+///
+/// The sourcemap is deliberately not part of the identity. It carries `sourcesContent`, so a
+/// comment-only edit rewrites the map while the minified code stays byte-identical, and folding
+/// the map in would mint a new chunk for code that never changed. The map still reaches the
+/// server, because the upload hashes the payload it sends: a map-only change is a content
+/// change, and event mode overwrites the stored symbol set with the newer map.
+fn stable_chunk_id(source_content: &str) -> String {
+    uuid::Uuid::new_v5(&CHUNK_ID_NAMESPACE, source_content.as_bytes()).to_string()
+}
+
+/// Resolve the release row whose id gets injected into the chunks. Reuses the release already
+/// fetched upstream (the `process` command) when there is one; otherwise resolves name/version
+/// from flags and git/CI metadata and fetches or creates the row. Returns `None` only when there
+/// isn't enough information to identify a release at all.
+fn resolve_release_id(
+    release: ReleaseArgs,
+    existing_release: Option<&Release>,
+) -> Result<Option<String>> {
+    if let Some(r) = existing_release {
+        return Ok(Some(r.id.to_string()));
+    }
+    Ok(resolve_release(release)?.map(|r| r.id.to_string()))
+}
+
+/// Fetch or create the release identified by `release`, filling in whichever of name and version
+/// the flags left out from git and CI metadata. Returns `None` when neither source identifies a
+/// release.
+///
+/// Shared with the `release resolve` command, so a build tool that injects the release id itself
+/// lands on the same row `sourcemap inject --release-mode=event` would have injected.
+pub fn resolve_release(release: ReleaseArgs) -> Result<Option<Release>> {
+    let cwd = std::env::current_dir()?;
+    let release_args_were_provided =
+        release.name.is_some() || release.version.is_some() || release.build.is_some();
+    let mut builder: ReleaseBuilder = release.into();
+    add_git_info_to_release_builder(&cwd, &mut builder, release_args_were_provided)?;
+    if !builder.can_create() {
+        return Ok(None);
+    }
+    Ok(Some(builder.fetch_or_create()?))
 }
 
 pub fn get_release_for_maps<'a>(
@@ -162,6 +274,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::sourcemaps::plain::inject::is_javascript_file;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -240,6 +353,52 @@ mod tests {
         fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").expect("failed to write HEAD");
 
         temp_root
+    }
+
+    fn chunk_id_for(sourcemap: &str) -> String {
+        let dir = tempfile::tempdir().expect("failed to create temporary directory");
+        fs::write(
+            dir.path().join("app.js"),
+            "console.log(1);\n//# sourceMappingURL=app.js.map\n",
+        )
+        .expect("failed to write source");
+        fs::write(dir.path().join("app.js.map"), sourcemap).expect("failed to write sourcemap");
+
+        let selection = FileSelection::from_roots(vec![dir.path().to_path_buf()])
+            .include(vec![])
+            .expect("failed to build selection")
+            .exclude(vec![])
+            .expect("failed to build selection");
+        let pairs = read_pairs(selection.into_iter().filter(is_javascript_file), &None);
+
+        inject_pairs(pairs, None)
+            .expect("failed to inject pairs")
+            .first()
+            .and_then(SourcePair::get_chunk_id)
+            .expect("injected pair carries a chunk id")
+    }
+
+    #[test]
+    fn map_only_changes_keep_the_chunk_id() {
+        // Bundlers embed the original file in `sourcesContent`, so editing a comment rewrites
+        // the map while the minified code stays byte-identical. Folding the map into the id
+        // would mint a new chunk on every such edit and orphan the symbol set already stored.
+        let one = chunk_id_for(
+            r#"{"version":3,"sources":["app.ts"],"sourcesContent":["// one\nconsole.log(1)\n"],"mappings":"AAAA","names":[]}"#,
+        );
+        let two = chunk_id_for(
+            r#"{"version":3,"sources":["app.ts"],"sourcesContent":["// two\nconsole.log(1)\n"],"mappings":"AAAA","names":[]}"#,
+        );
+
+        assert_eq!(one, two);
+    }
+
+    #[test]
+    fn stable_chunk_id_tracks_the_minified_source() {
+        let id = stable_chunk_id("code();");
+
+        assert_eq!(id, stable_chunk_id("code();"));
+        assert_ne!(id, stable_chunk_id("other();"));
     }
 
     #[test]

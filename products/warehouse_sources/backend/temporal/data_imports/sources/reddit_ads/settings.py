@@ -507,6 +507,15 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         # for it as a field would be rejected. The response carries `os_type` from the breakdown.
         breakdown_is_requestable_field=False,
     ),
+    "campaign_keyword_report": _breakdown_report_endpoint(
+        "campaign_keyword_report",
+        "KEYWORD",
+        "keyword",
+        # Requested as a breakdown only, because whether `KEYWORD` is a member of the report `fields`
+        # enum has not been confirmed against the v3 spec. Sending a field Reddit does not accept
+        # fails the whole report request, so this takes the conservative side of that unknown.
+        breakdown_is_requestable_field=False,
+    ),
 }
 
 # Endpoints that are not reachable from the ad account directly and have to be walked from a parent

@@ -78,9 +78,10 @@ export interface MinimalFeatureFlagApi {
  * * `general-availability` - general availability
  * * `archived` - archived
  */
-export type StageEnumApi = (typeof StageEnumApi)[keyof typeof StageEnumApi]
+export type EarlyAccessFeatureStageEnumApi =
+    (typeof EarlyAccessFeatureStageEnumApi)[keyof typeof EarlyAccessFeatureStageEnumApi]
 
-export const StageEnumApi = {
+export const EarlyAccessFeatureStageEnumApi = {
     Draft: 'draft',
     Concept: 'concept',
     Alpha: 'alpha',
@@ -175,7 +176,7 @@ export interface EarlyAccessFeatureApi {
      * * `beta` - beta
      * * `general-availability` - general availability
      * * `archived` - archived */
-    stage: StageEnumApi
+    stage: EarlyAccessFeatureStageEnumApi
     /**
      * URL to external documentation for this feature. Shown to users in the opt-in UI.
      * @maxLength 800
@@ -236,7 +237,7 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
      * * `beta` - beta
      * * `general-availability` - general availability
      * * `archived` - archived */
-    stage: StageEnumApi
+    stage: EarlyAccessFeatureStageEnumApi
     /**
      * URL to external documentation for this feature. Shown to users in the opt-in UI.
      * @maxLength 800
@@ -298,7 +299,7 @@ export interface PatchedEarlyAccessFeatureApi {
      * * `beta` - beta
      * * `general-availability` - general availability
      * * `archived` - archived */
-    stage?: StageEnumApi
+    stage?: EarlyAccessFeatureStageEnumApi
     /**
      * URL to external documentation for this feature. Shown to users in the opt-in UI.
      * @maxLength 800

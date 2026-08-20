@@ -1,9 +1,11 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
+import { Button, Text } from "@posthog/quill";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
+import { SlackCommentNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackCommentNotificationsSettings";
+import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
-import { Button, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { SlackInboxNotificationsSettings } from "./SlackInboxNotificationsSettings";
 
 export function SlackSettings() {
@@ -20,7 +22,7 @@ export function SlackSettings() {
 
   const manageButton = (
     <Button
-      size="1"
+      size="xs"
       disabled={!slackSettingsUrl}
       onClick={() => {
         if (slackSettingsUrl) void openUrlInBrowser(slackSettingsUrl);
@@ -40,18 +42,20 @@ export function SlackSettings() {
   );
 
   return (
-    <Flex direction="column" gap="3">
+    <div className="flex flex-col gap-3">
       <Text className="text-(--gray-11) text-[13px]">
         Connect Slack to PostHog to kick off tasks like pull requests directly
         from Slack.
       </Text>
 
-      <Flex>{manageButtonWithTooltip}</Flex>
+      <div className="flex">{manageButtonWithTooltip}</div>
 
       <SlackInboxNotificationsSettings
         isLoading={isLoading}
         showHeader={false}
       />
-    </Flex>
+
+      <SlackCommentNotificationsSettings />
+    </div>
   );
 }

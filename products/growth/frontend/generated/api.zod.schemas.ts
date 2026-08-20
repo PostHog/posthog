@@ -29,12 +29,12 @@ export const ProductPushCampaignApi = zod.object({
 export type ProductPushCampaignApi = zod.input<typeof ProductPushCampaignApi>
 export type ProductPushCampaignApiOutput = zod.output<typeof ProductPushCampaignApi>
 
-export const TierEnumApi = zod
+export const IdentityMatchingLinkTierEnumApi = zod
     .enum(['high', 'medium', 'low'])
     .describe('\* `high` - high\n\* `medium` - medium\n\* `low` - low')
 
-export type TierEnumApi = zod.input<typeof TierEnumApi>
-export type TierEnumApiOutput = zod.output<typeof TierEnumApi>
+export type IdentityMatchingLinkTierEnumApi = zod.input<typeof IdentityMatchingLinkTierEnumApi>
+export type IdentityMatchingLinkTierEnumApiOutput = zod.output<typeof IdentityMatchingLinkTierEnumApi>
 
 export const IdentityMatchingPersonApi = zod
     .object({

@@ -734,9 +734,10 @@ export class TaskCreationSaga extends Saga<
     };
 
     const lease =
-      input.repository && input.runtime !== "pi"
+      (input.repository || input.allowNoRepo) && input.runtime !== "pi"
         ? this.deps.host.takeWarmTaskLease({
-            repository: input.repository,
+            repository: input.repository ?? null,
+            repositories: input.repositories,
             branch: input.branch ?? null,
             runtimeAdapter: input.adapter ?? null,
             model: input.model ?? null,
@@ -800,10 +801,13 @@ export class TaskCreationSaga extends Saga<
           input.runtime !== "pi" && !warmPayload?.suppressWarmReuse;
         const result = await this.deps.posthogClient.createTask({
           description,
-          repository: repository ?? undefined,
+          repository: input.repositories
+            ? undefined
+            : (repository ?? undefined),
+          repositories: input.repositories,
           github_integration:
             input.workspaceMode === "cloud" &&
-            input.cloudRunSource === "signal_report"
+            (input.cloudRunSource === "signal_report" || input.repositories)
               ? input.githubIntegrationId
               : undefined,
           github_user_integration:

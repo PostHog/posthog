@@ -359,6 +359,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isFeaturePropertyFilter(filter) ||
         isFlagPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
+        isErrorTrackingIssuePropertyFilter(filter) ||
         isLogPropertyFilter(filter) ||
         isMetricPropertyFilter(filter) ||
         isSpanPropertyFilter(filter)

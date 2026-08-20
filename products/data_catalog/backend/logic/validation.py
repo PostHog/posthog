@@ -39,6 +39,9 @@ _SUPPORTED_KINDS = {HOGQL_DEFINITION_KIND, *_NODE_MODELS, *_INSIGHT_MODELS}
 # A markdown definition is a bounded blob; keep it small so it stays a definition, not a document.
 MAX_MARKDOWN_DEFINITION_LENGTH = 20_000
 
+# A description is a few sentences of business meaning; a narrated query walkthrough blows past this.
+MAX_DESCRIPTION_LENGTH = 1_000
+
 # HogQLQuery carries fields that would let a caller bypass team query controls (a raw ClickHouse
 # passthrough, an arbitrary DB connection). A metric definition may only set these.
 _HOGQL_ALLOWED_KEYS = {"kind", "query", "values"}
@@ -89,6 +92,17 @@ def _fail(error: str, hint: str) -> NoReturn:
     # renders that as attr="definition" + the full text; any richer dict shape strips the
     # message (or 500s) on its way through the HTTP envelope.
     raise ValidationError({"definition": f"{error} {hint}"})
+
+
+def validate_description(description: str) -> None:
+    """Reject a description too long to be a summary. Raises keyed by the ``description`` field."""
+    if len(description) > MAX_DESCRIPTION_LENGTH:
+        raise ValidationError(
+            {
+                "description": f"Description is too long. State what the metric means and what it serves in 1-3 "
+                f"sentences (under {MAX_DESCRIPTION_LENGTH} characters), and put query rationale in 'reasoning'."
+            }
+        )
 
 
 def validate_metric_definition(definition: dict, team: Team, user: Optional[User] = None) -> tuple[dict, list[str]]:

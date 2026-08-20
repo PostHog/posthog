@@ -21,10 +21,9 @@ use limiters::overflow::OverflowLimiter;
 
 use crate::{
     api::CaptureError,
-    config::AiRouting,
     debug_or_info,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
-    events::overflow_stamping::stamp_overflow_reason,
+    events::{ai_byte_limit::drop_ai_byte_limited, overflow_stamping::stamp_overflow_reason},
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     ingestion_warnings::{
         emit_distinct_id_truncated_warning, emit_rate_limit_warning,
@@ -34,7 +33,8 @@ use crate::{
     router, sinks,
     utils::uuid_v7_from_datetime,
     v0_request::{
-        DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
+        exceeds_max_ai_event_bytes, DataType, OverflowReason, ProcessedEvent,
+        ProcessedEventMetadata, ProcessingContext,
     },
 };
 
@@ -83,9 +83,6 @@ fn create_heatmap_redirect(
     historical_cfg: router::HistoricalConfig,
     context: &ProcessingContext,
 ) -> Result<Option<ProcessedEvent>, CaptureError> {
-    // The redirect is always a `$$heatmap` event, so AI routing can never
-    // apply to it; hardcode the flag off instead of threading it through.
-    let route_ai_events = false;
     let Some(distinct_id) = event.extract_distinct_id() else {
         return Ok(None);
     };
@@ -115,19 +112,14 @@ fn create_heatmap_redirect(
         set_once: None,
     };
 
-    process_single_event(&heatmap_event, historical_cfg, route_ai_events, context).map(Some)
+    process_single_event(&heatmap_event, historical_cfg, context).map(Some)
 }
 
 /// Process a single analytics event from RawEvent to ProcessedEvent.
-///
-/// `route_ai_events` is the per-batch `AiRouting` decision (see
-/// `process_events`); when set, `$ai_*` events classify as
-/// `DataType::AiEvents` instead of the analytics main/historical lanes.
 #[instrument(skip_all, fields(event_name, request_id))]
 pub fn process_single_event(
     event: &RawEvent,
     historical_cfg: router::HistoricalConfig,
-    route_ai_events: bool,
     context: &ProcessingContext,
 ) -> Result<ProcessedEvent, CaptureError> {
     if event.event.is_empty() {
@@ -137,8 +129,7 @@ pub fn process_single_event(
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
 
-    let data_type =
-        DataType::from_event_name(&event.event, context.historical_migration, route_ai_events);
+    let data_type = DataType::from_event_name(&event.event, context.historical_migration);
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -230,11 +221,11 @@ pub fn process_single_event(
 
 /// Process a batch of analytics events.
 ///
-/// All routing policy lives here: token dropping, `$ai_*` lane assignment
-/// (per the deployment-level [`AiRouting`] policy, resolved into
-/// `DataType::AiEvents` at classification time), event restrictions, global
-/// rate limiting (per `token:distinct_id`), historical rerouting, and
-/// per-key overflow rerouting via [`OverflowLimiter`]. Overflow stamping
+/// All routing policy lives here: token dropping, AI lane assignment
+/// (resolved into `DataType::AiEvents` at classification time), event
+/// restrictions, the AI lane's per-project byte budget, global rate
+/// limiting (per `token:distinct_id`), historical rerouting, and per-key
+/// overflow rerouting via [`OverflowLimiter`]. Overflow stamping
 /// goes through the shared [`stamp_overflow_reason`] helper, which the AI
 /// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
 /// call so every `DataType::AnalyticsMain` event gets identical limiter
@@ -253,9 +244,9 @@ pub async fn process_events(
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
-    ai_routing: &AiRouting,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
 ) -> Result<(), CaptureError> {
     // The whole request fails on the first hard error, so the abort warning
     // charges the full batch, matching what the endpoint's
@@ -274,9 +265,9 @@ pub async fn process_events(
         overflow_limiter,
         ai_events_overflow_limiter,
         ingestion_warning_emitter,
-        ai_routing,
         events,
         context,
+        ai_byte_rate_limiter,
     )
     .await;
 
@@ -296,9 +287,9 @@ async fn process_events_inner(
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
-    ai_routing: &AiRouting,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
 ) -> Result<(), CaptureError> {
     let chatty_debug_enabled = context.chatty_debug_enabled;
 
@@ -324,12 +315,6 @@ async fn process_events_inner(
         return Ok(());
     }
 
-    // A request carries a single token, so the `$ai_*` lane decision is per
-    // batch, mirroring v1's `process_batch`. The flag feeds
-    // `DataType::from_event_name` via `process_single_event`; the kafka sink
-    // maps the resulting `DataType::AiEvents` to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`.
-    let route_ai_events = ai_routing.routes_to_secondary(&context.token);
-
     // Build the processed batch one raw event at a time so we can split a
     // heatmap-carrying event into a stripped original + a `$$heatmap`
     // redirect *before* serialization happens inside `process_single_event`.
@@ -342,39 +327,28 @@ async fn process_events_inner(
     let raw_events = events;
     let mut events: Vec<ProcessedEvent> = Vec::with_capacity(raw_events.len());
     for mut raw in raw_events {
+        if raw.event.starts_with("$ai_") {
+            raw.properties
+                .retain(|key, _| !key.starts_with(crate::gateway_provenance::GATEWAY_PREFIX));
+        }
         if raw.event == "$$heatmap" || !has_heatmap_data(&raw) {
-            events.push(process_single_event(
-                &raw,
-                historical_cfg,
-                route_ai_events,
-                context,
-            )?);
+            events.push(process_single_event(&raw, historical_cfg, context)?);
             continue;
         }
         let mut redirect = match create_heatmap_redirect(&raw, historical_cfg, context) {
             Ok(Some(redirect)) => redirect,
             Ok(None) => {
-                events.push(process_single_event(
-                    &raw,
-                    historical_cfg,
-                    route_ai_events,
-                    context,
-                )?);
+                events.push(process_single_event(&raw, historical_cfg, context)?);
                 continue;
             }
             Err(err) => {
                 error!("failed to create heatmap redirect: {err:#}");
-                events.push(process_single_event(
-                    &raw,
-                    historical_cfg,
-                    route_ai_events,
-                    context,
-                )?);
+                events.push(process_single_event(&raw, historical_cfg, context)?);
                 continue;
             }
         };
         raw.properties.remove("$heatmap_data");
-        let mut processed = process_single_event(&raw, historical_cfg, route_ai_events, context)?;
+        let mut processed = process_single_event(&raw, historical_cfg, context)?;
         processed.metadata.skip_heatmap_processing = true;
         events.push(processed);
         counter!("capture_heatmap_redirects_created").increment(1);
@@ -386,6 +360,57 @@ async fn process_events_inner(
     }
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
+
+    // capture-ai serves only the AI paths and loads only AI restrictions (see
+    // `Pipeline::for_capture_mode`), so an event on any other lane would run
+    // ungoverned there. Reject the batch rather than dropping the offender: a
+    // client sending non-AI events to an AI endpoint is misconfigured, and a
+    // silent drop would hide that until someone went looking for the data. The
+    // abort path emits an `invalid_ai_event` ingestion warning alongside the
+    // 400, so the project owner sees it too.
+    //
+    // Lane membership is the `AI_EVENT_NAMES` allowlist, not an `$ai_` prefix,
+    // so a prefixed-but-unlisted name is rejected here too — the Node AI
+    // pipeline would DLQ it anyway.
+    if context.capture_mode == crate::config::CaptureMode::Ai {
+        if let Some(offender) = events
+            .iter()
+            .find(|e| e.metadata.data_type != DataType::AiEvents)
+        {
+            return Err(CaptureError::NonAiEventOnAiLane(
+                offender.metadata.event_name.clone(),
+            ));
+        }
+    }
+
+    // Reject an AI-lane event past the deployment's ceiling before it can reach
+    // the sink, where the producer's own cap would refuse it anyway — after
+    // capture had read and processed the whole request. The whole request is
+    // refused, matching how every other oversize check on this path behaves.
+    //
+    // The drop isn't counted here. The abort reaches the endpoint, which charges
+    // the whole batch under this error's own `ai_event_too_big` tag; counting
+    // locally too would report one more drop than the batch held, and split one
+    // rejection across two `cause` labels.
+    //
+    // The uuid says which event to fix, since a batch can carry several of the
+    // same name. It is only a handle for clients that send their own; the rest
+    // get the one `process_single_event` minted, which identifies nothing they
+    // can look up. The non-AI-event rejection above deliberately omits it: its
+    // offender may be the `$$heatmap` event capture itself synthesized, and
+    // naming a uuid the client never issued would misdirect them.
+    if let Some(offender) = events.iter().find(|e| {
+        e.metadata.data_type == DataType::AiEvents
+            && exceeds_max_ai_event_bytes(e.event.data.len(), context.ai_max_event_bytes)
+    }) {
+        return Err(CaptureError::AiEventTooBig(format!(
+            "AI event {} (uuid {}) is {} bytes, over the {}-byte limit",
+            offender.metadata.event_name,
+            offender.event.uuid,
+            offender.event.data.len(),
+            context.ai_max_event_bytes
+        )));
+    }
 
     events.retain(|e| {
         if dropper.should_drop(&e.event.token, &e.event.distinct_id) {
@@ -452,6 +477,13 @@ async fn process_events_inner(
         debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by event_restrictions");
     }
 
+    // Charge the AI lane's per-project byte budget. This runs after event
+    // restrictions so an event a `DropEvent` discards never spends the
+    // project's budget on a send that was never going to happen. Events that
+    // survive to here are charged whether or not the budget then sheds them:
+    // those bytes crossed the wire either way.
+    drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
+
     // Per-(token, distinct_id) global rate limiting: skip person processing for
     // hot distinct_ids and reroute AnalyticsMain events to overflow. Import mode
     // opts out entirely — historical backfills must never be throttled — so the
@@ -488,7 +520,18 @@ async fn process_events_inner(
             // `v1::analytics::process::apply_token_distinct_id_limits`.
             let mut warned_distinct_ids: HashSet<&str> = HashSet::new();
             let mut warned_event_count: u64 = 0;
+            let mut already_disabled_event_count: u64 = 0;
             for event in events.iter_mut() {
+                // Person processing is already off, which at this point can only
+                // come from an event restriction: the burst limiter runs after
+                // this stage in `stamp_overflow_reason`, and the limiter's own
+                // stamp is set below. The limiter has nothing left to take away
+                // from this event, so consulting it would change nothing and
+                // still cost a local cache miss and a Redis round trip.
+                if event.metadata.skip_person_processing {
+                    already_disabled_event_count += 1;
+                    continue;
+                }
                 let cache_key =
                     GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
                         .to_cache_key();
@@ -529,6 +572,14 @@ async fn process_events_inner(
                     distinct_ids = %preview,
                     "events rate limited by distinct_id -- person processing disabled"
                 );
+            }
+
+            if already_disabled_event_count > 0 {
+                counter!(
+                    "capture_global_rate_limiter_skipped",
+                    "reason" => "person_processing_already_disabled",
+                )
+                .increment(already_disabled_event_count);
             }
 
             if warned_event_count > 0 {
@@ -633,6 +684,7 @@ mod tests {
             historical_migration: false,
             chatty_debug_enabled: false,
             capture_mode: crate::config::CaptureMode::Events,
+            ai_max_event_bytes: 0,
             sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
@@ -670,6 +722,56 @@ mod tests {
         }
     }
 
+    /// Named-field collaborators for `process_events`; tests override only
+    /// the ones they exercise and take the rest from `Default`.
+    struct PipelineOptions {
+        dropper: Arc<TokenDropper>,
+        restriction_service: Option<EventRestrictionService>,
+        historical_cfg: router::HistoricalConfig,
+        global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+        overflow_limiter: Option<Arc<OverflowLimiter>>,
+        ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
+        ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+        ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    }
+
+    impl Default for PipelineOptions {
+        fn default() -> Self {
+            Self {
+                dropper: Arc::new(TokenDropper::default()),
+                restriction_service: None,
+                historical_cfg: router::HistoricalConfig::new(false, 1),
+                global_rate_limiter: None,
+                overflow_limiter: None,
+                ai_events_overflow_limiter: None,
+                ingestion_warning_emitter: None,
+                ai_byte_rate_limiter: None,
+            }
+        }
+    }
+
+    async fn run_pipeline(
+        sink: Arc<dyn sinks::Event + Send + Sync>,
+        events: Vec<RawEvent>,
+        context: &ProcessingContext,
+        options: PipelineOptions,
+    ) -> Result<(), CaptureError> {
+        process_events(
+            sink,
+            options.dropper,
+            options.restriction_service,
+            options.historical_cfg,
+            options.global_rate_limiter,
+            options.overflow_limiter,
+            options.ai_events_overflow_limiter,
+            options.ingestion_warning_emitter,
+            events,
+            context,
+            options.ai_byte_rate_limiter,
+        )
+        .await
+    }
+
     #[test]
     fn test_server_assigned_uuid_encodes_event_timestamp() {
         // Ingestion clock is in 2023, but the event's own timestamp is back in 2020.
@@ -692,8 +794,9 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let processed = process_single_event(&event, historical_cfg, false, &context).unwrap();
+        let processed =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap();
 
         let expected_millis = processed
             .metadata
@@ -728,8 +831,9 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let processed = process_single_event(&event, historical_cfg, false, &context).unwrap();
+        let processed =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap();
 
         // The event keeps its pre-epoch timestamp, but the uuid floors to the epoch rather than wrapping to garbage.
         assert!(
@@ -751,8 +855,8 @@ mod tests {
 
         let context = create_test_context(now, None);
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let result = process_single_event(&event, historical_cfg, false, &context);
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -777,8 +881,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:59:55Z".to_string()), None, None);
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let result = process_single_event(&event, historical_cfg, false, &context);
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -801,8 +905,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, Some(true));
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let result = process_single_event(&event, historical_cfg, false, &context);
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -824,8 +928,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let result = process_single_event(&event, historical_cfg, false, &context);
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -845,8 +949,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let result = process_single_event(&event, historical_cfg, false, &context);
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -877,8 +981,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with DropEvent
         let service =
@@ -895,18 +997,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -928,8 +1026,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with ForceOverflow
         let service =
@@ -946,18 +1042,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -980,8 +1072,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with SkipPersonProcessing
         let service =
@@ -998,18 +1088,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -1032,8 +1118,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with RedirectToDlq
         let service =
@@ -1050,18 +1134,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -1084,8 +1164,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with multiple restrictions
         let service =
@@ -1109,18 +1187,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -1144,24 +1218,9 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // No restriction service
-        let result = process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await;
+        let result = run_pipeline(sink.clone(), events, &context, PipelineOptions::default()).await;
 
         assert!(result.is_ok());
         let captured = sink.get_events();
@@ -1185,8 +1244,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction that only applies to different event name
         let service =
@@ -1205,18 +1262,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -1239,8 +1292,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -1256,18 +1307,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -1280,31 +1327,56 @@ mod tests {
         );
     }
 
-    /// The `$ai_*` lane assignment is decided once per batch from the request
-    /// token: `secondary` diverts every `$ai_*` event, an allowlist diverts
-    /// only listed tokens, and `primary` never diverts. Non-AI events stay on
-    /// their normal route in every mode. The topic itself is resolved in the
-    /// kafka sink from `DataType::AiEvents`, not here.
+    /// The AI lane assignment holds across capture modes: `Events` and
+    /// `Import` both divert every allowlisted AI event (only the AI lane has AI
+    /// processing, so imports must divert too), winning over historical.
+    /// Non-AI events stay on their normal route in every mode. The topic
+    /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
+    /// here.
+    struct AiLaneInput {
+        capture_mode: crate::config::CaptureMode,
+        // Import mode drops non-historical batches before classification, so
+        // its case must arrive flagged historical.
+        historical_migration: bool,
+    }
+
+    struct AiLaneExpected {
+        ai_data_type: DataType,
+        pageview_data_type: DataType,
+    }
+
     #[rstest]
-    #[case::secondary(AiRouting::Secondary, true)]
-    #[case::allowlisted_token(
-        AiRouting::SecondaryAllowlist(["test_token".to_string()].into_iter().collect()),
-        true
+    #[case::events_mode(
+        AiLaneInput {
+            capture_mode: crate::config::CaptureMode::Events,
+            historical_migration: false,
+        },
+        AiLaneExpected {
+            ai_data_type: DataType::AiEvents,
+            pageview_data_type: DataType::AnalyticsMain,
+        }
     )]
-    #[case::unlisted_token(
-        AiRouting::SecondaryAllowlist(["other_token".to_string()].into_iter().collect()),
-        false
+    #[case::import_mode(
+        AiLaneInput {
+            capture_mode: crate::config::CaptureMode::Import,
+            historical_migration: true,
+        },
+        AiLaneExpected {
+            ai_data_type: DataType::AiEvents,
+            pageview_data_type: DataType::AnalyticsHistorical,
+        }
     )]
-    #[case::primary(AiRouting::Primary, false)]
     #[tokio::test]
     async fn test_process_events_ai_lane_assignment(
-        #[case] routing: AiRouting,
-        #[case] expect_diverted: bool,
+        #[case] input: AiLaneInput,
+        #[case] expected: AiLaneExpected,
     ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let context = create_test_context(now, None);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = input.capture_mode;
+        context.historical_migration = input.historical_migration;
         let events = vec![
             create_test_event_with_name(
                 "$ai_generation",
@@ -1321,24 +1393,10 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &routing,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 2);
@@ -1346,12 +1404,7 @@ mod tests {
             .iter()
             .find(|e| e.event.event == "$ai_generation")
             .unwrap();
-        let expected = if expect_diverted {
-            DataType::AiEvents
-        } else {
-            DataType::AnalyticsMain
-        };
-        assert_eq!(ai_event.metadata.data_type, expected);
+        assert_eq!(ai_event.metadata.data_type, expected.ai_data_type);
         // Lane assignment must not leak into the restriction-driven redirect
         // mechanism; the sink resolves the AI topic from the data type alone.
         assert_eq!(ai_event.metadata.redirect_to_topic, None);
@@ -1359,21 +1412,498 @@ mod tests {
             .iter()
             .find(|e| e.event.event == "$pageview")
             .unwrap();
-        assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(pageview.metadata.data_type, expected.pageview_data_type);
         assert_eq!(pageview.metadata.redirect_to_topic, None);
     }
 
-    /// A diverted `$ai_*` event is governed by ai-scoped restrictions (the
+    /// End-to-end: `process_events` drops the over-budget `$ai_generation` and keeps the small one.
+    #[tokio::test]
+    async fn ai_events_over_byte_budget_are_dropped_end_to_end() {
+        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::producer::MockKafkaProducer;
+
+        // 800-byte budget: the enveloped small event (~672 B) fits, and the
+        // large one takes the running total past it.
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
+
+        let producer = MockKafkaProducer::new();
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let small_event = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        let mut oversized_event = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized_event
+            .properties
+            .insert("$ai_input".to_string(), json!("x".repeat(500)));
+
+        process_events(
+            sink,
+            Arc::new(TokenDropper::default()),
+            None,
+            router::HistoricalConfig::new(false, 1),
+            None,
+            None,
+            None,
+            None,
+            vec![small_event, oversized_event],
+            &context,
+            limiter,
+        )
+        .await
+        .expect("process_events must accept the batch even though one event is dropped");
+
+        let records = producer.get_records();
+        assert_eq!(
+            records.len(),
+            1,
+            "only the under-budget AI event must reach the sink"
+        );
+        let topics = test_topics();
+        let ai_topic = topics.topic_for(&crate::sinks::registry::Output::AiMain);
+        assert_eq!(
+            records[0].topic, ai_topic,
+            "the surviving record must be on the AI lane"
+        );
+    }
+
+    /// An AI event past the deployment's ceiling refuses the whole request, so
+    /// no part of it reaches the sink. The legacy path already answers 413 for
+    /// every other oversize condition, and the producer would refuse this event
+    /// anyway once the request had been read in full.
+    #[tokio::test]
+    async fn oversize_ai_events_refuse_the_request_end_to_end() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.ai_max_event_bytes = 700;
+
+        let sink = Arc::new(MockSink::new());
+        let mut oversized = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized
+            .properties
+            .insert("$ai_input".to_string(), json!("x".repeat(800)));
+        // A client-supplied uuid: the case where the uuid in the message is a
+        // handle the sender can match against its own outbox.
+        let offender_uuid = Uuid::parse_str("018f2c6e-0000-7000-8000-00000000beef").unwrap();
+        oversized.uuid = Some(offender_uuid);
+
+        let err = run_pipeline(
+            sink.clone(),
+            vec![
+                create_test_event_with_name(
+                    "$ai_generation",
+                    Some("2023-01-01T11:00:00Z".to_string()),
+                    None,
+                    None,
+                ),
+                oversized,
+            ],
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .expect_err("an oversize AI event must refuse the batch");
+
+        assert!(matches!(err, CaptureError::AiEventTooBig(_)), "got {err:?}");
+        // The offender's uuid, not the batch's first event: a batch can carry
+        // several events of one name, so the name alone doesn't say which to fix.
+        assert!(
+            err.to_string().contains(&offender_uuid.to_string()),
+            "the message must name the offending event's uuid, got {err}"
+        );
+        assert!(
+            sink.get_events().is_empty(),
+            "no event may reach the sink once the request is refused"
+        );
+    }
+
+    /// The ceiling governs the AI lane only: an analytics event of the same
+    /// size passes, so a deployment sized for its AI topic's broker does not
+    /// start refusing ordinary analytics traffic.
+    #[tokio::test]
+    async fn the_ai_size_ceiling_leaves_analytics_events_alone() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.ai_max_event_bytes = 700;
+
+        let sink = Arc::new(MockSink::new());
+        let mut oversized = create_test_event_with_name(
+            "$pageview",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized
+            .properties
+            .insert("big".to_string(), json!("x".repeat(800)));
+
+        run_pipeline(
+            sink.clone(),
+            vec![oversized],
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .expect("an oversize analytics event must not be refused");
+
+        assert_eq!(sink.get_events().len(), 1);
+    }
+
+    /// A `DropEvent` restriction discards its event before the byte budget is
+    /// charged, so the budget still has room for the events that survive it.
+    /// Charging first would let a restricted event shed a legitimate one
+    /// behind it.
+    #[tokio::test]
+    async fn restriction_dropped_ai_events_do_not_spend_the_byte_budget() {
+        // 800-byte budget against two ~670 B enveloped events: whichever is
+        // charged first is admitted, and a second charge exceeds the budget.
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let service = EventRestrictionService::new(
+            vec![Pipeline::Analytics, Pipeline::Ai],
+            Duration::from_secs(300),
+        );
+        let mut manager = RestrictionManager::new();
+        let mut filters = RestrictionFilters::default();
+        filters.event_names.insert("$ai_generation".to_string());
+        manager.insert_restrictions(
+            Pipeline::Ai,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::Filtered(filters),
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        let sink = Arc::new(MockSink::new());
+        let events = vec![
+            create_test_event_with_name(
+                "$ai_generation",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+            create_test_event_with_name(
+                "$ai_span",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+        ];
+
+        run_pipeline(
+            sink.clone(),
+            events,
+            &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ai_byte_rate_limiter: limiter,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(
+            captured.len(),
+            1,
+            "the restricted event must not spend budget the surviving event needs"
+        );
+        assert_eq!(captured[0].event.event, "$ai_span");
+    }
+
+    /// capture-ai loads only AI restrictions, so anything off the AI lane must
+    /// not reach the pipeline there. Each case sends a two-event batch whose
+    /// second event is the one under test.
+    struct AiLaneGateCase {
+        second_event: &'static str,
+        rejected: bool,
+    }
+
+    #[rstest]
+    #[case::analytics_event_is_rejected(AiLaneGateCase {
+        second_event: "$pageview",
+        rejected: true,
+    })]
+    // Lane membership is the AI_EVENT_NAMES allowlist, not an `$ai_` prefix.
+    // A prefixed-but-unlisted name resolves to AnalyticsMain, so it must be
+    // rejected too -- the Node AI pipeline would DLQ it downstream anyway.
+    #[case::prefixed_but_unlisted_name_is_rejected(AiLaneGateCase {
+        second_event: "$ai_call",
+        rejected: true,
+    })]
+    #[case::exception_is_rejected(AiLaneGateCase {
+        second_event: "$exception",
+        rejected: true,
+    })]
+    #[case::second_allowlisted_event_passes(AiLaneGateCase {
+        second_event: "$ai_span",
+        rejected: false,
+    })]
+    #[tokio::test]
+    async fn ai_mode_rejects_a_batch_carrying_anything_off_the_ai_lane(
+        #[case] case: AiLaneGateCase,
+    ) {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = crate::config::CaptureMode::Ai;
+
+        let events = vec![
+            create_test_event_with_name("$ai_generation", None, None, None),
+            create_test_event_with_name(case.second_event, None, None, None),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let collector = Arc::new(CollectingEmitter::new());
+        let result = run_pipeline(
+            sink.clone(),
+            events,
+            &context,
+            PipelineOptions {
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
+        )
+        .await;
+
+        if !case.rejected {
+            result.expect("an all-AI batch must be accepted");
+            assert_eq!(sink.get_events().len(), 2);
+            assert!(collector.emitted().is_empty());
+            return;
+        }
+
+        let err = result.expect_err("the batch must be rejected");
+        assert!(
+            matches!(&err, CaptureError::NonAiEventOnAiLane(name) if name == case.second_event),
+            "the error must name the offending event, got {err:?}"
+        );
+        // Rejecting the request means the whole batch is refused, including the
+        // valid AI event ahead of the offender.
+        assert!(sink.get_events().is_empty());
+
+        // The 400 reaches the caller; the warning reaches the project owner.
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+    }
+
+    /// The gate is scoped to capture-ai. On capture-analytics the same mixed
+    /// batch is ordinary traffic: both events are accepted, each on its lane.
+    #[tokio::test]
+    async fn events_mode_accepts_a_batch_the_ai_lane_would_reject() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let events = vec![
+            create_test_event_with_name("$ai_generation", None, None, None),
+            create_test_event_with_name("$pageview", None, None, None),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .expect("capture-analytics must accept a mixed batch");
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 2);
+        assert_eq!(
+            captured
+                .iter()
+                .filter(|e| e.metadata.data_type == DataType::AiEvents)
+                .count(),
+            1
+        );
+    }
+
+    /// Capture mode no longer changes which lane an AI event lands on: under `Ai`
+    /// it diverts to `AiEvents` and the AI topic, exactly as under `Events`.
+    #[tokio::test]
+    async fn ai_mode_routes_ai_events_to_the_ai_lane_end_to_end() {
+        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::producer::MockKafkaProducer;
+
+        // 800-byte budget: the small event fits, the large one takes the
+        // running total past it.
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
+
+        let producer = MockKafkaProducer::new();
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = crate::config::CaptureMode::Ai;
+
+        let small_event = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        let mut oversized_event = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized_event
+            .properties
+            .insert("$ai_input".to_string(), json!("x".repeat(500)));
+
+        process_events(
+            sink,
+            Arc::new(TokenDropper::default()),
+            None,
+            router::HistoricalConfig::new(false, 1),
+            None,
+            None,
+            None,
+            None,
+            vec![small_event, oversized_event],
+            &context,
+            limiter,
+        )
+        .await
+        .expect("process_events must accept the batch even though one event is dropped");
+
+        let records = producer.get_records();
+        assert_eq!(
+            records.len(),
+            1,
+            "only the under-budget event must reach the sink under Ai mode"
+        );
+        let topics = test_topics();
+        let ai_topic = topics.topic_for(&crate::sinks::registry::Output::AiMain);
+        assert_eq!(
+            records[0].topic, ai_topic,
+            "an allowlisted AI event diverts to the AI lane under Ai mode too"
+        );
+    }
+
+    /// Under `Events` mode, only the diverted `AiEvents` lane is limited:
+    /// AI traffic past the budget drops while same-sized `$pageview`s stay
+    /// untouched however far over that budget the token already is.
+    #[tokio::test]
+    async fn events_mode_leaves_analytics_main_untouched_end_to_end() {
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(300)));
+
+        let sink = Arc::new(MockSink::new());
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let oversized_ai_event = || {
+            let mut event = create_test_event_with_name(
+                "$ai_generation",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            );
+            event
+                .properties
+                .insert("$ai_input".to_string(), json!("x".repeat(500)));
+            event
+        };
+        let mut oversized_pageview = create_test_event_with_name(
+            "$pageview",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized_pageview
+            .properties
+            .insert("$current_url".to_string(), json!("x".repeat(500)));
+
+        process_events(
+            sink.clone(),
+            Arc::new(TokenDropper::default()),
+            None,
+            router::HistoricalConfig::new(false, 1),
+            None,
+            None,
+            None,
+            None,
+            vec![oversized_ai_event(), oversized_pageview],
+            &context,
+            limiter,
+        )
+        .await
+        .expect("process_events must accept the batch even though one event is dropped");
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1, "the over-budget AI event must drop");
+        assert_eq!(
+            captured[0].metadata.data_type,
+            DataType::AnalyticsMain,
+            "the same-sized $pageview must survive"
+        );
+    }
+
+    /// A diverted AI event is governed by ai-scoped restrictions (the
     /// same slice the dedicated AI endpoints consult), not analytics ones:
     /// an ai-scoped DropEvent drops it, an analytics-scoped one must not
     /// cross pipelines into the AI lane.
+    struct AiDropScopeCase {
+        restriction_pipeline: Pipeline,
+        expect_dropped: bool,
+    }
+
     #[rstest]
-    #[case::ai_scoped_drop_applies(Pipeline::Ai, true)]
-    #[case::analytics_scoped_drop_does_not_cross(Pipeline::Analytics, false)]
+    #[case::ai_scoped_drop_applies(AiDropScopeCase {
+        restriction_pipeline: Pipeline::Ai,
+        expect_dropped: true,
+    })]
+    #[case::analytics_scoped_drop_does_not_cross(AiDropScopeCase {
+        restriction_pipeline: Pipeline::Analytics,
+        expect_dropped: false,
+    })]
     #[tokio::test]
     async fn test_process_events_drop_restriction_on_diverted_ai_events(
-        #[case] restriction_pipeline: Pipeline,
-        #[case] expect_dropped: bool,
+        #[case] case: AiDropScopeCase,
     ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -1387,8 +1917,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service = EventRestrictionService::new(
             vec![Pipeline::Analytics, Pipeline::Ai],
@@ -1396,7 +1924,7 @@ mod tests {
         );
         let mut manager = RestrictionManager::new();
         manager.insert_restrictions(
-            restriction_pipeline,
+            case.restriction_pipeline,
             "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
@@ -1406,24 +1934,20 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Secondary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
         let captured = sink.get_events();
-        if expect_dropped {
+        if case.expect_dropped {
             assert!(captured.is_empty());
         } else {
             assert_eq!(captured.len(), 1);
@@ -1431,7 +1955,7 @@ mod tests {
         }
     }
 
-    /// An ai-scoped RedirectToTopic applies to a diverted `$ai_*` event: the
+    /// An ai-scoped RedirectToTopic applies to a diverted AI event: the
     /// event keeps its AI lane, but the stamped redirect beats the data type
     /// in the sink so operators can reroute an AI token's traffic ad hoc,
     /// matching v1 where the restriction overwrites `Destination::AiEvents`
@@ -1450,8 +1974,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service = EventRestrictionService::new(
             vec![Pipeline::Analytics, Pipeline::Ai],
@@ -1469,18 +1991,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Secondary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1514,8 +2032,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -1531,18 +2047,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1578,8 +2090,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -1607,18 +2117,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1661,8 +2167,6 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Single service serving both pipelines, with a DropEvent restriction
         // attached only to the errortracking pipeline.
@@ -1682,18 +2186,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1733,8 +2233,6 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service = EventRestrictionService::new(
             vec![Pipeline::Analytics, Pipeline::ErrorTracking],
@@ -1752,18 +2250,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1797,8 +2291,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -1814,18 +2306,14 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1867,24 +2355,10 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None, // no overflow limiter
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
@@ -1904,23 +2378,17 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         // test_token is in the reroute list -> ForceLimited
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1933,18 +2401,26 @@ mod tests {
         );
     }
 
-    /// End-to-end gate for the AI overflow valve: a diverted `$ai_*` event
+    struct AiValveCase {
+        ai_limiter_present: bool,
+        expected_reason: Option<OverflowReason>,
+    }
+
+    /// End-to-end gate for the AI overflow valve: a diverted AI event
     /// is overflow-stamped only when the AI limiter is wired (setup builds
     /// it exactly when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
     /// configured), and keeps its AI lane either way.
     #[rstest]
-    #[case::limiter_present(true, Some(OverflowReason::ForceLimited))]
-    #[case::limiter_absent(false, None)]
+    #[case::limiter_present(AiValveCase {
+        ai_limiter_present: true,
+        expected_reason: Some(OverflowReason::ForceLimited),
+    })]
+    #[case::limiter_absent(AiValveCase {
+        ai_limiter_present: false,
+        expected_reason: None,
+    })]
     #[tokio::test]
-    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(
-        #[case] ai_limiter_present: bool,
-        #[case] expected_reason: Option<OverflowReason>,
-    ) {
+    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiValveCase) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -1957,23 +2433,18 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        let ai_limiter = ai_limiter_present
+        let ai_limiter = case
+            .ai_limiter_present
             .then(|| build_limiter(10, 10, Some("test_token".to_string()), false));
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            ai_limiter,
-            None,
-            &AiRouting::Secondary,
             events,
             &context,
+            PipelineOptions {
+                ai_events_overflow_limiter: ai_limiter,
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1981,7 +2452,7 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].metadata.data_type, DataType::AiEvents);
-        assert_eq!(captured[0].metadata.overflow_reason, expected_reason);
+        assert_eq!(captured[0].metadata.overflow_reason, case.expected_reason);
     }
 
     #[tokio::test]
@@ -1996,23 +2467,17 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         // burst of 1 -> first event passes, second event rate-limited
         let limiter = build_limiter(1, 1, None, true);
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2040,22 +2505,16 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let limiter = build_limiter(1, 1, None, false);
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2085,8 +2544,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         // Even with a limiter that would flag this token, force_overflow wins.
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
@@ -2104,18 +2561,15 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2142,22 +2596,16 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2190,8 +2638,6 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Global RL: limits (test_token, test_user) -> key `test_token:test_user`.
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
@@ -2200,18 +2646,15 @@ mod tests {
         // stamped RateLimited{preserve_locality: true}.
         let overflow_limiter = build_limiter(1, 1, None, true);
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            Some(global_limiter),
-            Some(overflow_limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                global_rate_limiter: Some(global_limiter),
+                overflow_limiter: Some(overflow_limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2262,22 +2705,16 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            Some(global_limiter),
-            None, // no overflow limiter -- isolate global RL behavior
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                global_rate_limiter: Some(global_limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2293,30 +2730,36 @@ mod tests {
         );
     }
 
+    struct SdkWarningCase {
+        attribution: Option<SdkAttribution>,
+        expected_lib: &'static str,
+        expected_lib_version: &'static str,
+    }
+
     // The legacy path carries the bulk of rate-limited traffic, and it's the one
     // whose SDK attribution has to survive a snapshot taken back at batch
     // construction — by this stage the events are serialized.
     #[rstest::rstest]
-    #[case::sdk_reported(
-        Some(SdkAttribution {
+    #[case::sdk_reported(SdkWarningCase {
+        attribution: Some(SdkAttribution {
             lib: Some("web".to_string()),
             lib_version: Some("1.2.3".to_string()),
         }),
-        "web",
-        "1.2.3"
-    )]
-    #[case::sdk_absent(None, "unknown", "unknown")]
+        expected_lib: "web",
+        expected_lib_version: "1.2.3",
+    })]
+    #[case::sdk_absent(SdkWarningCase {
+        attribution: None,
+        expected_lib: "unknown",
+        expected_lib_version: "unknown",
+    })]
     #[tokio::test]
-    async fn global_rate_limit_emits_a_warning_naming_the_hot_key(
-        #[case] attribution: Option<SdkAttribution>,
-        #[case] expected_lib: &str,
-        #[case] expected_lib_version: &str,
-    ) {
+    async fn global_rate_limit_emits_a_warning_naming_the_hot_key(#[case] case: SdkWarningCase) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
         let mut context = create_test_context(now, None);
-        if let Some(attribution) = attribution {
+        if let Some(attribution) = case.attribution {
             context.sdk_attribution = attribution;
         }
         let events = vec![create_test_event(
@@ -2326,23 +2769,18 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
         let collector = Arc::new(CollectingEmitter::new());
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            Some(global_limiter),
-            None,
-            None,
-            Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                global_rate_limiter: Some(global_limiter),
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2359,10 +2797,10 @@ mod tests {
             serde_json::json!("test_user")
         );
         assert_eq!(w.extra_details["distinctIdCount"], serde_json::json!(1));
-        assert_eq!(w.extra_details["lib"], serde_json::json!(expected_lib));
+        assert_eq!(w.extra_details["lib"], serde_json::json!(case.expected_lib));
         assert_eq!(
             w.extra_details["libVersion"],
-            serde_json::json!(expected_lib_version)
+            serde_json::json!(case.expected_lib_version)
         );
         assert_eq!(w.extra_details["path"], serde_json::json!("/e/"));
     }
@@ -2383,18 +2821,14 @@ mod tests {
         let sink = Arc::new(MockSink::new());
         let collector = Arc::new(CollectingEmitter::new());
 
-        let result = process_events(
+        let result = run_pipeline(
             sink.clone(),
-            Arc::new(limiters::token_dropper::TokenDropper::default()),
-            None,
-            router::HistoricalConfig::new(false, 1),
-            None,
-            None,
-            None,
-            Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -2440,18 +2874,14 @@ mod tests {
 
         let collector = Arc::new(CollectingEmitter::new());
 
-        let result = process_events(
+        let result = run_pipeline(
             Arc::new(RejectingSink),
-            Arc::new(limiters::token_dropper::TokenDropper::default()),
-            None,
-            router::HistoricalConfig::new(false, 1),
-            None,
-            None,
-            None,
-            Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
         )
         .await;
 
@@ -2460,10 +2890,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn global_rate_limit_does_not_warn_when_person_processing_was_already_off() {
+    async fn global_rate_limit_is_skipped_when_person_processing_was_already_off() {
         // An ops restriction already took person processing away, so the limiter
-        // changed nothing the customer would recognize. It still reroutes the hot
-        // key, but a warning here would overstate the limit's reach.
+        // is not consulted: it has nothing left to take, and the call would cost a
+        // Redis round trip per event. The event keeps its lane and its partition
+        // key, so the limiter's overflow reroute does not apply either. A hot key
+        // under a restriction is left to the burst limiter downstream.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2475,8 +2907,6 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
         let collector = Arc::new(CollectingEmitter::new());
 
@@ -2494,18 +2924,16 @@ mod tests {
         );
         service.update(manager).await;
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            Some(service),
-            historical_cfg,
-            Some(global_limiter),
-            None,
-            None,
-            Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                global_rate_limiter: Some(global_limiter),
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2515,9 +2943,8 @@ mod tests {
         assert_eq!(captured.len(), 1);
         assert!(captured[0].metadata.skip_person_processing);
         assert_eq!(
-            captured[0].metadata.overflow_reason,
-            Some(OverflowReason::ForceLimited),
-            "the hot key is still rerouted to overflow"
+            captured[0].metadata.overflow_reason, None,
+            "the limiter is skipped, so it does not reroute the key to overflow"
         );
     }
 
@@ -2537,22 +2964,16 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            Some(global_limiter),
-            None, // no overflow limiter -- isolate global RL behavior
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                global_rate_limiter: Some(global_limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2588,24 +3009,10 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         assert_eq!(
             sink.get_events().len(),
@@ -2630,24 +3037,10 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
@@ -2676,22 +3069,16 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
-        process_events(
+        run_pipeline(
             sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            Some(global_limiter),
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                global_rate_limiter: Some(global_limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2730,23 +3117,17 @@ mod tests {
             producer.clone(),
             test_topics(),
         ));
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
         // test_token in reroute list -> ForceLimited stamped in pipeline.
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
-        process_events(
+        run_pipeline(
             sink,
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2768,8 +3149,16 @@ mod tests {
         );
     }
 
+    /// A person-on burst keeps its key on either locality setting: the
+    /// overflow consumer updates persons keyed on distinct id, so spreading
+    /// one distinct id across partitions would contend those updates.
+    #[rstest]
+    #[case::preserving_locality(true)]
+    #[case::spreading(false)]
     #[tokio::test]
-    async fn e2e_rate_limited_preserve_locality_pipeline_to_sink_keeps_key() {
+    async fn e2e_rate_limited_pipeline_to_sink_keeps_key_while_person_on(
+        #[case] preserve_locality: bool,
+    ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2784,23 +3173,17 @@ mod tests {
             producer.clone(),
             test_topics(),
         ));
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        // burst=1, preserve_locality=true => event[1] stamped RateLimited{preserve_locality: true}.
-        let limiter = build_limiter(1, 1, None, true);
+        // burst=1 => event[1] stamped RateLimited { preserve_locality }.
+        let limiter = build_limiter(1, 1, None, preserve_locality);
 
-        process_events(
+        run_pipeline(
             sink,
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                overflow_limiter: Some(limiter),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -2817,57 +3200,11 @@ mod tests {
         );
         assert!(
             records[1].key.is_some(),
-            "RateLimited{{preserve_locality:true}} must preserve partition key"
+            "a person-on burst must keep its partition key"
         );
         assert!(
             records[1].headers.force_disable_person_processing.is_none(),
             "RateLimited (non-Force) must NOT set force_disable_person_processing"
-        );
-    }
-
-    #[tokio::test]
-    async fn e2e_rate_limited_no_preserve_locality_pipeline_to_sink_drops_key() {
-        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let context = create_test_context(now, None);
-        let events = vec![
-            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
-            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
-        ];
-
-        let producer = MockKafkaProducer::new();
-        let sink = Arc::new(KafkaSinkBase::with_producer(
-            producer.clone(),
-            test_topics(),
-        ));
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-        // burst=1, preserve_locality=false => event[1] stamped RateLimited{preserve_locality: false}.
-        let limiter = build_limiter(1, 1, None, false);
-
-        process_events(
-            sink,
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            Some(limiter),
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
-
-        let records = producer.get_records();
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[1].topic, "events_plugin_ingestion_overflow");
-        assert_eq!(
-            records[1].key, None,
-            "RateLimited{{preserve_locality:false}} must drop partition key"
         );
     }
 
@@ -2937,20 +3274,40 @@ mod tests {
         }
     }
 
+    struct HeatmapDataCase {
+        property_keys: &'static [&'static str],
+        expect_has_heatmap_data: bool,
+    }
+
     #[rstest]
-    #[case::heatmap_data_present(&["$heatmap_data"], true)]
-    #[case::scroll_depth_pair(&["$prev_pageview_pathname", "$current_url"], true)]
-    #[case::heatmap_data_with_scroll_depth(
-        &["$heatmap_data", "$prev_pageview_pathname", "$current_url"],
-        true,
-    )]
-    #[case::only_prev_pageview_pathname(&["$prev_pageview_pathname"], false)]
-    #[case::only_current_url(&["$current_url"], false)]
-    #[case::no_heatmap_properties(&[], false)]
-    fn test_has_heatmap_data(#[case] property_keys: &[&str], #[case] expected: bool) {
+    #[case::heatmap_data_present(HeatmapDataCase {
+        property_keys: &["$heatmap_data"],
+        expect_has_heatmap_data: true,
+    })]
+    #[case::scroll_depth_pair(HeatmapDataCase {
+        property_keys: &["$prev_pageview_pathname", "$current_url"],
+        expect_has_heatmap_data: true,
+    })]
+    #[case::heatmap_data_with_scroll_depth(HeatmapDataCase {
+        property_keys: &["$heatmap_data", "$prev_pageview_pathname", "$current_url"],
+        expect_has_heatmap_data: true,
+    })]
+    #[case::only_prev_pageview_pathname(HeatmapDataCase {
+        property_keys: &["$prev_pageview_pathname"],
+        expect_has_heatmap_data: false,
+    })]
+    #[case::only_current_url(HeatmapDataCase {
+        property_keys: &["$current_url"],
+        expect_has_heatmap_data: false,
+    })]
+    #[case::no_heatmap_properties(HeatmapDataCase {
+        property_keys: &[],
+        expect_has_heatmap_data: false,
+    })]
+    fn test_has_heatmap_data(#[case] case: HeatmapDataCase) {
         let mut properties = HashMap::new();
         properties.insert("distinct_id".to_string(), json!("test_user"));
-        for key in property_keys {
+        for key in case.property_keys {
             properties.insert((*key).to_string(), json!("anything"));
         }
 
@@ -2966,7 +3323,7 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        assert_eq!(has_heatmap_data(&event), expected);
+        assert_eq!(has_heatmap_data(&event), case.expect_has_heatmap_data);
     }
 
     #[test]
@@ -2974,11 +3331,11 @@ mod tests {
         let now = Utc::now();
         let context = create_test_context(now, None);
         let event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let redirect = create_heatmap_redirect(&event, historical_cfg, &context)
-            .unwrap()
-            .expect("redirect should be created when distinct_id is resolvable");
+        let redirect =
+            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap()
+                .expect("redirect should be created when distinct_id is resolvable");
 
         assert_eq!(redirect.metadata.data_type, DataType::HeatmapMain);
         assert_eq!(redirect.metadata.event_name, "$$heatmap");
@@ -3024,11 +3381,11 @@ mod tests {
         event
             .properties
             .insert("$cookieless_mode".to_string(), json!(true));
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let redirect = create_heatmap_redirect(&event, historical_cfg, &context)
-            .unwrap()
-            .expect("redirect should be created");
+        let redirect =
+            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap()
+                .expect("redirect should be created");
 
         let data: RawEvent = serde_json::from_str(&redirect.event.data).unwrap();
         for key in [
@@ -3058,9 +3415,10 @@ mod tests {
         let mut event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
         event.distinct_id = None;
         event.properties.remove("distinct_id");
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let result = create_heatmap_redirect(&event, historical_cfg, &context).unwrap();
+        let result =
+            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap();
         assert!(result.is_none());
     }
 
@@ -3071,11 +3429,11 @@ mod tests {
         let event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
         // Carrier event has distinct_id only in properties (top-level is None).
         assert!(event.distinct_id.is_none());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let redirect = create_heatmap_redirect(&event, historical_cfg, &context)
-            .unwrap()
-            .expect("redirect should fall back to properties for distinct_id");
+        let redirect =
+            create_heatmap_redirect(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap()
+                .expect("redirect should fall back to properties for distinct_id");
 
         let data: RawEvent = serde_json::from_str(&redirect.event.data).unwrap();
         assert_eq!(data.distinct_id, Some(json!("test_user")));
@@ -3091,24 +3449,10 @@ mod tests {
         let events = vec![build_heatmap_carrier_event(shape)];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 2, "should produce original + redirect");
@@ -3142,24 +3486,10 @@ mod tests {
         let events = vec![event];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(
@@ -3182,24 +3512,10 @@ mod tests {
         )];
 
         let sink = Arc::new(MockSink::new());
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink.clone(),
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
@@ -3230,24 +3546,10 @@ mod tests {
             producer.clone(),
             test_topics(),
         ));
-        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        process_events(
-            sink,
-            dropper,
-            None,
-            historical_cfg,
-            None,
-            None,
-            None,
-            None,
-            &AiRouting::Primary,
-            events,
-            &context,
-        )
-        .await
-        .unwrap();
+        run_pipeline(sink, events, &context, PipelineOptions::default())
+            .await
+            .unwrap();
 
         let records = producer.get_records();
         assert_eq!(
@@ -3453,18 +3755,15 @@ mod tests {
         let context = create_test_context(now, None);
         let collector = Arc::new(CollectingEmitter::new());
 
-        let result = process_events(
+        let result = run_pipeline(
             sink,
-            dropper,
-            None,
-            router::HistoricalConfig::new(false, 1),
-            None,
-            None,
-            None,
-            Some(collector.clone()),
-            &AiRouting::Primary,
             events,
             &context,
+            PipelineOptions {
+                dropper,
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
         )
         .await;
 

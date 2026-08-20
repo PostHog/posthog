@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.he
     BASE_URL,
     _get_headers,
     _get_property_names,
+    raise_for_hubspot_status,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.metadata import METADATA_FETCHERS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
@@ -366,7 +367,7 @@ def get_rows(
 
         if not response.ok:
             logger.error(f"Hubspot API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
+            raise_for_hubspot_status(response, page_url)
 
         # Parse inside the retry so a truncated/partial body (JSONDecodeError, e.g. an
         # "Unterminated string" mid-stream) is reissued like a 429/5xx instead of bubbling
@@ -480,7 +481,7 @@ def _batch_read_associations(
             logger.error(
                 f"Hubspot v4 associations error: status={response.status_code}, body={response.text}, url={url}"
             )
-            response.raise_for_status()
+            raise_for_hubspot_status(response, url)
 
         # See fetch_page: a truncated/partial body is transient, so retry rather than crash.
         try:
@@ -648,7 +649,7 @@ def get_rows_via_search(
 
         if not response.ok:
             logger.error(f"Hubspot search error: status={response.status_code}, body={response.text}, url={search_url}")
-            response.raise_for_status()
+            raise_for_hubspot_status(response, search_url)
 
         # See fetch_page: a truncated/partial body is transient, so retry rather than crash.
         try:
@@ -700,6 +701,7 @@ def get_rows_via_search(
             anchor_id = next_anchor_id
             after: Optional[str] = None
             got_any = False
+            anchor_result_count = 0
 
             while True:
                 body: dict[str, Any] = {
@@ -723,6 +725,7 @@ def get_rows_via_search(
                 if not results:
                     break
                 got_any = True
+                anchor_result_count += len(results)
 
                 if config.associations:
                     _backfill_associations_into_results(
@@ -745,6 +748,12 @@ def get_rows_via_search(
                         next_anchor_id = result_id
 
                 yield from _process_results(results)
+
+                # HubSpot rejects paging a single query past SEARCH_RESULT_CAP results ("Attempting
+                # to page beyond 10,000"). Restart with the advanced anchor before that happens,
+                # rather than waiting for `after` to run out.
+                if anchor_result_count >= SEARCH_RESULT_CAP:
+                    break
 
                 next_cursor = data.get("paging", {}).get("next", {}).get("after")
                 if not next_cursor:

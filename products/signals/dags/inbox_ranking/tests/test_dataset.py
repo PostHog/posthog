@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from posthog.test.base import BaseTest
 
+import pyarrow as pa
+
 from products.signals.backend.models import SignalReport
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset.dag import (
@@ -71,6 +73,62 @@ def test_latest_advances_monotonically_and_backfills_never_clobber_it(existing, 
     assert common.latest_is_stale(existing, partition_key) is expected
 
 
+@pytest.mark.parametrize(
+    "existing,row_count,expected",
+    [
+        (None, 0, True),
+        (1200, 1200, True),
+        (1200, 1500, True),
+        (1200, 1199, False),
+        (1200, 0, False),
+    ],
+)
+def test_incremental_partitions_never_shrink_on_a_re_run(existing, row_count, expected):
+    # Signal vectors are read back out of a table with a 3-month TTL, so a late re-run of an old
+    # partition returns fewer rows than it first captured — and those rows no longer exist anywhere
+    # else. Overwriting is unrecoverable data loss, so a shrink must fail rather than proceed.
+    assert common.partition_write_allowed(existing, row_count) is expected
+
+
+def _emission(signal_id: str, inserted_at: datetime.datetime, embedding: list[float] | None):
+    return {"team_id": 2, "signal_id": signal_id, "embedding_inserted_at": inserted_at, "embedding_small": embedding}
+
+
+_EMISSION_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("team_id", pa.int64()),
+    ("signal_id", pa.string()),
+    ("embedding_inserted_at", pa.timestamp("us", tz="UTC")),
+    ("embedding_small", pa.list_(pa.float32())),
+]
+_EMISSION_SCHEMA = pa.schema(_EMISSION_FIELDS)
+
+
+def test_re_running_a_partition_keeps_rows_the_source_no_longer_returns():
+    # The source drops rows a partition already archived (a ReplacingMergeTree merge collapses a
+    # retracted signal onto its live row, or the TTL expires it), and those rows exist nowhere else.
+    # A re-run that wrote only its own scan would delete them permanently. Row counts alone cannot
+    # police it: here the scan loses signal a and gains signal c, so the total never changes.
+    existing = pa.Table.from_pylist([_emission("a", T1, [0.25]), _emission("b", T1, [0.5])], schema=_EMISSION_SCHEMA)
+    fresh = pa.Table.from_pylist([_emission("b", T1, [0.5]), _emission("c", T2, [0.75])], schema=_EMISSION_SCHEMA)
+
+    merged = common.merge_emission_rows(existing, fresh, ("team_id", "signal_id", "embedding_inserted_at"))
+
+    assert merged.column("signal_id").to_pylist() == ["a", "b", "c"]
+    # The archived vector survives intact, and b is carried once rather than duplicated.
+    assert merged.column("embedding_small").to_pylist() == [[0.25], [0.5], [0.75]]
+
+
+def test_a_re_emitted_signal_keeps_both_versions():
+    # Versions of one signal are separate emissions, so a later vector must not displace the earlier
+    # one the partition archived — that is the history this table exists to hold.
+    existing = pa.Table.from_pylist([_emission("a", T1, [0.25])], schema=_EMISSION_SCHEMA)
+    fresh = pa.Table.from_pylist([_emission("a", T2, [0.5])], schema=_EMISSION_SCHEMA)
+
+    merged = common.merge_emission_rows(existing, fresh, ("team_id", "signal_id", "embedding_inserted_at"))
+
+    assert merged.column("embedding_inserted_at").to_pylist() == [T1, T2]
+
+
 def test_snapshot_bounds_cover_the_partition_day():
     start, end = common.snapshot_bounds("2026-07-29")
     assert start == datetime.datetime(2026, 7, 29, tzinfo=datetime.UTC)
@@ -79,8 +137,10 @@ def test_snapshot_bounds_cover_the_partition_day():
 
 def test_valid_report_uuids_canonicalizes_and_drops_junk():
     # Case/hyphenation variants must collapse onto the canonical id, or a forged variant would
-    # survive as a separate label-only training row instead of joining its report.
-    assert valid_report_uuids({UUID_A, UUID_A.upper(), "not-a-uuid", ""}) == {UUID_A}
+    # survive as a separate label-only training row instead of joining its report. None reaches
+    # here when a label event lacks its report id property (uuid.UUID(None) raises TypeError,
+    # which must be swallowed like ValueError, not fail the asset).
+    assert valid_report_uuids({UUID_A, UUID_A.upper(), "not-a-uuid", "", None}) == {UUID_A}
 
 
 def test_utc_bound_carries_an_explicit_offset():
@@ -95,7 +155,12 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     stream_rows: dict[str, list[tuple[Any, ...]]] = {
         "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
         "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
-        "actions": [("bogus-id", 1, T1, 1, T1, 1, 1)],
+        "actions": [
+            ("bogus-id", 1, T1, 1, T1, 1, 1, 1, T1, 1, T1),
+            # Distinct values per column, so a shifted or swapped ACTIONS_SQL/ACTIONS_COLUMNS
+            # position lands a wrong value in some asserted field below.
+            (UUID_B, 5, T1, 0, None, 0, 0, 2, T1, 3, T2),
+        ],
         "status_changes": [],
         "pr_events": [],
     }
@@ -115,6 +180,11 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r2["impression_unit_count"] == 0
     assert r2["first_impressed_at"] is None
     assert r2["pr_created_count"] == 0
+    assert r2["ui_dismiss_count"] == 5
+    assert r2["reviewer_add_count"] == 2
+    assert r2["first_reviewer_added_at"] == T1
+    assert r2["reviewer_remove_count"] == 3
+    assert r2["first_reviewer_removed_at"] == T2
 
 
 @pytest.mark.parametrize("alias_first", [True, False])

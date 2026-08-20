@@ -40,7 +40,9 @@ def has_tasks_access(user: User) -> bool:
 
 
 def has_loops_access(user: User, team: "Team | None" = None) -> bool:
-    """Loops sits behind its own flag layered on tasks access (see docs/LOOPS.md Rollout)."""
-    if not has_tasks_access(user):
-        return False
+    """Loops sits behind its own `loops` flag (see docs/LOOPS.md Rollout).
+
+    Independent of `has_tasks_access`: `tasks` gates the Desktop waitlist that user-triggered cloud
+    runs require (see code_access_required_response), while Loops gates on its own flag instead.
+    """
     return _is_flag_enabled("loops", user, team)

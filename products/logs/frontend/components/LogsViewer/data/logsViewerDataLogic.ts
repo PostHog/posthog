@@ -40,6 +40,7 @@ import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersG
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import type { ProductIntentProperties } from '../../../../../../frontend/src/lib/utils/product-intents'
 import type { DateRange, LogSeverityLevel } from '../../../../../../frontend/src/queries/schema/schema-general'
@@ -52,6 +53,7 @@ const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 export const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+const UNMOUNTING_ERROR_MESSAGE = 'unmounting component' as const
 
 // Parse cache keyed on log object identity — leak-free by construction (entries die with their
 // logs) and shared across logic instances. Parsing is pure per object, so cached entries are
@@ -83,9 +85,13 @@ function classifyQueryError(error: unknown): { error_type: string; status_code: 
     return { error_type: 'unknown', status_code: statusCode }
 }
 
+// kea-loaders reduces a rejection to its message, so an aborted request arrives here as the reason
+// text we passed to `abort()`. Neither of our reasons contains "abort", so both need matching by
+// name: an unmatched one is treated as a genuine failure, which toasts the user and fires a
+// `logs query failed` capture for a request that was cancelled on purpose.
 function isUserInitiatedError(error: unknown): boolean {
     const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || error === UNMOUNTING_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
 const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
@@ -896,7 +902,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     {} as Record<string, number[]>
                 )
 
+                // The endpoint folds everything past its top-N into one bucket under a sentinel key.
+                // Left as-is that sorts to the front (it starts with '$') and draws as a breakdown
+                // value literally named "$$_posthog_breakdown_other_$$".
                 const data = Object.entries(accumulated)
+                    .filter(([name]) => name !== OTHER_BREAKDOWN_VALUE)
                     .sort(([a], [b]) => a.localeCompare(b))
                     .map(([name, values], index) => ({
                         name,
@@ -913,6 +923,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                                       trace: 'muted-alt',
                                   }[name],
                     }))
+                const otherValues = accumulated[OTHER_BREAKDOWN_VALUE]
+                if (otherValues) {
+                    // Last and muted, so it reads as an aggregate rather than as another breakdown value.
+                    data.push({ name: OTHER_BREAKDOWN_LABEL, values: otherValues as number[], color: 'muted' })
+                }
 
                 return { data, labels, dates }
             },
@@ -984,7 +999,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         },
     })),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         handleQueryChange: ({ filterType, extraProps }) => {
             if (values.hasRunQuery) {
                 posthog.capture('logs filter changed', { filter_type: filterType, ...extraProps })
@@ -1191,7 +1206,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.setNewLogUuids([])
                 }
             } catch (error) {
-                if (signal.aborted) {
+                if (signal.aborted || !logsViewerDataLogic.isMounted(props.id)) {
                     return
                 }
                 console.error('Live tail polling error:', error)
@@ -1204,17 +1219,25 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 })
                 actions.setLiveTailRunning(false)
             } finally {
-                actions.setLiveTailAbortController(null)
-                if (values.liveTailRunning) {
-                    cache.disposables.add(() => {
-                        const timerId = setTimeout(
-                            () => {
-                                actions.pollForNewLogs()
-                            },
-                            Math.max(duration, values.liveTailPollInterval)
-                        )
-                        return () => clearTimeout(timerId)
-                    }, 'liveTailTimer')
+                // beforeUnmount aborts the in-flight controller and marks liveTailRunning false,
+                // but those are plain dispatches during teardown, not guaranteed to run their
+                // listeners before the logic's keyed path is torn down. So an unmount that lands
+                // while this request is in flight can resolve normally afterwards. Re-check both
+                // signals before touching actions/values, or this can dispatch against an
+                // already-unmounted keyed logic instance and throw "[KEA] Can not find path ...".
+                if (!signal.aborted && logsViewerDataLogic.isMounted(props.id)) {
+                    actions.setLiveTailAbortController(null)
+                    if (values.liveTailRunning) {
+                        cache.disposables.add(() => {
+                            const timerId = setTimeout(
+                                () => {
+                                    actions.pollForNewLogs()
+                                },
+                                Math.max(duration, values.liveTailPollInterval)
+                            )
+                            return () => clearTimeout(timerId)
+                        }, 'liveTailTimer')
+                    }
                 }
             }
         },
@@ -1266,11 +1289,15 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         beforeUnmount: () => {
             actions.setLiveTailRunning(false)
             actions.cancelInProgressLiveTail(null)
+            // Abort with an `AbortError`, never a bare string: `fetch` rejects with the reason
+            // exactly as given, and `handleFetch` only re-throws it untouched when it is a real
+            // `AbortError`. A string reason falls through and gets relabelled as an `ApiError`, so
+            // tearing the viewer down looks like a failed request in the console.
             if (values.logsAbortController) {
-                values.logsAbortController.abort('unmounting component')
+                values.logsAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.sparklineAbortController) {
-                values.sparklineAbortController.abort('unmounting component')
+                values.sparklineAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
         },
     })),

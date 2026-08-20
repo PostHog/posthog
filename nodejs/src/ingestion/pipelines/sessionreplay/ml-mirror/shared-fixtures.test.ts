@@ -288,7 +288,13 @@ describeAddon('native image collection', () => {
         expect(Buffer.from(bytes)).toEqual(png)
         // The Rust-emitted hash must be the keyed HMAC of the returned bytes.
         expect(hashImageBytes(CONTENT_KEY, Buffer.from(bytes))).toBe(entry.hash)
-        expect(parseImageRef(expectedRef)).toEqual({ pseudoTeam: PSEUDO_TEAM, hash: entry.hash })
+        // `source` is what tells a reader whether the hash names the bytes or only the URL they
+        // came from. An inlined image is content-addressed, so it must read as `bytes`.
+        expect(parseImageRef(expectedRef)).toEqual({
+            pseudoTeam: PSEUDO_TEAM,
+            hash: entry.hash,
+            source: 'bytes',
+        })
     })
 
     it('collects nothing without the collection keys and blurs inline instead', async () => {
@@ -300,13 +306,26 @@ describeAddon('native image collection', () => {
         expect(result.lines!.toString()).not.toContain('image:')
     })
 
-    it('rejects when pseudoTeam and contentKey are not passed together', async () => {
+    it('rejects a per-team key with no pseudonym to attribute it to', async () => {
+        // Each lane's ref embeds the pseudonym, so a key without one would mint refs that nothing
+        // can attribute to a team. That fails loudly rather than collecting under a blank prefix.
         rustAddon!.initAnonymizer({ text: [], url: [] })
         await expect(
-            rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, undefined)
-        ).rejects.toThrow('must be passed together')
-        await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, CONTENT_KEY)
-        ).rejects.toThrow('must be passed together')
+        ).rejects.toThrow('require pseudoTeam')
+        await expect(
+            rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, undefined, CONTENT_KEY)
+        ).rejects.toThrow('require pseudoTeam')
+    })
+
+    it('runs either collection lane without the other', async () => {
+        // The URL lane measures before any fetch topic exists, so it must not need the image lane.
+        rustAddon!.initAnonymizer({ text: [], url: [] })
+        const imagesOnly = await rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, CONTENT_KEY)
+        expect(imagesOnly.failed).toBe(false)
+        // A pseudonym with neither key collects nothing and is not an error.
+        const neither = await rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, undefined)
+        expect(neither.failed).toBe(false)
+        expect(neither.lines!.toString()).not.toContain('image:')
     })
 })

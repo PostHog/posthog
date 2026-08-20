@@ -76,7 +76,7 @@ def load_team_mappings(team: Team) -> TeamMappings:
                 raw_value=raw_value,
             )
             continue
-        source_to_integration[raw_value.lower().strip()] = primary
+        source_to_integration[normalize_source_name(raw_value)] = primary
 
     # Build campaign aliases: clean_campaign_name -> set of raw utm values
     # e.g. campaign_name_mappings = {"GoogleAds": {"brand_campaign": ["partner_q1", "brand_q1"]}}
@@ -84,11 +84,11 @@ def load_team_mappings(team: Team) -> TeamMappings:
     campaign_name_mappings = config.campaign_name_mappings or {}
     for _integration_type, campaign_map in campaign_name_mappings.items():
         for clean_name, raw_values in campaign_map.items():
-            clean_lower = clean_name.lower().strip()
+            clean_lower = normalize_campaign_name(clean_name)
             if clean_lower not in campaign_aliases:
                 campaign_aliases[clean_lower] = set()
             for raw_value in raw_values:
-                campaign_aliases[clean_lower].add(raw_value.lower().strip())
+                campaign_aliases[clean_lower].add(normalize_campaign_name(raw_value))
 
     # Build field preferences, keyed by primary source so campaign rows can be looked
     # up directly by their `source_name`.
@@ -120,7 +120,7 @@ def build_known_sources(mappings: TeamMappings) -> set[str]:
     known: set[str] = set()
     for sources in INTEGRATION_DEFAULT_SOURCES.values():
         for source in sources:
-            known.add(source.lower().strip())
+            known.add(normalize_source_name(source))
     # Custom mappings already flattened to source -> primary_source
     known.update(mappings.source_to_integration.keys())
     return known
@@ -152,16 +152,53 @@ def resolve_source(utm_source: str, mappings: TeamMappings) -> str:
     return default_alias_to_primary().get(normalize(utm_source), utm_source)
 
 
+def normalize_source_name(source_name: str) -> str:
+    """Canonical form of a `source_name`, for keying anything per integration."""
+    return source_name.lower().strip()
+
+
+def normalize_campaign_name(campaign_name: str) -> str:
+    """Canonical form of a campaign name or `utm_campaign` value, for comparing the two.
+
+    A function rather than two method calls at each site: matching hinges on both sides folding
+    the same way, and halves that stop agreeing match nothing, silently.
+    """
+    return campaign_name.lower().strip()
+
+
 def get_match_field(source_name: str, mappings: TeamMappings) -> str:
     """The field this integration matches campaigns on, per `campaign_field_preferences`."""
-    return mappings.field_preferences.get(source_name.lower().strip(), DEFAULT_MATCH_FIELD)
+    return mappings.field_preferences.get(normalize_source_name(source_name), DEFAULT_MATCH_FIELD)
+
+
+def get_match_value_raw(campaign: Campaign, mappings: TeamMappings) -> str:
+    """The platform-side value a mapping has to produce, in its original casing.
+
+    The field choice lives here, not at each call site: proposing a name to an integration that
+    matches on id writes a mapping that never joins.
+    """
+    if get_match_field(campaign.source_name, mappings) == "campaign_id":
+        return campaign.campaign_id.strip()
+    return campaign.campaign_name.strip()
 
 
 def get_match_value(campaign: Campaign, mappings: TeamMappings) -> str:
-    """Get the campaign value to match against utm_campaign, based on field preference."""
-    if get_match_field(campaign.source_name, mappings) == "campaign_id":
-        return campaign.campaign_id.lower().strip()
-    return campaign.campaign_name.lower().strip()
+    """`get_match_value_raw`, lowercased for comparison against utm_campaign values."""
+    return normalize_campaign_name(get_match_value_raw(campaign, mappings))
+
+
+def group_campaigns_by_source(campaigns: list[Campaign]) -> dict[str, list[Campaign]]:
+    """Campaigns keyed by normalized `source_name`, skipping any that don't name one.
+
+    Skipping matters: a blank source would otherwise collect its own `""` group.
+    """
+    grouped: dict[str, list[Campaign]] = {}
+    for campaign in campaigns:
+        source_name = normalize_source_name(campaign.source_name)
+        if not source_name:
+            continue
+        grouped.setdefault(source_name, []).append(campaign)
+    return grouped
 
 
 def build_campaign_lookup(
@@ -178,7 +215,7 @@ def build_campaign_lookup(
     lookup: dict[str, CampaignMatch] = {}
     for campaign in campaigns:
         match_value = get_match_value(campaign, mappings)
-        campaign_name_lower = campaign.campaign_name.lower().strip()
+        campaign_name_lower = normalize_campaign_name(campaign.campaign_name)
         if match_value not in lookup:
             lookup[match_value] = CampaignMatch(campaign.campaign_name, MatchType.AUTO)
         for alias in mappings.campaign_aliases.get(campaign_name_lower, set()):
@@ -197,7 +234,7 @@ def build_source_lookup(campaigns: list[Campaign], mappings: TeamMappings) -> di
     """
     lookup: dict[str, str] = {}
     for campaign in campaigns:
-        source_name_lower = campaign.source_name.lower().strip()
+        source_name_lower = normalize_source_name(campaign.source_name)
         if source_name_lower not in lookup:
             lookup[source_name_lower] = MatchType.AUTO
     for custom_source, primary_source in mappings.source_to_integration.items():

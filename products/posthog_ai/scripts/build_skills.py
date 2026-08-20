@@ -47,6 +47,7 @@ _ZIP_FIXED_TIME = (2025, 1, 1, 0, 0, 0)
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _BINARY_CHECK_SIZE = 8192
+_MAX_SKILL_DESCRIPTION_LENGTH = 1024
 _ALLOWED_SUBDIRS = {"references", "scripts"}
 
 # Tool/skill reference linting: skills must only reference MCP tools and skills that exist.
@@ -267,7 +268,7 @@ def _assert_text_file(file_path: Path) -> None:
 
 class SkillFrontmatter(BaseModel):
     name: str
-    description: str
+    description: str = Field(max_length=_MAX_SKILL_DESCRIPTION_LENGTH)
 
 
 class DiscoveredSkill(BaseModel):
@@ -472,20 +473,25 @@ class SkillBuilder:
         if skill.depth == 1:
             skill_dir = skill.source_file.parent
             skill_files = self.collect_skill_files(skill_dir, renderer)
-            entry_content = skill_files[0].content
-            metadata, _body = parse_frontmatter(entry_content)
+            rendered_entry_content = skill_files[0].content
+            metadata, _body = parse_frontmatter(rendered_entry_content)
             source = str(skill_dir.relative_to(self.repo_root))
         else:
-            rendered = renderer.render(skill.source_file)
-            metadata, _body = parse_frontmatter(rendered)
+            rendered_entry_content = renderer.render(skill.source_file)
+            metadata, _body = parse_frontmatter(rendered_entry_content)
             out_name = skill.source_file.name
             if out_name.endswith(".j2"):
                 out_name = out_name.removesuffix(".j2")
-            skill_files = [SkillFile(path=out_name, content=rendered.strip())]
+            skill_files = [SkillFile(path=out_name, content=rendered_entry_content.strip())]
             source = str(skill.source_file.relative_to(self.repo_root))
 
-        display_name = metadata.get("name", skill.name)
-        description = metadata.get("description", f"Skill: {skill.name}")
+        if metadata:
+            validated_metadata = validate_frontmatter(rendered_entry_content, source)
+            display_name = validated_metadata.name
+            description = validated_metadata.description
+        else:
+            display_name = skill.name
+            description = f"Skill: {skill.name}"
 
         return SkillResource(
             name=display_name,
@@ -559,7 +565,7 @@ class SkillBuilder:
         - Binary file detection (only text files allowed)
         - Duplicate skill name detection (across products)
         - Jinja2 syntax validation via parse-only (all .j2 files)
-        - Frontmatter validation for static .md entry points (required: name, description)
+        - Frontmatter validation for product and project skill entry points
         - Tool/skill reference validation in markdown (against the MCP schema registries)
 
         Returns True if all checks pass, False otherwise.
@@ -585,8 +591,21 @@ class SkillBuilder:
             print("WARNING: MCP schema registries not found; skipping tool reference checks.", file=sys.stderr)
         skill_names = set(seen)
         agents_skills_dir = self.repo_root / ".agents" / "skills"
+        project_skill_files: list[Path] = []
         if agents_skills_dir.is_dir():
-            skill_names.update(entry.name for entry in agents_skills_dir.iterdir() if entry.is_dir())
+            for entry in sorted(agents_skills_dir.iterdir()):
+                if entry.is_dir():
+                    skill_names.add(entry.name)
+                    skill_file = entry / "SKILL.md"
+                    if skill_file.is_file():
+                        project_skill_files.append(skill_file)
+
+        for skill_file in project_skill_files:
+            source_label = str(skill_file.relative_to(self.repo_root))
+            try:
+                validate_frontmatter(skill_file.read_text(), source_label)
+            except ValueError as e:
+                errors.append(str(e))
 
         jinja_env = _create_jinja_env()
 
@@ -632,7 +651,7 @@ class SkillBuilder:
                 print(f"ERROR: {err}", file=sys.stderr)
             return False
 
-        print(f"OK: {len(skills)} skill(s) passed lint checks.")
+        print(f"OK: {len(skills)} product skill(s) and {len(project_skill_files)} project skill(s) passed lint checks.")
         return True
 
     def init_skill(self, product_name: str, skill_name: str, *, template: bool = False) -> Path:
@@ -795,6 +814,11 @@ def _setup_django() -> None:
     — it only needs the Django ORM metadata and model imports to work.
     """
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+    # A build must not depend on reaching the flags endpoint. Rendering a HogQL example walks
+    # `Database.create_for`, which asks posthoganalytics whether a flag is on; that call has no
+    # timeout, so on a machine without egress the build sits in connect() forever with no output
+    # and no error. Opting out makes `feature_enabled` answer locally instead.
+    os.environ.setdefault("OPT_OUT_CAPTURE", "1")
     try:
         import django
 

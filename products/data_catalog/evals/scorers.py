@@ -15,10 +15,18 @@ from typing import Any
 from products.data_catalog.evals.constants import (
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
+    EVAL_DESCRIPTION_CHAR_LIMIT,
+    METRIC_CREATE_TOOL,
+    METRIC_UPDATE_TOOL,
     METRICS_CATALOG_MARKER,
 )
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
-from products.posthog_ai.eval_harness.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
+from products.posthog_ai.eval_harness.scorers import (
+    BINARY_CHOICE_SCORES,
+    GRADED_ALIGNMENT_CHOICE_SCORES,
+    JUDGE_MODEL,
+    JudgedScorer,
+)
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
@@ -26,6 +34,8 @@ __all__ = [
     "DeprecationProposed",
     "SemanticMetadataQueried",
     "SemanticTrustDecisionCorrectness",
+    "MetricDescriptionConcise",
+    "MetricDescriptionQuality",
     "MetricsCatalogQueried",
     "MetricsCatalogBeforeAnswer",
     "MetricsCatalogBeforeDataDiscovery",
@@ -361,6 +371,127 @@ class DeprecationProposed(Scorer):
         return Score(name=self._name(), score=1.0, metadata={"stale_source": stale_name})
 
 
+def _description_writes(parser: LogParser) -> list[ToolCall]:
+    """Successful metric writes carrying a string description, in call order.
+
+    Update calls count too, so a case cannot pass by writing a short, meaningful description and
+    then PATCHing a long or query-narrating one over it. The last entry is what ends up stored.
+    """
+    calls: list[ToolCall] = []
+    for tool in (METRIC_CREATE_TOOL, METRIC_UPDATE_TOOL):
+        calls.extend(
+            c
+            for c in parser.get_tool_calls(tool)
+            if not c.is_error and isinstance(c.input, dict) and isinstance(c.input.get("description"), str)
+        )
+    return sorted(calls, key=lambda c: c.position)
+
+
+def _written_descriptions(parser: LogParser) -> list[tuple[str, str]]:
+    """``(tool_name, description)`` for every successful metric write carrying a description."""
+    return [(call.name, call.input["description"]) for call in _description_writes(parser)]
+
+
+def _latest_field(calls: list[ToolCall], field: str, expected_type: type) -> Any:
+    """The value of ``field`` from the last call that supplied it with the expected type."""
+    return next((c.input[field] for c in reversed(calls) if isinstance(c.input.get(field), expected_type)), None)
+
+
+class MetricDescriptionConcise(Scorer):
+    """Binary: every metric description the agent wrote stays under the conciseness bar."""
+
+    def _name(self) -> str:
+        return "metric_description_concise"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        if not _requested(expected, self._name()):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        descriptions = _written_descriptions(parser)
+        if not descriptions:
+            # Whether a metric write happened at all is RequiredToolCall's job.
+            return Score(name=self._name(), score=None, metadata={"reason": "no metric write with a description"})
+        over_limit = [
+            {"tool": tool, "length": len(description), "description": description[:200]}
+            for tool, description in descriptions
+            if len(description) > EVAL_DESCRIPTION_CHAR_LIMIT
+        ]
+        return Score(
+            name=self._name(),
+            score=0.0 if over_limit else 1.0,
+            metadata={
+                "limit": EVAL_DESCRIPTION_CHAR_LIMIT,
+                "lengths": [len(description) for _, description in descriptions],
+                "over_limit": over_limit,
+            },
+        )
+
+
+METRIC_DESCRIPTION_QUALITY_PROMPT = """\
+You are grading the 'description' an agent wrote when saving a metric to a governed catalog.
+
+A good description states, in 1-3 sentences, what the metric means and what it serves: the
+business meaning plus any load-bearing inclusions/exclusions or grain. It must not narrate or
+restate the query or calculation steps - those live in the metric's definition, and the agent's
+rationale belongs in the separate 'reasoning' field.
+
+The description to grade:
+<description>{{output.description}}</description>
+
+The metric's definition, for reference, to spot narration:
+<definition>{{output.definition}}</definition>
+
+The agent's reasoning field:
+<reasoning>{{output.reasoning}}</reasoning>
+
+Answer "yes" only if the description is 1-3 sentences stating meaning and purpose without walking
+through the query or calculation steps. Answer "no" if it narrates the query, restates SQL or
+step-by-step mechanics, or pads beyond 3 sentences."""
+
+
+class MetricDescriptionQuality(JudgedScorer):
+    """Binary LLM judge: does the description state meaning, rather than narrate the query?"""
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="metric_description_quality",
+            prompt_template=METRIC_DESCRIPTION_QUALITY_PROMPT,
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=JUDGE_MODEL,
+            max_completion_tokens=512,
+            **kwargs,
+        )
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        if not _requested(expected, self._name()):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        writes = _description_writes(parser)
+        if not writes:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no successful metric write"})
+        # Grade the description that ends up stored, so a compliant create followed by a
+        # query-narrating update is judged on the update.
+        last = writes[-1]
+        # An update usually omits definition and reasoning, so take each from the most recent
+        # write that supplied it. The judge needs the definition to tell meaning from narration.
+        definition = _latest_field(writes, "definition", dict)
+        reasoning = _latest_field(writes, "reasoning", str)
+        definition_text = json.dumps(definition) if definition is not None else ""
+        if len(definition_text) > _JUDGE_OUTPUT_CHAR_LIMIT:
+            definition_text = definition_text[:_JUDGE_OUTPUT_CHAR_LIMIT] + " …[truncated]"
+        return {
+            "output": {
+                "description": last.input["description"],
+                "definition": definition_text,
+                "reasoning": reasoning or "",
+            }
+        }
+
+
 class MetricsCatalogNotQueried(Scorer):
     """Binary inverse: ordinary exploration must not detour through the metrics catalog."""
 
@@ -393,7 +524,9 @@ If lookup or execution fails, disclose the failure and label any raw-query fallb
 must derive the number itself (it may note the unapproved definition exists).
 - An empty catalog is normal: the agent must derive the number itself without stalling or \
 asking the user to define/approve a metric first.
-- The catalog is read-only: the agent must not create, edit, or propose metrics to answer.
+- The catalog is read-only: the agent must not create, edit, or propose metrics to answer. \
+Offering, after the answer, to save a reusable derivation as a proposed metric is not a violation; \
+creating one without the user agreeing is.
 
 Case-specific expected behavior:
 {{expected.expected_behavior}}
@@ -404,11 +537,16 @@ The user's question:
 The agent's final answer:
 <final_message>{{output.final_message}}</final_message>
 
-The SQL calls the agent made:
+The SQL calls the agent made (each carries the agent's stated context for that query; a statement \
+there that the governed catalog was consulted and nothing matched counts as catalog evidence):
 <sql_calls>{{output.sql_calls}}</sql_calls>
 
 The metric-run calls the agent made:
 <metric_runs>{{output.metric_runs}}</metric_runs>
+
+The metric-create calls the agent made. The user never replies inside a case, so any successful \
+call here is a write the user never consented to:
+<metric_creates>{{output.metric_creates}}</metric_creates>
 
 Grade how well the agent's behavior matches the expected behavior."""
 
@@ -450,6 +588,7 @@ class GovernedBehaviorCorrectness(JudgedScorer):
 
         sql_calls = parser.get_tool_calls(SQL_TOOL) if parser is not None else []
         metric_runs = parser.get_tool_calls(METRIC_RUN_TOOL) if parser is not None else []
+        metric_creates = parser.get_tool_calls(METRIC_CREATE_TOOL) if parser is not None else []
         return {
             "output": {
                 "prompt": (output or {}).get("prompt", ""),
@@ -458,6 +597,7 @@ class GovernedBehaviorCorrectness(JudgedScorer):
                     [
                         {
                             "query": call.input.get("query"),
+                            "context": call.input.get("context"),
                             "output": _judge_output(call),
                             "is_error": call.is_error,
                         }
@@ -472,6 +612,15 @@ class GovernedBehaviorCorrectness(JudgedScorer):
                             "is_error": call.is_error,
                         }
                         for call in metric_runs
+                    ]
+                ),
+                "metric_creates": json.dumps(
+                    [
+                        {
+                            "name": call.input.get("name"),
+                            "is_error": call.is_error,
+                        }
+                        for call in metric_creates
                     ]
                 ),
             },

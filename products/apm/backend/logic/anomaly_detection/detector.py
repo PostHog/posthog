@@ -22,6 +22,7 @@ from products.apm.backend.logic.anomaly_detection.baseline import BaselineResult
 from products.apm.backend.logic.anomaly_detection.config import DetectionConfig
 from products.apm.backend.logic.anomaly_detection.types import (
     BaselineStage,
+    BucketEvaluation,
     BucketVerdict,
     SeriesHistory,
     SeriesKey,
@@ -78,6 +79,40 @@ def _band_multiplier(key: SeriesKey, baseline: BaselineResult, config: Detection
     return factor
 
 
+def evaluate_series_bucket_detail(
+    history: SeriesHistory,
+    index: int,
+    key: SeriesKey,
+    grid: TimeGrid,
+    config: DetectionConfig,
+    band_model: BandModel,
+) -> BucketEvaluation:
+    observed = float(history.counts[index])
+    if not _passes_gates(history, index, observed, config):
+        return BucketEvaluation(observed=observed, band=None, stage=None, tier=None, verdict=None)
+
+    baseline = select_baseline(history, index, grid, config)
+    if not baseline.scorable:
+        return BucketEvaluation(observed=observed, band=None, stage=baseline.stage, tier=None, verdict=None)
+
+    band = band_model.compute(baseline.samples, observed, config.alpha_per_bucket)
+    band = widen(band, _band_multiplier(key, baseline, config))
+    tier = traffic_tier(history, index, config)
+
+    verdict: BucketVerdict | None = None
+    if observed == 0:
+        # Zero observations are only ever silence — and only when the learned
+        # seasonal expectation says logs were due (a near-zero overnight rate
+        # cannot fire overnight silence).
+        if band.expected >= config.silence_min_expected and tier is not TrafficTier.D:
+            verdict = BucketVerdict(key, index, VerdictType.SILENCE, observed, band, baseline.stage, tier)
+    elif observed > band.upper:
+        verdict = BucketVerdict(key, index, VerdictType.SPIKE, observed, band, baseline.stage, tier)
+    elif observed < band.lower:
+        verdict = BucketVerdict(key, index, VerdictType.DROP, observed, band, baseline.stage, tier)
+    return BucketEvaluation(observed=observed, band=band, stage=baseline.stage, tier=tier, verdict=verdict)
+
+
 def evaluate_series_bucket(
     history: SeriesHistory,
     index: int,
@@ -86,30 +121,7 @@ def evaluate_series_bucket(
     config: DetectionConfig,
     band_model: BandModel,
 ) -> BucketVerdict | None:
-    observed = float(history.counts[index])
-    if not _passes_gates(history, index, observed, config):
-        return None
-
-    baseline = select_baseline(history, index, grid, config)
-    if not baseline.scorable:
-        return None
-
-    band = band_model.compute(baseline.samples, observed, config.alpha_per_bucket)
-    band = widen(band, _band_multiplier(key, baseline, config))
-    tier = traffic_tier(history, index, config)
-
-    if observed == 0:
-        # Zero observations are only ever silence — and only when the learned
-        # seasonal expectation says logs were due (a near-zero overnight rate
-        # cannot fire overnight silence).
-        if band.expected >= config.silence_min_expected and tier is not TrafficTier.D:
-            return BucketVerdict(key, index, VerdictType.SILENCE, observed, band, baseline.stage, tier)
-        return None
-    if observed > band.upper:
-        return BucketVerdict(key, index, VerdictType.SPIKE, observed, band, baseline.stage, tier)
-    if observed < band.lower:
-        return BucketVerdict(key, index, VerdictType.DROP, observed, band, baseline.stage, tier)
-    return None
+    return evaluate_series_bucket_detail(history, index, key, grid, config, band_model).verdict
 
 
 def evaluate_tick(

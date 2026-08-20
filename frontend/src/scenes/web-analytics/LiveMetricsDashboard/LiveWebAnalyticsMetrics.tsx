@@ -17,18 +17,20 @@ import { LemonBanner, LemonButton, LemonDivider, Popover } from '@posthog/lemon-
 
 import { FilterBar } from 'lib/components/FilterBar'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isWebAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LIVE_STREAM_OPERATORS, isLiveStreamFilter } from '../webAnalyticsFilterLogic'
+import { LIVE_STREAM_OPERATORS, isLiveStreamFilter, webAnalyticsFilterLogic } from '../webAnalyticsFilterLogic'
 import { WebAnalyticsDomainSelector, WebAnalyticsLiveDeviceToggle } from '../WebAnalyticsFilters'
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
 import { BreakdownLiveCard } from './BreakdownLiveCard'
@@ -93,22 +95,20 @@ const LiveDashboardFilterRow = ({
 }): JSX.Element => {
     const [displayFilters, setDisplayFilters] = useState(false)
     const { rawWebAnalyticsFilters, deviceTypeFilter, validatedDomainFilter } = useValues(webAnalyticsLogic)
-    const { setCountryFilter, setReferrerFilter, setDeviceTypeFilter, setDomainFilter, setWebAnalyticsFilters } =
-        useActions(webAnalyticsLogic)
+    const { setDeviceTypeFilter, setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
+    const { clearFilters } = useActions(webAnalyticsFilterLogic)
 
     const hasDomainFilter = !!validatedDomainFilter && validatedDomainFilter !== 'all'
     const livePropertyFilters = rawWebAnalyticsFilters.filter(isLiveStreamFilter)
     const preservedOverviewFilters = rawWebAnalyticsFilters.filter((f) => !isLiveStreamFilter(f))
-    const activeFilterCount = livePropertyFilters.length + (deviceTypeFilter ? 1 : 0)
+    const activeFilterCount = rawWebAnalyticsFilters.length + (deviceTypeFilter ? 1 : 0)
     const hasFilters = activeFilterCount > 0 || hasDomainFilter
 
-    const resetFilters = (): void => {
-        setWebAnalyticsFilters(preservedOverviewFilters)
-        setCountryFilter(null)
-        setReferrerFilter(null)
-        setDeviceTypeFilter(null)
-        setDomainFilter(null)
-    }
+    const clearAllButton = (fullWidth: boolean): JSX.Element => (
+        <LemonButton size="small" type="tertiary" fullWidth={fullWidth} icon={<IconX />} onClick={() => clearFilters()}>
+            Clear all
+        </LemonButton>
+    )
 
     const filtersContent = (
         <div className="w-96 max-w-[90vw] p-3">
@@ -137,11 +137,7 @@ const LiveDashboardFilterRow = ({
                     <span className="text-xs font-semibold text-muted">Device</span>
                     <WebAnalyticsLiveDeviceToggle fullWidth />
                 </div>
-                {hasFilters && (
-                    <LemonButton size="small" type="tertiary" fullWidth icon={<IconX />} onClick={resetFilters}>
-                        Clear filters
-                    </LemonButton>
-                )}
+                {hasFilters && clearAllButton(true)}
             </div>
         </div>
     )
@@ -149,7 +145,27 @@ const LiveDashboardFilterRow = ({
     return (
         <FilterBar
             className="mb-4"
-            left={null}
+            left={
+                activeFilterCount > 0 ? (
+                    <div className="flex flex-wrap gap-2 items-center">
+                        {rawWebAnalyticsFilters.map((filter, i) => (
+                            <PropertyFilterButton
+                                key={`${filter.type}-${filter.key}-${i}`}
+                                item={filter}
+                                onClose={() =>
+                                    setWebAnalyticsFilters(rawWebAnalyticsFilters.filter((_, idx) => idx !== i))
+                                }
+                            />
+                        ))}
+                        {deviceTypeFilter && (
+                            <LemonSnack onClose={() => setDeviceTypeFilter(null)}>
+                                Device: {deviceTypeFilter}
+                            </LemonSnack>
+                        )}
+                        {clearAllButton(false)}
+                    </div>
+                ) : null
+            }
             right={
                 <>
                     {isEditing ? (
@@ -354,12 +370,27 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         label="Users online"
                         value={displayedLiveUserCount}
                         isLoading={hasActiveFilters ? isLoading : undefined}
+                        tooltip="People active on your site right now."
                     />
                 )
             case 'unique_visitors':
-                return <LiveStatCard label="Unique visitors" value={totalUniqueVisitors} isLoading={isLoading} />
+                return (
+                    <LiveStatCard
+                        label="Unique visitors"
+                        value={totalUniqueVisitors}
+                        isLoading={isLoading}
+                        tooltip="Distinct visitors in the last 30 minutes."
+                    />
+                )
             case 'pageviews':
-                return <LiveStatCard label="Pageviews" value={totalPageviews} isLoading={isLoading} />
+                return (
+                    <LiveStatCard
+                        label="Pageviews"
+                        value={totalPageviews}
+                        isLoading={isLoading}
+                        tooltip="Total pages viewed in the last 30 minutes."
+                    />
+                )
         }
     }
 

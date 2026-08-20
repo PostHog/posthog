@@ -156,7 +156,7 @@ export type DataCatalogMetricApiDefinition = { [key: string]: unknown } | null
 export interface DataCatalogMetricApi {
     readonly id: string
     /**
-     * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+     * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
      * @maxLength 128
      * @pattern ^[A-Za-z][A-Za-z0-9_]*$
      */
@@ -166,7 +166,10 @@ export interface DataCatalogMetricApi {
      * @maxLength 255
      */
     display_name?: string
-    /** What the metric means and how to interpret it. */
+    /**
+     * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * @maxLength 1000
+     */
     description: string
     /**
      * Unit of the result, e.g. usd, percent, cents.
@@ -253,7 +256,7 @@ export type PatchedDataCatalogMetricApiDefinition = { [key: string]: unknown } |
 export interface PatchedDataCatalogMetricApi {
     readonly id?: string
     /**
-     * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+     * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
      * @maxLength 128
      * @pattern ^[A-Za-z][A-Za-z0-9_]*$
      */
@@ -263,7 +266,10 @@ export interface PatchedDataCatalogMetricApi {
      * @maxLength 255
      */
     display_name?: string
-    /** What the metric means and how to interpret it. */
+    /**
+     * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * @maxLength 1000
+     */
     description?: string
     /**
      * Unit of the result, e.g. usd, percent, cents.
@@ -416,6 +422,49 @@ export interface DataCatalogMetricRunApi {
      * @nullable
      */
     instructions: string | null
+}
+
+/**
+ * Input for the bulk metric actions: the metric names to act on.
+ */
+export interface DataCatalogMetricBulkNamesRequestApi {
+    /**
+     * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 128
+     */
+    names: string[]
+}
+
+/**
+ * A metric the bulk action did not act on, and why.
+ */
+export interface DataCatalogMetricBulkSkipApi {
+    /** Name of the metric that was skipped. */
+    name: string
+    /** Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'. */
+    reason: string
+}
+
+/**
+ * Outcome of a bulk approve: what changed, and what was left alone.
+ */
+export interface DataCatalogMetricBulkApproveApi {
+    /** The metrics that are now approved, freshly serialized. */
+    approved: DataCatalogMetricApi[]
+    /** Requested metrics that were not approved, with reasons. */
+    skipped: DataCatalogMetricBulkSkipApi[]
+}
+
+/**
+ * Outcome of a bulk delete: which names are gone, and what was left alone.
+ */
+export interface DataCatalogMetricBulkDeleteApi {
+    /** Names of the metrics that were deleted, now free for reuse. */
+    deleted: string[]
+    /** Requested metrics that were not deleted, with reasons. */
+    skipped: DataCatalogMetricBulkSkipApi[]
 }
 
 export interface DataCatalogRelationshipProposalApi {

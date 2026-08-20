@@ -1,5 +1,6 @@
 import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import type {
+  CanvasDraft,
   CanvasSource,
   CanvasVersion,
   DashboardRecord,
@@ -130,6 +131,21 @@ export function useCanvasVersions(id: string | undefined): {
   return { versions: data ?? [], isLoading };
 }
 
+/** A canvas's staged drafts, newest first, each with its latest build status. */
+export function useCanvasDrafts(id: string | undefined): {
+  drafts: CanvasDraft[];
+  isLoading: boolean;
+} {
+  const trpc = useHostTRPC();
+  const { data, isLoading } = useQuery(
+    trpc.dashboards.drafts.queryOptions(
+      { id: id ?? "" },
+      { enabled: !!id, staleTime: 5_000 },
+    ),
+  );
+  return { drafts: data ?? [], isLoading };
+}
+
 /** Create + delete + metadata mutations, invalidating the list + record. */
 export function useDashboardMutations() {
   const trpc = useHostTRPC();
@@ -154,6 +170,16 @@ export function useDashboardMutations() {
       // A revert moves the head and queues a rebuild; refresh the reverted
       // canvas's record, build lifecycle, version history, and source so
       // viewers converge — scoped to that canvas, not every open one.
+      onSuccess: (_data, variables) => {
+        void invalidateCanvasLifecycle(queryClient, trpc, variables.id);
+      },
+    }),
+  );
+  const promoteDraft = useMutation(
+    trpc.dashboards.promoteDraft.mutationOptions({
+      // Promote makes a draft the head and queues (or adopts) its build, and
+      // the version leaves the drafts list for published history — refresh the
+      // whole lifecycle (which includes drafts) for that canvas.
       onSuccess: (_data, variables) => {
         void invalidateCanvasLifecycle(queryClient, trpc, variables.id);
       },
@@ -188,6 +214,12 @@ export function useDashboardMutations() {
       expectedCurrentVersionId: string | null,
     ) =>
       revertToVersion.mutateAsync({ id, versionId, expectedCurrentVersionId }),
+    // Make a staged draft the canvas's live head (and rebuild it if needed).
+    promoteDraft: (
+      id: string,
+      versionId: string,
+      expectedCurrentVersionId: string | null,
+    ) => promoteDraft.mutateAsync({ id, versionId, expectedCurrentVersionId }),
     // Record (or clear) the task generating this canvas. Shared on the canvas
     // row so every client polling the canvas sees the in-flight generation.
     setGenerationTask: (id: string, taskId: string | null) =>
@@ -204,6 +236,7 @@ export function useDashboardMutations() {
     isDeleting: remove.isPending,
     isSavingContext: saveContext.isPending,
     isReverting: revertToVersion.isPending,
+    isPromoting: promoteDraft.isPending,
   };
 }
 

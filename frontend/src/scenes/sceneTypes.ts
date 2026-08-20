@@ -56,6 +56,7 @@ export enum Scene {
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
+    ErrorTrackingFingerprint = 'ErrorTrackingFingerprint',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
@@ -68,6 +69,7 @@ export enum Scene {
     Subscription = 'Subscription',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
+    ExperimentsStaffTools = 'ExperimentsStaffTools',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
@@ -136,7 +138,6 @@ export enum Scene {
     PropertyDefinition = 'PropertyDefinition',
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
-    QueryPerformance = 'QueryPerformance',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -159,8 +160,6 @@ export enum Scene {
     HealthAlerts = 'HealthAlerts',
     SdkHealth = 'SdkHealth',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
-    SessionGroupSummariesTable = 'SessionGroupSummariesTable',
-    SessionGroupSummary = 'SessionGroupSummary',
     SessionSummaries = 'SessionSummaries',
     SessionProfile = 'SessionProfile',
     Settings = 'Settings',
@@ -185,12 +184,14 @@ export enum Scene {
     Unsubscribe = 'Unsubscribe',
     CodeCanvasLink = 'CodeCanvasLink',
     CodeChannelLink = 'CodeChannelLink',
+    CodeTaskLink = 'CodeTaskLink',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',
     VercelConnect = 'VercelConnect',
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
+    WarehouseProperties = 'WarehouseProperties',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
@@ -392,6 +393,12 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Metrics
     [Scene.Metrics]: AccessControlResourceType.Metrics,
+
+    // Error tracking
+    [Scene.ErrorTracking]: AccessControlResourceType.ErrorTracking,
+    [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
+    [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
+    [Scene.ErrorTrackingIssueFingerprints]: AccessControlResourceType.ErrorTracking,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

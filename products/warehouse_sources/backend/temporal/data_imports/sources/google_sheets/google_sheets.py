@@ -1,3 +1,4 @@
+import re
 import time
 import random
 from collections import Counter
@@ -9,6 +10,7 @@ from django.conf import settings
 import gspread
 import requests
 from cachetools import Cache, TTLCache, cached
+from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 from gspread.utils import numericise_all
@@ -165,6 +167,18 @@ def _records_from_grid(grid: list[list[str]]) -> list[dict[str, Any]]:
     return [dict(zip(column_names, numericise_all(row, default_blank=None))) for row in grid[1:]]
 
 
+# Google's frontend returns this stable "That's an error" doodle page — an HTML body, not the JSON
+# `{"error": ...}` an OAuth rejection (e.g. invalid_grant) returns — when its infra has a transient
+# outage in front of the token endpoint. `google-auth`'s own `RefreshError.retryable` flag doesn't
+# cover this: it only recognizes 500/503/504/408/429 as retryable and treats an HTML body's implied
+# 502 as not retryable (see `google.oauth2._client._can_retry`), so key off the page's title instead.
+_GOOGLE_FRONTEND_ERROR_RE = re.compile(r"Error 5\d\d \(")
+
+
+def _is_transient_refresh_error(e: BaseException) -> bool:
+    return bool(_GOOGLE_FRONTEND_ERROR_RE.search(str(e)))
+
+
 def _is_retryable_api_error(e: gspread.exceptions.APIError) -> bool:
     """Decide whether a gspread APIError is a transient error worth retrying.
 
@@ -205,6 +219,8 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
             return execute()
         except (
             gspread.exceptions.APIError,
+            google_auth_exceptions.RefreshError,
+            google_auth_exceptions.TransportError,
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,
             requests.exceptions.ChunkedEncodingError,
@@ -220,7 +236,18 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
             # streaming the response body and re-raises it as `ChunkedEncodingError`, which is a
             # sibling of `ConnectionError` in the `requests` hierarchy (not a subclass), so the
             # `ConnectionError` entry above would not catch it.
-            is_retryable = _is_retryable_api_error(e) if isinstance(e, gspread.exceptions.APIError) else True
+            #
+            # `RefreshError`/`TransportError` come from `AuthorizedSession` refreshing our own
+            # service-account token as a side effect of this call (see `_is_transient_refresh_error`)
+            # — gate those on the frontend-error signature rather than treating every auth failure
+            # as transient, since a persistent problem (e.g. a rotated/invalid key) should still fail
+            # fast instead of spending the whole retry budget first.
+            if isinstance(e, gspread.exceptions.APIError):
+                is_retryable = _is_retryable_api_error(e)
+            elif isinstance(e, google_auth_exceptions.RefreshError | google_auth_exceptions.TransportError):
+                is_retryable = _is_transient_refresh_error(e)
+            else:
+                is_retryable = True
             if not is_retryable or attempts >= max_attempts:
                 raise
 

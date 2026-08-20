@@ -143,9 +143,10 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def get_scim_base_url(self, obj: OrganizationDomain) -> str | None:
-        if not obj.has_scim:
+        config = obj.identity_provider_config
+        if config is None or not config.has_scim or not config.scim_slug:
             return None
-        return get_scim_base_url(obj, self.context.get("request"))
+        return get_scim_base_url(config)
 
 
 class SCIMRequestLogSerializer(serializers.ModelSerializer):
@@ -208,7 +209,8 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
-    queryset = OrganizationDomain.objects.order_by("domain").all()
+    # Every serialized domain reads its linked config (SAML/SCIM/ID-JAG state, SCIM base URL).
+    queryset = OrganizationDomain.objects.select_related("identity_provider_config").order_by("domain").all()
 
     @action(methods=["POST"], detail=True)
     def verify(self, request: request.Request, **kw) -> response.Response:
@@ -301,7 +303,14 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             raise exceptions.PermissionDenied("Only organization admins can view SCIM logs.")
 
         domain: OrganizationDomain = self.get_object()
-        queryset = SCIMRequestLog.objects.filter(organization_domain=domain)
+        # SCIM authenticates against the linked IdP config, so its requests are logged against the
+        # config. Match the domain too: rows logged before the move carry only that until the
+        # `backfill_scim_request_log_config` command reaches them, and a domain that was later
+        # unlinked from its config keeps nothing else to find its history by.
+        scope = Q(organization_domain=domain)
+        if domain.identity_provider_config_id is not None:
+            scope |= Q(identity_provider_config_id=domain.identity_provider_config_id)
+        queryset = SCIMRequestLog.objects.filter(scope)
         queryset = SCIMRequestLogFilter(request.query_params, queryset=queryset).qs
 
         paginator = SCIMRequestLogPagination()

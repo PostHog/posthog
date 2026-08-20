@@ -66,6 +66,7 @@ async def auto_disable_and_return(
             recipient=subscription.target_value,
             status="failed",
             error={"message": reason.description, "type": reason.key},
+            human_readable_error=reason.description,
         )
     )
     # `_capture_delivery_failed_event` only reads `str(e)` and `type(e).__name__`,
@@ -120,7 +121,10 @@ async def deliver_email(
             _capture_delivery_failed_event(subscription, exc)
             recipient_results.append(
                 RecipientResult(
-                    recipient=email, status="failed", error={"message": str(exc), "type": type(exc).__name__}
+                    recipient=email,
+                    status="failed",
+                    error={"message": str(exc), "type": type(exc).__name__},
+                    human_readable_error=None,
                 )
             )
             failures.append((email, exc))
@@ -223,14 +227,14 @@ async def deliver_slack(
             failed_thread_count=len(result.failed_thread_message_indices),
             total_thread_count=result.total_thread_messages,
         )
+        failed_count = len(result.failed_thread_message_indices)
+        partial_message = f"{failed_count} thread message{'s' if failed_count != 1 else ''} failed"
         recipient_results.append(
             RecipientResult(
                 recipient=subscription.target_value,
                 status="partial",
-                error={
-                    "message": f"{len(result.failed_thread_message_indices)} thread message(s) failed",
-                    "type": "partial_thread_failure",
-                },
+                error={"message": partial_message, "type": "partial_thread_failure"},
+                human_readable_error=partial_message,
             )
         )
     return DeliverSubscriptionResult(recipient_results=recipient_results)

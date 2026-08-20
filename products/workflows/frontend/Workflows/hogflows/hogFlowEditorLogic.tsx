@@ -172,6 +172,7 @@ export interface hogFlowEditorLogicValues {
     highlightedDropzoneNodeId: string | null
     isCopyingNode: boolean
     isMovingNode: boolean
+    isZoomedOutFar: boolean
     mode: HogFlowEditorMode
     movingNodeId: string | null
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
@@ -474,6 +475,9 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -716,6 +720,12 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
                                           actions?: any[] | undefined
                                           events?: any[] | undefined
                                           filter_test_accounts?: boolean | undefined
@@ -858,6 +868,12 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'slack-message'
+                        }
+                      | {
+                            filters: {
                                 actions?: any[] | undefined
                                 events?: any[] | undefined
                                 filter_test_accounts?: boolean | undefined
@@ -978,6 +994,9 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1268,6 +1287,9 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1510,6 +1532,12 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
                                           actions?: any[] | undefined
                                           events?: any[] | undefined
                                           filter_test_accounts?: boolean | undefined
@@ -1652,6 +1680,12 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'slack-message'
+                        }
+                      | {
+                            filters: {
                                 actions?: any[] | undefined
                                 events?: any[] | undefined
                                 filter_test_accounts?: boolean | undefined
@@ -1772,6 +1806,9 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1885,6 +1922,9 @@ export interface hogFlowEditorLogicActions {
     }
     setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => {
         highlightedDropzoneNodeId: string | null
+    }
+    setIsZoomedOutFar: (isZoomedOutFar: boolean) => {
+        isZoomedOutFar: boolean
     }
     setMode: (mode: HogFlowEditorMode) => {
         mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
@@ -2004,6 +2044,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
         handlePaneClick: true,
+        setIsZoomedOutFar: (isZoomedOutFar: boolean) => ({ isZoomedOutFar }),
     }),
     reducers(() => ({
         mode: [
@@ -2054,6 +2095,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             {
                 startMovingNode: () => true,
                 stopMovingNode: () => false,
+            },
+        ],
+        isZoomedOutFar: [
+            false,
+            {
+                setIsZoomedOutFar: (_, { isZoomedOutFar }) => isZoomedOutFar,
             },
         ],
         movingNodeId: [

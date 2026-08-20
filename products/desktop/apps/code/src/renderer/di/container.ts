@@ -127,6 +127,15 @@ import {
   MCP_APP_HOST_COMPONENT,
   MCP_SANDBOX_PROXY_URL,
 } from "@posthog/ui/features/mcp-apps/identifiers";
+import {
+  MISSION_CONTROL_CLIENT,
+  type MissionControlClient,
+} from "@posthog/ui/features/mission-control/identifiers";
+import {
+  QUICK_ASK_SETTINGS_CLIENT,
+  type QuickAskSettingsClient,
+} from "@posthog/ui/features/quick-ask/identifiers";
+import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import { MCP_TOOL_BLOCK_COMPONENT } from "@posthog/ui/features/sessions/components/session-update/identifiers";
 import {
   localHandoffDialog,
@@ -156,6 +165,7 @@ import {
   diffWorkerFactory,
   reviewHost,
 } from "@renderer/features/code-review/reviewHost";
+import { ElectronArtifactHtmlFrame } from "@renderer/platform-adapters/electron-artifact-html-frame";
 import {
   taskDeletionHost,
   taskDeletionWorkspaceClient,
@@ -242,6 +252,39 @@ const discordPresenceClient: DiscordPresenceClient = {
 };
 container.bind(DISCORD_PRESENCE_CLIENT).toConstantValue(discordPresenceClient);
 
+const quickAskSettingsClient: QuickAskSettingsClient = {
+  getState: () => trpcClient.quickAsk.getState.query(),
+  setShortcut: (accelerator) =>
+    trpcClient.quickAsk.setShortcut.mutate({ accelerator }),
+  setSettings: (patch) =>
+    trpcClient.quickAsk.setSettings.mutate({
+      ...patch,
+      defaultAdapter: patch.defaultAdapter as
+        | ""
+        | "claude"
+        | "codex"
+        | undefined,
+    }),
+};
+container
+  .bind(QUICK_ASK_SETTINGS_CLIENT)
+  .toConstantValue(quickAskSettingsClient);
+
+// mission control overlay client
+const missionControlClient: MissionControlClient = {
+  onStateChanged: (onData) => {
+    const sub = trpcClient.missionControl.onStateChanged.subscribe(undefined, {
+      onData,
+    });
+    return () => sub.unsubscribe();
+  },
+  isSupported: () => trpcClient.missionControl.isSupported.query(),
+  getEnabled: () => trpcClient.missionControl.getEnabled.query(),
+  setEnabled: (enabled) =>
+    trpcClient.missionControl.setEnabled.mutate({ enabled }),
+};
+container.bind(MISSION_CONTROL_CLIENT).toConstantValue(missionControlClient);
+
 // terminal shell client
 const shellClient: ShellClient = {
   write: async (input) => {
@@ -279,6 +322,10 @@ container.bind(FOCUS_CONTROLLER_DEPS).toConstantValue(focusDeps);
 // code-review host (diff worker factory + expanded-review sidebar)
 container.bind(DIFF_WORKER_FACTORY).toConstantValue(diffWorkerFactory);
 container.bind<ReviewHost>(REVIEW_HOST).toConstantValue(reviewHost);
+
+container
+  .bind(ARTIFACT_HTML_FRAME_COMPONENT)
+  .toConstantValue(ElectronArtifactHtmlFrame);
 
 // sessions MCP tool renderer slot
 container.bind(MCP_TOOL_BLOCK_COMPONENT).toConstantValue(McpToolBlock);

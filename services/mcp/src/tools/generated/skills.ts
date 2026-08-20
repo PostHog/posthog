@@ -322,6 +322,9 @@ const skillUpdate = (): ToolBase<typeof SkillUpdateSchema, Schemas.LLMSkill> => 
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
         }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
+        }
         const result = await context.api.request<Schemas.LLMSkill>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/`,

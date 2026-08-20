@@ -4,10 +4,10 @@ import { CHANNEL_TASK_SUGGESTIONS } from "@posthog/ui/features/canvas/channelTas
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelContextPanel } from "@posthog/ui/features/canvas/components/ChannelContextPanel";
 import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
+import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
@@ -29,8 +29,10 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
   const view = useAppView();
   const queryClient = useQueryClient();
   const { fileTask } = useChannelTaskMutations();
-  const { channels } = useChannels();
-  const channelName = channels.find((c) => c.id === channelId)?.name;
+  // The raw channel row also carries the space's repository defaults.
+  const { channels } = useTaskChannels();
+  const channel = channels.find((c) => c.id === channelId);
+  const channelName = channel?.name;
 
   // Surface the channel breadcrumb in the shared header, same as the other
   // channel scenes ("# channel / New task").
@@ -145,6 +147,8 @@ export function WebsiteNewTask({ channelId }: { channelId: string }) {
           channelId={channelId}
           channelContextId={channelId}
           allowNoRepo
+          channelRepositories={channel?.repositories}
+          channelGithubIntegration={channel?.github_integration}
           // So a prompt handed to openTaskInput survives routing into a channel.
           initialPrompt={view.initialPrompt}
           initialPromptKey={view.taskInputRequestId}

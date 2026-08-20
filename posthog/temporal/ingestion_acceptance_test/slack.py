@@ -7,7 +7,7 @@ import structlog
 
 from .config import Config
 from .results import TestSuiteResult
-from .runner import RunningTestInfo
+from .runner import RunningTestSnapshot
 
 logger = structlog.get_logger(__name__)
 
@@ -116,12 +116,12 @@ def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, A
     }
 
 
-def send_slack_timeout_notification(config: Config, running_tests: list[RunningTestInfo] | None = None) -> bool:
+def send_slack_timeout_notification(config: Config, running_tests: list[RunningTestSnapshot] | None = None) -> bool:
     """Send a timeout notification to Slack via incoming webhook.
 
     Args:
         config: Configuration containing the Slack webhook URL.
-        running_tests: List of RunningTestInfo with test names and their pending
+        running_tests: List of RunningTestSnapshot with test names and their pending
             poll descriptions (what each test was waiting for in ClickHouse).
 
     Returns:

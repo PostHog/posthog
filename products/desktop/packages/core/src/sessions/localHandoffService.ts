@@ -132,7 +132,11 @@ export class LocalHandoffService {
 
   public async start(taskId: string, task: Task): Promise<void> {
     try {
-      const repositories = task.repository ? [task.repository] : [];
+      const repositories = task.repositories?.length
+        ? task.repositories
+        : task.repository
+          ? [task.repository]
+          : [];
       const repositoryPaths = await this.resolveRepositoryPaths(repositories);
       const paths = Object.values(repositoryPaths);
       const targetPath =

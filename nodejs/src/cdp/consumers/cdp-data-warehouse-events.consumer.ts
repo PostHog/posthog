@@ -12,7 +12,12 @@ import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
+import {
+    CyclotronJobInvocation,
+    HogFunctionFilterDataWarehouse,
+    HogFunctionInvocationGlobals,
+    HogFunctionTypeType,
+} from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
@@ -85,6 +90,11 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: (fn) => (fn.filters?.source ?? 'events') === 'data-warehouse-table',
+                // Destinations pick their tables in `filters.data_warehouse`, which never reaches the
+                // filter bytecode, so without this every warehouse-triggered destination in the team
+                // ran for every table's rows.
+                invocationFilterFn: (fn, globals) =>
+                    matchesSubscribedTable(fn.filters?.data_warehouse, sourceTableOf(globals)),
             }),
             // Source-compatibility matching lives in the consumer rather than the executor — the
             // consumer knows it's serving warehouse rows, so it filters flows to only those whose
@@ -92,8 +102,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
             // evaluates filter bytecode on the matched flows.
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
                 eligibilityFn: (flow, globals) =>
-                    flow.trigger.type === 'data-warehouse-table' &&
-                    flow.trigger.table_name === globals.event?.properties?.[DWH_SOURCE_TABLE_PROPERTY],
+                    flow.trigger.type === 'data-warehouse-table' && flow.trigger.table_name === sourceTableOf(globals),
             }),
         ])
 
@@ -187,6 +196,26 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
     public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
     }
+}
+
+function sourceTableOf(globals: HogFunctionInvocationGlobals): string {
+    const table = globals.event?.properties?.[DWH_SOURCE_TABLE_PROPERTY]
+    return typeof table === 'string' ? table : ''
+}
+
+/**
+ * An empty or absent subscription list keeps the pre-existing "match every table" behavior.
+ * Destinations saved before per-table matching existed have no entries, and tightening them here
+ * would silently stop them firing.
+ */
+function matchesSubscribedTable(
+    subscriptions: HogFunctionFilterDataWarehouse[] | undefined,
+    sourceTable: string
+): boolean {
+    if (!subscriptions?.length) {
+        return true
+    }
+    return subscriptions.some((subscription) => subscription.table_name === sourceTable)
 }
 
 function convertDataWarehouseEventToHogFunctionInvocationGlobals(

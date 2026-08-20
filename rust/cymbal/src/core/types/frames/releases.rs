@@ -5,6 +5,8 @@ use sha2::{Digest, Sha512};
 use sqlx::Executor;
 use uuid::Uuid;
 
+use crate::symbolication::symbol_store::saving::truncate_ref;
+
 /// The release API does not bound what a row can hold (`version`/`project`/`metadata` are
 /// unbounded TextField/JSONField columns), but every one of these fields is embedded into every
 /// matching exception event, so a single oversized row would be amplified across the whole event
@@ -84,6 +86,43 @@ impl ReleaseRecord {
         Ok(row.map(Self::clamped))
     }
 
+    /// The newest release bound to any of `symbol_set_refs`, as an id. One query per exception
+    /// replaces the per-frame join the resolver used to run, and the id is all the caller needs:
+    /// it re-reads the row through its own release cache.
+    ///
+    /// Ties break on id so a stack spanning two releases created in the same instant still picks
+    /// deterministically.
+    pub async fn latest_id_for_symbol_set_refs<'c, E>(
+        e: E,
+        symbol_set_refs: &[String],
+        team_id: i32,
+    ) -> Result<Option<Uuid>, sqlx::Error>
+    where
+        E: Executor<'c, Database = sqlx::Postgres>,
+    {
+        // Stored refs are truncated to MAX_REF_BYTES by SymbolSetRecord::load/save; match on the
+        // same truncated value or long refs (e.g. >2KB JS source URLs) never join.
+        let refs: Vec<String> = symbol_set_refs
+            .iter()
+            .map(|r| truncate_ref(r).to_string())
+            .collect();
+
+        sqlx::query_scalar!(
+            r#"
+            SELECT r.id
+            FROM posthog_errortrackingsymbolset ss
+            INNER JOIN posthog_errortrackingrelease r ON ss.release_id = r.id
+            WHERE ss.ref = ANY($1) AND ss.team_id = $2
+            ORDER BY r.created_at DESC, r.id DESC
+            LIMIT 1
+            "#,
+            &refs,
+            team_id
+        )
+        .fetch_optional(e)
+        .await
+    }
+
     pub fn to_info(&self) -> ReleaseInfo {
         ReleaseInfo {
             id: self.id,
@@ -94,9 +133,17 @@ impl ReleaseRecord {
         }
     }
 
-    /// Bounds every field this record can carry into an event: `metadata` over the cap the API
-    /// enforces on new writes is dropped, `version`/`project` are truncated. The `id` survives,
-    /// so consumers can still fetch the full release.
+    /// The most recently created release, with ties broken by id so the pick is deterministic
+    /// regardless of input order.
+    pub fn latest(releases: impl IntoIterator<Item = Self>) -> Option<Self> {
+        releases
+            .into_iter()
+            .max_by_key(|release| (release.created_at, release.id))
+    }
+
+    /// Bounds every field this record can carry into an event: `metadata` over the cap is
+    /// dropped, `version`/`project` are truncated. The `id` survives, so consumers can still
+    /// fetch the full release.
     fn clamped(mut self) -> Self {
         let oversized = self.metadata.as_ref().is_some_and(|metadata| {
             serde_json::to_string(metadata).map_or(true, |s| s.len() > MAX_RELEASE_METADATA_BYTES)
@@ -139,6 +186,21 @@ fn pack_version(version: Option<&str>, build: Option<&str>) -> Option<String> {
         (Some(v), None) => Some(v.to_string()),
         (None, Some(b)) => Some(b.to_string()),
         (None, None) => None,
+    }
+}
+
+/// Split a packed release version back into the app version and the build number, inverting
+/// `pack_version`. Splitting on the last `+` recovers the build from a version that itself carries
+/// semver build metadata, such as `1.0.0+sha.abc` built as `1.0.0+sha.abc+42`.
+///
+/// The inverse is lossy in the one direction `pack_version` is: a release packed from a build
+/// alone is a bare build string on the way back out, and comes back as a version with no build.
+pub fn unpack_version(packed: &str) -> (&str, Option<&str>) {
+    match packed.rsplit_once('+') {
+        Some((version, build)) if !version.is_empty() && !build.is_empty() => {
+            (version, Some(build))
+        }
+        _ => (packed, None),
     }
 }
 
@@ -194,6 +256,30 @@ mod tests {
                 mobile_release_hash_id(name, version, build).as_deref(),
                 Some(expected),
                 "release hash_id drift for {name} {version:?}+{build:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unpack_version_recovers_the_build_pack_version_folded_in() {
+        // (packed version, app version, build number)
+        let cases: [(&str, &str, Option<&str>); 5] = [
+            ("1.0+42", "1.0", Some("42")),
+            // Splitting on the last `+` is what keeps semver build metadata with the version.
+            ("1.0.0+sha.abc+42", "1.0.0+sha.abc", Some("42")),
+            ("2.3", "2.3", None),
+            // A version whose own metadata reads as a build number: the packing is ambiguous, and
+            // the build wins so a real `--build` is never dropped.
+            ("1.0.0+sha.abc", "1.0.0", Some("sha.abc")),
+            // An empty half is not a build, or events would carry an empty `$app_build`.
+            ("1.0+", "1.0+", None),
+        ];
+
+        for (packed, version, build) in cases {
+            assert_eq!(
+                unpack_version(packed),
+                (version, build),
+                "unpacking {packed}"
             );
         }
     }

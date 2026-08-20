@@ -527,7 +527,7 @@ class ErrorTrackingQueryBuilder:
 
     def _select_expressions_legacy(self) -> list[ast.Expr]:
         exprs: list[ast.Expr] = [
-            ast.Alias(alias="id", expr=ast.Field(chain=["e", "issue_id_v2"])),
+            ast.Alias(alias="id", expr=ast.Field(chain=["e", "issue_id"])),
             ast.Alias(alias="status", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_status"])])),
             ast.Alias(alias="name", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_name"])])),
             ast.Alias(
@@ -640,7 +640,7 @@ class ErrorTrackingQueryBuilder:
                 left=ast.Field(chain=["e", "event"]),
                 right=ast.Constant(value="$exception"),
             ),
-            ast.Call(name="isNotNull", args=[ast.Field(chain=["e", "issue_id_v2"])]),
+            ast.Call(name="isNotNull", args=[ast.Field(chain=["e", "issue_id"])]),
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
 
@@ -666,7 +666,7 @@ class ErrorTrackingQueryBuilder:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["e", "issue_id_v2"]),
+                    left=ast.Field(chain=["e", "issue_id"]),
                     right=ast.Constant(value=self.query.issueId),
                 )
             )

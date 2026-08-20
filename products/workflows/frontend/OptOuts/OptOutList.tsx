@@ -7,6 +7,7 @@ import {
     IconExternal,
     IconPlus,
     IconRefresh,
+    IconRevert,
     IconUpload,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
@@ -18,9 +19,10 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
+import type { MessagePreferencesApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import type { MessageCategory } from './optOutCategoriesLogic'
 import { optOutListLogic } from './optOutListLogic'
-import type { OptOutEntry } from './types'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
@@ -33,6 +35,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         setShowAddOptOutModal,
         setNewOptOutIdentifier,
         addOptOut,
+        removeOptOut,
         setShowImportCsvModal,
         setCsvFile,
         importCsv,
@@ -47,6 +50,8 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         currentPage,
         showAddOptOutModal,
         addOptOutLoading,
+        removeOptOutLoading,
+        pendingRemoveIdentifier,
         newOptOutIdentifier,
         showImportCsvModal,
         csvFile,
@@ -77,7 +82,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
           }
         : null
 
-    const columns: LemonTableColumns<OptOutEntry> = [
+    const columns: LemonTableColumns<MessagePreferencesApi> = [
         {
             title: 'Recipient',
             dataIndex: 'identifier',
@@ -91,7 +96,8 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         },
         {
             width: 0,
-            render: function Render(_, optOutEntry: OptOutEntry): JSX.Element {
+            render: function Render(_, optOutEntry: MessagePreferencesApi): JSX.Element {
+                const removingThisRow = removeOptOutLoading && pendingRemoveIdentifier === optOutEntry.identifier
                 return (
                     <More
                         overlay={
@@ -106,6 +112,15 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                                     icon={<IconExternal />}
                                 >
                                     Manage
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() => removeOptOut(optOutEntry.identifier)}
+                                    loading={removingThisRow}
+                                    disabledReason={removingThisRow ? 'Removing…' : undefined}
+                                    fullWidth
+                                    icon={<IconRevert />}
+                                >
+                                    Remove opt-out
                                 </LemonButton>
                             </>
                         }
@@ -254,7 +269,9 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                         onChange={setNewOptOutIdentifier}
                         autoFocus
                         onPressEnter={() => {
-                            if (newOptOutIdentifier.trim()) {
+                            // Guard against a second Enter mid-flight firing a duplicate POST — the
+                            // footer button already disables while loading; mirror that here.
+                            if (newOptOutIdentifier.trim() && !addOptOutLoading) {
                                 addOptOut(newOptOutIdentifier.trim())
                             }
                         }}

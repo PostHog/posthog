@@ -49,6 +49,7 @@ const config: Configuration = {
     ".vite/build/plugins/posthog/**",
     ".vite/build/codex-acp/**",
     ".vite/build/grammars/**",
+    ".vite/build/product-engineer/**",
     ".vite/build/rpc-host.js",
     ".vite/build/rpc-host.js.map",
     ...asarUnpackGlobs,
@@ -133,9 +134,7 @@ const config: Configuration = {
   },
 
   // Installs built from this config poll the CloudFront-fronted update feed
-  // (the S3 bucket is private; reads go through the CDN). Installs built before
-  // the feed moved poll GitHub Releases on PostHog/code, so CI dual-publishes
-  // there until that fleet drains.
+  // (the S3 bucket is private; reads go through the CDN).
   publish: {
     provider: "generic",
     url: "https://desktop-releases.posthog.com/stable",

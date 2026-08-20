@@ -697,6 +697,49 @@ describe('Hog Executor', () => {
             const result = await executor.execute(createTicketInvocation())
             expect(result.error).toContain('Team 1 not found')
         })
+
+        it.each([
+            ['postHogGetTicket', { ticket_id: 'test-ticket-123' }],
+            ['postHogUpdateTicket', { ticket_id: 'test-ticket-456', updates: { status: 'new' } }],
+        ])('%s points at the setup step when the team has no secret API token', async (name, args) => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            mockExecHogForAsyncFunction(name, [args])
+
+            const result = await executor.execute(createTicketInvocation())
+            // Nothing provisions this token, so the message has to name the setup step rather
+            // than the field - it reaches the customer verbatim in the workflow logs. Square
+            // brackets would be parsed as entity chips by the log viewer and swallowed.
+            expect(result.error).toContain('This project has no secret API key')
+            expect(result.error).toContain('ticket workflow actions')
+            expect(result.error).toContain('Settings > Support > Secret API key')
+            expect(result.error).not.toContain('[')
+        })
+
+        it('captures exception with team_id when the ticket secret API token is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogUpdateTicket', [
+                { ticket_id: 'test-ticket-456', updates: { status: 'new' } },
+            ])
+            await executor.execute(createTicketInvocation())
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({
+                    tags: expect.objectContaining({ team_id: 1, function: 'postHogUpdateTicket' }),
+                })
+            )
+        })
     })
 
     describe('postHogGetAccount', () => {
@@ -772,7 +815,11 @@ describe('Hog Executor', () => {
             mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
 
             const result = await executor.execute(createAccountInvocation())
-            expect(result.error).toContain('has no secret API token configured')
+            // The message reaches the customer verbatim in the workflow logs, so it has to name
+            // the setup step rather than the field.
+            expect(result.error).toContain('This project has no secret API key')
+            expect(result.error).toContain('account workflow actions')
+            expect(result.error).toContain('Settings > Support > Secret API key')
         })
 
         it('captures exception with team_id when secret API token is missing', async () => {
@@ -1039,7 +1086,7 @@ describe('Hog Executor', () => {
             // Should be scheduled for retry
             expect(result.invocation.state.attempts).toBe(1)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 1 with status code 500. Retrying in 1500ms.',
+                'HTTP fetch failed on attempt 1 with status code 500. Retrying.',
             ])
             expect(result.invocation.queuePriority).toBe(1) // Priority decreased
             expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
@@ -1049,7 +1096,7 @@ describe('Hog Executor', () => {
             result = await executor.executeFetch(result.invocation)
             expect(result.invocation.state.attempts).toBe(2)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 2 with status code 500. Retrying in 2500ms.',
+                'HTTP fetch failed on attempt 2 with status code 500. Retrying.',
             ])
             expect(result.invocation.queuePriority).toBe(2) // Priority decreased
             expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:02.500Z"`)
@@ -1057,7 +1104,7 @@ describe('Hog Executor', () => {
             // Execute the final retry
             result = await executor.executeFetch(result.invocation)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 3 with status code 500. Retrying in 3500ms.',
+                'HTTP fetch failed on attempt 3 with status code 500.',
             ])
             // All values reset due to no longer retrying
             expect(result.invocation.state.attempts).toBe(0)
@@ -1321,7 +1368,7 @@ describe('Hog Executor', () => {
             expect(result.invocation.queueScheduledAt).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "HTTP fetch failed on attempt 1 with status code (none). Error: Invalid hostname. Retrying in 1500ms.",
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: Invalid hostname. Retrying.",
                 ]
             `)
         })
@@ -1366,7 +1413,7 @@ describe('Hog Executor', () => {
             expect(result.invocation.queueScheduledAt).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "HTTP fetch failed on attempt 1 with status code (none). Error: The operation was aborted due to timeout. Retrying in 1500ms.",
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: The operation was aborted due to timeout. Retrying.",
                 ]
             `)
         })

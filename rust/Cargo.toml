@@ -39,9 +39,6 @@ members = [
   "feature-flags",
   "flags-consumer",
   "hypercache-server",
-  "cyclotron-core",
-  "cyclotron-node",
-  "cyclotron-janitor",
   "replay-anonymizer",
   "replay-anonymizer-node",
   "cymbal",
@@ -157,7 +154,6 @@ chrono = { version = "0.4.44", features = ["default", "serde"] }
 chrono-tz = "0.10.1"
 dashmap = "6.1"
 envconfig = "0.10.0"
-eyre = "0.6.9"
 flate2 = "1.0"
 futures = { version = "0.3.29" }
 futures-timer = "3.0"
@@ -234,7 +230,7 @@ aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.21.0", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.24.0", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",

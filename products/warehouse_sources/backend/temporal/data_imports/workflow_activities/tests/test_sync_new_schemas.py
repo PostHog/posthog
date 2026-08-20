@@ -80,9 +80,7 @@ def test_undecrypted_integration_secret_error_is_skipped():
     # failure and spams error tracking every cycle.
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
-    source_mock.get_schemas.side_effect = UndecryptedIntegrationSecretError(
-        "Integration.sensitive_config['refresh_token'] is still encrypted; the stored credentials could not be decrypted"
-    )
+    source_mock.get_schemas.side_effect = UndecryptedIntegrationSecretError()
     source_mock.get_non_retryable_errors.return_value = {}
 
     _run_activity(source_mock)

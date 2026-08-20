@@ -1,4 +1,4 @@
-import type { AuthService } from "@posthog/core/auth/auth";
+import type { AuthService, FetchLike } from "@posthog/core/auth/auth";
 import type { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import type {
   AUTH_CONNECTIVITY,
@@ -131,6 +131,11 @@ import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
 import type { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import type { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
+import type {
+  QUICK_ASK_FETCH,
+  QUICK_ASK_RUN_DEFAULTS,
+  QuickAskRunDefaults,
+} from "@posthog/quick-ask/service/quick-ask";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";
@@ -241,6 +246,7 @@ import type { ElectronDialog } from "../platform-adapters/electron-dialog";
 import type { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import type { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import type { ElectronMainWindow } from "../platform-adapters/electron-main-window";
+import type { MissionControlService } from "../platform-adapters/electron-mission-control";
 import type { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import type { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import type { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
@@ -296,6 +302,7 @@ import type {
   LLM_GATEWAY_SERVICE as MAIN_LLM_GATEWAY_SERVICE,
   LOOP_LINK_SERVICE as MAIN_LOOP_LINK_SERVICE,
   MCP_APPS_SERVICE as MAIN_MCP_APPS_SERVICE,
+  MISSION_CONTROL_SERVICE as MAIN_MISSION_CONTROL_SERVICE,
   NEW_TASK_LINK_SERVICE as MAIN_NEW_TASK_LINK_SERVICE,
   OPEN_TARGET_LINK_SERVICE as MAIN_OPEN_TARGET_LINK_SERVICE,
   POSTHOG_PLUGIN_SERVICE as MAIN_POSTHOG_PLUGIN_SERVICE,
@@ -375,6 +382,8 @@ export interface MainBindings {
   [AUTH_TOKEN_OVERRIDE]: string | null;
   [MAIN_AUTH_SERVICE]: AuthService;
   [AUTH_SERVICE]: AuthService;
+  [QUICK_ASK_FETCH]: FetchLike;
+  [QUICK_ASK_RUN_DEFAULTS]: () => QuickAskRunDefaults;
 
   // Auth proxy / mcp proxy / mcp relay
   [AUTH_PROXY_AUTH]: AuthProxyAuth;
@@ -490,6 +499,7 @@ export interface MainBindings {
   [LOGS_SERVICE]: ILogsService;
   [MAIN_ENCRYPTION_SERVICE]: EncryptionService;
   [MAIN_DISCORD_PRESENCE_SERVICE]: DiscordPresenceService;
+  [MAIN_MISSION_CONTROL_SERVICE]: MissionControlService;
 
   // Dev toolbar diagnostics
   [MAIN_DEV_FLAGS_SERVICE]: DevFlagsService;

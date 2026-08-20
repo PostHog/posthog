@@ -26,6 +26,8 @@ from posthog.schema import (
     LifecycleQuery,
     PathsFilter,
     PathsQuery,
+    PathsV2Filter,
+    PathsV2Query,
     RetentionFilter,
     RetentionQuery,
     StickinessQuery,
@@ -197,6 +199,31 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIsInstance(result, str)
         self.assertTrue(used_fallback)
         # Should NOT capture NotImplementedError
+        mock_capture.assert_not_called()
+
+    @patch("ee.hogai.context.insight.query_executor.capture_exception")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_paths_v2_query_degrades_to_json_fallback(self, mock_process_query: Mock, mock_capture: Mock) -> None:
+        # The assistant has no PathsV2Query formatter yet, so a journeys insight must degrade to
+        # the raw-JSON fallback instead of erroring.
+        results = {
+            "steps": [
+                {
+                    "stepIndex": 0,
+                    "rows": [{"item": {"event": "$pageview", "label": "/home"}, "count": 2}],
+                    "otherCount": 0,
+                    "dropOffCount": 1,
+                }
+            ],
+            "edges": [],
+            "prefixes": [],
+        }
+        mock_process_query.return_value = {"results": results}
+
+        result = await execute_and_format_query(self.team, PathsV2Query(pathsV2Filter=PathsV2Filter()), user=self.user)
+
+        self.assertIn("stepIndex", result)
+        self.assertIn("/home", result)
         mock_capture.assert_not_called()
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

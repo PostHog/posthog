@@ -1,11 +1,13 @@
 import importlib
+import threading
 from datetime import timedelta
-from typing import ClassVar
+from typing import Any, ClassVar
 from uuid import uuid4
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.db import close_old_connections
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -13,12 +15,21 @@ from parameterized import parameterized
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
+from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import Channel, SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    Channel,
+    SandboxCustomImage,
+    SandboxEnvironment,
+    Task,
+    TaskRun,
+    TaskWorkflowDispatch,
+)
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 
 FACADE_MODULES = [
@@ -47,6 +58,142 @@ class TestFacadeImports(TestCase):
         self.assertIs(facade.TaskRunEnvironment, TaskRun.Environment)
         self.assertIs(facade.TaskOriginProduct, Task.OriginProduct)
         self.assertIs(facade.SandboxNetworkAccessLevel, SandboxEnvironment.NetworkAccessLevel)
+
+
+class TestTaskHandoffConcurrency(TransactionTestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.owner = User.objects.create_user(email="owner@example.com", first_name="Owner", password="password")
+        self.recipient = User.objects.create_user(
+            email="recipient@example.com", first_name="Recipient", password="password"
+        )
+        self.organization.members.add(self.owner, self.recipient)
+        self.task = Task.objects.create(
+            team=self.team,
+            title="Race task",
+            description="Run later",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.owner,
+        )
+
+    def test_delayed_bootstrap_cannot_create_run_after_handoff(self) -> None:
+        create_reached = threading.Event()
+        handoff_finished = threading.Event()
+        results: list[contracts.TaskRunCreateResult | None] = []
+        errors: list[BaseException] = []
+        original_create_run = Task.create_run
+
+        def delayed_create_run(
+            task: Task,
+            environment: TaskRun.Environment | None = None,
+            mode: str = "background",
+            extra_state: dict | None = None,
+            branch: str | None = None,
+        ) -> TaskRun:
+            create_reached.set()
+            if not handoff_finished.wait(timeout=10):
+                raise TimeoutError("handoff did not finish")
+            return original_create_run(
+                task,
+                environment=environment,
+                mode=mode,
+                extra_state=extra_state,
+                branch=branch,
+            )
+
+        def bootstrap() -> None:
+            close_old_connections()
+            try:
+                results.append(facade.bootstrap_task_run(self.task.id, self.team.id, self.owner.id, validated_data={}))
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                close_old_connections()
+
+        with patch.object(Task, "create_run", new=delayed_create_run):
+            thread = threading.Thread(target=bootstrap)
+            thread.start()
+            self.assertTrue(create_reached.wait(timeout=10))
+            handoff = facade.handoff_task(
+                self.task.id,
+                self.team.id,
+                self.owner.id,
+                target_user_id=self.recipient.id,
+            )
+            handoff_finished.set()
+            thread.join(timeout=10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(handoff)
+        self.assertEqual(results, [None])
+        self.assertFalse(TaskRun.objects.filter(task=self.task).exists())
+
+    def test_handoff_waits_for_in_flight_task_update(self) -> None:
+        update_at_save = threading.Event()
+        allow_update_save = threading.Event()
+        update_saved = threading.Event()
+        handoff_finished = threading.Event()
+        errors: list[BaseException] = []
+        original_save = Task.save
+
+        def delayed_save(task: Task, *args: Any, **kwargs: Any) -> None:
+            if task.id == self.task.id and task.title == "Updated title" and not update_saved.is_set():
+                update_at_save.set()
+                if not allow_update_save.wait(timeout=10):
+                    raise TimeoutError("update save was not released")
+                result = original_save(task, *args, **kwargs)
+                update_saved.set()
+                return result
+            return original_save(task, *args, **kwargs)
+
+        def update() -> None:
+            close_old_connections()
+            try:
+                facade.update_task(
+                    self.task.id,
+                    self.team.id,
+                    self.owner.id,
+                    validated_data={"title": "Updated title"},
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                close_old_connections()
+
+        def handoff() -> None:
+            close_old_connections()
+            try:
+                facade.handoff_task(
+                    self.task.id,
+                    self.team.id,
+                    self.owner.id,
+                    target_user_id=self.recipient.id,
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                handoff_finished.set()
+                close_old_connections()
+
+        with patch.object(Task, "save", new=delayed_save):
+            update_thread = threading.Thread(target=update)
+            update_thread.start()
+            self.assertTrue(update_at_save.wait(timeout=10))
+            handoff_thread = threading.Thread(target=handoff)
+            handoff_thread.start()
+            self.assertFalse(handoff_finished.wait(timeout=1))
+            allow_update_save.set()
+            update_thread.join(timeout=10)
+            handoff_thread.join(timeout=10)
+
+        self.assertFalse(update_thread.is_alive())
+        self.assertFalse(handoff_thread.is_alive())
+        self.assertEqual(errors, [])
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.title, "Updated title")
+        self.assertEqual(self.task.created_by_id, self.recipient.id)
 
 
 class TestFacadeReadsAndMappers(TestCase):
@@ -105,6 +252,20 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNotNone(facade.get_task_run(run.id, team_id=self.team.id))
         self.assertIsNone(facade.get_task_run(run.id, team_id=other_team.id))
         self.assertIsNone(facade.get_task_run("00000000-0000-0000-0000-000000000000"))
+
+    def test_resume_in_cloud_rejects_run_from_previous_owner(self):
+        task = self._make_task(state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"})
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={})
+
+        outcome, resumed_run, _ = facade.resume_task_run_in_cloud(
+            run.id,
+            task.id,
+            self.team.id,
+            self.user.id,
+        )
+
+        self.assertEqual(outcome, "ownership_changed")
+        self.assertIsNone(resumed_run)
 
     def test_task_exists_and_visibility(self):
         task = self._make_task()
@@ -242,7 +403,7 @@ class TestFacadeReadsAndMappers(TestCase):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         TaskRun.objects.create(task=task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
 
-        dtos = facade.get_conversation_task_dtos([task.id], self.team.id)
+        dtos = facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id)
 
         self.assertEqual(set(dtos.keys()), {task.id})
         dto = dtos[task.id]
@@ -252,14 +413,20 @@ class TestFacadeReadsAndMappers(TestCase):
         # The nested run payload stays excluded (no presigned log URLs); only the id is carried.
         self.assertIsNone(dto.latest_run)
         self.assertEqual(dto.latest_run_id, latest.id)
-        self.assertEqual(facade.get_conversation_task_dtos([task.id], other_team.id), {})
+        self.assertEqual(facade.get_conversation_task_dtos([task.id], other_team.id, self.user.id), {})
 
     def test_get_conversation_task_dtos_latest_run_id_none_without_runs(self):
         task = self._make_task(title="No runs")
 
-        dto = facade.get_conversation_task_dtos([task.id], self.team.id)[task.id]
+        dto = facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id)[task.id]
 
         self.assertIsNone(dto.latest_run_id)
+
+    def test_get_conversation_task_dtos_excludes_soft_deleted_task(self):
+        task = self._make_task(title="Deleted conversation task")
+        task.soft_delete()
+
+        self.assertEqual(facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id), {})
 
     def test_get_conversation_task_dtos_is_cheap_for_many_tasks(self):
         tasks = [self._make_task(title=f"task-{i}") for i in range(5)]
@@ -268,7 +435,7 @@ class TestFacadeReadsAndMappers(TestCase):
 
         # A single query with the latest-run-id subquery — no per-task run lookup, no N+1.
         with self.assertNumQueries(1):
-            dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id)
+            dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id, self.user.id)
             for task in tasks:
                 self.assertIsNotNone(dtos[task.id].latest_run_id)
 
@@ -400,6 +567,33 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
 
+    def test_run_task_resume_exposes_pending_prompt_to_agent(self):
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": str(previous_run.id),
+                    "pending_user_message": "Continue with the refactor",
+                    "pending_user_artifact_ids": [],
+                },
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        detail = facade.get_task_run_detail(new_run.id, task.id, self.team.id)
+        assert detail is not None
+        self.assertEqual(detail.state["pending_user_message"], "Continue with the refactor")
+
     @parameterized.expand(
         [
             ("ready", SandboxCustomImage.Status.READY, "posthog-sandbox-custom-1-abc:latest", True),
@@ -467,6 +661,57 @@ class TestFacadeReadsAndMappers(TestCase):
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
 
+    @parameterized.expand(
+        [
+            # The inbox "Create PR" button sends no branch, so the team's configured base branch is
+            # the only thing that can keep the PR off the repo's GitHub default branch. Repo casing
+            # differs from the stored key because GitHub preserves it while the serializer lowercases.
+            ("configured_branch_applied", {"acme/web": "dev"}, {}, "dev"),
+            # A caller that picked a branch already decided; re-resolving would discard that choice.
+            ("explicit_branch_wins", {"acme/web": "dev"}, {"branch": "hotfix"}, "hotfix"),
+            # Another repo's entry must never be borrowed, because that lands the PR on a
+            # branch belonging to a different repository.
+            ("other_repo_not_borrowed", {"acme/api": "staging"}, {}, None),
+        ]
+    )
+    def test_run_task_applies_configured_base_branch(
+        self, _name: str, overrides: dict, extra_validated_data: dict, expected_branch: str | None
+    ):
+        SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"autostart_base_branches": overrides})
+        task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.SIGNAL_REPORT)
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "run_source": "signal_report", **extra_validated_data},
+            )
+
+        assert result is not None and result.error is None
+        run = task.runs.get()
+        self.assertEqual(run.branch, expected_branch)
+        self.assertEqual((run.state or {}).get("pr_base_branch"), expected_branch)
+
+    def test_run_task_leaves_branch_unset_for_user_created_tasks(self):
+        # The override is scoped to self-driving tasks. A user-created task keeps targeting the repo
+        # default, so broadening the resolution would silently redirect unrelated task runs.
+        SignalTeamConfig.objects.update_or_create(
+            team=self.team, defaults={"autostart_base_branches": {"acme/web": "dev"}}
+        )
+        task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.USER_CREATED)
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "run_source": "signal_report"},
+            )
+
+        assert result is not None and result.error is None
+        self.assertIsNone(task.runs.get().branch)
+
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
         now = django_timezone.now()
@@ -486,6 +731,39 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         self.assertIn(ancient.id, hard_capped)
         self.assertNotIn(resuming.id, hard_capped)
+
+    def test_cloud_sweep_guard_uses_dispatch_enqueue_time(self):
+        task = self._make_task()
+        now = django_timezone.now()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            environment=TaskRun.Environment.CLOUD,
+        )
+        TaskRun.objects.filter(pk=run.pk).update(
+            created_at=now - timedelta(hours=50), updated_at=now - timedelta(hours=2)
+        )
+        dispatch = TaskWorkflowDispatch.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=run,
+            workflow_id=run.workflow_id,
+            dispatch_kind=TaskWorkflowDispatch.Kind.RESTART,
+            payload={},
+            enqueued_at=now - timedelta(minutes=5),
+        )
+        TaskWorkflowDispatch.objects.for_team(self.team.id).filter(pk=dispatch.pk).update(
+            created_at=now - timedelta(hours=50)
+        )
+
+        stale_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24),
+            limit=100,
+            created_hard_cap=timedelta(hours=48),
+            environment=TaskRun.Environment.CLOUD,
+        )
+
+        self.assertNotIn(run.id, stale_ids)
 
     def test_update_task_run_state(self):
         task = self._make_task()
@@ -690,7 +968,36 @@ class TestFacadeReadsAndMappers(TestCase):
             repository="posthog/posthog",
             channel_id=channel_id,
         )
-        self.assertEqual(Task.objects.get(id=created.task_id).channel_id, channel_id if expect_filed else None)
+        task = Task.objects.select_related("channel").get(id=created.task_id)
+        if expect_filed:
+            self.assertEqual(task.channel_id, channel_id)
+        else:
+            assert task.channel is not None
+            self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
+            self.assertEqual(task.channel.created_by_id, self.user.id)
+
+    @parameterized.expand(
+        [
+            ("public", lambda self: self._make_channel().id, True),
+            ("unknown", lambda _self: uuid4(), False),
+            # Same rule as create_and_run_task above: someone else's "#me" is private,
+            # so filing into it must be refused, not just team-filtered.
+            ("other_users_personal", lambda self: self._make_teammates_personal_channel().id, False),
+        ]
+    )
+    def test_create_channel_task_respects_channel_visibility(self, _name, make_channel_id, expect_filed):
+        channel_id = make_channel_id(self)
+
+        if expect_filed:
+            task_id = facade.create_channel_task(
+                self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
+            )
+            self.assertEqual(Task.objects.get(id=task_id).channel_id, channel_id)
+        else:
+            with self.assertRaises(ValueError):
+                facade.create_channel_task(
+                    self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
+                )
 
     def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
         # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.
@@ -704,6 +1011,12 @@ class TestFacadeReadsAndMappers(TestCase):
                 .values_list("id", flat=True)
             ),
             [first],
+        )
+        # Callers outside Desktop file tasks through here, so an unstamped system space
+        # would escape from this path.
+        self.assertEqual(
+            Channel.objects.unscoped().get(id=first).system_role,
+            Channel.SystemRole.PERSONAL,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -748,6 +1061,61 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("runtime_adapter"), "claude")
         self.assertEqual(run.state.get("model"), "claude-sonnet-5")
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
+
+
+class TestAppendLogAgentActivity(TestCase):
+    # Guards the self-sustaining heartbeat loop: infra log lines (credential refresh ->
+    # _posthog/console) heartbeating with agent_active=True reset the workflow's inactivity
+    # timer on every write, so a run whose agent went silent could never time out.
+    @parameterized.expand(
+        [
+            ("session_update", [{"notification": {"method": "session/update", "params": {}}}], True),
+            ("session_request", [{"notification": {"method": "session/request_permission", "params": {}}}], True),
+            ("console_only", [{"notification": {"method": "_posthog/console", "params": {"message": "x"}}}], False),
+            ("error_only", [{"notification": {"method": "_posthog/error", "params": {}}}], False),
+            # Non-ACP batches keep the old heartbeat behaviour: callers that only post generic
+            # {type, message} entries have no session/* frame to offer and would otherwise lose
+            # their inactivity extension while still working.
+            ("no_notification", [{"message": "plain infra line"}], True),
+            ("malformed_notification", [{"notification": "not-a-dict"}], True),
+            ("non_string_method", [{"notification": {"method": 7}}], False),
+            ("empty_entries", [], False),
+            (
+                "mixed_infra_and_session",
+                [
+                    {"notification": {"method": "_posthog/console", "params": {}}},
+                    {"notification": {"method": "session/update", "params": {}}},
+                ],
+                True,
+            ),
+            # One ACP frame is enough to mark the batch as sandbox traffic, so the plain line
+            # riding alongside it does not buy the credential-refresh batch a heartbeat.
+            (
+                "plain_line_alongside_infra_frame",
+                [
+                    {"message": "plain infra line"},
+                    {"notification": {"method": "_posthog/console", "params": {}}},
+                ],
+                False,
+            ),
+        ]
+    )
+    def test_entries_show_agent_activity(self, _name, entries, expected):
+        self.assertIs(facade._entries_show_agent_activity(entries), expected)
+
+    def test_append_task_run_log_heartbeats_with_classified_activity(self):
+        run = MagicMock()
+        with (
+            patch.object(facade, "_get_visible_run", return_value=run),
+            patch.object(facade, "_task_run_detail_to_dto", return_value=None),
+        ):
+            facade.append_task_run_log(
+                "r", "t", 1, entries=[{"notification": {"method": "_posthog/console", "params": {}}}]
+            )
+            run.heartbeat_workflow.assert_called_once_with(agent_active=False)
+            run.reset_mock()
+            facade.append_task_run_log("r", "t", 1, entries=[{"notification": {"method": "session/update"}}])
+            run.heartbeat_workflow.assert_called_once_with(agent_active=True)
 
 
 class TestRecentWizardCloudRunTimes(TestCase):

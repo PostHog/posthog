@@ -11,15 +11,21 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections
+from django.db.models import QuerySet
 
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter
+from tenacity import RetryCallState, Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from posthog.models.team.team import Team
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig, batch_check_expiry_tracking
 
 logger = structlog.get_logger(__name__)
+
+# Verifies one team's cache: (team, db_batch_data, cache_batch_data) -> dict with "status" and "issue".
+VerifyTeamFn = Callable[[Team, dict | None, dict | None], dict]
 
 # Number of batches between progress logs (balance between log spam and visibility)
 # With 250 teams/batch and ~238K teams, we have ~950 batches. Logging every 20
@@ -38,6 +44,55 @@ MAX_FIXED_TEAM_IDS_TO_LOG = 10
 
 # Maximum number of per-team fix detail logs emitted at INFO per verification run.
 MAX_FIX_DETAIL_INFO_LOGS = 10
+
+# A verification sweep pages through every team on one long-lived Django connection.
+# Poolers rotate and drop that connection mid-sweep, so the batch fetch retries with a
+# fresh connection rather than throwing away a partially-completed run.
+TEAM_BATCH_FETCH_MAX_ATTEMPTS = 4
+TEAM_BATCH_FETCH_BACKOFF_SECONDS = 1.0
+
+
+class TeamBatchFetchError(Exception):
+    """A team batch could not be fetched after exhausting connection retries."""
+
+
+def _fetch_team_batch(base_qs: QuerySet[Team], last_id: int, chunk_size: int) -> list[Team]:
+    """Fetch the next page of teams, reconnecting to Postgres on a dropped connection.
+
+    Django's ``ensure_connection`` only reconnects when the connection object is
+    ``None``, so a connection psycopg has already closed keeps raising until it is
+    discarded, hence the explicit ``close_old_connections()`` between attempts.
+
+    The Temporal sibling is ``posthog.temporal.common.utils.retry_on_db_connection_drop``,
+    which retries only once because activities carry an outer retry policy. This Celery
+    sweep has none, so it backs off across attempts and raises ``TeamBatchFetchError``
+    for the task to classify the wind-down.
+    """
+
+    def _reconnect_and_log(retry_state: RetryCallState) -> None:
+        error = retry_state.outcome.exception() if retry_state.outcome else None
+        logger.warning(
+            "Team batch fetch failed, reconnecting and retrying",
+            last_team_id=last_id,
+            attempt=retry_state.attempt_number,
+            error=str(error),
+        )
+        close_old_connections()
+
+    fetch_with_retry = Retrying(
+        retry=retry_if_exception_type((OperationalError, InterfaceError)),
+        stop=stop_after_attempt(TEAM_BATCH_FETCH_MAX_ATTEMPTS),
+        wait=wait_exponential(multiplier=TEAM_BATCH_FETCH_BACKOFF_SECONDS, max=10),
+        before_sleep=_reconnect_and_log,
+        reraise=True,
+    )
+
+    try:
+        return fetch_with_retry(lambda: list(base_qs.filter(id__gt=last_id)[:chunk_size]))
+    except (OperationalError, InterfaceError) as e:
+        raise TeamBatchFetchError(
+            f"Failed to fetch team batch after {TEAM_BATCH_FETCH_MAX_ATTEMPTS} attempts (last_team_id={last_id})"
+        ) from e
 
 
 @dataclass
@@ -83,7 +138,7 @@ class VerificationResult:
 
 def verify_and_fix_all_teams(
     config: HyperCacheManagementConfig,
-    verify_team_fn: Callable[[Team, dict | None, dict | None], dict],
+    verify_team_fn: VerifyTeamFn,
     cache_type: str,
     chunk_size: int | None = None,
 ) -> VerificationResult:
@@ -124,7 +179,7 @@ def verify_and_fix_all_teams(
 
     batch_number = 0
     while True:
-        teams = list(base_qs.filter(id__gt=last_id)[:chunk_size])
+        teams = _fetch_team_batch(base_qs, last_id, chunk_size)
 
         if not teams:
             break
@@ -178,7 +233,7 @@ def verify_and_fix_all_teams(
 def _verify_and_fix_batch(
     teams: list[Team],
     config: HyperCacheManagementConfig,
-    verify_team_fn: Callable[[Team, dict | None, dict | None], dict],
+    verify_team_fn: VerifyTeamFn,
     cache_type: str,
     result: VerificationResult,
 ) -> None:
@@ -372,7 +427,7 @@ def _fix_and_record(
 
 def _run_verification_for_cache(
     config: HyperCacheManagementConfig,
-    verify_team_fn: Callable[[Team, dict | None, dict | None], dict],
+    verify_team_fn: VerifyTeamFn,
     cache_type: str,
     chunk_size: int,
 ) -> VerificationResult:

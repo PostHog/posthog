@@ -83,6 +83,11 @@ No coordinator-side code change is needed. Use `signals-scout-general` as the te
 
 Each scout's body is an instruction set the harness loads verbatim into the system prompt. References (siblings of `SKILL.md`) are progressively disclosed via `Skill.read_file()` from inside the run. Keep the body lean — every line is a recurring token cost on every run — and push detail into references that are only read when needed. Do not hard-wrap scout `SKILL.md` prose at a column width — use semantic line breaks (sentence per line); the body is a prompt, not display text, and column wrapping only adds diff noise.
 
+Frontmatter also carries the optional **`scout-tags`** list — the config tags `register_missing_configs` stamps on the `SignalScoutConfig` it creates for the scout, normalized and capped like a tag typed into the config API.
+It is how a canonical scout claims a product surface: AI observability's self-driving tab lists the scouts tagged `ai-observability`, so that tab needs no hardcoded skill name and a scout can change surfaces by editing its frontmatter.
+Tags are seeded at creation only — a person who removes one keeps it removed — so adding the key to a scout teams already run leaves their existing configs untagged until someone tags them through the config API.
+They sit outside the canonical content hash, since they belong to the config rather than the skill row.
+
 The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s directly and does not `emit_signal`. The **report-channel contract** (when to author a fresh report vs. edit an existing one, the field schema, the safety × actionability status mapping, reviewer routing via `scout-members-list`, and the non-idempotency + pipeline-rewrite caveats) lives in the **harness prompt** (`scout_harness/prompt.py`), which forks on the scout's channel and injects it into every report-channel scout — so it is **not** duplicated as a per-scout reference. The generalist keeps one bundled reference:
 
 - **`references/conventions.md`** — the four-states author/edit classifier, scratchpad key-prefix vocabulary, and cross-project noise patterns.

@@ -41,6 +41,7 @@ import {
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
     splitChoicesOnPaste,
+    surveyEmitsPartialSentEvents,
     validateCSSProperty,
     validateSurveyAppearance,
 } from './utils'
@@ -188,7 +189,7 @@ describe('survey utils', () => {
 
     describe('getSurveyNotificationFilters', () => {
         it('builds survey-specific notification filters', () => {
-            expect(getSurveyNotificationFilters('survey-123')).toEqual({
+            expect(getSurveyNotificationFilters('survey-123', true)).toEqual({
                 events: [
                     {
                         id: SurveyEventName.SENT,
@@ -228,6 +229,36 @@ describe('survey utils', () => {
                     },
                 ],
             })
+        })
+
+        it('also matches a sent event with no completion flag when partial responses are off', () => {
+            const sentBranches = getSurveyNotificationFilters('survey-123', false).events?.filter(
+                (event) => event.id === SurveyEventName.SENT
+            )
+
+            expect(sentBranches).toHaveLength(2)
+            expect(sentBranches?.[1].properties).toContainEqual({
+                key: SurveyEventProperties.SURVEY_COMPLETED,
+                type: PropertyFilterType.Event,
+                value: PropertyOperator.IsNotSet,
+                operator: PropertyOperator.IsNotSet,
+            })
+        })
+    })
+
+    // An API survey's `survey sent` events come from the integrator's own code, which has no reason
+    // to set `$survey_completed` — so requiring it left the notification silently matching nothing.
+    describe('surveyEmitsPartialSentEvents', () => {
+        it.each([
+            [SurveyType.Popover, true, true],
+            [SurveyType.Popover, false, false],
+            [SurveyType.Widget, true, true],
+            [SurveyType.API, true, false],
+            [SurveyType.API, false, false],
+        ])('%s with partial responses %s', (type, enablePartialResponses, expected) => {
+            expect(surveyEmitsPartialSentEvents({ type, enable_partial_responses: enablePartialResponses })).toBe(
+                expected
+            )
         })
     })
 

@@ -2,6 +2,7 @@ import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 
@@ -19,13 +20,14 @@ import { DateMappingOption, OrganizationType } from '~/types'
 
 import type { BillingPeriod, BillingType } from '../../types'
 import {
-    buildTrackingProperties,
+    buildSpendTrackingProperties,
     calculateBillingPeriodMarkers,
+    filterSpendUsageTypes,
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
-import type { BillingPeriodMarker } from './BillingLineGraph'
 import { billingLogic } from './billingLogic'
+import type { BillingPeriodMarker } from './BillingPeriodMarkers'
 import type { BillingFilters } from './types'
 import type { BillingUsageInteractionProps } from './types'
 
@@ -73,7 +75,7 @@ export interface BillingSpendLogicProps {
 export interface billingSpendLogicValues {
     billing: BillingType | null // billingLogic
     billingPeriodUTC: BillingPeriod // billingLogic
-    canAccessBilling: boolean // billingLogic
+    canViewUsageAndSpend: boolean // billingLogic
     currentOrganization: OrganizationType | null // billingLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
@@ -245,7 +247,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'billingPeriodUTC', 'canAccessBilling', 'currentOrganization'],
+            ['billing', 'billingPeriodUTC', 'canViewUsageAndSpend', 'currentOrganization'],
             preflightLogic,
             ['isHobby'],
         ],
@@ -272,7 +274,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             null as BillingSpendResponse | null,
             {
                 loadBillingSpend: async () => {
-                    if (!values.canAccessBilling || values.isHobby) {
+                    if (!values.canViewUsageAndSpend || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters
@@ -542,8 +544,11 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
 
             const filtersFromUrl: Partial<BillingFilters> = {}
 
-            if (params.usage_types && !equal(params.usage_types, values.filters.usage_types)) {
-                filtersFromUrl.usage_types = params.usage_types
+            if (params.usage_types) {
+                const usageTypes = filterSpendUsageTypes(params.usage_types)
+                if (!equal(params.usage_types, usageTypes) || !equal(usageTypes, values.filters.usage_types)) {
+                    filtersFromUrl.usage_types = usageTypes
+                }
             }
             if (params.team_ids && !equal(params.team_ids, values.filters.team_ids)) {
                 filtersFromUrl.team_ids = params.team_ids
@@ -580,19 +585,19 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         setFilters: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
-                actions.reportBillingSpendInteraction(buildTrackingProperties('filters_changed', values))
+                actions.reportBillingSpendInteraction(buildSpendTrackingProperties('filters_changed', values))
             }
             actions.loadBillingSpend()
         },
         setDateRange: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
-                actions.reportBillingSpendInteraction(buildTrackingProperties('date_changed', values))
+                actions.reportBillingSpendInteraction(buildSpendTrackingProperties('date_changed', values))
             }
             actions.loadBillingSpend()
         },
         resetFilters: async () => {
-            actions.reportBillingSpendInteraction(buildTrackingProperties('filters_cleared', values))
+            actions.reportBillingSpendInteraction(buildSpendTrackingProperties('filters_cleared', values))
             actions.loadBillingSpend()
         },
         toggleAllSeries: () => {
@@ -602,7 +607,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 : series
             const ids = potentiallyVisible.map((s) => s.id)
             const isAllVisible = ids.length > 0 && ids.every((id) => !userHiddenSeries.includes(id))
-            actions.reportBillingSpendInteraction(buildTrackingProperties('series_toggled', values))
+            actions.reportBillingSpendInteraction(buildSpendTrackingProperties('series_toggled', values))
 
             if (isAllVisible) {
                 // Hide all series
@@ -614,8 +619,20 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         },
         toggleBreakdown: async (_payload, breakpoint) => {
             await breakpoint(200)
-            actions.reportBillingSpendInteraction(buildTrackingProperties('breakdown_toggled', values))
+            actions.reportBillingSpendInteraction(buildSpendTrackingProperties('breakdown_toggled', values))
             actions.loadBillingSpend()
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
+        canViewUsageAndSpend: (canViewUsageAndSpend: boolean, previousCanViewUsageAndSpend: boolean | undefined) => {
+            if (canViewUsageAndSpend && previousCanViewUsageAndSpend === false && !values.isHobby) {
+                actions.loadBillingSpend()
+            }
+        },
+        isHobby: (isHobby: boolean, previousIsHobby: boolean | undefined) => {
+            if (!isHobby && previousIsHobby === true && values.canViewUsageAndSpend) {
+                actions.loadBillingSpend()
+            }
         },
     })),
     afterMount((logic: billingSpendLogicType) => {

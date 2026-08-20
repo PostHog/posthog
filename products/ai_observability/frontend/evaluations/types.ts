@@ -67,6 +67,7 @@ export interface BaseEvaluationConfig {
     id: string
     name: string
     description?: string
+    directory_id?: string | null
     enabled: boolean
     status: EvaluationStatus
     status_reason: EvaluationStatusReason | null
@@ -79,7 +80,7 @@ export interface BaseEvaluationConfig {
     /** Target-specific settings — see EvaluationTargetConfig. Empty for 'generation'. */
     target_config: EvaluationTargetConfig
     model_configuration: ModelConfiguration | null
-    total_runs: number
+    total_runs?: number
     last_run_at?: string
     created_at: string
     updated_at: string
@@ -186,27 +187,4 @@ export type EvaluationReportRunContent = EvaluationReportRunContentApi
 export type EvaluationReportRun = EvaluationReportRunApi
 
 export type SentimentEvaluationRunsFilter = 'negative' | 'positive' | 'neutral' | 'all'
-export type EvaluationSummaryFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter
-
-export interface EvaluationPattern {
-    title: string
-    description: string
-    frequency: string
-    example_generation_ids: string[]
-}
-
-export interface EvaluationSummaryStatistics {
-    total_analyzed: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-}
-
-export interface EvaluationSummary {
-    overall_assessment: string
-    pass_patterns: EvaluationPattern[]
-    fail_patterns: EvaluationPattern[]
-    na_patterns: EvaluationPattern[]
-    recommendations: string[]
-    statistics: EvaluationSummaryStatistics
-}
+export type EvaluationRunsFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter

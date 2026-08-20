@@ -1,9 +1,12 @@
 """Scanner-level RBAC helper shared by the vision-action engine (run-time creator gate) and the
 API serializer (write-time editor gate). Lives outside `temporal/` so the API can import it without
-pulling the temporal package onto its import path."""
+pulling the temporal package onto its import path.
+
+Also home to the two queries that read observations back across scanner origins, so `all_origins`
+appears once instead of at every reading call site."""
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
@@ -11,6 +14,8 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
 if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
     from posthog.models.user import User
 
 
@@ -20,6 +25,25 @@ def is_uuid(value: str) -> bool:
     except (ValueError, TypeError):
         return False
     return True
+
+
+def scanners_for_reading_observations(team_id: int) -> "QuerySet[ReplayScanner]":
+    """Every scanner whose observations can be read, inline scans included.
+
+    The one place `all_origins` belongs on a read path. `ReplayScanner.objects` is configured-only so
+    that a new call site can't leak inline scans into a list or a sweep, which leaves exactly one way to
+    get this wrong: a path that reads results and forgets to opt back in, silently hiding an inline
+    scan's answers. Go through this instead of naming the manager, and still apply the caller's own
+    access-level filter on top — this widens origin, not RBAC.
+    """
+    return ReplayScanner.all_origins.filter(team_id=team_id)
+
+
+def scanner_for_reading_observations(team_id: int, scanner_id: "str | uuid.UUID") -> ReplayScanner | None:
+    """Resolve one scanner by id for reading its observations. See `scanners_for_reading_observations`."""
+    if not is_uuid(str(scanner_id)):
+        return None
+    return scanners_for_reading_observations(team_id).filter(id=scanner_id).first()
 
 
 def readable_scanner_ids(user: "User", team: Team, scanner_ids: list[str]) -> list[str]:
@@ -43,3 +67,13 @@ def readable_scanner_ids(user: "User", team: Team, scanner_ids: list[str]) -> li
         ReplayScanner.objects.filter(team_id=team.id, id__in=valid_ids)
     )
     return [str(scanner_id) for scanner_id in readable.values_list("id", flat=True)]
+
+
+def selection_target_ids(scanner_id: uuid.UUID, selection: dict[str, Any] | None) -> set[str]:
+    """Scanner ids an action's selection pulls observations from, beyond its bound `scanner`.
+
+    Shared so the API and the Max tools authorize an action against the same set. A summary fans in
+    observations from every scanner named here, so access to the bound one is not access to the report.
+    """
+    configured = (selection or {}).get("scanner_ids") or []
+    return {str(s) for s in configured if is_uuid(s)} - {str(scanner_id)}

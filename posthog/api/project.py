@@ -13,7 +13,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from rest_framework import exceptions, filters, request, response, serializers, viewsets
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -41,18 +41,20 @@ from posthog.api.team import (
     _format_serializer_errors,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
+    handle_experiments_config,
     handle_logs_config,
     report_conversations_settings_changes,
     validate_secret_token_generation,
     validate_team_attrs,
 )
 from posthog.api.utils import validate_authorized_url_wildcards
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
+from posthog.filters import PhraseSearchFilter
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -89,6 +91,7 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     UserCanCreateProjectPermission,
+    get_authenticator_scoped_organization_ids,
     get_organization_from_view,
 )
 from posthog.rbac.user_access_control import (
@@ -118,9 +121,9 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
-from products.signals.backend.models import SignalSourceConfig
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
+from ee.api.rbac.access_control_settings import AccessControlSettingsViewSetMixin
 
 logger = structlog.get_logger(__name__)
 
@@ -314,40 +317,10 @@ def team_default_release_conditions_view(team: Team, request: request.Request) -
         request.user,
         "default release conditions updated",
         {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
+        request=request,
     )
 
     return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
-
-
-def team_experiments_config_view(team: Team, request: request.Request) -> response.Response:
-    """Manage experiment configuration for this project."""
-    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-    class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
-        class Meta:
-            model = TeamExperimentsConfig
-            fields = [
-                "experiment_recalculation_time",
-                "default_experiment_confidence_level",
-                "default_experiment_stats_method",
-                "experiment_precomputation_enabled",
-                "default_only_count_matured_users",
-                "default_cuped_enabled",
-                "default_cuped_lookback_days",
-                "default_minimum_detectable_effect",
-                "default_sequential_testing_enabled",
-                "default_sequential_tuning_parameter",
-            ]
-
-    config = get_or_create_team_extension(team, TeamExperimentsConfig)
-
-    if request.method == "PATCH":
-        serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return response.Response(serializer.data)
-
-    return response.Response(TeamExperimentsConfigSerializer(config).data)
 
 
 def team_settings_as_of_view(team: Team, request: request.Request) -> response.Response:
@@ -1053,6 +1026,10 @@ class ProjectBackwardCompatSerializer(
     def validate_test_account_filters(value: object) -> list[dict[str, object]]:
         return TeamSerializer.validate_test_account_filters(value)
 
+    @staticmethod
+    def validate_path_cleaning_filters(value: object) -> object:
+        return TeamSerializer.validate_path_cleaning_filters(value)
+
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
@@ -1272,21 +1249,6 @@ class ProjectBackwardCompatSerializer(
             team.refresh_from_db()
             set_team_in_cache(team.api_token, team)
 
-        if "proactive_tasks_enabled" in validated_data:
-            if validated_data["proactive_tasks_enabled"]:
-                SignalSourceConfig.objects.get_or_create(
-                    team=team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                    defaults={"enabled": True, "config": {}, "created_by": self.context["request"].user},
-                )
-            else:
-                SignalSourceConfig.objects.filter(
-                    team=team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).delete()
-
         project_after_update = instance.__dict__.copy()
         team_changes = dict_changes_between("Team", team_before_update, team_after_update, use_field_exclusions=True)
         project_changes = dict_changes_between(
@@ -1348,7 +1310,9 @@ class ProjectBackwardCompatSerializer(
         ),
     ),
 )
-class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class ProjectViewSet(
+    TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+):
     """
     Projects for the current organization.
     """
@@ -1358,20 +1322,16 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
     lookup_field = "id"
     ordering = "-created_by"
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [PhraseSearchFilter]
     search_fields = ["name"]
 
     def safely_get_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
-                queryset = queryset.filter(organization_id__in=scoped_organizations)
-        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
-                queryset = queryset.filter(organization_id__in=scoped_organizations)
-        return queryset.filter(id__in=visible_teams_ids)
+        if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
+            queryset = queryset.filter(organization_id__in=scoped_organizations)
+        return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
@@ -1459,7 +1419,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    permissions.append(UserCanCreateProjectPermission)
+                    # Evaluate the create-access check before the premium check so a member who lacks
+                    # permission gets the permission message, not the plan-upgrade one.
+                    permissions.insert(permissions.index(PremiumMultiProjectPermission), UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
@@ -1473,6 +1435,12 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if lookup_value == "@current":
             team = getattr(self.request.user, "team", None)
             if team is None:
+                raise exceptions.NotFound()
+            # This branch answers from the user's own state instead of the scoped queryset. A project
+            # that moved between organizations leaves that state naming a project the token's
+            # organizations no longer cover, so apply the same restriction the queryset would have.
+            scoped_organizations = get_authenticator_scoped_organization_ids(self.request.successful_authenticator)
+            if scoped_organizations and str(team.organization_id) not in scoped_organizations:
                 raise exceptions.NotFound()
             return team.project
 
@@ -1703,7 +1671,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage experiment configuration for this project."""
-        return team_experiments_config_view(self.get_object().passthrough_team, request)
+        return handle_experiments_config(request, self.get_object().passthrough_team)
 
     @action(
         methods=["GET", "POST", "DELETE"],
@@ -1902,6 +1870,8 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 team.organization_id = target_organization_id
                 team.save()
 
+            self._reconcile_current_project_of_affected_users(teams, target_organization)
+
         report_user_action(
             user,
             "project moved to another organization",
@@ -1920,6 +1890,24 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return response.Response(
             ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data, status=200
         )
+
+    @staticmethod
+    def _reconcile_current_project_of_affected_users(teams: list[Team], target_organization: Organization) -> None:
+        """Keep `current_team` and `current_organization` in step after a project changes hands.
+
+        Left alone, both fields keep naming the state from before the move. Every check that reads
+        the pair then answers for an organization that no longer holds the project.
+        """
+        affected_users = User.objects.filter(current_team__in=teams)
+        member_user_ids = set(
+            OrganizationMembership.objects.filter(
+                organization=target_organization, user__in=affected_users
+            ).values_list("user_id", flat=True)
+        )
+        # Members follow the project into its new organization; everyone else loses a pointer they
+        # can no longer act on, and falls back to an organization they do belong to on next use
+        affected_users.filter(id__in=member_user_ids).update(current_organization=target_organization)
+        affected_users.exclude(id__in=member_user_ids).update(current_team=None, current_organization=None)
 
     @cached_property
     def user_permissions(self):

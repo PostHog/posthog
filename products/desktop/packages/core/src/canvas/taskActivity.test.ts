@@ -21,6 +21,8 @@ function activity(overrides: Partial<TaskActivity> = {}): TaskActivity {
     snippet: "ping @[Me](me@posthog.com)",
     latest_author: ann,
     latest_message_id: "m1",
+    target_scope: null,
+    target_id: null,
     is_unread: true,
     ...overrides,
   };
@@ -40,9 +42,39 @@ describe("toTaskActivityItems", () => {
         snippet: "ping @[Me](me@posthog.com)",
         author: ann,
         messageId: "m1",
+        commentId: null,
+        commentTarget: null,
+        targetScope: null,
+        targetId: null,
         isUnread: true,
       },
     ]);
+  });
+
+  it("maps a comment activity target for exact navigation", () => {
+    const [item] = toTaskActivityItems([
+      activity({
+        latest_message_id: null,
+        latest_comment_id: "comment-1",
+        latest_comment_scope: "task_artifact",
+        latest_comment_item_id: "artifact-1",
+      }),
+    ]);
+
+    expect(item.commentId).toBe("comment-1");
+    expect(item.commentTarget).toEqual({
+      scope: "task_artifact",
+      itemId: "artifact-1",
+    });
+  });
+
+  it("maps a report canvas target for direct navigation", () => {
+    const [item] = toTaskActivityItems([
+      activity({ target_scope: "desktop_canvas", target_id: "canvas-1" }),
+    ]);
+
+    expect(item.targetScope).toBe("desktop_canvas");
+    expect(item.targetId).toBe("canvas-1");
   });
 
   it("labels untitled tasks and tolerates missing optional values", () => {

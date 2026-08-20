@@ -167,3 +167,8 @@ versions for the same provider. To avoid rot:
 - [breakdown patterns](./references/breakdown-patterns.md) — SQL recipes for every common breakdown
 - [regression debugging](./references/regression-debugging.md) — 5-step playbook for cost spikes
 - [materializing](./references/materializing.md) — insight, dashboard, and alert JSON
+
+## Related skills
+
+- **`analyzing-expensive-users`** — who drives the spend, and whether their usage pattern explains it
+- **`exploring-llm-traces`** — inspect the expensive traces the breakdowns point at

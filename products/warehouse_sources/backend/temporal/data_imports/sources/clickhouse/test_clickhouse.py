@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _get_partition_settings,
     _has_duplicate_primary_keys,
     _is_rate_limited,
+    _is_too_many_queries,
     _is_transient_connect_drop,
     _parse_mv_target,
     _project_columns,
@@ -729,6 +730,15 @@ class TestClickHouseSourceRetryableErrors:
             "('Connection broken: IncompleteRead(0 bytes read)', IncompleteRead(0 bytes read))",
             "('Connection broken: IncompleteRead(12345 bytes read, 67 more expected)', "
             "IncompleteRead(12345 bytes read, 67 more expected))",
+            # The server accepted the connection but never answered within our timeout —
+            # typically ClickHouse Cloud still cold-resuming past our allowance.
+            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Read timed out. "
+            "(read timeout=120) executing HTTP request attempt 1 (https://play.clickhouse.com:8443)",
+            # The source server was already at its concurrent-query limit when the
+            # client-construction probe ran; the exact wrapped message reached error tracking.
+            "HTTPDriver for https://play.clickhouse.com:8443 received ClickHouse error code 202\n "
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
+            "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES) (version 24.8.1.1 (official build))",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -812,6 +822,32 @@ class TestIsRateLimited:
         assert not _is_rate_limited(message)
 
 
+class TestIsTooManyQueries:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
+            "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES)",
+            "HTTPDriver for https://host:8443 received ClickHouse error code 202\n "
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 100, "
+            "maximum: 100. (TOO_MANY_SIMULTANEOUS_QUERIES) (version 24.8.1.1 (official build))",
+        ],
+    )
+    def test_matches_too_many_queries(self, message):
+        assert _is_too_many_queries(message)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Code: 241. DB::Exception: Memory limit exceeded",
+            "HTTPDriver for https://host:8443 returned response code 429",
+            "Code: 516. DB::Exception: Authentication failed",
+        ],
+    )
+    def test_does_not_match_other_codes(self, message):
+        assert not _is_too_many_queries(message)
+
+
 class TestGetClientTransientRetry:
     """`_get_client` retries a transient connection drop during connect in-process."""
 
@@ -860,6 +896,24 @@ class TestGetClientTransientRetry:
         with (
             patch.object(ch_module.time, "sleep") as mock_sleep,
             patch.object(ch_module, "get_client", side_effect=[rate_limited, rate_limited, client]) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 3
+        mock_sleep.assert_has_calls([call(2), call(4)])
+
+    def test_retries_connect_time_too_many_queries_then_succeeds(self):
+        # The client-construction probe itself can be rejected when the source server is
+        # already at its concurrent-query limit; we retry it with the same backoff as a 429.
+        client = MagicMock()
+        too_many_queries = OperationalError(
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
+            "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES)"
+        )
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(
+                ch_module, "get_client", side_effect=[too_many_queries, too_many_queries, client]
+            ) as mock_get_client,
         ):
             assert self._connect() is client
         assert mock_get_client.call_count == 3
@@ -1066,6 +1120,28 @@ class TestGetSchemas:
         assert set(schemas.keys()) == {"events"}
 
 
+class TestGetTable:
+    """Tests `_get_table`, used by the sync path to build the SELECT column list."""
+
+    def _make_mock_client(self, cols_rows, engine: str | None = "MergeTree"):
+        client = MagicMock()
+        cols_result = MagicMock()
+        cols_result.result_rows = cols_rows
+        engine_result = MagicMock()
+        engine_result.result_rows = [(engine,)] if engine is not None else []
+        client.query.side_effect = [cols_result, engine_result]
+        return client
+
+    def test_excludes_alias_and_ephemeral_columns_from_query(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = self._make_mock_client([("id", "UInt64")])
+        ch_module._get_table(client, "default", "events")
+
+        cols_query = client.query.call_args_list[0].args[0]
+        assert "default_kind NOT IN ('ALIAS', 'EPHEMERAL')" in cols_query
+
+
 class TestSourceClassValidateCredentials:
     """High-level checks on validate_credentials error mapping."""
 
@@ -1092,6 +1168,26 @@ class TestSourceClassValidateCredentials:
 
         assert valid is False
         assert msg == "Invalid user or password"
+
+    def test_url_in_host_field_returns_actionable_message_without_reflecting_input(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+
+        source = source_module.ClickHouseSource()
+
+        config = MagicMock()
+        config.host = "https://secret.clickhouse.cloud"
+        config.ssh_tunnel = None
+
+        with patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)):
+            with patch.object(source, "is_database_host_valid") as host_valid:
+                valid, msg = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert "Enter just the hostname" in (msg or "")
+        # The pasted value can embed credentials — it must never be echoed back.
+        assert "secret.clickhouse.cloud" not in (msg or "")
+        # Short-circuits before we attempt DNS resolution of the bad host.
+        host_valid.assert_not_called()
 
     def test_returns_generic_message_for_unknown_error(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module

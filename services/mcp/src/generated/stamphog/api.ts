@@ -35,44 +35,25 @@ export const StamphogDigestChannelsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const stamphogDigestChannelsCreateBodyAudienceKeyMax = 255
-
-export const stamphogDigestChannelsCreateBodySlackIntegrationIdMin = -2147483648
-export const stamphogDigestChannelsCreateBodySlackIntegrationIdMax = 2147483647
-
-export const stamphogDigestChannelsCreateBodySlackChannelIdMax = 64
-
-export const stamphogDigestChannelsCreateBodySlackChannelNameMax = 255
-
-export const StamphogDigestChannelsCreateBody = /* @__PURE__ */ zod.object({
-    audience_key: zod
-        .string()
-        .max(stamphogDigestChannelsCreateBodyAudienceKeyMax)
-        .describe(
-            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
-        ),
-    slack_integration_id: zod
-        .number()
-        .min(stamphogDigestChannelsCreateBodySlackIntegrationIdMin)
-        .max(stamphogDigestChannelsCreateBodySlackIntegrationIdMax)
-        .describe("ID of the team's Slack integration used to post the digest."),
-    slack_channel_id: zod
-        .string()
-        .max(stamphogDigestChannelsCreateBodySlackChannelIdMax)
-        .describe("Slack channel ID to post the digest to, e.g. 'C012AB3CD'."),
-    slack_channel_name: zod
-        .string()
-        .max(stamphogDigestChannelsCreateBodySlackChannelNameMax)
-        .optional()
-        .describe('Human-readable Slack channel name, for display only.'),
-    enabled: zod.boolean().optional().describe('Whether this channel is included in the daily digest fan-out.'),
-})
+export const StamphogDigestChannelsCreateBody = /* @__PURE__ */ zod
+    .object({
+        audience_key: zod
+            .string()
+            .describe(
+                "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
+            ),
+        slack_integration_id: zod.number().describe("ID of the team's Slack integration used to post the digest."),
+        slack_channel_id: zod.string().describe("Slack channel ID to post the digest to, e.g. 'C012AB3CD'."),
+        slack_channel_name: zod.string().optional().describe('Human-readable Slack channel name, for display only.'),
+        enabled: zod.boolean().optional().describe('Whether this channel is included in the daily digest fan-out.'),
+    })
+    .describe('Input shape for creating\/updating a digest channel (see the repo-config write serializer).')
 
 /**
  * Per-audience Slack destinations for the daily merged-PR digest.
  */
 export const StamphogDigestChannelsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this digest channel.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -122,7 +103,7 @@ export const StamphogPullRequestsListQueryParams = /* @__PURE__ */ zod.object({
  * Read-only pull requests stamphog knows about, filterable by PR number and merge state.
  */
 export const StamphogPullRequestsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this pull request.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -150,7 +131,7 @@ export const StamphogRepoConfigsListQueryParams = /* @__PURE__ */ zod.object({
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
 export const StamphogRepoConfigsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this stamphog repo config.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -162,7 +143,7 @@ export const StamphogRepoConfigsRetrieveParams = /* @__PURE__ */ zod.object({
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
 export const StamphogRepoConfigsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this stamphog repo config.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -187,13 +168,17 @@ export const StamphogReviewRunsListQueryParams = /* @__PURE__ */ zod.object({
     pr_number: zod.number().optional().describe('Filter by pull request number.'),
     repository: zod.string().optional().describe("Filter by repository full name, e.g. 'PostHog\/posthog'."),
     status: zod.string().optional().describe('Filter by review run status.'),
+    trigger: zod
+        .enum(['all', 'label', 'self_driving'])
+        .optional()
+        .describe('Filter by what caused the run: self_driving, label, or all.'),
 })
 
 /**
  * Read-only history of stamphog review runs, filterable by repository, PR number, and status.
  */
 export const StamphogReviewRunsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this review run.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

@@ -53,7 +53,7 @@ export interface TeamIDWithConfig {
 
 export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = CdpConsumerBaseConfig> {
     redis: RedisV2
-    valkeyShadow: CdpValkeyShadowPools | null
+    valkeyShadow: CdpValkeyShadowPools
     isStopping = false
 
     hogExecutorAsync: HogExecutorAsyncService
@@ -61,7 +61,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     hogFlowExecutor: HogFlowExecutorService
     hogMasker: HogMaskerService
     hogWatcher: HogWatcherService
-    hogWatcherMirror: HogWatcherService | null
+    hogWatcherMirror: HogWatcherService
 
     groupsManager: GroupsManagerService
     hogFlowManager: HogFlowManagerService
@@ -109,7 +109,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.outputs = services.outputs
 
         // Base-only services
-        this.hogMasker = new HogMaskerService(services.redis, services.valkeyShadow?.writer ?? null)
+        this.hogMasker = new HogMaskerService(services.redis, services.valkeyShadow.writer)
         this.personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)

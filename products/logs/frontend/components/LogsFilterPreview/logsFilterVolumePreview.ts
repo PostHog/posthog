@@ -2,12 +2,17 @@ import { dataColorVars } from 'lib/colors'
 import { SparklineTimeSeries } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 
+import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
+
+/** Must match `SPARKLINE_TOP_BREAKDOWN_VALUES` in `products/logs/backend/sparkline_query_runner.py`. */
 export const TOP_SERVICES_LIMIT = 10
 
 /**
  * Mirrors the `LIMIT 1000` in `products/logs/backend/sparkline_query_runner.py`. Rows are
- * (bucket × service), and the query orders by time ascending — so once the cap is hit it's the
- * *newest* buckets that get dropped, and any total derived from the response is an undercount.
+ * (bucket × breakdown value), and the query orders by time ascending — so if the cap were ever hit
+ * it would be the *newest* buckets that got dropped, making any total an undercount. The backend
+ * now folds the tail into one bucket, which bounds the response at roughly 50 × 11 rows, so this
+ * should be unreachable; it stays as a backstop in case the top-N there is ever raised.
  */
 export const SPARKLINE_ROW_LIMIT = 1000
 
@@ -24,7 +29,6 @@ export interface LogsFilterPreviewSeriesData {
     labels: string[]
     series: SparklineTimeSeries[]
     total: number
-    truncatedServiceCount: number
     /** Width of one bar/bucket in seconds; needed to translate a per-second rate limit into per-bucket units. */
     bucketSeconds: number
     /** Tallest stacked total across buckets; used to position the rate-limit reference line. */
@@ -66,25 +70,24 @@ export function buildSparklineSeries(
         total += value
     }
     const labels = timeOrder.map((t) => dayjs(t).format('D MMM HH:mm'))
-    const rankedServices = Array.from(serviceTotals.entries()).sort(([, a], [, b]) => b - a)
-    const topServices = rankedServices.slice(0, TOP_SERVICES_LIMIT)
-    const otherServices = rankedServices.slice(TOP_SERVICES_LIMIT)
-    const truncatedServiceCount = otherServices.length
-    const series: SparklineTimeSeries[] = topServices.map(([service], index) => ({
-        name: service,
-        color: dataColorVars[index % dataColorVars.length],
-        values: timeOrder.map((t) => byService.get(service)?.get(t) ?? 0),
-    }))
-    if (otherServices.length > 0) {
-        // Roll up the long tail into a single "Others" series so the chart still adds up to total volume,
-        // and the rate-limit reference line lines up against an honest stacked max.
-        const othersValues = timeOrder.map((t) =>
-            otherServices.reduce((sum, [service]) => sum + (byService.get(service)?.get(t) ?? 0), 0)
-        )
+    // Sorted by volume so colours track the biggest talkers, but deliberately not sliced: the
+    // backend already folded everything past the top N into one bucket, ranked by this same metric.
+    // Slicing again here would re-collapse the collapsed row and label it as a single service.
+    const ranked = Array.from(serviceTotals.entries()).sort(([, a], [, b]) => b - a)
+    const valuesFor = (service: string): number[] => timeOrder.map((t) => byService.get(service)?.get(t) ?? 0)
+    const series: SparklineTimeSeries[] = ranked
+        .filter(([service]) => service !== OTHER_BREAKDOWN_VALUE)
+        .map(([service], index) => ({
+            name: service,
+            color: dataColorVars[index % dataColorVars.length],
+            values: valuesFor(service),
+        }))
+    if (serviceTotals.has(OTHER_BREAKDOWN_VALUE)) {
+        // Last and muted, so it reads as an aggregate rather than as another service.
         series.push({
-            name: `Others (${otherServices.length} services)`,
+            name: OTHER_BREAKDOWN_LABEL,
             color: 'muted',
-            values: othersValues,
+            values: valuesFor(OTHER_BREAKDOWN_VALUE),
         })
     }
     const bucketSeconds = timeOrder.length >= 2 ? dayjs(timeOrder[1]).diff(dayjs(timeOrder[0]), 'second') : 0
@@ -93,7 +96,6 @@ export function buildSparklineSeries(
         labels,
         series,
         total,
-        truncatedServiceCount,
         bucketSeconds,
         chartMax,
         bucketCount: timeOrder.length,

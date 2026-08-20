@@ -9,6 +9,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SuggestedTable,
 )
 
@@ -38,7 +40,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MetaAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    META_ADS_API_VERSION_V25,
+    META_ADS_API_VERSION_V26,
     META_AUTH_ERROR_MESSAGE,
+    META_RATE_LIMIT_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsRateLimitError,
@@ -79,8 +84,8 @@ def _status_badges(account: dict) -> tuple[str, ...]:
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    supported_versions = ("v25.0",)
-    default_version = "v25.0"
+    supported_versions = (META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26)
+    default_version = META_ADS_API_VERSION_V26
     api_docs_url = "https://developers.facebook.com/docs/graph-api/changelog"
 
     @property
@@ -126,6 +131,28 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "required to read your ads data. Please reconnect the Meta Ads integration and grant "
                 "all requested permissions."
             ),
+            # Graph API code 200: "Requires business_management permission to manage the object."
+            # Distinct from the generic re-authorize message above — re-authorizing can never grant
+            # this scope, since the Meta OAuth consent only requests `ads_read` (see
+            # `AD_ACCOUNT_FIELDS` in meta_ads.py). Only the account owner granting
+            # `business_management`, or PostHog dropping the field that needs it, fixes this.
+            "Requires business_management permission": (
+                "Meta rejected part of this request because it needs the business_management "
+                "permission, which this integration does not request and cannot request without "
+                "widening OAuth consent for every customer. Re-authorizing will not fix this — "
+                "contact PostHog support if this table keeps failing."
+            ),
+            # Graph API code 100: the source's "Attribution windows for insights" setting (a
+            # free-text field, see `SourceFieldInputConfig` above) contains a value Meta's
+            # Insights API doesn't recognise. Retrying resends the same invalid parameter, so
+            # only editing the source config fixes it. Matches the message regardless of which
+            # array index Meta reports as invalid.
+            "action_attribution_windows[": (
+                'Meta rejected the "Attribution windows for insights" setting on this source — one '
+                "of the configured values isn't a window Meta supports (e.g. 1d_click, 7d_click, "
+                "28d_click, 1d_view, 7d_view, 28d_view). Fix it in your Meta Ads source settings, "
+                "then run the sync again."
+            ),
             # Meta returns this 500 when the requested query is too large for their backend to
             # service. Both pagination paths adapt to it (stats chunks shrink 30 → 7 → 1 day, and
             # both paths shrink the per-page limit 500 → 100 → 50); if it still escapes after those
@@ -142,11 +169,17 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # Meta error codes 1 ("API Unknown") and 2 ("API Service") are momentary backend blips
-        # Meta's own docs recommend simply retrying. `meta_ads._raise_meta_api_error` tags them
-        # with this marker once `_get_with_transient_retry`'s in-process retries are exhausted, so
-        # the eventual Temporal-level retry doesn't page us as a bug.
-        return {"Meta API request failed (retryable)"}
+        return {
+            # Meta error codes 1 ("API Unknown") and 2 ("API Service") are momentary backend blips
+            # Meta's own docs recommend simply retrying. `meta_ads._raise_meta_api_error` tags them
+            # with this marker once `_get_with_transient_retry`'s in-process retries are exhausted, so
+            # the eventual Temporal-level retry doesn't page us as a bug.
+            "Meta API request failed (retryable)",
+            # Meta throttling (rate limiting) — the request itself is fine, Meta just rejected it
+            # for volume. Only waiting helps, and the sync already retries via Temporal, so this
+            # shouldn't page us as a bug either.
+            META_RATE_LIMIT_ERROR_MESSAGE,
+        }
 
     def get_schemas(
         self,
@@ -173,6 +206,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             config=config,
             team_id=inputs.team_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,
@@ -214,6 +248,28 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                         required=False,
                         placeholder="90",
                         secret=False,
+                    ),
+                    # Attribution settings for insights (spend/conversion) tables. Left unset, Meta
+                    # applies its own default, so existing connections are unaffected. Set them to
+                    # reconcile PostHog's numbers with Ads Manager, which reports on a specific window.
+                    SourceFieldInputConfig(
+                        name="action_attribution_windows",
+                        label="Attribution windows for insights (comma-separated, e.g. 7d_click,1d_view)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="7d_click,1d_view",
+                        secret=False,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="use_unified_attribution_setting",
+                        label="Use Meta's unified attribution setting",
+                        required=False,
+                        defaultValue="",
+                        options=[
+                            SourceFieldSelectConfigOption(label="Use Meta's default", value=""),
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
                     ),
                 ],
             ),

@@ -52,12 +52,15 @@ export function CanvasFrameHost() {
             <ErrorBoundary name="freeform-canvas" resetKey={slot.dashboardId}>
               <FreeformCanvas
                 code={slot.inputs.code}
-                mode="edit"
                 analytics={slot.inputs.analytics}
                 onDataRequest={slot.inputs.onDataRequest}
                 onError={slot.inputs.onError}
                 onRendered={slot.inputs.onRendered}
                 onNavigate={slot.inputs.onNavigate}
+                onTextSelection={slot.inputs.onTextSelection}
+                onCommentActivate={slot.inputs.onCommentActivate}
+                commentHighlights={slot.inputs.commentHighlights}
+                clearTextSelectionKey={slot.inputs.clearTextSelectionKey}
               />
             </ErrorBoundary>
           </div>

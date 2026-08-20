@@ -648,7 +648,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     props({} as TaxonomicFilterLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
-    connect(() => ({
+    connect((props: TaxonomicFilterLogicProps) => ({
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
@@ -668,6 +668,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['primaryProperties'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
+        logic: [
+            actionsModel({
+                shouldLoad:
+                    !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions),
+            }),
+        ],
     })),
     actions(() => ({
         moveUp: true,
@@ -1291,15 +1297,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 name: value,
                                 value,
                                 group: TaxonomicFilterGroupType.EventProperties,
+                                propertyFilterType: PropertyFilterType.Event,
                             })),
                             ...(currentTeam?.person_display_name_properties
                                 ? currentTeam.person_display_name_properties.map((property) => ({
                                       name: property,
                                       value: property,
                                       group: TaxonomicFilterGroupType.PersonProperties,
+                                      propertyFilterType: PropertyFilterType.Person,
                                   }))
                                 : []),
                         ],
+                        getName: (option) => option.name,
+                        getValue: (option) => option.value,
                         getIcon: getPropertyDefinitionIcon,
                         getPopoverHeader: () => 'Exception properties',
                     },

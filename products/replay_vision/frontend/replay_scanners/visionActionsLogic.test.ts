@@ -27,6 +27,7 @@ const slackForm: VisionActionForm = {
     alert_threshold: 1,
     alert_direction: 'above',
     alert_window_days: 1,
+    alert_include_reasoning: false,
 }
 
 const action = (id: string, enabled = true): VisionActionApi => ({
@@ -187,6 +188,7 @@ describe('visionActionsLogic', () => {
             alert_threshold: 1,
             alert_direction: 'above',
             alert_window_days: 1,
+            alert_include_reasoning: false,
         }
         const body = buildActionBody(form, 's1')
         expect(body.delivery_config).toEqual([])
@@ -219,6 +221,7 @@ describe('visionActionsLogic', () => {
             // "at least". Only the average score exposes a direction choice.
             alert_direction: 'below',
             alert_window_days: 1,
+            alert_include_reasoning: false,
         }
         const body = buildActionBody(form, 's1')
         expect(body.mode).toEqual('alert')
@@ -228,6 +231,7 @@ describe('visionActionsLogic', () => {
             threshold: 1,
             direction: 'above',
             window_days: 1,
+            include_reasoning: false,
         })
         expect(body.selection).toEqual({ tags: ['rage-click'] })
         // Alerts have no user-facing schedule; the stored rrule keeps the trigger well-formed while
@@ -236,12 +240,27 @@ describe('visionActionsLogic', () => {
         // Alerts never synthesize, so a stale guide from a mode switch must not persist.
         expect(body.synthesis_config).toEqual({ prompt_guide: '' })
 
-        // Every-match alerts carry no threshold machinery — just the frequency and the count metric.
+        // Every-match alerts carry no threshold machinery — just the frequency, count metric, and the
+        // reasoning toggle (which applies regardless of frequency).
         const everyMatch = buildActionBody({ ...form, alert_frequency: 'every_match' }, 's1')
-        expect(everyMatch.alert_config).toEqual({ frequency: 'every_match', metric: 'count' })
+        expect(everyMatch.alert_config).toEqual({
+            frequency: 'every_match',
+            metric: 'count',
+            include_reasoning: false,
+        })
 
         // The average score keeps the user's direction choice — "below a floor" is its natural alarm.
         const avgBelow = buildActionBody({ ...form, alert_metric: 'avg_score', alert_direction: 'below' }, 's1')
         expect(avgBelow.alert_config).toEqual(expect.objectContaining({ metric: 'avg_score', direction: 'below' }))
+
+        // The reasoning toggle flows into the config on both frequencies, so an alert piped elsewhere
+        // can carry the scanner's full reasoning, not just the outcome.
+        expect(buildActionBody({ ...form, alert_include_reasoning: true }, 's1').alert_config).toEqual(
+            expect.objectContaining({ include_reasoning: true })
+        )
+        expect(
+            buildActionBody({ ...form, alert_frequency: 'every_match', alert_include_reasoning: true }, 's1')
+                .alert_config
+        ).toEqual(expect.objectContaining({ include_reasoning: true }))
     })
 })
