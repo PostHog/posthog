@@ -780,18 +780,31 @@ export class ApiClient {
                     const findResponse = await this.fetch(findUrl)
 
                     if (!findResponse.ok) {
-                        throw new Error(`Failed to find property definition: ${findResponse.statusText}`)
+                        // buildApiError reads the response body, so a 4xx keeps its
+                        // typed classification and the API's error detail instead of
+                        // collapsing to a bare status text.
+                        throw this.buildApiError(findResponse, await findResponse.text(), findUrl, 'GET')
                     }
 
                     const findData = (await findResponse.json()) as { results: ApiPropertyDefinition[] }
                     const propertyDef = findData.results.find((def) => def.name === propertyName)
 
                     if (!propertyDef) {
+                        // The list endpoint returns 200 with a client-side name miss,
+                        // so synthesize a typed 404 — reachable by a mistyped name or
+                        // the wrong `type` — that handleToolError returns to the agent
+                        // for self-correction instead of capturing as an exception.
+                        const message = `Property definition not found: ${propertyName} (type: ${type ?? 'event'})`
                         return {
                             success: false,
-                            error: new Error(
-                                `Property definition not found: ${propertyName} (type: ${type ?? 'event'})`
-                            ),
+                            error: new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: message,
+                                url: findUrl,
+                                method: 'GET',
+                                message,
+                            }),
                         }
                     }
 
@@ -803,7 +816,7 @@ export class ApiClient {
                     })
 
                     if (!updateResponse.ok) {
-                        throw new Error(`Failed to update property definition: ${updateResponse.statusText}`)
+                        throw this.buildApiError(updateResponse, await updateResponse.text(), updateUrl, 'PATCH')
                     }
 
                     const responseData = (await updateResponse.json()) as ApiPropertyDefinition
