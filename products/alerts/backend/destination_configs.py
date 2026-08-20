@@ -30,6 +30,13 @@ DESTINATION_REQUIRED_FIELDS: dict[DestinationType, tuple[str, ...]] = {
     DestinationType.TEAMS: ("webhook_url",),
 }
 
+# Input key that carries the webhook URL, per destination type (Slack has none).
+_WEBHOOK_URL_INPUT_KEY: dict[DestinationType, str] = {
+    DestinationType.WEBHOOK: "url",
+    DestinationType.DISCORD: "webhookUrl",
+    DestinationType.TEAMS: "webhookUrl",
+}
+
 
 class AlertDestinationData(TypedDict):
     type: DestinationType
@@ -232,13 +239,6 @@ def build_alert_destination_config(
 def _input_value(inputs: dict[str, Any], key: str) -> Any:
     entry = inputs.get(key)
     return entry.get("value") if isinstance(entry, dict) else None
-
-
-_WEBHOOK_URL_INPUT_KEY: dict[DestinationType, str] = {
-    DestinationType.WEBHOOK: "url",
-    DestinationType.DISCORD: "webhookUrl",
-    DestinationType.TEAMS: "webhookUrl",
-}
 
 
 def read_alert_destination_data(*, destination_type: DestinationType, inputs: dict[str, Any]) -> AlertDestinationData:
