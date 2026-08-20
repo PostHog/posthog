@@ -5458,7 +5458,7 @@ def handoff_task(
             # Never widen: a task in one private space moves to the other private
             # space rather than becoming visible to the whole project, and a legacy
             # channel-less task joins the recipient's #me where they'll find it.
-            locked.channel = _ensure_personal_channel(team_id, target.id)
+            locked.channel = _ensure_personal_channel(team_id, target.id)[0]
         locked.created_by = target
         # The stored GitHub-user preference names the old owner's installation; the
         # recipient picks their own on their next run. Carrying it across would
