@@ -207,6 +207,17 @@ class SharedTouchpointsPrecompute:
             return self._result
 
 
+def goal_sums_a_property(goal: Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]) -> bool:
+    """Whether a goal's column holds a summed property value rather than a conversion count.
+
+    Everything that divides by a goal's column — the ROAS numerator, the CAC denominator, and the
+    processor-selection guards that decide which goals to build — needs the same answer, so they
+    all route through here rather than each re-deriving it from `math` and drifting apart.
+    """
+    math_type = goal.math
+    return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
+
+
 # Mutable by design: `precompute_stale` is set while building the query, and each
 # processor owns a `timings` clone the runner merges back after the pool joins.
 @dataclass(frozen=False)
@@ -279,11 +290,26 @@ class ConversionGoalProcessor:
     def sums_a_property(self) -> bool:
         """Whether this goal's column holds a summed property value rather than a conversion count.
 
-        Anything dividing by a goal's column needs to tell the two apart, so this shares the branch
-        with `get_select_field` rather than re-deriving it from `math`.
+        Shares the branch with `get_select_field` via `goal_sums_a_property` rather than re-deriving
+        it from `math`.
         """
-        math_type = self.goal.math
-        return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
+        return goal_sums_a_property(self.goal)
+
+    def get_count_field(self) -> ast.Expr:
+        """Conversions counted, whatever the goal's own math is.
+
+        A summing goal's column holds money, so anything needing "how many" — cost per
+        customer, say — can't divide by it.
+
+        Branches on attribution mode for the same reason `_get_aggregation_expr` does: multi-touch
+        explodes one conversion into a row per touchpoint, so counting rows would report a purchase
+        with three touchpoints as three customers. The weights sum to 1.0 per conversion, so summing
+        them recovers the count with each touchpoint credited its share. A goal that scans directly
+        never explodes and has no weight column to read.
+        """
+        if self.config.is_multi_touch and self.uses_attribution_pipeline:
+            return ast.Call(name="sum", args=[ast.Field(chain=["attribution_weight"])])
+        return ast.Call(name="count", args=[ast.Constant(value="*")])
 
     def get_select_field(self) -> ast.Expr:
         """Build select field expression based on math aggregation type"""
@@ -396,9 +422,19 @@ class ConversionGoalProcessor:
         `touchpoints` lets callers running several goals share one touchpoints materialization. When
         omitted the goal materializes its own, so standalone callers keep working unchanged.
         """
-        if self.goal.kind in ["EventsNode", "ActionsNode"]:
-            return self._generate_array_based_query(additional_conditions, date_from, date_to, touchpoints)
+        if self.uses_attribution_pipeline:
+            return self._generate_funnel_query(additional_conditions, date_from, date_to, touchpoints)
         return self._generate_direct_query(additional_conditions)
+
+    @property
+    def uses_attribution_pipeline(self) -> bool:
+        """Whether this goal's rows come from the attribution pipeline rather than a direct scan.
+
+        Only the pipeline emits the columns attribution adds — `attribution_weight` above all — so
+        anything reading one has to ask first. Warehouse goals and a zero-length window both scan
+        directly.
+        """
+        return self.goal.kind in ["EventsNode", "ActionsNode"] and self.config.attribution_window_days > 0
 
     def build_array_collection_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Build the per-person array-collection subquery.
@@ -426,18 +462,6 @@ class ConversionGoalProcessor:
             attribution = self._build_single_touch_attribution_subquery(array_join)
 
         return self._build_final_aggregation_query(attribution)
-
-    def _generate_array_based_query(
-        self,
-        additional_conditions: Sequence[ast.Expr],
-        date_from: Optional[datetime] = None,
-        date_to: Optional[datetime] = None,
-        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
-    ) -> ast.SelectQuery:
-        """Generate array-based query with attribution logic for Events/Actions"""
-        if self.config.attribution_window_days > 0:
-            return self._generate_funnel_query(additional_conditions, date_from, date_to, touchpoints)
-        return self._generate_direct_query(additional_conditions)
 
     def _generate_funnel_query(
         self,
@@ -1751,6 +1775,9 @@ class ConversionGoalProcessor:
                         right=ast.Field(chain=["attribution_weight"]),
                     ),
                 ),
+                # Carried out of the subquery so a consumer can count conversions rather than
+                # rows: these sum to 1.0 per conversion, so summing them undoes the explode.
+                ast.Field(chain=["attribution_weight"]),
             ]
         )
 

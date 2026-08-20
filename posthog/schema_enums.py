@@ -3098,6 +3098,7 @@ class MarketingAnalyticsConstants(StrEnum):
     GOAL = "Goal"
     COST_PER = "Cost per"
     ROAS = "ROAS"
+    CUSTOMER = "customer"
     CONST_ = "const:"
 
 
