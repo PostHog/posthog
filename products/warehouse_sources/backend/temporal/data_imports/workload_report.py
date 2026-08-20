@@ -241,7 +241,13 @@ class WorkloadReporter:
                 "host": self._host,
                 "attempt": self._attempt,
                 "phase": "finished" if final else self._phase,
-                "buffer_bytes": self._buffer_bytes,
+                # A run that reached teardown released its buffer while unwinding, so the last
+                # value the hooks saw is stale — a rewrite that raised mid-flush still reports the
+                # batch it was writing. Zero it for the same reason the phase becomes "finished":
+                # this run holds nothing now. `peak_buffer_bytes` keeps the real high-water mark,
+                # which is what blame is judged on. A run that died with its pod never writes a
+                # final sample at all, so this cannot erase a death's own last words.
+                "buffer_bytes": 0 if final else self._buffer_bytes,
                 "peak_buffer_bytes": self._peak_buffer_bytes,
                 "rss_bytes": rss_bytes,
                 "peak_rss_bytes": self._peak_rss_bytes or None,
