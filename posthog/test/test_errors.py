@@ -87,7 +87,6 @@ class TestWrapClickhouseQueryError:
             ("connection_reset", ConnectionResetError(104, "Connection reset by peer")),
             ("eof", EOFError("Unexpected EOF while reading bytes")),
             ("socket_timeout", TimeoutError("timed out")),
-            ("unexpected_packet", UnexpectedPacketFromServerError("Unexpected packet from server")),
         ]
     )
     def test_socket_level_errors_wrap_as_transient_connection_error(self, _name: str, err: Exception) -> None:
@@ -98,3 +97,15 @@ class TestWrapClickhouseQueryError:
         assert isinstance(wrapped, ClickHouseConnectionError)
         # Must join the transient set so celery autoretry and the Temporal interceptor retry it.
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
+
+    def test_unexpected_packet_stays_reportable(self) -> None:
+        # The driver raises this after reading a packet-type byte that's wrong for the protocol
+        # state - a protocol defect, not a dropped socket. It must not join the transient set, or a
+        # persistent bug would be retried and dropped from error tracking instead of surfaced.
+        err = UnexpectedPacketFromServerError("Unexpected packet from server")
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert wrapped is err
+        assert not isinstance(wrapped, ClickHouseConnectionError)
+        assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)

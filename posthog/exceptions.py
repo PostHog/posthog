@@ -86,8 +86,7 @@ class ClickHouseAtCapacity(APIException):
 
 
 class ClickHouseConnectionError(APIException):
-    """The ClickHouse socket dropped mid-query (connection reset, EOF, read timeout, or an
-    unexpected packet from the server).
+    """The ClickHouse socket dropped mid-query (connection reset, EOF, or read timeout).
 
     The driver raises these as raw socket-level errors that carry no ClickHouse error code, and the
     exact frame varies, so left unclassified they fingerprint into many separate error-tracking

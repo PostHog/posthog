@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import ServerException, UnexpectedPacketFromServerError
+from clickhouse_driver.errors import ServerException
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -21,11 +21,13 @@ from posthog.exceptions import (
 
 # Socket-level failures the clickhouse_driver raises when the connection drops mid-query. Unlike
 # ServerException, these carry no ClickHouse error code, so the code lookup below never reaches them.
+# UnexpectedPacketFromServerError is deliberately excluded: the driver raises it only after reading a
+# valid packet-type byte that's wrong for the current protocol state, so it flags a protocol defect (a
+# persistent bug), not a dropped socket, and must stay reportable rather than be retried silently.
 CLICKHOUSE_CONNECTION_ERROR_TYPES: tuple[type[BaseException], ...] = (
     ConnectionResetError,
     EOFError,
     socket.timeout,
-    UnexpectedPacketFromServerError,
 )
 
 
