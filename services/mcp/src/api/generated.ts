@@ -17792,6 +17792,20 @@ export namespace Schemas {
       content_type?: string;
     }
 
+    /**
+     * One declared variable of a templated skill — the schema a client renders a form from.
+     */
+    export interface CommunitySkillTemplateVariable {
+      /** Variable identifier, substituted for `{{ name }}` in the skill body. */
+      name: string;
+      /** Human-readable question shown when collecting a value for this variable. */
+      prompt: string;
+      /** Whether a value must be supplied at install time (otherwise it falls back to the default). */
+      is_required: boolean;
+      /** Value used when none is supplied. Empty when the variable has no default. */
+      default: string;
+    }
+
     export interface CommunitySkill {
       readonly id: string;
       /** Stable identifier matching the skill's directory in the community-skills repo. */
@@ -17824,6 +17838,8 @@ export namespace Schemas {
       readonly github_url: string;
       /** Bundled files manifest — path and content_type only. File contents are copied in on install. */
       readonly files: readonly CommunitySkillFileManifest[];
+      /** Declared template variables, parsed from metadata. Non-empty marks this skill as a template: collect a value for each and pass them as `variables` when installing. */
+      readonly template_variables: readonly CommunitySkillTemplateVariable[];
       /** Number of times this skill has been installed into a team. */
       readonly install_count: number;
       /** Total number of upvotes this skill has received. */
@@ -17839,12 +17855,19 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills.
+     */
+    export type CommunitySkillInstallVariables = {[key: string]: string};
+
     export interface CommunitySkillInstall {
       /**
          * Name for the installed skill in your team. Defaults to the community skill's slug.
          * @maxLength 64
          */
       new_name?: string;
+      /** Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills. */
+      variables?: CommunitySkillInstallVariables;
     }
 
     /**
@@ -17883,6 +17906,8 @@ export namespace Schemas {
       readonly author_handle: string;
       /** Link to the skill's source directory on GitHub. */
       readonly github_url: string;
+      /** Declared template variables, parsed from metadata. Non-empty marks this skill as a template: collect a value for each and pass them as `variables` when installing. */
+      readonly template_variables: readonly CommunitySkillTemplateVariable[];
       /** Number of times this skill has been installed into a team. */
       readonly install_count: number;
       /** Total number of upvotes this skill has received. */
@@ -23119,6 +23144,7 @@ export namespace Schemas {
      * * `Profound` - Profound
      * * `Airwallex` - Airwallex
      * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24427,6 +24453,7 @@ export namespace Schemas {
       Profound: 'Profound',
       Airwallex: 'Airwallex',
       Polymarket: 'Polymarket',
+      Kalshi: 'Kalshi',
     } as const;
 
     /**
@@ -25748,7 +25775,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27764,7 +27792,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -35605,7 +35634,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -36947,7 +36977,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -74893,7 +74924,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -76243,7 +76275,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -77583,7 +77616,8 @@ export namespace Schemas {
        * * `MicrosoftExcel` - MicrosoftExcel
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
-       * * `Polymarket` - Polymarket */
+       * * `Polymarket` - Polymarket
+       * * `Kalshi` - Kalshi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
