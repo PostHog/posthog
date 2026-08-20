@@ -34,7 +34,6 @@ from products.tasks.backend.facade import api as tasks_facade
 
 REPORT_CANVAS_FEATURE_FLAG = "signals-report-canvases"
 REPORT_CANVAS_PUBLISH_FEATURE_FLAG = "signals-report-canvases-publish"
-REPORT_CANVAS_CHANNEL_NAME = "general"
 REPORT_CANVAS_PROMPT_VERSION = "2026-08-17"
 _MAX_CONTEXT_ARTEFACTS = 16
 _MAX_CONTEXT_SIGNALS = 8
@@ -215,6 +214,14 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
     report = SignalReport.objects.select_related("team").get(id=report_id, team_id=team_id)
     if report.status not in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT):
         return None
+
+    channel_id = tasks_facade.find_general_channel_id(team_id)
+    if channel_id is None:
+        # Canvases are only useful in Desktop, and Desktop is what provisions the general
+        # space. A team without one has nowhere to read them, so generating would spend a
+        # sandbox run and the model budget on something nobody can open.
+        return None
+
     fingerprint = _report_fingerprint(report)
     signals = _fetch_report_signals(report)
     pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
@@ -223,12 +230,9 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
         report = SignalReport.objects.select_for_update().select_related("team").get(id=report_id, team_id=team_id)
         session = SignalReportCanvas.objects.filter(report=report, team_id=team_id).first()
         if session is None:
-            channel = tasks_facade.resolve_channel(team_id, None, name=REPORT_CANVAS_CHANNEL_NAME, star=False)
-            if channel is None:
-                raise RuntimeError("Could not resolve the report canvas channel")
             discussion_task_id = tasks_facade.create_shared_channel_task_without_run(
                 team_id=team_id,
-                channel_id=channel.id,
+                channel_id=channel_id,
                 title=report.title or "Report",
                 description=report.summary or "",
                 origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
@@ -236,7 +240,7 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
             )
             canvas_id = canvas_api.create_report_canvas(
                 team_id=team_id,
-                channel_id=channel.id,
+                channel_id=channel_id,
                 name=report.title or "Report",
                 discussion_task_id=discussion_task_id,
             )
