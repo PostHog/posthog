@@ -218,8 +218,14 @@ export function OnboardingFlow() {
       }),
     );
     if (githubUserIntegrations.length > 0) {
-      // Overrides a local run mode left behind by an earlier session.
-      setLastUsedWorkspaceMode("cloud");
+      // GitHub connected defaults the run mode to cloud (overriding a local
+      // mode left behind by an earlier session), but an explicit local folder
+      // pick in this step must win over that default. On cloud-only hosts
+      // selectedDirectory holds an "owner/repo" value, not a local path, so
+      // only treat it as a local pick on local-workspace hosts.
+      const pickedLocalRepo =
+        localWorkspaces && !selectedCloudRepo && !!selectedDirectory;
+      setLastUsedWorkspaceMode(pickedLocalRepo ? "local" : "cloud");
     }
     assignRepoToSpaces().catch((error) =>
       log.warn("Failed to save onboarding repo to spaces", { error }),
