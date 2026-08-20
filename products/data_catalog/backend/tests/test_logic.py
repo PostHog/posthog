@@ -22,7 +22,7 @@ from products.data_catalog.backend.logic.metrics import (
 )
 from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -324,6 +324,27 @@ class TestApproveMetric(BaseTest):
 
         with self.assertRaises(MetricDrifted):
             approve_metric(stale, self.user)
+
+
+class TestBulkRenameRace(BaseTest):
+    @parameterized.expand(
+        [
+            ("approve", metrics.bulk_approve_metrics, MetricStatus.PROPOSED),
+            ("delete", metrics.bulk_soft_delete_metrics, MetricStatus.PROPOSED),
+        ]
+    )
+    def test_bulk_skips_a_metric_renamed_since_resolution(self, _name: str, bulk_action, expected_status: str) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        # The caller resolved "mrr" to this row; another writer renames it before the batch locks it.
+        Metric.objects.for_team(self.team.id).filter(pk=metric.pk).update(name="arr")
+
+        acted, skipped = bulk_action([metric], self.user)
+
+        assert acted == []
+        assert [(skip.name, skip.reason) for skip in skipped] == [("mrr", metrics.BULK_SKIP_NOT_FOUND)]
+        current = Metric.objects.for_team(self.team.id).get(pk=metric.pk)
+        assert current.status == expected_status
+        assert current.deleted is False
 
 
 class TestRefreshFromInsight(BaseTest):

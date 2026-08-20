@@ -353,7 +353,6 @@ def validate_incremental_sync(
     *,
     is_first_sync: bool = True,
 ) -> None:
-    # Check for duplicate primary keys
     if is_incremental and resource.has_duplicate_primary_keys:
         raise DuplicatePrimaryKeysException(
             f"The primary keys for this table are not unique. We can't sync incrementally until the table "

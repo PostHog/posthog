@@ -320,6 +320,34 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
 /**
+ * * `tight` - tight
+ * * `condensed` - condensed
+ * * `standard` - standard
+ * * `relaxed` - relaxed
+ * * `wide` - wide
+ */
+export type TileSpacingEnumApi = (typeof TileSpacingEnumApi)[keyof typeof TileSpacingEnumApi]
+
+export const TileSpacingEnumApi = {
+    Tight: 'tight',
+    Condensed: 'condensed',
+    Standard: 'standard',
+    Relaxed: 'relaxed',
+    Wide: 'wide',
+} as const
+
+export interface DashboardCustomizationApi {
+    /** Named tile density preset.
+     *
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide */
+    tile_spacing?: TileSpacingEnumApi
+}
+
+/**
  * Serializer mixin that handles tags for objects.
  */
 export interface DashboardApi {
@@ -387,6 +415,16 @@ export interface DashboardApi {
      * @nullable
      */
     quick_filter_ids?: string[] | null
+    /** Dashboard display settings. */
+    readonly customization: DashboardCustomizationApi
+    /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+     *
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide */
+    grid_spacing?: TileSpacingEnumApi
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -960,6 +998,14 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * @nullable
      */
     quick_filter_ids?: string[] | null
+    /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+     *
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide */
+    grid_spacing?: TileSpacingEnumApi
     /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */
@@ -4824,6 +4870,16 @@ export interface LastEventApi {
     uuid: string
 }
 
+export type ErrorTrackingQueryIssueSeverityApi =
+    (typeof ErrorTrackingQueryIssueSeverityApi)[keyof typeof ErrorTrackingQueryIssueSeverityApi]
+
+export const ErrorTrackingQueryIssueSeverityApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
 export type ErrorTrackingIssueStatusApi = (typeof ErrorTrackingIssueStatusApi)[keyof typeof ErrorTrackingIssueStatusApi]
 
 export const ErrorTrackingIssueStatusApi = {
@@ -4848,6 +4904,7 @@ export interface ErrorTrackingIssueApi {
     last_seen: string
     library?: string | null
     name?: string | null
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     source?: string | null
     status: ErrorTrackingIssueStatusApi
 }
@@ -4898,6 +4955,7 @@ export interface ErrorTrackingCorrelatedIssueApi {
     name?: string | null
     odds_ratio: number
     population: PopulationApi
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     status: ErrorTrackingIssueStatusApi
 }
 
@@ -7517,6 +7575,7 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
     issue_description?: string | null
     issue_id: string
     issue_name?: string | null
+    issue_severity?: ErrorTrackingQueryIssueSeverityApi | null
     issue_status: string
     /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
     version: number
@@ -8005,6 +8064,8 @@ export interface AccountsQueryApi {
     assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean | null
     kind?: 'AccountsQuery'
     limit?: number | null
     /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
@@ -8031,6 +8092,7 @@ export const AccountsTableAccountFieldApi = {
     CreatedAt: 'created_at',
     UpdatedAt: 'updated_at',
     ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
     StripeCustomerId: 'stripe_customer_id',
     HubspotDealId: 'hubspot_deal_id',
     BillingId: 'billing_id',
@@ -8249,6 +8311,8 @@ export interface AccountsTableQueryApi {
         | null
     /** Include churned accounts. Churned accounts are hidden by default. */
     includeChurned?: boolean | null
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean | null
     kind?: 'AccountsTableQuery'
     limit?: number | null
     /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */

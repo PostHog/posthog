@@ -319,23 +319,15 @@ class TestPostRepoPickerPrewarm:
 
 
 class TestExtractExplicitRepo:
+    # Matching is covered where the helpers live, in posthog/test/test_git.py. All this
+    # wrapper adds is stripping the bot mention and composing the token tier over the link tier.
     @parameterized.expand(
         [
-            ("simple", "fix posthog/posthog-js please", "posthog/posthog-js"),
-            ("no_match", "hello world", None),
-            ("case_insensitive", "check PostHog/PostHog", "posthog/posthog"),
-            ("url_false_positive", "see https://github.com/posthog/posthog/issues/1", None),
-            ("backticks", "please fix `posthog/posthog-js`", "posthog/posthog-js"),
-            (
-                "slack_link_label",
-                "use <https://github.com/posthog/posthog-js|posthog/posthog-js>",
-                "posthog/posthog-js",
-            ),
-            ("multiple_first_wins", "check posthog/posthog-js then posthog/posthog", "posthog/posthog-js"),
-            ("with_bot_mention", "<@U123> fix posthog/posthog-js", "posthog/posthog-js"),
+            ("typed_token", "<@U123> fix posthog/posthog-js", "posthog/posthog-js"),
+            ("github_link", "<@U123> is https://github.com/posthog/posthog/actions/runs/2 flaky?", "posthog/posthog"),
         ]
     )
-    def test_extract_explicit_repo(self, _name, text, expected):
+    def test_strips_bot_mention_and_matches_both_tiers(self, _name, text, expected):
         repos = ["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"]
         assert _extract_explicit_repo(text, repos) == expected
 

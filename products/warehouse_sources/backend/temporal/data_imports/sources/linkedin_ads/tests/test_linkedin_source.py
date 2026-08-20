@@ -151,7 +151,6 @@ class TestLinkedInAdsSource:
             assert schemas[name].should_sync_default
 
     def test_validate_credentials_missing_account_id(self):
-        """Test credential validation with missing account ID."""
         invalid_config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=456, account_id="")
 
         is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
@@ -181,8 +180,6 @@ class TestLinkedInAdsSource:
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.Integration")
     def test_validate_credentials_integration_not_found(self, mock_integration_model):
-        """Test credential validation when integration doesn't exist."""
-
         # Mock DoesNotExist exception
         class MockDoesNotExist(Exception):
             pass
@@ -201,8 +198,6 @@ class TestLinkedInAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.capture_exception"
     )
     def test_validate_credentials_unexpected_error(self, mock_capture_exception, mock_integration_model):
-        """Test credential validation with unexpected error."""
-
         # Mock DoesNotExist exception
         class MockDoesNotExist(Exception):
             pass

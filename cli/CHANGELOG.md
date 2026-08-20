@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.13.1 — 2026-08-20
+
+### Patch changes
+
+- [fd234e17b30](https://github.com/PostHog/posthog/commit/fd234e17b301dcf20ffac31d839a773d400af933) Improve CLI error diagnostics with native stack symbolication metadata, release debug symbols, and structured categories for local file and parsing failures. — Thanks @hpouillot!
+
 ## 0.13.0 — 2026-08-18
 
 ### Minor changes

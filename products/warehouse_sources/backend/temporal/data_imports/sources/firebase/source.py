@@ -66,6 +66,9 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
             "401 Client Error: Unauthorized": "Firebase rejected the access token. The service account key may have been revoked — please reconnect.",
             "403 Client Error: Forbidden": "This service account cannot read the requested Firebase data. Grant it the Firebase Viewer, Cloud Datastore Viewer, or Firebase Realtime Database Viewer role.",
             RESPONSE_TOO_LARGE_ERROR: "Firebase returned a page too large to process. Reduce the size of the documents in this collection or path, then re-run the sync.",
+            # Identity Toolkit's `accounts:batchGet` rejects every request this way when the project
+            # has no Firebase Authentication configuration at all — retrying can't create one.
+            "message=CONFIGURATION_NOT_FOUND": "This Firebase project doesn't have Firebase Authentication enabled, so PostHog can't read its Auth users. Enable Firebase Authentication in the Firebase console, or remove the Auth users table from this source.",
         }
 
     @property

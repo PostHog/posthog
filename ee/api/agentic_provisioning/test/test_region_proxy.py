@@ -347,6 +347,7 @@ class TestRegionProxyCoverageContract(BaseTest):
         "GitHubIntegrationView": "bearer_lookup",
         "WizardRunsView": "bearer_lookup",
         "DeepLinksView": "bearer_lookup",
+        "LimitsView": "bearer_lookup",
         "AccountRequestsView": "body_region",
         "OAuthTokenView": "token_lookup",
     }

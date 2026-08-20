@@ -128,7 +128,11 @@ def _fake_activities(rec: _Recorder) -> list:
 
     @activity.defn(name="cascade_posthog_code_repository_activity")
     async def cascade(
-        inputs: PostHogCodeSlackMentionWorkflowInputs, event_text: str, user_id: int | None = None
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        event_text: str,
+        user_id: int | None = None,
+        thread_messages: list[dict[str, str]] | None = None,
+        mention_ts: str | None = None,
     ) -> PostHogCodeRepoCascadeOutcome:
         mode = rec.cascade_modes.get(inputs.event["ts"], "auto")
         repository = "org/auto-repo" if mode == "auto" else None

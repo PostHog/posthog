@@ -97,9 +97,9 @@ export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | '
 export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state'
 
 /**
- * Scout-management actions. The first block matches desktop's enum; the trailing three are
- * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, and the
- * scratchpad callout).
+ * Scout-management actions. The first block matches desktop's enum; the trailing block is
+ * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
+ * scratchpad callout, and the roster's on/off filter and search).
  */
 export type ScoutActionType =
     | 'open_settings'
@@ -122,6 +122,8 @@ export type ScoutActionType =
     | 'create_scout'
     | 'delete_scout'
     | 'open_memory'
+    | 'filter_enabled'
+    | 'search_scouts'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -226,10 +228,19 @@ export function captureInboxWelcomeCommandCopied(params: {
     })
 }
 
+/**
+ * The report list settled for the first time in a tab mount. `report_count` / `total_count` describe
+ * the active tab's list only (and `report_count` is capped at the loaded page), so the headline
+ * "how many reports does this user have" numbers are `pulls_tab_count` / `reports_tab_count`: the tab badge
+ * counts, sent on every view regardless of which tab is open (same shape as the desktop event).
+ * A badge count is null only if its request failed.
+ */
 export function captureInboxViewed(params: {
     tab: string
     reports: SignalReport[]
     totalCount: number
+    pullsTabCount: number | null
+    reportsTabCount: number | null
     hasActiveFilters: boolean
     sourceProductFilter: string[]
     priorityFilter: string[]
@@ -239,6 +250,8 @@ export function captureInboxViewed(params: {
         tab: params.tab,
         report_count: params.reports.length,
         total_count: params.totalCount,
+        pulls_tab_count: params.pullsTabCount,
+        reports_tab_count: params.reportsTabCount,
         is_empty: params.totalCount === 0,
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,

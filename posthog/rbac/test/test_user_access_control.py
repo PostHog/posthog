@@ -225,6 +225,16 @@ class TestUserAccessControl(BaseUserAccessControlTest):
             is True  # This is the default
         )  # Fix this - need to load all access controls...
 
+    def test_project_default_survives_a_resource_level_project_rule(self):
+        # A rule about "project" written without a resource_id is not a shape the product writes,
+        # and enforcement never reads it. It must not send the walk to the resource tier, which
+        # answers with the built-in project default and would promote everyone to admin
+        self._create_access_control(resource="project", resource_id=self.team.id, access_level="member")
+        self._create_access_control(resource="project", resource_id=None, access_level="none")
+        self._clear_uac_caches()
+
+        assert self.user_access_control.get_user_access_level(self.team) == "member"
+
     def test_ac_object_project_access_control(self):
         # Setup no access by default
         ac = self._create_access_control(resource_id=self.team.id, access_level="none")
@@ -964,6 +974,18 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         access_level = uac.get_user_access_level(self.dashboard)
         assert access_level is None
 
+    def test_object_access_resolves_when_access_control_has_no_team(self):
+        # A create request builds the access control with team=None (no team exists yet). Serializing
+        # the create response must resolve the object's level from the organization scope instead of
+        # raising AttributeError on the missing team.
+        uac = UserAccessControl(user=self.user_with_no_role, team=None, organization_id=self.organization.id)
+
+        # user_with_no_role is a plain member and did not create self.team, so resolution falls through
+        # to the object-level lookup that would otherwise read the absent team. With no restricting
+        # access control it resolves to the project default rather than raising.
+        access_level = uac.get_user_access_level(self.team)
+        assert access_level == "admin"
+
     def test_unsupported_model_returns_none(self):
         """Test that unsupported models return None"""
 
@@ -1141,7 +1163,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_insight_specific_access_control(self):
         """Test insight-specific access controls"""
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         insight = Insight.objects.create(team=self.team, created_by=self.other_user)
 
@@ -1653,6 +1675,33 @@ class TestResourceInheritance(BaseUserAccessControlTest):
         resource_access = self.user_access_control.access_level_for_resource("session_recording_playlist")
         assert resource_access and resource_access.access_level == "none"
         assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "viewer") is False
+
+    def test_support_ticket_rule_does_not_gate_the_posthog_ai_conversation_scope(self):
+        """`conversation` must not inherit from `ticket`.
+
+        `conversation` is the scope object of PostHog AI's ConversationViewSet (ee/api/conversation.py)
+        and nothing else uses it — Support's own viewsets declare `ticket` directly. Sending a message
+        is a POST, so it requires `editor`: while `conversation` inherited from `ticket`, a project
+        restricting Support tickets to `viewer` lost PostHog AI entirely for every non-admin member.
+        """
+        assert "conversation" not in RESOURCE_INHERITANCE_MAP
+
+        self._create_access_control(
+            resource="ticket",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        # The Support restriction still applies to Support.
+        assert self.user_access_control.check_access_level_for_resource("ticket", "viewer") is True
+        assert self.user_access_control.check_access_level_for_resource("ticket", "editor") is False
+
+        # PostHog AI is untouched by it.
+        conversation_access = self.user_access_control.access_level_for_resource("conversation")
+        assert conversation_access and conversation_access.access_level == "editor"
+        assert self.user_access_control.check_access_level_for_resource("conversation", "editor") is True
 
 
 @pytest.mark.ee

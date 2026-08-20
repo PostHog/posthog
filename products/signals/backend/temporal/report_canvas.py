@@ -9,6 +9,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
@@ -19,6 +20,7 @@ from products.signals.backend.report_canvas import (
     ensure_and_start_report_canvas_generation,
     fail_report_canvas_generation,
     finalize_report_canvas_generation,
+    report_canvases_enabled,
 )
 
 
@@ -27,6 +29,17 @@ class ReportCanvasWorkflowInput:
     team_id: int
     report_id: str
     notify_reviewers: bool = True
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def report_canvases_enabled_activity(team_id: int) -> bool:
+    try:
+        team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
+    except Team.DoesNotExist:
+        return False
+    return await database_sync_to_async(report_canvases_enabled, thread_sensitive=False)(team)
 
 
 @temporalio.activity.defn
