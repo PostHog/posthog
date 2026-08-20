@@ -1628,8 +1628,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                         return getQueryBasedDashboard(dashboard)
                     } catch (e) {
-                        lemonToast.error('Could not duplicate tile: ' + String(e))
-                        return values.dashboard
+                        // Re-throw so duplicateTileFailure fires. Swallowing the error resolved it as a
+                        // success, so the tile refreshed with no copy and the user kept clicking.
+                        lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not duplicate tile')
+                        throw e
                     }
                 },
                 moveToDashboard: async ({ tile, fromDashboard, toDashboard }) => {
