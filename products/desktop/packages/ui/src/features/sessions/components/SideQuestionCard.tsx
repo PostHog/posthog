@@ -50,9 +50,7 @@ export function SideQuestionCard({ taskId }: SideQuestionCardProps) {
           </Box>
         )}
         {entry.status === "error" && (
-          <Text className="text-[13px] text-red-11">
-            {entry.error ?? "Side question failed"}
-          </Text>
+          <Text className="text-[13px] text-red-11">{entry.error}</Text>
         )}
       </Box>
     </Box>

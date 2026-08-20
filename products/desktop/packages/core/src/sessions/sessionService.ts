@@ -1673,14 +1673,14 @@ export function isPermissionRequestAlreadySurfaced(
   );
 }
 
-/** The steering capability on a loosely-typed agent start/reconnect result. */
-function readSteering(result: unknown): string | undefined {
-  return (result as { steering?: string } | undefined)?.steering;
-}
-
-/** The side-question capability on a loosely-typed agent start/reconnect result. */
-function readSideQuestion(result: unknown): boolean | undefined {
-  return (result as { sideQuestion?: boolean } | undefined)?.sideQuestion;
+/** The negotiated capabilities on a loosely-typed agent start/reconnect result. */
+function readCapabilities(result: unknown): {
+  steering?: string;
+  sideQuestion?: boolean;
+} {
+  const { steering, sideQuestion } =
+    (result as { steering?: string; sideQuestion?: boolean } | undefined) ?? {};
+  return { steering, sideQuestion };
 }
 
 // Live streaming emits agent_message_chunk; SessionLogWriter coalesces a chunk
@@ -2334,8 +2334,7 @@ export class SessionService {
         this.d.store.updateSession(taskRunId, {
           status: "connected",
           configOptions,
-          steering: readSteering(result),
-          sideQuestion: readSideQuestion(result),
+          ...readCapabilities(result),
         });
 
         // Persist the merged config options
@@ -2692,8 +2691,7 @@ export class SessionService {
       | SessionConfigOption[]
       | undefined;
     session.configOptions = configOptions;
-    session.steering = readSteering(result);
-    session.sideQuestion = readSideQuestion(result);
+    Object.assign(session, readCapabilities(result));
 
     // Persist the config options
     if (configOptions) {

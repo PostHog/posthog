@@ -1,9 +1,40 @@
 /**
- * Helpers for the one-shot "/btw" side question. Pure functions only —
+ * Helpers for the one-shot "/btw" side question. Session-independent only —
  * the forked query mechanics live in ClaudeAcpAgent.answerSideQuestion.
  */
 
+import { RequestError } from "@agentclientprotocol/sdk";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+
 export const SIDE_QUESTION_TIMEOUT_MS = 120_000;
+
+/**
+ * Drains the one-shot fork's message stream and returns the assistant's
+ * answer text. Throws when the turn ends in an error result.
+ */
+export async function collectSideQuestionAnswer(
+  messages: AsyncIterable<SDKMessage>,
+): Promise<string> {
+  const chunks: string[] = [];
+  for await (const message of messages) {
+    if (message.type === "assistant") {
+      for (const block of message.message.content) {
+        if (block.type === "text") {
+          chunks.push(block.text);
+        }
+      }
+    } else if (message.type === "result") {
+      if (message.subtype !== "success") {
+        throw new RequestError(
+          -32603,
+          `Side question failed: ${message.subtype}`,
+        );
+      }
+      break;
+    }
+  }
+  return chunks.join("").trim();
+}
 
 /**
  * Wraps the user's question in the constraints the fork must obey: no tools,

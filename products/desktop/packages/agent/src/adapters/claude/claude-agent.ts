@@ -148,6 +148,7 @@ import {
 import { SettingsManager } from "./session/settings";
 import {
   buildSideQuestionPrompt,
+  collectSideQuestionAnswer,
   SIDE_QUESTION_TIMEOUT_MS,
 } from "./side-question";
 import {
@@ -1642,11 +1643,15 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       }
       return await this.answerSideQuestion(params.question);
     }
-
-    if (!isMethod(method, POSTHOG_METHODS.REFRESH_SESSION)) {
-      throw RequestError.methodNotFound(method);
+    if (isMethod(method, POSTHOG_METHODS.REFRESH_SESSION)) {
+      return await this.handleRefreshSession(params);
     }
+    throw RequestError.methodNotFound(method);
+  }
 
+  private async handleRefreshSession(
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
     // Trust boundary: refresh is only safe when the caller is trusted infra
     // (e.g. the sandbox agent-server). Do not route this method from
     // untrusted clients — parseMcpServers does no URL/command validation.
@@ -2020,27 +2025,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       });
 
       const answer = await withTimeout(
-        (async () => {
-          const chunks: string[] = [];
-          for await (const message of oneShot) {
-            if (message.type === "assistant") {
-              for (const block of message.message.content) {
-                if (block.type === "text") {
-                  chunks.push(block.text);
-                }
-              }
-            } else if (message.type === "result") {
-              if (message.subtype !== "success") {
-                throw new RequestError(
-                  -32603,
-                  `Side question failed: ${message.subtype}`,
-                );
-              }
-              break;
-            }
-          }
-          return chunks.join("").trim();
-        })(),
+        collectSideQuestionAnswer(oneShot),
         SIDE_QUESTION_TIMEOUT_MS,
       );
 

@@ -1,14 +1,15 @@
+import type { SessionService } from "@posthog/core/sessions/sessionService";
+import { getErrorMessage } from "@posthog/shared";
+import { logger } from "@posthog/ui/shell/logger";
 import { create } from "zustand";
 
-export type SideQuestionStatus = "pending" | "done" | "error";
+const log = logger.scope("side-question");
 
-export interface SideQuestionEntry {
-  id: string;
-  question: string;
-  answer: string;
-  status: SideQuestionStatus;
-  error?: string;
-}
+export type SideQuestionEntry = { id: string; question: string } & (
+  | { status: "pending" }
+  | { status: "done"; answer: string }
+  | { status: "error"; error: string }
+);
 
 interface SideQuestionState {
   /** Latest side question per task. Ephemeral: never persisted, never part of session history. */
@@ -19,45 +20,69 @@ interface SideQuestionState {
   dismiss: (taskId: string) => void;
 }
 
-let nextId = 0;
+/**
+ * Settles the entry only if it is still the one the caller created — a
+ * re-asked or dismissed question must not receive a stale answer.
+ */
+function settle(
+  state: SideQuestionState,
+  taskId: string,
+  id: string,
+  outcome:
+    | { status: "done"; answer: string }
+    | { status: "error"; error: string },
+): Partial<SideQuestionState> | SideQuestionState {
+  const entry = state.byTaskId[taskId];
+  if (entry?.id !== id) return state;
+  return {
+    byTaskId: {
+      ...state.byTaskId,
+      [taskId]: { id: entry.id, question: entry.question, ...outcome },
+    },
+  };
+}
 
 export const useSideQuestionStore = create<SideQuestionState>()((set) => ({
   byTaskId: {},
   ask: (taskId, question) => {
-    const id = `sq-${++nextId}`;
+    const id = crypto.randomUUID();
     set((state) => ({
       byTaskId: {
         ...state.byTaskId,
-        [taskId]: { id, question, answer: "", status: "pending" },
+        [taskId]: { id, question, status: "pending" },
       },
     }));
     return id;
   },
   resolve: (taskId, id, answer) =>
-    set((state) => {
-      const entry = state.byTaskId[taskId];
-      if (entry?.id !== id) return state;
-      return {
-        byTaskId: {
-          ...state.byTaskId,
-          [taskId]: { ...entry, answer, status: "done" },
-        },
-      };
-    }),
+    set((state) => settle(state, taskId, id, { status: "done", answer })),
   fail: (taskId, id, error) =>
-    set((state) => {
-      const entry = state.byTaskId[taskId];
-      if (entry?.id !== id) return state;
-      return {
-        byTaskId: {
-          ...state.byTaskId,
-          [taskId]: { ...entry, error, status: "error" },
-        },
-      };
-    }),
+    set((state) => settle(state, taskId, id, { status: "error", error })),
   dismiss: (taskId) =>
     set((state) => {
       const { [taskId]: _dismissed, ...rest } = state.byTaskId;
       return { byTaskId: rest };
     }),
 }));
+
+/**
+ * Fire-and-forget "/btw" saga: record the pending entry, send the question,
+ * and settle the entry with the answer or error. Fire-and-forget so the
+ * composer clears immediately; the side question runs beside the
+ * conversation, mid-turn or idle.
+ */
+export function fireSideQuestion(
+  sessionService: Pick<SessionService, "askSideQuestion">,
+  taskId: string,
+  question: string,
+): void {
+  const { ask, resolve, fail } = useSideQuestionStore.getState();
+  const id = ask(taskId, question);
+  sessionService
+    .askSideQuestion(taskId, question)
+    .then((answer) => resolve(taskId, id, answer))
+    .catch((error) => {
+      fail(taskId, id, getErrorMessage(error) || "Side question failed");
+      log.error("Side question failed", error);
+    });
+}

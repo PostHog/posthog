@@ -304,28 +304,28 @@ interface SessionConfig {
   bedrockGatewayVariant?: BedrockGatewayVariant;
 }
 
-/** Pull the adapter's `agentCapabilities._meta.posthog.steering` from initialize. */
-function extractSteeringCapability(init: unknown): string | undefined {
-  const steering = (
+/** Pull the adapter's negotiated `agentCapabilities._meta.posthog` capabilities from initialize. */
+function extractPosthogCapabilities(init: unknown): {
+  steering?: string;
+  sideQuestion?: boolean;
+} {
+  const posthog = (
     init as {
-      agentCapabilities?: { _meta?: { posthog?: { steering?: unknown } } };
+      agentCapabilities?: { _meta?: { posthog?: Record<string, unknown> } };
     }
-  )?.agentCapabilities?._meta?.posthog?.steering;
-  return typeof steering === "string" ? steering : undefined;
+  )?.agentCapabilities?._meta?.posthog;
+  return {
+    steering:
+      typeof posthog?.steering === "string" ? posthog.steering : undefined,
+    sideQuestion:
+      typeof posthog?.sideQuestion === "boolean"
+        ? posthog.sideQuestion
+        : undefined,
+  };
 }
 
 /** A streaming turn emits many events a second; warn once a minute, not per event. */
 const NO_LISTENER_WARN_INTERVAL_MS = 60_000;
-
-/** Pull the adapter's `agentCapabilities._meta.posthog.sideQuestion` from initialize. */
-function extractSideQuestionCapability(init: unknown): boolean | undefined {
-  const sideQuestion = (
-    init as {
-      agentCapabilities?: { _meta?: { posthog?: { sideQuestion?: unknown } } };
-    }
-  )?.agentCapabilities?._meta?.posthog?.sideQuestion;
-  return typeof sideQuestion === "boolean" ? sideQuestion : undefined;
-}
 
 interface ManagedSession {
   taskRunId: string;
@@ -956,11 +956,11 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         },
       });
       // The adapter advertises whether mid-turn steering folds natively into the
-      // running turn (`steering: "native"`) vs needs cancel+resend. Surface it so
-      // the host gates steer-vs-resend on the negotiated capability, not on a
-      // hardcoded adapter name (codex-acp advertises "interrupt-resend").
-      const steering = extractSteeringCapability(initResult);
-      const sideQuestion = extractSideQuestionCapability(initResult);
+      // running turn (`steering: "native"`) vs needs cancel+resend, and whether
+      // it can answer one-shot "/btw" side questions. Surface both so the host
+      // gates on the negotiated capabilities, not on a hardcoded adapter name
+      // (codex-acp advertises "interrupt-resend").
+      const { steering, sideQuestion } = extractPosthogCapabilities(initResult);
 
       const {
         servers: mcpServers,
