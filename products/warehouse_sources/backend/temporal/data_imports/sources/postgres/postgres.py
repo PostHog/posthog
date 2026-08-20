@@ -3267,6 +3267,12 @@ def postgres_source(
                             else:
                                 chunking = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                             chunk_size = chunking.batch_rows
+                            # The page cap only exists to bound what one `FETCH` materialises, so
+                            # it belongs behind the same gate as the byte bound it serves. Applied
+                            # with the gate off it shrinks the fetch without ever flushing a batch:
+                            # the read pays a round trip per page and still accumulates the whole
+                            # table, which is worse than the single full-size fetch it replaced.
+                            fetch_page_rows = chunking.fetch_rows if byte_bounded_extraction else None
 
                             logger.debug("Getting rows to sync...")
                             # For partitioned tables without an incremental cursor (initial
@@ -3713,7 +3719,7 @@ def postgres_source(
                     child_partitions=child_partitions,
                     chunk_size=chunk_size,
                     byte_bounded=byte_bounded_extraction,
-                    fetch_rows=chunking.fetch_rows,
+                    fetch_rows=fetch_page_rows,
                     arrow_schema=arrow_schema,
                     logger=logger,
                     incremental_field=incremental_field,
@@ -3750,7 +3756,7 @@ def postgres_source(
                     child_partitions=child_partitions,
                     chunk_size=chunk_size,
                     byte_bounded=byte_bounded_extraction,
-                    fetch_rows=chunking.fetch_rows,
+                    fetch_rows=fetch_page_rows,
                     arrow_schema=arrow_schema,
                     logger=logger,
                     using_read_replica=using_read_replica,
@@ -3796,7 +3802,7 @@ def postgres_source(
                                 cursor.fetchmany,
                                 max_rows=chunk_size,
                                 byte_bounded=byte_bounded_extraction,
-                                max_page_rows=chunking.fetch_rows,
+                                max_page_rows=fetch_page_rows,
                             ):
                                 dicts = [dict(zip(column_names, row)) for row in rows]
                                 # The batcher still holds this list, so only clearing it in place

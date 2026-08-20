@@ -8279,3 +8279,115 @@ class TestExtractionByteBounds:
 
         # Once a 1 KiB row has been seen, a page of the sampled row count would hold ~100 MiB.
         assert max(factory.fetch_sizes[-3:]) <= self.BUDGET // len(self.BLOB) + 1
+
+
+class TestFetchPageGate:
+    """The page cap is the byte bound's own instrument, so the rollout gate has to hold it back too.
+
+    Left applied with the gate off it shrinks the `FETCH` without ever flushing a batch: the read
+    pays a round trip per page and still accumulates the whole table into one batch, which is
+    strictly worse than the single full-size fetch it replaced.
+    """
+
+    class _Cursor:
+        def __init__(self, *, named: bool, rows: list, fetch_sizes: list[int]):
+            self._named = named
+            self._rows = list(rows) if named else []
+            self._fetch_sizes = fetch_sizes
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchmany(self, n):
+            if not self._named:
+                return []
+            self._fetch_sizes.append(n)
+            batch, self._rows = self._rows[:n], self._rows[n:]
+            return batch
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, rows, fetch_sizes):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._rows = rows
+            self._fetch_sizes = fetch_sizes
+
+        def cursor(self, *args, **kwargs):
+            return TestFetchPageGate._Cursor(named="name" in kwargs, rows=self._rows, fetch_sizes=self._fetch_sizes)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _fetch_sizes(self, *, byte_bounded: bool) -> list[int]:
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        fetch_sizes: list[int] = []
+        rows = [(i,) for i in range(20)]
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=self._Connection(rows, fetch_sizes)),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(named=False, rows=[], fetch_sizes=[])),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=7)),
+            patch(f"{module}._get_rows_to_sync", return_value=20),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+                byte_bounded_extraction=byte_bounded,
+            )
+            list(cast(Iterable[Any], response.items()))
+
+        return fetch_sizes
+
+    def test_gate_off_fetches_the_whole_chunk(self):
+        assert set(self._fetch_sizes(byte_bounded=False)) == {1000}
+
+    def test_gate_on_fetches_the_measured_page(self):
+        assert max(self._fetch_sizes(byte_bounded=True)) == 7
