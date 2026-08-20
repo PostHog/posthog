@@ -65,6 +65,44 @@ describe('featureFlagIntentWarningLogic', () => {
                 expectedUnreachable: [1],
             },
             {
+                name: 'partial-rollout unfiltered group shadows later same-target group',
+                groups: [
+                    { properties: [], rollout_percentage: 20, variant: null },
+                    {
+                        properties: [
+                            {
+                                key: 'email',
+                                type: PropertyFilterType.Person,
+                                value: 'test@posthog.com',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 100,
+                        variant: null,
+                    },
+                ],
+                expectedUnreachable: [1],
+            },
+            {
+                name: 'zero-rollout unfiltered group does not shadow later group',
+                groups: [
+                    { properties: [], rollout_percentage: 0, variant: null },
+                    {
+                        properties: [
+                            {
+                                key: 'email',
+                                type: PropertyFilterType.Person,
+                                value: 'test@posthog.com',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 100,
+                        variant: null,
+                    },
+                ],
+                expectedUnreachable: [],
+            },
+            {
                 name: 'broad group at end does not trigger unreachable',
                 groups: [
                     {

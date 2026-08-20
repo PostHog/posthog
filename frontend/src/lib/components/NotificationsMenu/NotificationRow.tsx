@@ -49,6 +49,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Experiments concluded',
         description: 'When an experiment you created ends',
     },
+    experiment_sample_ratio_mismatch: {
+        label: 'Sample ratio mismatch',
+        description: 'When a running experiment you created has imbalanced exposures',
+    },
     project_created: {
         label: 'Projects created',
         description: 'When a member creates a new project in your organization',

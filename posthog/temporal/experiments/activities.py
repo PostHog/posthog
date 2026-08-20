@@ -22,7 +22,11 @@ from posthog.temporal.experiments.models import (
     ExperimentSavedMetricInput,
     ExperimentSavedMetricResult,
 )
-from posthog.temporal.experiments.utils import DEFAULT_EXPERIMENT_RECALCULATION_HOUR, check_significance_transition
+from posthog.temporal.experiments.utils import (
+    DEFAULT_EXPERIMENT_RECALCULATION_HOUR,
+    check_sample_ratio_mismatch,
+    check_significance_transition,
+)
 
 from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
@@ -228,6 +232,7 @@ def _calculate_experiment_regular_metric_sync(
         )
 
         check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+        check_sample_ratio_mismatch(experiment)
 
         logger.info(
             "Successfully calculated experiment metric",
@@ -533,6 +538,7 @@ def _calculate_experiment_saved_metric_sync(
         )
 
         check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+        check_sample_ratio_mismatch(experiment)
 
         logger.info(
             "Successfully calculated experiment saved metric",

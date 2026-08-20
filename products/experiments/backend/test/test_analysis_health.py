@@ -4,12 +4,14 @@ from parameterized import parameterized
 
 from posthog.schema import BiasRisk, MultipleVariantHandling
 
-from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
+from products.experiments.backend.analysis_health import (
+    MULTIPLE_VARIANT_BIAS_THRESHOLD,
+    evaluate_bias_risk,
+    srm_crosses_alert_threshold,
+)
 
 UNEVEN_2WAY = [{"rollout_percentage": 80}, {"rollout_percentage": 20}]
 EVEN_2WAY = [{"rollout_percentage": 50}, {"rollout_percentage": 50}]
-# Auto-distribution for 3 variants — should be treated as even, not uneven.
-AUTO_EVEN_3WAY = [{"rollout_percentage": 34}, {"rollout_percentage": 33}, {"rollout_percentage": 33}]
 
 
 class TestEvaluateBiasRisk(TestCase):
@@ -22,21 +24,15 @@ class TestEvaluateBiasRisk(TestCase):
         assert result is not None
         self.assertAlmostEqual(result.multiple_variant_percentage, 20 / 1020 * 100, places=5)
 
-    def test_auto_even_3way_is_treated_as_even(self):
-        # 34/33/33 is what the auto-distribution produces — must NOT be flagged as uneven.
+    def test_even_split_flags_high_multiple_share(self):
+        # An even split does not clear the risk: EXCLUDE drops the non-random `$multiple`
+        # population from both arms, so a high share still biases arm means.
         result = evaluate_bias_risk(
-            AUTO_EVEN_3WAY, MultipleVariantHandling.EXCLUDE, {"a": 340, "b": 330, "c": 330, "$multiple": 50}
+            EVEN_2WAY, MultipleVariantHandling.EXCLUDE, {"control": 500, "test": 500, "$multiple": 50}
         )
-        self.assertIsNone(result)
-
-    def test_reordered_auto_even_is_uneven(self):
-        # 33/34/33 doesn't match the auto-distribution result (34/33/33) — counts as uneven,
-        # mirroring the frontend's positional `isEvenlyDistributed` check.
-        reordered = [{"rollout_percentage": 33}, {"rollout_percentage": 34}, {"rollout_percentage": 33}]
-        result = evaluate_bias_risk(
-            reordered, MultipleVariantHandling.EXCLUDE, {"a": 330, "b": 340, "c": 330, "$multiple": 50}
-        )
-        self.assertIsNotNone(result)
+        self.assertIsInstance(result, BiasRisk)
+        assert result is not None
+        self.assertAlmostEqual(result.multiple_variant_percentage, 50 / 1050 * 100, places=5)
 
     @parameterized.expand(
         [
@@ -45,12 +41,6 @@ class TestEvaluateBiasRisk(TestCase):
                 UNEVEN_2WAY,
                 MultipleVariantHandling.FIRST_SEEN,
                 {"control": 800, "test": 200, "$multiple": 50},
-            ),
-            (
-                "even_2way_split",
-                EVEN_2WAY,
-                MultipleVariantHandling.EXCLUDE,
-                {"control": 500, "test": 500, "$multiple": 50},
             ),
             (
                 "zero_multiple_share",
@@ -102,3 +92,67 @@ class TestEvaluateBiasRisk(TestCase):
         )
         assert result is not None
         self.assertGreater(result.multiple_variant_percentage, MULTIPLE_VARIANT_BIAS_THRESHOLD)
+
+
+class TestSrmCrossesAlertThreshold(TestCase):
+    @parameterized.expand(
+        [
+            # Heavily skewed at high volume with a tiny p-value — the case the alert must fire on.
+            (
+                "skewed_high_volume",
+                {"control": 6000, "test": 4000},
+                {"control": 5000.0, "test": 5000.0},
+                1e-9,
+                True,
+            ),
+            # Same skew, but too few exposures to trust — below the 1,000 floor.
+            (
+                "skewed_below_min_exposures",
+                {"control": 300, "test": 200},
+                {"control": 250.0, "test": 250.0},
+                1e-9,
+                False,
+            ),
+            # Balanced split at high volume — observed matches expected, nothing to flag.
+            (
+                "balanced_high_volume",
+                {"control": 5000, "test": 5000},
+                {"control": 5000.0, "test": 5000.0},
+                1.0,
+                False,
+            ),
+            # p-value above the threshold — chi-squared not significant enough.
+            (
+                "p_value_above_threshold",
+                {"control": 5300, "test": 4700},
+                {"control": 5000.0, "test": 5000.0},
+                0.01,
+                False,
+            ),
+            # Tiny p-value but the observed share sits inside the 3σ band — variance, not SRM.
+            (
+                "within_three_sigma_band",
+                {"control": 5075, "test": 4925},
+                {"control": 5000.0, "test": 5000.0},
+                1e-9,
+                False,
+            ),
+            # No chi-squared result available.
+            (
+                "no_p_value",
+                {"control": 6000, "test": 4000},
+                {"control": 5000.0, "test": 5000.0},
+                None,
+                False,
+            ),
+        ]
+    )
+    def test_gate(self, _name, observed, expected, p_value, should_fire):
+        self.assertEqual(srm_crosses_alert_threshold(observed=observed, expected=expected, p_value=p_value), should_fire)
+
+    def test_multiple_variant_excluded_from_total(self):
+        # The configured variants sum to 900 (below the 1,000 floor), so the gate must stay quiet.
+        # A large `$multiple` count must not be counted toward the total to lift it over the floor.
+        observed = {"control": 540, "test": 360, "$multiple": 5000}
+        expected = {"control": 450.0, "test": 450.0}
+        self.assertFalse(srm_crosses_alert_threshold(observed=observed, expected=expected, p_value=1e-9))

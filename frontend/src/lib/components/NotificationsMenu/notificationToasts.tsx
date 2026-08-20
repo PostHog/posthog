@@ -31,6 +31,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     materialization_failure: { Icon: IconDatabase, color: 'text-danger' },
     issue_assigned: { Icon: IconBug, color: 'text-primary' },
     experiment_concluded: { Icon: IconFlask, color: 'text-primary' },
+    experiment_sample_ratio_mismatch: { Icon: IconWarning, color: 'text-warning' },
     project_created: { Icon: IconFolder, color: 'text-primary' },
     usage_spike: { Icon: IconTrending, color: 'text-warning' },
     reminder: { Icon: IconClock, color: 'text-primary' },

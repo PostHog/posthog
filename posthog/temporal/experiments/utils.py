@@ -3,13 +3,32 @@ from typing import Union
 
 import structlog
 
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentRatioMetric
+from posthog.schema import (
+    CacheMissResponse,
+    ExperimentExposureQuery,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentRatioMetric,
+    QueryStatusResponse,
+)
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.hogql_queries.query_runner import ExecutionMode
 
+from products.experiments.backend.analysis_health import srm_crosses_alert_threshold
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
+)
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    SourceType,
+    TargetType,
+    create_notification,
+    has_been_dispatched,
 )
 
 logger = structlog.get_logger(__name__)
@@ -187,4 +206,94 @@ def check_significance_transition(
             "Significance transition check failed, skipping notification",
             experiment_id=experiment.id,
             metric_uuid=metric_uuid,
+        )
+
+
+def check_sample_ratio_mismatch(experiment: Experiment) -> None:
+    """Alert the experiment creator when a running experiment's exposures stop matching its
+    configured split.
+
+    Runs inside the scheduled metric warming so the check reaches experiments whose exposures
+    tab nobody opens. The passive banner already draws the same chi-squared result; this pushes
+    it. Fires at most once per experiment, and only above the alert gate (see
+    ``srm_crosses_alert_threshold``), so a low-volume wobble stays quiet. Failures are swallowed —
+    a missed alert must never fail the metric warming it rides on.
+    """
+    try:
+        if experiment.end_date is not None or not experiment.start_date:
+            return
+
+        creator_id = experiment.created_by_id
+        feature_flag = experiment.feature_flag
+        if not creator_id or not feature_flag:
+            return
+
+        # An SRM that persists across warming runs must not re-notify every day.
+        if has_been_dispatched(
+            notification_type=NotificationType.EXPERIMENT_SAMPLE_RATIO_MISMATCH,
+            target_type=TargetType.USER,
+            target_id=str(creator_id),
+            resource_id=str(experiment.id),
+            source_id=str(experiment.id),
+        ):
+            return
+
+        exposure_query = ExperimentExposureQuery(
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag={"key": feature_flag.key, "filters": feature_flag.filters},
+            start_date=experiment.start_date.isoformat(),
+            end_date=None,
+            exposure_criteria=experiment.exposure_criteria,
+            holdout=experiment.holdout,
+        )
+        runner = ExperimentExposuresQueryRunner(
+            query=exposure_query,
+            team=experiment.team,
+            # Scheduled recalc has no request user; attribute to the creator for warehouse access.
+            user=experiment.created_by,
+            error_event_context=None,
+        )
+        result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        if isinstance(result, (CacheMissResponse, QueryStatusResponse)):
+            return
+
+        srm = getattr(result, "sample_ratio_mismatch", None)
+        if srm is None:
+            return
+
+        total_exposures = getattr(result, "total_exposures", None) or {}
+        observed = {key: int(count) for key, count in total_exposures.items()}
+        if not srm_crosses_alert_threshold(observed=observed, expected=srm.expected, p_value=srm.p_value):
+            return
+
+        logger.info(
+            "Producing sample ratio mismatch notification",
+            experiment_id=experiment.id,
+            p_value=srm.p_value,
+        )
+
+        create_notification(
+            NotificationData(
+                team_id=experiment.team_id,
+                notification_type=NotificationType.EXPERIMENT_SAMPLE_RATIO_MISMATCH,
+                priority=Priority.NORMAL,
+                title=f"Sample ratio mismatch: {experiment.name}"[:100],
+                body="Variant exposures no longer match the configured split, so results may not be valid.",
+                target_type=TargetType.USER,
+                target_id=str(creator_id),
+                resource_type="experiment",
+                resource_id=str(experiment.id),
+                source_url=f"/project/{experiment.team.project_id}/experiments/{experiment.id}",
+                source_type=SourceType.EXPERIMENT,
+                source_id=str(experiment.id),
+                # Two metric activities for the same experiment can pass the dispatch check at once;
+                # the idempotency key makes the create race-safe on top of that best-effort skip.
+                idempotency_key=f"experiment_srm:{experiment.id}",
+            )
+        )
+    except Exception:
+        logger.warning(
+            "Sample ratio mismatch check failed, skipping notification",
+            experiment_id=experiment.id,
         )

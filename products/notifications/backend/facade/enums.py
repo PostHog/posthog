@@ -12,6 +12,7 @@ class NotificationType(str, Enum):
     APPROVAL_REQUESTED = "approval_requested"
     APPROVAL_RESOLVED = "approval_resolved"
     EXPERIMENT_CONCLUDED = "experiment_concluded"
+    EXPERIMENT_SAMPLE_RATIO_MISMATCH = "experiment_sample_ratio_mismatch"
     PIPELINE_FAILURE = "pipeline_failure"
     PROJECT_CREATED = "project_created"
     USAGE_SPIKE = "usage_spike"
