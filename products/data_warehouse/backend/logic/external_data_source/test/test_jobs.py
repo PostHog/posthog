@@ -391,6 +391,73 @@ class TestUpdateExternalJobStatus:
         assert schema.latest_error is None
 
 
+class TestFailureStreak:
+    # The streak gates the retry backoff, so a wrong count either hammers a permanently broken
+    # schema at full cadence or holds back a healthy one.
+
+    @pytest.mark.parametrize(
+        "sync_type,status,counts,expected_failures,expects_timestamp",
+        [
+            ("incremental", ExternalDataJob.Status.FAILED, True, 3, True),
+            ("incremental", ExternalDataJob.Status.COMPLETED, True, 0, False),
+            # A user cancelling a sync, or a lock takeover force-failing a stuck job, is not the
+            # source failing — it must not push the schema towards a backoff.
+            ("incremental", ExternalDataJob.Status.FAILED, False, 2, False),
+            # Billing limits pause the schedule separately and say nothing about the source.
+            ("incremental", ExternalDataJob.Status.BILLING_LIMIT_REACHED, True, 2, False),
+            # CDC has to keep running while it fails so its replication slot stays alive.
+            ("cdc", ExternalDataJob.Status.FAILED, True, 2, False),
+        ],
+    )
+    def test_terminal_status_moves_the_streak(self, sync_type, status, counts, expected_failures, expects_timestamp):
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        schema.sync_type = sync_type
+        schema.consecutive_failures = 2
+        schema.save()
+
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+        ):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=status,
+                logger=MagicMock(),
+                latest_error="boom" if status == ExternalDataJob.Status.FAILED else None,
+                counts_towards_failure_streak=counts,
+            )
+
+        schema.refresh_from_db()
+        assert schema.consecutive_failures == expected_failures
+        assert (schema.last_failed_at is not None) is expects_timestamp
+
+    def test_repeated_finalization_of_one_job_counts_once(self):
+        # A v3 run is finalized by both the workflow and the loader, and the workflow's finally
+        # block retries. Counting each write would race a schema into backoff on a single failure.
+        team, _source, schema, job = _create_org_team_source_schema_job()
+
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+        ):
+            for _ in range(3):
+                update_external_job_status(
+                    job_id=str(job.id),
+                    team_id=team.pk,
+                    status=ExternalDataJob.Status.FAILED,
+                    logger=MagicMock(),
+                    latest_error="boom",
+                )
+
+        schema.refresh_from_db()
+        assert schema.consecutive_failures == 1
+
+
 class TestFinalizeQueueSweep:
     @pytest.mark.parametrize(
         "status",

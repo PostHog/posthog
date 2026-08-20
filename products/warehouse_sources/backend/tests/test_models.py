@@ -21,10 +21,12 @@ from posthog.models.team import Team
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    FAILURE_BACKOFF_CAP,
     REPARTITION_HOLD_MAX_AGE,
     ExternalDataSchema,
     apply_incremental_lookback,
     complete_schema_run,
+    failure_backoff_interval,
     mark_initial_sync_complete,
     process_incremental_value,
     update_sync_type_config_keys,
@@ -1255,3 +1257,51 @@ class TestRepartitionHoldsImport:
         naive = (datetime.now(UTC) - timedelta(minutes=5)).replace(tzinfo=None).isoformat()
         schema = self._schema_with({"temp_uri": "s3://t", "held_at": naive})
         assert schema.repartition_holds_import is True
+
+
+class TestSyncFailureBackoff(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_failures", timedelta(hours=6), 0, None),
+            # A schema keeps full cadence until the streak passes the threshold, so a one-off flake
+            # never delays the next sync.
+            ("one_below_threshold", timedelta(hours=6), 2, None),
+            ("at_threshold_doubles", timedelta(hours=6), 3, timedelta(hours=12)),
+            ("scales_with_cadence", timedelta(minutes=5), 3, timedelta(minutes=10)),
+            ("grows_with_the_streak", timedelta(minutes=5), 5, timedelta(minutes=40)),
+            ("capped_at_a_day", timedelta(hours=6), 4, FAILURE_BACKOFF_CAP),
+            # Long streaks are the common case in production; the cap has to hold, and the doubling
+            # must not overflow the timedelta.
+            ("long_streak_stays_capped", timedelta(hours=6), 5000, FAILURE_BACKOFF_CAP),
+            ("no_cadence_no_backoff", None, 10, None),
+        ]
+    )
+    def test_failure_backoff_interval(
+        self, _name: str, interval: timedelta | None, failures: int, expected: timedelta | None
+    ) -> None:
+        assert failure_backoff_interval(interval, failures) == expected
+
+    @parameterized.expand(
+        [
+            ("failing_schema_backs_off", "incremental", 3, True, timedelta(hours=12)),
+            ("below_threshold_runs_now", "incremental", 1, True, None),
+            ("never_failed_runs_now", "incremental", 0, False, None),
+            # CDC must keep running while it fails, or its replication slot goes invalid and the
+            # source needs a full re-snapshot. It has its own breaker in cdc_broken.
+            ("cdc_never_backs_off", "cdc", 25, True, None),
+        ]
+    )
+    def test_failure_backoff_until(
+        self, _name: str, sync_type: str, failures: int, has_failed: bool, expected_wait: timedelta | None
+    ) -> None:
+        failed_at = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+        schema = ExternalDataSchema(
+            name="Charge",
+            sync_type=sync_type,
+            sync_frequency_interval=timedelta(hours=6),
+            consecutive_failures=failures,
+            last_failed_at=failed_at if has_failed else None,
+        )
+
+        expected = failed_at + expected_wait if expected_wait is not None else None
+        assert schema.failure_backoff_until() == expected

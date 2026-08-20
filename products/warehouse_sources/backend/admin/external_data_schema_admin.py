@@ -22,7 +22,10 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    clear_sync_failure_backoff,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -339,6 +342,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             schema.sync_type_config["admin_unpause_schedule_after_run"] = True
         schema.save(update_fields=["sync_type_config"])
 
+        # An admin-triggered run must not be skipped by a failure backoff the schema earned.
+        clear_sync_failure_backoff(schema_id=schema.id, team_id=schema.team_id)
+
         inputs = ExternalDataWorkflowInputs(
             team_id=schema.team_id,
             external_data_source_id=schema.source.id,
@@ -446,6 +452,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 update_fields.append("sync_type_config")
         if update_fields:
             schema.save(update_fields=update_fields)
+
+        # An admin-triggered run must not be skipped by a failure backoff the schema earned.
+        clear_sync_failure_backoff(schema_id=schema.id, team_id=schema.team_id)
 
         inputs = ExternalDataWorkflowInputs(
             team_id=schema.team_id,
