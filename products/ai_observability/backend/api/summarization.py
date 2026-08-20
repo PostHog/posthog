@@ -15,7 +15,6 @@ from typing import Any
 
 from django.core.cache import cache
 
-import orjson
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, extend_schema
@@ -34,7 +33,9 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsUnavailableError, query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
+from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
@@ -45,7 +46,6 @@ from posthog.rate_limit import (
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.summarization.llm import summarize
-from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse, SummaryBullet
 from products.ai_observability.backend.summarization.models import SummarizationMode
 from products.ai_observability.backend.summarization.utils import get_summary_cache_key
 from products.ai_observability.backend.text_repr.formatters import (
@@ -59,52 +59,6 @@ logger = structlog.get_logger(__name__)
 
 # Event types the formatters can render on their own, so a single one of them can be summarized by UUID.
 SUMMARIZABLE_EVENT_TYPES = ["$ai_generation", "$ai_span", "$ai_embedding", "$ai_evaluation"]
-
-# Properties that carry a summarizable payload on a generation or span event.
-_EVENT_CONTENT_PROPERTIES = (
-    "$ai_input",
-    "$ai_output",
-    "$ai_output_choices",
-    "$ai_tools",
-    "$ai_input_state",
-    "$ai_output_state",
-    "$ai_error",
-    "$ai_is_error",
-)
-
-# Trace-level properties that carry a summarizable payload when a trace has no events.
-_TRACE_CONTENT_PROPERTIES = ("$ai_input_state", "$ai_output_state", "$ai_error")
-
-# Event types the formatters always render with fixed, descriptive text.
-_ALWAYS_RENDERED_EVENT_TYPES = frozenset({"$ai_embedding", "$ai_evaluation"})
-
-
-def _event_has_content(event: dict[str, Any]) -> bool:
-    """True when a single event has a payload worth summarizing.
-
-    Checked on the source properties, not the rendered text: a generation with no payload formats
-    to an empty string, but a span formats to just its name and a separator, so the text alone is
-    not a reliable emptiness signal. Embeddings and evaluations always render descriptive text.
-    """
-    if event.get("event") in _ALWAYS_RENDERED_EVENT_TYPES:
-        return True
-    props = event.get("properties") or {}
-    return any(props.get(key) for key in _EVENT_CONTENT_PROPERTIES)
-
-
-def _entity_has_content(summarize_type: str, entity_data: dict[str, Any]) -> bool:
-    """True when the trace or event has a payload worth spending an LLM call on.
-
-    An empty trace (one `$ai_trace` event with no children and no input/output state) and a
-    state-less span both render as header-only scaffolding, which the model would otherwise
-    summarize into an invented "empty" description.
-    """
-    if summarize_type == "trace":
-        if entity_data.get("hierarchy"):
-            return True
-        props = (entity_data.get("trace") or {}).get("properties") or {}
-        return any(props.get(key) for key in _TRACE_CONTENT_PROPERTIES)
-    return _event_has_content(entity_data.get("event") or {})
 
 
 # Request/Response Serializers
@@ -350,6 +304,10 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         """Fetch a single event by UUID and return (entity_id, entity_data) for summarization.
 
         Covers every event type the trace view offers a summary for, not just generations.
+
+        The message content is read separately: ingestion strips the heavy `$ai_*` properties out
+        of the shared events table and keeps them only in `posthog.ai_events`, so the events row
+        carries the metadata but none of the conversation.
         """
         qdr = QueryDateRange(
             DateRange(date_from=date_from or "-30d", date_to=date_to),
@@ -357,12 +315,14 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             IntervalType.DAY,
             datetime.now(),
         )
+        date_from_expr = ast.Constant(value=qdr.date_from().isoformat())
+        date_to_expr = ast.Constant(value=qdr.date_to().isoformat())
 
         with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=self.team_id):
             result = execute_hogql_query(
                 query=parse_select(
                     """
-                    SELECT uuid, event, timestamp, properties
+                    SELECT uuid, event, timestamp, properties, properties.$ai_trace_id
                     FROM events
                     WHERE event IN {summarizable_events}
                       AND uuid = {generation_uuid}
@@ -374,8 +334,8 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                 placeholders={
                     "summarizable_events": ast.Tuple(exprs=[ast.Constant(value=e) for e in SUMMARIZABLE_EVENT_TYPES]),
                     "generation_uuid": ast.Constant(value=generation_id),
-                    "date_from": ast.Constant(value=qdr.date_from().isoformat()),
-                    "date_to": ast.Constant(value=qdr.date_to().isoformat()),
+                    "date_from": date_from_expr,
+                    "date_to": date_to_expr,
                 },
                 team=self.team,
             )
@@ -383,18 +343,61 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         if not result.results:
             raise exceptions.NotFound(f"Event '{generation_id}' not found in the given date range.")
 
-        row = result.results[0]
-        props = row[3]
-        if isinstance(props, str):
-            props = orjson.loads(props)
+        uuid_value, event_name, timestamp, properties_json, trace_id = result.results[0]
+        heavy_columns = self._fetch_heavy_columns(generation_id, str(trace_id or ""), date_from_expr, date_to_expr)
 
         event_data = {
-            "id": str(row[0]),
-            "event": row[1],
-            "timestamp": row[2].isoformat() if hasattr(row[2], "isoformat") else str(row[2]),
-            "properties": props,
+            "id": str(uuid_value),
+            "event": event_name,
+            "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp),
+            "properties": merge_heavy_properties(properties_json, heavy_columns),
         }
         return generation_id, {"event": event_data}
+
+    def _fetch_heavy_columns(
+        self, event_uuid: str, trace_id: str, date_from: ast.Constant, date_to: ast.Constant
+    ) -> dict[str, Any]:
+        """Read the message content columns, which live only in `posthog.ai_events`.
+
+        Anchored on `trace_id` because it leads that table's sorting key. An event without one
+        can't be looked up there, so it gets summarized on its metadata alone.
+        """
+        if not trace_id:
+            return {}
+
+        query = parse_select(
+            f"""
+            SELECT {", ".join(HEAVY_COLUMN_NAMES)}
+            FROM posthog.ai_events
+            WHERE trace_id = {{trace_id}}
+              AND uuid = {{event_uuid}}
+              AND timestamp >= {{date_from}}
+              AND timestamp <= {{date_to}}
+            LIMIT 1
+            """,
+        )
+        placeholders: dict[str, ast.Expr] = {
+            "trace_id": ast.Constant(value=trace_id),
+            "event_uuid": ast.Constant(value=event_uuid),
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+
+        try:
+            result = query_ai_events(
+                query=query,
+                placeholders=placeholders,
+                team=self.team,
+                query_type="LLMAnalyticsSummarizationHeavyFetch",
+            )
+        except AIEventsExpiredError:
+            raise exceptions.NotFound(
+                "We only keep message content for 30 days, so this event can no longer be summarized."
+            ) from None
+        except AIEventsUnavailableError:
+            return {}
+
+        return dict(zip(HEAVY_COLUMN_NAMES, result.results[0]))
 
     def _generate_text_repr(self, summarize_type: str, entity_data: dict) -> str:
         """Generate line-numbered text representation for summarization.
@@ -422,22 +425,6 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             return text
         else:  # event
             return format_event_text_repr(event=entity_data["event"], options=options)
-
-    def _build_empty_summary_response(self, text_repr: str, summarize_type: str) -> dict:
-        """Build a deterministic response for an entity that has no content to summarize."""
-        entity = "trace" if summarize_type == "trace" else "event"
-        summary = SummarizationResponse(
-            title=f"Nothing to summarize in this {entity}",
-            flow_diagram="",
-            summary_bullets=[
-                SummaryBullet(
-                    text=f"This {entity} recorded no input or output, so there is nothing to summarize.",
-                    line_refs="",
-                )
-            ],
-            interesting_notes=[],
-        )
-        return self._build_summary_response(summary, text_repr, summarize_type)
 
     def _build_summary_response(self, summary, text_repr: str, summarize_type: str) -> dict:
         """Build the API response dict from summary and text representation.
@@ -613,20 +600,6 @@ The response includes the structured summary, the text representation, and metad
                 raise exceptions.ValidationError("No trace or event data was provided for summarization.")
 
             text_repr = self._generate_text_repr(summarize_type, entity_data)
-
-            # A trace or event with no payload would make the LLM invent a summary of scaffolding,
-            # so answer directly instead of paying for the call.
-            if not _entity_has_content(summarize_type, entity_data):
-                result = self._build_empty_summary_response(text_repr, summarize_type)
-                cache.set(cache_key, result, timeout=3600)
-                logger.info(
-                    "Skipped summarizing an empty representation",
-                    summarize_type=summarize_type,
-                    entity_id=entity_id,
-                    mode=mode,
-                    team_id=self.team_id,
-                )
-                return Response(result, status=status.HTTP_200_OK)
 
             start_time = time.time()
             user_distinct_id = getattr(request.user, "distinct_id", None)

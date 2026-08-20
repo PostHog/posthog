@@ -107,8 +107,8 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
         lines.append(SEPARATOR)
         lines.extend(tools_lines)
 
-    # Input messages. Framework wrappers (LangChain, OpenAI Agents, Claude Agent SDK) record the
-    # payload as $ai_input_state, so fall back to it the way the frontend's readAiInput does.
+    # This is also the fallback formatter for unrecognized event types, which may carry their
+    # payload as $ai_input_state, so read that too the way the frontend's readAiInput does.
     input_lines = format_input_messages(props.get("$ai_input"), options)
     if not input_lines:
         input_lines = format_state_section(props.get("$ai_input_state"), "INPUT", options)

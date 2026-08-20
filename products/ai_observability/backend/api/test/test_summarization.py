@@ -14,6 +14,10 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
+from posthog.models.ai_events.test_util import bulk_create_ai_events
+
 from products.ai_observability.backend.summarization.llm.schema import (
     InterestingNote,
     SummarizationResponse,
@@ -142,37 +146,6 @@ class TestSummarizationAPI(APIBaseTest):
         # Verify title is present
         self.assertIn("title", data["summary"])
         self.assertEqual(data["summary"]["title"], "Multi-step Trace Execution")
-
-    @parameterized.expand(
-        [
-            ("empty_generation", {"event": {"id": "gen-empty", "event": "$ai_generation", "properties": {}}}, "event"),
-            (
-                "state_less_span",
-                {"event": {"id": "span-empty", "event": "$ai_span", "properties": {"$ai_span_name": "my span"}}},
-                "event",
-            ),
-            (
-                "trace_without_events_or_state",
-                {"trace": {"id": "t-empty", "properties": {"$ai_span_name": "grouping"}}, "hierarchy": []},
-                "trace",
-            ),
-        ]
-    )
-    @patch("products.ai_observability.backend.api.summarization.summarize")
-    def test_empty_entity_short_circuits_without_calling_the_model(self, _name, data, summarize_type, mock_summarize):
-        """A payload-less generation, span, or trace must answer directly, not pay for an LLM call."""
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save()
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
-            {"summarize_type": summarize_type, "mode": "minimal", "data": data},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_summarize.assert_not_called()
-        self.assertIn("Nothing to summarize", response.data["summary"]["title"])
 
     def test_missing_summarize_type(self):
         """Should return 400 for missing summarize_type."""
@@ -343,19 +316,7 @@ class TestSummarizationAPI(APIBaseTest):
             "mode": "minimal",
             "data": {
                 "trace": {"id": "cached_trace", "properties": {"$ai_span_name": "test"}},
-                "hierarchy": [
-                    {
-                        "event": {
-                            "id": "gen1",
-                            "event": "$ai_generation",
-                            "properties": {
-                                "$ai_input": [{"role": "user", "content": "hello"}],
-                                "$ai_output_choices": [{"message": {"role": "assistant", "content": "hi"}}],
-                            },
-                        },
-                        "children": [],
-                    }
-                ],
+                "hierarchy": [],
             },
         }
         self.client.post(
@@ -408,38 +369,75 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-    @patch("products.ai_observability.backend.api.summarization.summarize")
-    def test_summarizes_a_span_by_event_uuid(self, mock_summarize):
-        self._approve_ai_processing()
-        mock_summarize.return_value = SummarizationResponse(
-            title="Span Summary",
-            flow_diagram="Start\n    |\nComplete",
-            summary_bullets=[SummaryBullet(text="Span fetched documents", line_refs="L1")],
-            interesting_notes=[],
-        )
-
-        span_uuid = uuid.uuid4()
-        timestamp = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+    def _ingest_ai_event(self, event: str, event_uuid: uuid.UUID, timestamp: datetime, metadata: dict, content: dict):
+        """Write an event the way ingestion does: metadata on `events`, message content only on `ai_events`."""
         _create_event(
-            event="$ai_span",
+            event=event,
             distinct_id="user-1",
             team=self.team,
             timestamp=timestamp,
-            event_uuid=str(span_uuid),
-            properties={
-                "$ai_trace_id": "trace-1",
-                "$ai_span_id": "span-1",
-                "$ai_span_name": "fetch-docs",
-                "$ai_input_state": {"query": "docs"},
-                "$ai_output_state": {"documents": 3},
-            },
+            event_uuid=str(event_uuid),
+            properties=metadata,
         )
         flush_persons_and_events()
+        # The flush above mirrors the stripped events row into ai_events, which would leave two
+        # rows for one uuid. Drop it so only the unstripped row production writes there remains.
+        sync_execute(TRUNCATE_AI_EVENTS_TABLE_SQL())
+        bulk_create_ai_events(
+            [
+                {
+                    "event": event,
+                    "team": self.team,
+                    "distinct_id": "user-1",
+                    "timestamp": timestamp,
+                    "event_uuid": str(event_uuid),
+                    "properties": {**metadata, **content},
+                }
+            ]
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "generation",
+                "$ai_generation",
+                {"$ai_trace_id": "trace-1", "$ai_model": "gpt-4"},
+                {
+                    "$ai_input": [{"role": "user", "content": "how do i reset my password"}],
+                    "$ai_output_choices": [{"role": "assistant", "content": "open account settings"}],
+                },
+                ["how do i reset my password", "open account settings"],
+            ),
+            (
+                "span",
+                "$ai_span",
+                {"$ai_trace_id": "trace-1", "$ai_span_id": "span-1", "$ai_span_name": "fetch-docs"},
+                {"$ai_input_state": {"query": "docs"}, "$ai_output_state": {"documents": 3}},
+                ["fetch-docs", "docs"],
+            ),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_summarizes_content_that_lives_only_in_ai_events(
+        self, _name, event, metadata, content, expected, mock_summarize
+    ):
+        """Ingestion strips the heavy properties off `events`, so reading them from there summarizes nothing."""
+        self._approve_ai_processing()
+        mock_summarize.return_value = SummarizationResponse(
+            title="Event Summary",
+            flow_diagram="Start\n    |\nComplete",
+            summary_bullets=[SummaryBullet(text="Handled the request", line_refs="L1")],
+            interesting_notes=[],
+        )
+
+        event_uuid = uuid.uuid4()
+        timestamp = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+        self._ingest_ai_event(event, event_uuid, timestamp, metadata, content)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/summarization/",
             {
-                "generation_id": str(span_uuid),
+                "generation_id": str(event_uuid),
                 "mode": "minimal",
                 "date_from": (timestamp - timedelta(days=1)).isoformat(),
                 "date_to": (timestamp + timedelta(days=1)).isoformat(),
@@ -448,9 +446,9 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertEqual(response.data["summary"]["title"], "Span Summary")
-        # The formatter upper-cases the span name in its header.
-        self.assertIn("fetch-docs", response.data["text_repr"].lower())
+        text_repr = response.data["text_repr"].lower()
+        for fragment in expected:
+            self.assertIn(fragment, text_repr)
 
     def test_unknown_event_uuid_is_reported_as_not_found(self):
         self._approve_ai_processing()
@@ -482,19 +480,7 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
                 "mode": "minimal",
                 "data": {
                     "trace": {"id": trace_id, "properties": {"$ai_span_name": "cached-trace"}},
-                    "hierarchy": [
-                        {
-                            "event": {
-                                "id": "gen1",
-                                "event": "$ai_generation",
-                                "properties": {
-                                    "$ai_input": [{"role": "user", "content": "hello"}],
-                                    "$ai_output_choices": [{"message": {"role": "assistant", "content": "hi"}}],
-                                },
-                            },
-                            "children": [],
-                        }
-                    ],
+                    "hierarchy": [],
                 },
             },
             format="json",
