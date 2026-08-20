@@ -4,7 +4,7 @@ import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { toParams } from 'lib/utils/url'
-import { FeatureFlagsFilters, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsFilters, featureFlagsLogic, flagMatchesSearch } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -117,7 +117,8 @@ export interface relatedFeatureFlagsLogicMeta {
         ) => RelatedFeatureFlag[]
         filteredMappedFlags: (
             mappedRelatedFeatureFlags: RelatedFeatureFlag[],
-            filters: Partial<RelatedFlagsFilters>
+            filters: Partial<RelatedFlagsFilters>,
+            searchTerm: string
         ) => RelatedFeatureFlag[]
         pagination: (pagination: PaginationManual, loadError: boolean) => PaginationManual | undefined
     }
@@ -145,10 +146,10 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
         actions: [featureFlagsLogic, ['setFeatureFlagsFilters', 'loadFeatureFlags']],
     })),
     actions({
-        setSearchTerm: (searchTerm: string) => {
-            featureFlagsLogic.actions.setFeatureFlagsFilters({ search: searchTerm })
-            return { searchTerm }
-        },
+        // Filter locally instead of writing the term into the shared featureFlagsLogic. That logic
+        // is a singleton reused by the flags list scene, so a write here leaked the search into the
+        // list URL and left it showing an empty result for a term the user never typed there.
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setFilters: (filters: Partial<RelatedFlagsFilters>, replace?: boolean) => ({ filters, replace }),
         loadRelatedFeatureFlags: true,
     }),
@@ -233,14 +234,15 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             },
         ],
         filteredMappedFlags: [
-            (selectors) => [selectors.mappedRelatedFeatureFlags, selectors.filters],
-            (featureFlags: RelatedFeatureFlag[], filters: Partial<RelatedFlagsFilters>) => {
-                if (Object.keys(filters).length === 0) {
-                    return featureFlags
+            (selectors) => [selectors.mappedRelatedFeatureFlags, selectors.filters, selectors.searchTerm],
+            (featureFlags: RelatedFeatureFlag[], filters: Partial<RelatedFlagsFilters>, searchTerm: string) => {
+                let filteredFlags = featureFlags
+
+                if (searchTerm) {
+                    filteredFlags = filteredFlags.filter((flag) => flagMatchesSearch(flag, searchTerm))
                 }
 
                 const { reason } = filters
-                let filteredFlags = featureFlags
                 if (reason) {
                     filteredFlags = filteredFlags.filter((flag) =>
                         reason === 'not matched'

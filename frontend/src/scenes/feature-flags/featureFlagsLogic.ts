@@ -21,6 +21,10 @@ import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 
 export const FLAGS_PER_PAGE = 100
 
+// The server rejects search terms longer than this (see products/feature_flags/backend/api/feature_flag.py).
+// The search input caps at the same length so the client and server agree.
+export const FEATURE_FLAG_SEARCH_MAX_LENGTH = 200
+
 export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boolean {
     if (!search?.trim()) {
         return true
@@ -196,6 +200,7 @@ export interface featureFlagsLogicValues {
     featureFlagsUpdating: Record<number, boolean>
     filters: FeatureFlagsFilters
     filtersChanged: boolean
+    hasActiveFilters: boolean
     pagination: PaginationManual
     paramsFromFilters: {
         active?: string | undefined
@@ -254,6 +259,9 @@ export interface featureFlagsLogicActions {
     ) => {
         filters: Partial<FeatureFlagsFilters>
         replace: boolean | undefined
+    }
+    resetFilters: () => {
+        value: true
     }
     toggleFeatureFlagActive: (
         id: number,
@@ -420,6 +428,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         deleteFlag: (id: number) => ({ id }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
+        resetFilters: true,
         toggleFeatureFlagActive: (id: number, active: boolean) => ({ id, active }),
         closeEnrichAnalyticsNotice: true,
         setFeatureFlagUpdating: (id: number, updating: boolean) => ({ id, updating }),
@@ -598,6 +607,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 },
             ],
         ],
+        hasActiveFilters: [
+            (s) => [s.filters],
+            (filters: FeatureFlagsFilters): boolean => !objectsEqual(filters, DEFAULT_FILTERS),
+        ],
         // Check to see if any non-default filters are being used
         shouldShowEmptyState: [
             (s) => [s.featureFlagsLoading, s.featureFlags, s.filters],
@@ -683,6 +696,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setActiveTab: () => {
             // Don't carry over pagination from previous tab
             actions.setFeatureFlagsFilters({ page: 1 }, true)
+        },
+        resetFilters: () => {
+            actions.setFeatureFlagsFilters(DEFAULT_FILTERS, true)
         },
         loadFeatureFlagsSuccess: () => {
             if (values.featureFlags.results.length > 0) {

@@ -78,6 +78,18 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.json()["counts"]["insight"], 3)
         self.assertEqual(response.json()["counts"]["notebook"], 2)
 
+    def test_archived_feature_flags_are_excluded(self):
+        FeatureFlag.objects.create(
+            key="archived-flag", team=self.team, created_by=self.user, archived=True, active=False
+        )
+
+        response = self.client.get("/api/projects/@current/search?entities=feature_flag")
+
+        self.assertEqual(response.status_code, 200)
+        result_ids = [result["extra_fields"]["key"] for result in response.json()["results"]]
+        self.assertNotIn("archived-flag", result_ids)
+        self.assertEqual(response.json()["counts"]["feature_flag"], 3)
+
     def test_search_filtered_by_entity(self):
         response = self.client.get(
             "/api/projects/@current/search?q=sec&entities=insight&entities=dashboard&entities=notebook"

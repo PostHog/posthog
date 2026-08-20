@@ -54,7 +54,14 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
-    "feature_flag": {"klass": FeatureFlag, "search_fields": {"key": "A", "name": "C"}, "extra_fields": ["key", "name"]},
+    "feature_flag": {
+        "klass": FeatureFlag,
+        "search_fields": {"key": "A", "name": "C"},
+        "extra_fields": ["key", "name"],
+        # Match the flag list, which hides archived flags by default. Deleted flags are already
+        # excluded by FeatureFlag.objects.
+        "filters": {"archived": False},
+    },
     "notebook": {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},

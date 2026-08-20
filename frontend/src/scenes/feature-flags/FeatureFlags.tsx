@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArchive, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -367,9 +367,16 @@ export function OverviewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
-        useValues(flagLogic)
-    const { setFeatureFlagsFilters } = useActions(flagLogic)
+    const {
+        featureFlagsLoading,
+        displayedFlags,
+        pagination,
+        filters,
+        shouldShowEmptyState,
+        filtersChanged,
+        hasActiveFilters,
+    } = useValues(flagLogic)
+    const { setFeatureFlagsFilters, resetFilters } = useActions(flagLogic)
 
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -592,7 +599,16 @@ export function OverviewTab({
                 pagination={pagination}
                 nouns={nouns}
                 data-attr="feature-flag-table"
-                emptyState="No results for this filter, change filter or create a new flag."
+                emptyState={
+                    hasActiveFilters ? (
+                        <>
+                            No feature flags match your filters.{' '}
+                            <Link onClick={() => resetFilters()}>Clear filters</Link>
+                        </>
+                    ) : (
+                        'No feature flags yet. Create one to get started.'
+                    )
+                }
                 onSort={(newSorting) =>
                     setFeatureFlagsFilters({
                         order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,

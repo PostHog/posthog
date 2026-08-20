@@ -207,6 +207,53 @@ describe('relatedFeatureFlagsLogic', () => {
         })
     })
 
+    describe('local search filtering', () => {
+        const setupMocks = (): void => {
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: [
+                        200,
+                        { results: MOCK_FLAGS, count: MOCK_FLAGS.length },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/evaluation_reasons`]:
+                        MOCK_EVALUATION_REASONS,
+                },
+            })
+        }
+
+        beforeEach(() => {
+            setupMocks()
+            flagsLogic = featureFlagsLogic()
+            flagsLogic.mount()
+            logic = relatedFeatureFlagsLogic({ distinctId: 'test-user' })
+            logic.mount()
+        })
+
+        it('does not write the search term into the shared featureFlagsLogic', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('flag-1')
+            }).toFinishAllListeners()
+
+            expect(logic.values.searchTerm).toEqual('flag-1')
+            // The shared list logic must stay on its default search — a leak here surfaced as an
+            // empty flags list showing a term the user never typed on that scene.
+            expect(flagsLogic.values.filters.search).toBeUndefined()
+        })
+
+        it('filters the mapped flags by the search term client-side', async () => {
+            await expectLogic(flagsLogic).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSearchTerm('flag-1')
+
+            const filtered = logic.values.filteredMappedFlags
+            expect(filtered.map((f) => f.key)).toEqual(['flag-1'])
+        })
+    })
+
     describe('load errors', () => {
         beforeEach(() => {
             // oxlint-disable-next-line react-hooks/rules-of-hooks
