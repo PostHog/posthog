@@ -1075,7 +1075,11 @@ def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> lis
         return uncovered_ids
     runs = {
         run.id: run
-        for run in TaskRun.objects.filter(id__in=uncovered_ids)  # nosemgrep: celery-task-team-scope-audit
+        for run in TaskRun.objects.filter(
+            id__in=uncovered_ids
+        ).select_related(  # nosemgrep: celery-task-team-scope-audit
+            "task"
+        )
     }
     dispatch_run_ids = set(
         TaskWorkflowDispatch.objects.unscoped()
@@ -1084,9 +1088,20 @@ def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> lis
     )
     for run_id in uncovered_ids:
         run = runs.get(run_id)
-        has_legacy_intent = bool(run and isinstance(run.state, dict) and run.state.get("pending_dispatch"))
-        if run_id not in dispatch_run_ids and not has_legacy_intent:
+        state = run.state if run and isinstance(run.state, dict) else {}
+        has_legacy_intent = bool(state.get("pending_dispatch"))
+        awaiting_restart_rollout = bool(state.get("handoff_resumed"))
+        if run_id not in dispatch_run_ids and not has_legacy_intent and not awaiting_restart_rollout:
             WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc()
+            logger.warning(
+                "workflow_dispatch_missing_intent",
+                extra={
+                    "run_id": str(run_id),
+                    "task_id": str(run.task_id) if run else None,
+                    "team_id": run.team_id if run else None,
+                    "origin_product": run.task.origin_product if run else None,
+                },
+            )
     return uncovered_ids
 
 
@@ -8189,25 +8204,6 @@ def request_canvas_change(
     if outcome in {"signaled", "new_run"}:
         create_thread_message(task_id, team_id, acting_user_id, content="Run requested from the canvas")
     return outcome
-
-
-def _dispatch_server_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:
-    """Dispatch a server-originated run's processing workflow, bypassing the per-user check.
-
-    Nothing canvas-specific: kept here because ``temporal.client`` puts temporalio on
-    its import path and this module must not.
-    """
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        execute_task_processing_workflow,
-    )
-
-    execute_task_processing_workflow(
-        task_id=task_id,
-        run_id=run_id,
-        team_id=team_id,
-        user_id=user_id,
-        skip_user_check=True,
-    )
 
 
 _GITHUB_PR_PATH_PATTERN = re.compile(r"/([^/]+)/([^/]+)/pull/(\d+)/?", re.IGNORECASE)
