@@ -1346,7 +1346,7 @@ export const getTasksHandoffCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Transfer ownership of a task to another member of the project: they take over driving it (steering, archiving, running), and future runs resolve GitHub authorship and notification recipients from them. Only the task's current owner can hand it off. A task in a private space moves into the recipient's private space; a task in a shared space stays there.
+ * Transfer ownership of a task to another member of the project: they take over driving it (steering, archiving, running), and future runs resolve GitHub authorship and notification recipients from them. Only the task's current owner can hand it off. Every run must be finished or canceled, and every sandbox must be shut down first. A task in a private space moves into the recipient's private space; a task in a shared space stays there.
  * @summary Hand a task off to a colleague
  */
 export const tasksHandoffCreate = async (

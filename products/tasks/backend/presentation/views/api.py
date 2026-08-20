@@ -46,7 +46,12 @@ from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.models import User
-from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.permissions import (
+    APIScopePermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_mcp_built_in_agent_oauth_request,
+)
 from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
@@ -700,14 +705,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Transfer ownership of a task to another member of the project: they take over driving it "
             "(steering, archiving, running), and future runs resolve GitHub authorship and notification "
-            "recipients from them. Only the task's current owner can hand it off. A task in a private "
-            "space moves into the recipient's private space; a task in a shared space stays there."
+            "recipients from them. Only the task's current owner can hand it off. Every run must be "
+            "finished or canceled, and every sandbox must be shut down first. A task in a private space "
+            "moves into the recipient's private space; a task in a shared space stays there."
         ),
     )
     @action(detail=True, methods=["post"], url_path="handoff", required_scopes=["task:write"])
     @validated_request(request_serializer=TaskHandoffRequestSerializer)
     def handoff(self, request, pk=None, **kwargs):
-        if _sandbox_bound_task_id(request) is not None:
+        if _sandbox_bound_task_id(request) is not None or is_mcp_built_in_agent_oauth_request(request):
             raise PermissionDenied("Only a user can hand off a task. Sign in to continue.")
         user_id = self._user_id()
         if user_id is None:
@@ -1240,6 +1246,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             for_control=not is_read_only,
         ):
             raise NotFound("Task not found")
+        run_id = self.kwargs.get("pk")
+        if (
+            not is_read_only
+            and run_id is not None
+            and not tasks_facade.task_run_matches_current_ownership(run_id, task_id, self.team_id)
+        ):
+            raise NotFound("Task run not found")
         return task_id
 
     def _get_run_or_404(self, pk) -> tasks_contracts.TaskRunDetailDTO:
@@ -1391,6 +1404,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "detail": "Some pending_user_artifact_ids are invalid for this run",
                     "missing_artifact_ids": missing,
                 },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "ownership_changed":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "This run belongs to a previous task owner. Start a new run instead."}
+                ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -2702,6 +2722,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if outcome == "already_active":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "ownership_changed":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "This run belongs to a previous task owner. Start a new run instead."}
+                ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if outcome.startswith("auth_error:"):
