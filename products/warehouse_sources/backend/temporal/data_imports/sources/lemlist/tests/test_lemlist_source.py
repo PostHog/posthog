@@ -35,6 +35,14 @@ class TestLemlistSourceConfig:
         assert api_key_field.required is True
 
 
+class TestVersioning:
+    def test_supports_v1_and_v2_defaulting_to_v2(self) -> None:
+        source = LemlistSource()
+        assert source.supported_versions == ("v1", "v2")
+        # New sources are stamped with default_version; v2 is lemlist's current version.
+        assert source.default_version == "v2"
+
+
 class TestGetSchemas:
     def test_returns_all_endpoints(self) -> None:
         schemas = LemlistSource().get_schemas(_config(), team_id=1)
@@ -111,6 +119,7 @@ class TestSourceForPipeline:
             schema_name="activities",
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-05-11T00:00:00Z",
+            api_version="v1",
         )
         result: Any = LemlistSource().source_for_pipeline(_config("secret"), manager, inputs)
 
@@ -119,6 +128,8 @@ class TestSourceForPipeline:
         assert captured["endpoint"] == "activities"
         assert captured["should_use_incremental_field"] is True
         assert captured["db_incremental_field_last_value"] == "2026-05-11T00:00:00Z"
+        # A present pin is honored verbatim; a NULL pin would resolve to default_version.
+        assert captured["api_version"] == "v1"
 
     def test_drops_last_value_when_not_incremental(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

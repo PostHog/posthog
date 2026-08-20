@@ -119,7 +119,18 @@ class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         related_name="feature_request_links",
     )
+    unlinked_at = models.DateTimeField(null=True, blank=True)
+    unlinked_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -128,6 +139,43 @@ class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
                 name="unique_feature_request_account_link",
             ),
         ]
+
+
+class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    account_link = models.ForeignKey(
+        FeatureRequestAccountLink,
+        on_delete=models.CASCADE,
+        related_name="evidence",
+    )
+    summary = models.TextField(blank=True, default="")
+    customer_quote = models.TextField(blank=True, default="")
+    source = models.CharField(max_length=200)
+    source_url = models.URLField(max_length=2000, blank=True, default="")
+    requested_on = models.DateField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    updated_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = [models.F("requested_on").desc(nulls_last=True), "-created_at", "-id"]
 
 
 class FeatureRequestProductAreaLink(TeamScopedRootMixin, UUIDModel):

@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
 
+# The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
+# sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
+MASKED_SECRET_VALUE = "********"
+
 # Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
 # is what the send path enforces after rendering. Keep the two in sync.
 FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
@@ -453,6 +457,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "non_failure_status_codes",
             "customer_analytics_account_properties",
             "customer_analytics_account_relationships",
+            "task_model",
+            "task_repository",
+            "task_mcp_installations",
         ]
     )
     key = serializers.CharField()
@@ -543,6 +550,30 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration_multi":
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
+        elif item_type == "task_repository":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
+        elif item_type == "task_model":
+            # A non-empty value means a model was chosen (an empty value returned above as "use the
+            # default model"), so it must name a usable model. Otherwise the run-time consumer drops
+            # the setting and the task silently falls back to the default, which this guard exists to
+            # prevent for programmatically authored workflows.
+            model = value.get("model") if isinstance(value, dict) else None
+            reasoning_effort = value.get("reasoning_effort") if isinstance(value, dict) else None
+            if (
+                not isinstance(value, dict)
+                or not isinstance(model, str)
+                or not model
+                or (reasoning_effort is not None and not isinstance(reasoning_effort, str))
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "input": "Value must be an object with a non-empty 'model' string and an optional 'reasoning_effort' string."
+                    }
+                )
+        elif item_type == "task_mcp_installations":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of MCP connector IDs."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
@@ -692,10 +723,15 @@ class InputsSerializer(serializers.DictField):
             value = data.get(key) or {}
 
             if schema.get("secret"):
-                # A {"secret": true} value with no "value" is the read-back mask, meaning "keep the
-                # stored secret". One that also carries a "value" is a rotation and must win, so it
-                # falls through to normal validation.
-                is_masked = isinstance(value, dict) and bool(value.get("secret")) and "value" not in value
+                # A {"secret": true} value the user did not retype is the read-back mask, meaning
+                # "keep the stored secret". The UI sends it either without a "value" key or with the
+                # literal mask as the value, so both shapes must count as masked. A different "value"
+                # is a rotation and must win, so it falls through to normal validation.
+                is_masked = (
+                    isinstance(value, dict)
+                    and bool(value.get("secret"))
+                    and ("value" not in value or value.get("value") == MASKED_SECRET_VALUE)
+                )
                 if is_masked or value == {}:
                     existing_value = (existing_secret_inputs or {}).get(key)
                     if existing_value:
@@ -723,6 +759,12 @@ class InputsSerializer(serializers.DictField):
 
                 if "value" not in input_value:
                     # Indicates no value is provided and no error was thrown which is fine so we can exclude it
+                    continue
+
+                if schema.get("secret") and input_value.get("value") == MASKED_SECRET_VALUE:
+                    # The mask reached persistence, so recovery of the stored secret failed. Refuse
+                    # rather than encrypt the mask and silently destroy the real credential.
+                    errors[key] = "This secret input was not updated correctly. Enter the value again."
                     continue
 
                 result[key] = input_value

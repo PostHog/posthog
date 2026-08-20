@@ -64,6 +64,7 @@ rules:
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
+                              |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -182,6 +183,7 @@ rules:
                               |FeatureFlag
                               |FeatureRequest
                               |FeatureRequestAccountLink
+                              |FeatureRequestEvidence
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
@@ -435,6 +437,7 @@ rules:
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
+                        |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -553,6 +556,7 @@ rules:
                         |FeatureFlag
                         |FeatureRequest
                         |FeatureRequestAccountLink
+                        |FeatureRequestEvidence
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink

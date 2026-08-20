@@ -10,9 +10,9 @@ from django.db import connection
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.hog_function import (
@@ -1935,8 +1935,27 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             # The whole point: a non-rerunnable type must never reach the enqueue path.
             mock_rerun.assert_not_called()
 
+    def test_rerun_rejected_when_function_disabled(self):
+        fn = HogFunction.objects.create(team=self.team, type="destination", hog="return event", enabled=False)
+
+        with patch("products.cdp.backend.api.hog_function.rerun_hog_invocations") as mock_rerun:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{fn.id}/rerun/",
+                data={
+                    "filter": {
+                        "window_start": "2026-07-01T00:00:00Z",
+                        "window_end": "2026-07-02T00:00:00Z",
+                    }
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "disabled" in response.json()["detail"]
+        # The worker drops invocations of disabled functions, so the enqueue path must not be reached.
+        mock_rerun.assert_not_called()
+
     def test_rerun_allowed_for_destination(self):
-        fn = HogFunction.objects.create(team=self.team, type="destination", hog="return event")
+        fn = HogFunction.objects.create(team=self.team, type="destination", hog="return event", enabled=True)
 
         with patch("products.cdp.backend.api.hog_function.rerun_hog_invocations") as mock_rerun:
             mock_rerun.return_value = MagicMock(status_code=200, json=lambda: {"rerun_job_id": "job-1"})

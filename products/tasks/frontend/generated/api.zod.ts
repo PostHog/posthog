@@ -901,7 +901,7 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
     .describe('Request body for clearing the unread flag on specific tasks.')
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false.
+ * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false. The general name returns the team's general space; names that read as a private space ("me", "personal") are rejected.
  * @summary Resolve or create a public channel
  */
 export const taskChannelsCreateBodyNameMax = 128
@@ -951,9 +951,10 @@ export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
     .describe("Request body for posting a system announcement into a channel's feed.")
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary Rename a public channel
  */
 export const taskChannelsPartialUpdateBodyNameMax = 128
@@ -980,9 +981,10 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary Set or clear the channel's CONTEXT.md generation task
  */
 export const TaskChannelsContextGenerationUpdateBody = /* @__PURE__ */ zod
@@ -1041,9 +1043,10 @@ export const TaskChannelsInstructionsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for publishing a new instructions version.')
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary Star or unstar a channel for the requesting user
  */
 export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
@@ -1504,6 +1507,22 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
     .describe(
         'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
     )
+
+/**
+ * Transfer ownership of a task to another member of the project: they take over driving it (steering, archiving, running), and future runs resolve GitHub authorship and notification recipients from them. Only the task's current owner can hand it off. Every run must be finished or canceled, and every sandbox must be shut down first. A task in a private space moves into the recipient's private space; a task in a shared space stays there.
+ * @summary Hand a task off to a colleague
+ */
+
+export const TasksHandoffCreateBody = /* @__PURE__ */ zod
+    .object({
+        user: zod
+            .number()
+            .min(1)
+            .describe(
+                "ID of the user taking over the task. Must have access to this project and not be the task's current owner."
+            ),
+    })
+    .describe('Request body for handing a task off to a colleague: they become its owner.')
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -2678,6 +2697,32 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
         id: zod.unknown().optional().describe('Optional JSON-RPC request ID (string or number)'),
     })
     .describe('JSON-RPC request to send a command to the agent server in the sandbox.')
+
+/**
+ * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
+ * @summary Send a message to a peer agent run
+ */
+export const tasksRunsPeersMessageCreateBodyContentMax = 16000
+
+export const tasksRunsPeersMessageCreateBodyArtifactIdsItemMax = 128
+
+export const tasksRunsPeersMessageCreateBodyArtifactIdsMax = 10
+
+export const TasksRunsPeersMessageCreateBody = /* @__PURE__ */ zod.object({
+    content: zod
+        .string()
+        .max(tasksRunsPeersMessageCreateBodyContentMax)
+        .describe(
+            'Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.'
+        ),
+    artifact_ids: zod
+        .array(zod.string().max(tasksRunsPeersMessageCreateBodyArtifactIdsItemMax))
+        .max(tasksRunsPeersMessageCreateBodyArtifactIdsMax)
+        .optional()
+        .describe(
+            "Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot."
+        ),
+})
 
 /**
  * Queue a Slack relay workflow to post a run message into the mapped Slack thread.

@@ -220,6 +220,36 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(invocations).toHaveLength(1)
             expect(invocations[0].teamId).toBe(fnWithDataWarehouseFilter.team_id)
         })
+
+        it("should only invoke destinations subscribed to the row's table", async () => {
+            const fnForOrders = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
+                filters: {
+                    source: 'data-warehouse-table',
+                    bytecode: ['_h', 29],
+                    data_warehouse: [{ table_name: 'postgres.orders' }],
+                },
+            })
+
+            await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
+                filters: {
+                    source: 'data-warehouse-table',
+                    bytecode: ['_h', 29],
+                    data_warehouse: [{ table_name: 'stripe.charge' }],
+                },
+            })
+
+            const messages = [createKafkaMessage(createDataWarehouseEvent(team.id, {}, 'postgres.orders'))]
+            const globals = await processor._parseKafkaBatch(messages)
+
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations).toHaveLength(1)
+            expect((invocations[0] as any).hogFunction.id).toBe(fnForOrders.id)
+        })
     })
 
     describe('processBatch', () => {

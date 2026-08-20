@@ -1484,6 +1484,73 @@ class TaskRunArtifactsDismissResponseSerializer(serializers.Serializer):
     artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
 
 
+class TaskRunPeerSerializer(serializers.Serializer):
+    """One peer agent run visible to the requesting run (agent peer messaging)."""
+
+    run_id = serializers.CharField(help_text="The peer run's id — the address send_agent_message targets.")
+    task_id = serializers.CharField(help_text="Id of the peer run's parent task.")
+    task_title = serializers.CharField(help_text="Title of the peer run's parent task.")
+    created_by_email = serializers.CharField(
+        allow_null=True, help_text="Email of the user whose task the peer run belongs to."
+    )
+    runtime = serializers.CharField(help_text="Agent runtime of the peer run's task (e.g. 'pi').")
+    model = serializers.CharField(allow_null=True, help_text="Model the peer run was started with, when recorded.")
+    repository = serializers.CharField(
+        allow_null=True, help_text="Repository the peer run works on, or null for repo-less (channel-mode) runs."
+    )
+    stage = serializers.CharField(allow_null=True, help_text="Current stage of the peer run (e.g. 'build').")
+    status = serializers.CharField(help_text="Run status: 'in_progress' or 'queued' (only these are listed).")
+    sendable = serializers.BooleanField(
+        help_text=(
+            "Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is "
+            "listed but its workflow may not exist yet. Never infer sendability from status labels."
+        )
+    )
+    updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the peer run's last update.")
+
+
+class TaskRunPeersResponseSerializer(serializers.Serializer):
+    peers = TaskRunPeerSerializer(
+        many=True, help_text="Active agent runs the requesting run may message, most recently updated first."
+    )
+
+
+class TaskRunPeerMessageRequestSerializer(serializers.Serializer):
+    content = serializers.CharField(
+        max_length=16_000,
+        help_text=(
+            "Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed "
+            "provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files."
+        ),
+    )
+    artifact_ids = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        required=False,
+        default=list,
+        max_length=10,
+        help_text=(
+            "Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the "
+            "target run's own artifact storage; the receiver gets an immutable snapshot."
+        ),
+    )
+
+
+class TaskRunPeerMessageResponseSerializer(serializers.Serializer):
+    result = serializers.ChoiceField(
+        choices=["accepted", "target_finished", "rejected"],
+        help_text=(
+            "Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), "
+            "'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid)."
+        ),
+    )
+    detail = serializers.CharField(help_text="Human-readable explanation of the result.")
+    message_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Id of the recorded peer message, when one was created for this send.",
+    )
+
+
 TASK_SUMMARIES_MAX_IDS = 5000
 
 
@@ -1518,6 +1585,11 @@ class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 
     origin_product = serializers.CharField(required=False, help_text="Filter by origin product")
+    exclude_origin_product = serializers.ChoiceField(
+        required=False,
+        choices=tasks_facade.TaskOriginProduct.choices,
+        help_text="Exclude tasks with this origin product from the results",
+    )
     stage = serializers.CharField(required=False, help_text="Filter by task run stage")
     organization = serializers.CharField(required=False, help_text="Filter by repository organization")
     repository = serializers.CharField(
@@ -1623,6 +1695,16 @@ class ChannelSerializer(DataclassSerializer):
     """Response shape for a task channel, read from a frozen ``ChannelDTO``."""
 
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    system_role = serializers.ChoiceField(
+        choices=tasks_facade.Channel.SystemRole.choices,
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Identifies this channel as one of the two system-provisioned spaces "
+            "('personal' for the user's own #me space, 'general' for the team's "
+            "shared #general space). Null for an ordinary channel."
+        ),
+    )
 
     class Meta:
         dataclass = ChannelDTO
@@ -1635,7 +1717,26 @@ class ChannelSerializer(DataclassSerializer):
             "created_at",
             "created_by",
             "starred",
+            "system_role",
         ]
+
+
+class ProvisionedChannelsSerializer(serializers.Serializer):
+    """The requester's default channels, plus whether this call is what created them."""
+
+    channels = ChannelSerializer(
+        many=True,
+        help_text="The full channel list after provisioning, same shape as the list endpoint.",
+    )
+    personal_created = serializers.BooleanField(
+        help_text="Whether this call created the requester's personal #me channel."
+    )
+    general_created = serializers.BooleanField(
+        help_text=(
+            "Whether this call created the team's shared #general channel. True only for "
+            "the first user to provision it, so clients can branch first-user setup on it."
+        )
+    )
 
 
 class ChannelDeleteConflictSerializer(serializers.Serializer):
@@ -1657,6 +1758,13 @@ class ChannelWriteSerializer(serializers.Serializer):
         ),
     )
 
+    def validate_name(self, value: str) -> str:
+        # "general" resolves the team's general space here, so only the personal names are
+        # refused.
+        if tasks_facade.is_personal_space_name(value):
+            raise serializers.ValidationError("That name is reserved for private spaces. Pick another name.")
+        return value
+
 
 class ChannelUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(
@@ -1676,6 +1784,11 @@ class ChannelUpdateSerializer(serializers.Serializer):
         max_length=10,
         help_text="GitHub repositories inherited by new tasks in this channel.",
     )
+
+    def validate_name(self, value: str) -> str:
+        if tasks_facade.is_reserved_channel_name(value):
+            raise serializers.ValidationError("That name is reserved for a default space. Pick another name.")
+        return value
 
     def validate_github_integration(self, value):
         if value is not None and value.team_id != self.context["team_id"]:
@@ -2157,6 +2270,17 @@ class PinnedTaskIdsResponseSerializer(serializers.Serializer):
 
 class TaskPinRequestSerializer(serializers.Serializer):
     pinned = serializers.BooleanField(help_text="Whether the task should be pinned for the requester.")
+
+
+class TaskHandoffRequestSerializer(serializers.Serializer):
+    """Request body for handing a task off to a colleague: they become its owner."""
+
+    user = serializers.IntegerField(
+        min_value=1,
+        help_text=(
+            "ID of the user taking over the task. Must have access to this project and not be the task's current owner."
+        ),
+    )
 
 
 class TaskPinResponseSerializer(serializers.Serializer):
