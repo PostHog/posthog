@@ -54,6 +54,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.scanner_access import (
+    can_read_targeted_experiment,
     scanner_for_reading_observations,
     scanners_for_reading_observations,
 )
@@ -770,6 +771,11 @@ class ReplayObservationViewSet(
         self.check_object_permissions(self.request, scanner)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        # An experiment scanner's observations are that experiment's exposed sessions, so reading them
+        # needs experiment access too. Not-found, not 403: a denied experiment scanner reads as if it
+        # doesn't exist, matching the serializer's targeting redaction.
+        if not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner):
+            raise NotFound()
         self._scanner_for_url_cache = scanner
         return scanner
 
@@ -1075,12 +1081,16 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
         # Observations inherit their scanner's RBAC. The generic access filter keys on the ReplayObservation
-        # row rather than its scanner, so scope explicitly to the scanners this caller can read.
-        readable_scanner_ids = list(
-            self.user_access_control.filter_queryset_by_access_level(
-                scanners_for_reading_observations(self.team_id)
-            ).values_list("id", flat=True)
-        )
+        # row rather than its scanner, so scope explicitly to the scanners this caller can read. Experiment
+        # scanners also need experiment access, since their observations are the experiment's exposed sessions.
+        readable_scanners = self.user_access_control.filter_queryset_by_access_level(
+            scanners_for_reading_observations(self.team_id)
+        ).only("id", "experiment_targeting")
+        readable_scanner_ids = [
+            scanner.id
+            for scanner in readable_scanners
+            if can_read_targeted_experiment(self.user_access_control, self.team_id, scanner)
+        ]
         queryset = (
             queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
             .select_related("triggered_by_user", "label")

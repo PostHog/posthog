@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
 
+from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
 if TYPE_CHECKING:
@@ -37,6 +38,23 @@ def scanners_for_reading_observations(team_id: int) -> "QuerySet[ReplayScanner]"
     access-level filter on top — this widens origin, not RBAC.
     """
     return ReplayScanner.all_origins.filter(team_id=team_id)
+
+
+def can_read_targeted_experiment(access: UserAccessControl, team_id: int, scanner: ReplayScanner) -> bool:
+    """Whether the caller may read a scanner whose population is an experiment's exposed persons.
+
+    An experiment scanner's observations are that experiment's exposed sessions, so reading them
+    discloses the same protected data the exposure filter is gated on: which people and sessions
+    were exposed. Scanner and session-recording access alone don't cover that, so a caller denied
+    the experiment must not read the scanner's observations. A scanner with no experiment targeting
+    is unaffected. Mirrors the serializer's `_can_view_targeted_experiment` redaction, on the read
+    path this time.
+    """
+    targeting = scanner.experiment_targeting
+    if not targeting or targeting.get("experiment_id") is None:
+        return True
+    accessible = access.filter_queryset_by_access_level(Experiment.objects.filter(team_id=team_id))
+    return accessible.filter(id=targeting["experiment_id"]).exists()
 
 
 def scanner_for_reading_observations(team_id: int, scanner_id: "str | uuid.UUID") -> ReplayScanner | None:

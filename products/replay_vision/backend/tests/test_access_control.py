@@ -321,6 +321,37 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([s["name"] for s in resp.json()["results"]], ["targeted"])
 
+    def test_observations_of_a_denied_experiment_scanner_read_as_not_found(self) -> None:
+        # An experiment scanner's observations are the experiment's exposed sessions, so scanner +
+        # session_recording access is not enough to read them: a caller denied the experiment must
+        # not learn which sessions and people were exposed. Reads as not-found, not 403, matching
+        # the targeting redaction. A non-targeted scanner the same caller can read is the control.
+        experiment = create_experiment(self.team, "hidden-flag")
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+        targeted = self._create_scanner(name="targeted", experiment_targeting={"experiment_id": experiment.id})
+        plain = self._create_scanner(name="plain")
+        ReplayObservation.objects.create(scanner=targeted, session_id="exposed-sess")
+        ReplayObservation.objects.create(scanner=plain, session_id="plain-sess")
+
+        self.client.force_login(self.other_user)
+        targeted_url = self.observations_url(str(targeted.id))
+        self.assertEqual(self.client.get(targeted_url).status_code, 404)
+        self.assertEqual(self.client.get(f"{targeted_url}stats/").status_code, 404)
+
+        # Same access, non-targeted scanner: the experiment gate must not have widened to a blanket block.
+        plain_resp = self.client.get(self.observations_url(str(plain.id)))
+        self.assertEqual(plain_resp.status_code, 200, plain_resp.json())
+        self.assertEqual([o["session_id"] for o in plain_resp.json()["results"]], ["plain-sess"])
+
+        # The session-wide dock endpoint drops the exposed session but keeps the readable one.
+        dock_url = f"/api/environments/{self.team.id}/vision/observations/"
+        dock_resp = self.client.get(f"{dock_url}?session_id=exposed-sess")
+        self.assertEqual(dock_resp.status_code, 200, dock_resp.json())
+        self.assertEqual(dock_resp.json()["results"], [])
+
 
 class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):
     def setUp(self) -> None:
