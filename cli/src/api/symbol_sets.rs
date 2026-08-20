@@ -437,6 +437,12 @@ impl EndpointRouter {
         }
     }
 
+    /// A response from the primary endpoint disproves the blocked-endpoint
+    /// hypothesis, so only consecutive transport errors count as evidence.
+    fn record_primary_response(&mut self) {
+        self.primary_transport_errors = 0;
+    }
+
     /// A fallback success flips the latch only when the primary failed at the
     /// transport level while the fallback never did; transport errors on both
     /// URLs point at a generally unreliable network rather than a blocked
@@ -488,6 +494,9 @@ fn upload_to_s3(
                 return Err(e.into());
             }
         };
+        if !use_fallback {
+            router.record_primary_response();
+        }
         // HTTP errors never reroute: a response proves the endpoint is
         // reachable, and the standard endpoint would return the same error.
         raise_for_err(response)?;
@@ -748,6 +757,16 @@ mod tests {
         assert!(!router.use_fallback(false));
         router.record_transport_error(false);
         assert!(router.use_fallback(false));
+    }
+
+    #[test]
+    fn endpoint_router_counts_only_consecutive_primary_transport_errors() {
+        let mut router = EndpointRouter::default();
+        router.record_transport_error(false);
+        router.record_primary_response();
+        router.record_transport_error(false);
+        assert!(!router.use_fallback(false));
+        assert!(!router.should_set_latch(true));
     }
 
     #[test]
