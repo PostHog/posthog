@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
+import gates
 from gates import (
     DEPENDENCY_ECOSYSTEMS,
-    DISMISS_TIME_LOCKFILES,
     build_ownership,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
@@ -505,16 +505,6 @@ def test_has_dependency_changes_recognizes_uncurated_manifests_and_lockfiles(pat
     assert has_dependency_changes([path]) is True
 
 
-def test_dismiss_time_trust_is_opt_in_per_ecosystem() -> None:
-    # Dismiss-time trust must be an explicit per-ecosystem decision: go.sum
-    # (trusted_at_dismiss unset) stays out even though it is a deny-listed
-    # lockfile, while node's lockfiles — including npm-shrinkwrap.json — opt
-    # in. Catches a revert to deriving trust from the whole lockfile set.
-    assert "go.sum" not in DISMISS_TIME_LOCKFILES
-    assert "pnpm-lock.yaml" in DISMISS_TIME_LOCKFILES
-    assert "npm-shrinkwrap.json" in DISMISS_TIME_LOCKFILES
-
-
 # ── Ownership sources ────────────────────────────────────────────
 
 _HOGLI_RESOLVER = (OwnershipSource(format="hogli-resolver", path="."),)
@@ -564,3 +554,13 @@ def test_ownership_cross_team_and_unowned(tmp_path: Path) -> None:
     outside = detect_ownership(["posthog/models/x.py"], resolvers)
     assert outside["teams"] == []
     assert outside["unowned_files"] == 1
+
+
+def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
+    # policy.repo_root() walks up to find a .stamphog/ directory, and the PR head is untrusted. A PR
+    # that adds tools/.stamphog/ would move that root and aim the lookup at a directory that the PR
+    # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
+    # credentials. Both candidates must stay fixed offsets from the engine's own file.
+    engine_dir = Path(gates.__file__).resolve().parent
+    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parent / "owners"
+    assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parents[3] / "tools" / "owners"

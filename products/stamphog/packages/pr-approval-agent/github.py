@@ -92,7 +92,7 @@ def is_bot_author(user: dict) -> bool:
 
     GitHub Apps (dependabot, mendral, other agents) report user.type == "Bot";
     machine users like posthog-bot are type "User", so match them by login.
-    Mirrors the bot definition gating the jobs in pr-approval-agent.yml.
+    Mirrors the bot definition the hosted webhook pre-filter uses (_is_bot_authored).
     """
     if user.get("type") == "Bot":
         return True
