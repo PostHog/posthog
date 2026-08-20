@@ -701,7 +701,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"], url_path="handoff", required_scopes=["task:write"])
     @validated_request(request_serializer=TaskHandoffRequestSerializer)
     def handoff(self, request, pk=None, **kwargs):
-        if pk is not None and is_sandbox_agent_request(request, pk):
+        if _sandbox_bound_task_id(request) is not None:
             raise PermissionDenied("Only a user can hand off a task. Sign in to continue.")
         user_id = self._user_id()
         if user_id is None:
@@ -1136,16 +1136,20 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 @extend_schema(tags=["task-runs", "tasks"])
-def is_sandbox_agent_request(request, task_id: str) -> bool:
-    """True only for the task-bound sandbox OAuth identity, never a human session or key."""
+def _sandbox_bound_task_id(request) -> UUID | None:
     authenticator = request.successful_authenticator
     if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-        return False
+        return None
     access_token = authenticator.access_token
     application = access_token.application
     if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
-        return False
-    return access_token.sandbox_task_id == UUID(task_id)
+        return None
+    return access_token.sandbox_task_id
+
+
+def is_sandbox_agent_request(request, task_id: str) -> bool:
+    """True only for the task-bound sandbox OAuth identity, never a human session or key."""
+    return _sandbox_bound_task_id(request) == UUID(task_id)
 
 
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

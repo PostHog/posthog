@@ -9219,10 +9219,11 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
             },
         )
 
-    def test_handoff_rejects_task_bound_sandbox_agent(self):
+    def test_handoff_rejects_task_bound_sandbox_agent_from_another_task(self):
         recipient = self.create_organization_user("recipient")
+        bound_task = self.create_task(created_by=self.user)
         task = self.create_task(created_by=self.user)
-        client = self._sandbox_oauth_client(task.id)
+        client = self._sandbox_oauth_client(bound_task.id)
 
         response = client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
 
