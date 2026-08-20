@@ -463,12 +463,15 @@ impl PersonhogStore {
     /// One transaction per chunk of acks in place of one round trip per
     /// ack: a plan freezing hundreds of partitions has every router
     /// acking each of them, and serial puts hold the freeze quorum on
-    /// the slowest router's whole sequence. Chunked at etcd's default
-    /// `--max-txn-ops` so a batch never outgrows a server on defaults.
-    /// An empty batch costs nothing.
-    pub async fn put_freeze_acks(&self, acks: &[RouterFreezeAck]) -> Result<()> {
-        const MAX_TXN_OPS: usize = 128;
-        for chunk in acks.chunks(MAX_TXN_OPS) {
+    /// the slowest router's whole sequence. `max_txn_ops` must not
+    /// exceed the server's own limit, which refuses a larger batch
+    /// outright. An empty batch costs nothing.
+    pub async fn put_freeze_acks(
+        &self,
+        acks: &[RouterFreezeAck],
+        max_txn_ops: usize,
+    ) -> Result<()> {
+        for chunk in acks.chunks(max_txn_ops.max(1)) {
             count_call("put_freeze_acks");
             let mut ops = Vec::with_capacity(chunk.len());
             for ack in chunk {

@@ -30,9 +30,7 @@ use tracing_subscriber::EnvFilter;
 
 use metrics::{counter, gauge};
 use personhog_leader::cache::{DirtyIndex, PartitionedCache};
-use personhog_leader::config::{
-    Config, COORDINATION_GRACEFUL_SHUTDOWN, GLOBAL_SHUTDOWN_TIMEOUT, PHASE1_GRACEFUL_SHUTDOWN,
-};
+use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::fencing::{
     preregister_fencing_metrics, FencedChangelogProducers, FencedProducerConfig,
@@ -65,6 +63,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config
         .validate_fencing_timescales()
         .expect("Invalid fencing configuration");
+    config
+        .validate_shutdown_budgets()
+        .expect("Invalid shutdown configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
     // Initialize tracing
@@ -106,13 +107,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `validate_lease_timescales` refuses a configuration that breaks
     // the first relation at startup.
     let mut manager = Manager::builder("personhog-leader")
-        .with_global_shutdown_timeout(GLOBAL_SHUTDOWN_TIMEOUT)
+        .with_global_shutdown_timeout(config.global_shutdown_timeout())
         .build();
 
     let grpc_handle = manager.register(
         "grpc-server",
         ComponentOptions::new()
-            .with_graceful_shutdown(PHASE1_GRACEFUL_SHUTDOWN)
+            .with_graceful_shutdown(config.phase1_graceful_shutdown())
             .with_shutdown_phase(1),
     );
     let metrics_handle = manager.register(
@@ -121,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let coordination_handle = manager.register(
         "coordination",
-        ComponentOptions::new().with_graceful_shutdown(COORDINATION_GRACEFUL_SHUTDOWN),
+        ComponentOptions::new().with_graceful_shutdown(config.coordination_graceful_shutdown()),
     );
     let kafka_handle = manager.register(
         "kafka-producer",
@@ -129,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // spawned after the producer is built normally completes well
         // inside it.
         ComponentOptions::new()
-            .with_graceful_shutdown(PHASE1_GRACEFUL_SHUTDOWN)
+            .with_graceful_shutdown(config.phase1_graceful_shutdown())
             .with_shutdown_phase(1),
     );
 

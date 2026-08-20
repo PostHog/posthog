@@ -17,10 +17,7 @@ use personhog_router::backend::discovery::{EndpointConfig, EndpointDiscovery};
 use personhog_router::backend::{
     LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaDnsConfig, StashTable,
 };
-use personhog_router::config::{
-    Config, ReplicaDiscoveryMode, RouterMode, COORDINATOR_GRACEFUL_SHUTDOWN,
-    GLOBAL_SHUTDOWN_TIMEOUT, GRPC_GRACEFUL_SHUTDOWN, PHASE1_GRACEFUL_SHUTDOWN,
-};
+use personhog_router::config::{Config, ReplicaDiscoveryMode, RouterMode};
 use personhog_router::proxy::RawProxyService;
 use personhog_router::stash_handler::RouterStashHandler;
 use tokio_util::sync::CancellationToken;
@@ -42,6 +39,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::init_from_env().expect("Invalid configuration");
     if let Err(e) = config.validate_lease_timescales() {
         panic!("invalid lease configuration: {e}");
+    }
+    if let Err(e) = config.validate_shutdown_budgets() {
+        panic!("invalid shutdown configuration: {e}");
     }
     // Install the process-wide recorder before anything records: metrics
     // emitted ahead of it land in a no-op recorder and are dropped, and
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Below the pod's 40s termination grace so shutdown always
         // concludes process-side — reaching the routing table's lease
         // revoke — rather than racing the kubelet's SIGKILL.
-        .with_global_shutdown_timeout(GLOBAL_SHUTDOWN_TIMEOUT)
+        .with_global_shutdown_timeout(config.global_shutdown_timeout())
         .build();
 
     // Shutdown order is the inverse of the leader's: the gRPC server
@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // router takes over coordination immediately.
     let grpc_handle = manager.register(
         "grpc-server",
-        ComponentOptions::new().with_graceful_shutdown(GRPC_GRACEFUL_SHUTDOWN),
+        ComponentOptions::new().with_graceful_shutdown(config.grpc_graceful_shutdown()),
     );
     let metrics_handle = manager.register(
         "metrics-server",
@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rt = manager.register(
             "routing-table",
             ComponentOptions::new()
-                .with_graceful_shutdown(PHASE1_GRACEFUL_SHUTDOWN)
+                .with_graceful_shutdown(config.phase1_graceful_shutdown())
                 .with_shutdown_phase(1),
         );
         let coord = config.coordinator_enabled.then(|| {
@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             manager.register(
                 "coordinator",
                 ComponentOptions::new()
-                    .with_graceful_shutdown(COORDINATOR_GRACEFUL_SHUTDOWN)
+                    .with_graceful_shutdown(config.coordinator_graceful_shutdown())
                     .with_shutdown_phase(1),
             )
         });
@@ -130,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             manager.register(
                 "replica-discovery",
                 ComponentOptions::new()
-                    .with_graceful_shutdown(PHASE1_GRACEFUL_SHUTDOWN)
+                    .with_graceful_shutdown(config.phase1_graceful_shutdown())
                     .with_shutdown_phase(1),
             ),
         )
@@ -267,6 +267,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_retry_budget: config.router_run_retry_budget,
             run_retry_backoff: Duration::from_millis(config.router_run_retry_backoff_ms),
             reconcile_interval: config.router_reconcile_interval(),
+            max_txn_ops: config.etcd_max_txn_ops,
         };
 
         let coordination_routing_table =

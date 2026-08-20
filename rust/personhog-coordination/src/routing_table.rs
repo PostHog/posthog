@@ -231,6 +231,12 @@ pub struct RoutingTableConfig {
     /// Base backoff between coordination attempts; doubles per
     /// consecutive failure up to a fixed cap.
     pub run_retry_backoff: Duration,
+    /// How many freeze acks may share one transaction. Not a tuning
+    /// knob but a mirror of the server's `--max-txn-ops`: a batch above
+    /// it is refused outright, while a smaller one only costs an extra
+    /// round trip. Defaults to etcd's own default, so it needs setting
+    /// only against a server configured otherwise.
+    pub max_txn_ops: usize,
 }
 
 impl Default for RoutingTableConfig {
@@ -248,6 +254,7 @@ impl Default for RoutingTableConfig {
             reconcile_failure_budget: 12,
             run_retry_budget: 10,
             run_retry_backoff: Duration::from_millis(500),
+            max_txn_ops: 128,
         }
     }
 }
@@ -583,6 +590,7 @@ impl RoutingTable {
             let last_progress = Arc::clone(&last_progress);
             let reconcile_interval = self.config.reconcile_interval;
             let reconcile_failure_budget = self.config.reconcile_failure_budget;
+            let max_txn_ops = self.config.max_txn_ops;
             let token = cancel.child_token();
             let progress = Arc::clone(progress);
             tasks.spawn(async move {
@@ -600,6 +608,7 @@ impl RoutingTable {
                     stamp_interval,
                     reconcile_interval,
                     reconcile_failure_budget,
+                    max_txn_ops,
                     progress,
                 )
                 .await
@@ -743,7 +752,9 @@ impl RoutingTable {
         // One batched write after every stash above is open: a restart
         // during a fleet-wide freeze otherwise pays one round trip per
         // frozen partition, serially, with the freeze quorum waiting.
-        self.store.put_freeze_acks(&acks).await?;
+        self.store
+            .put_freeze_acks(&acks, self.config.max_txn_ops)
+            .await?;
 
         let assignments = self.store.list_assignments().await?;
         // Live registrations overlay assignment-carried addresses: an
@@ -832,6 +843,7 @@ impl RoutingTable {
         stamp_interval: Duration,
         reconcile_interval: Duration,
         reconcile_failure_budget: u32,
+        max_txn_ops: usize,
         progress: Arc<AtomicBool>,
     ) -> Result<()> {
         let mut consecutive_reconcile_failures: u32 = 0;
@@ -882,6 +894,7 @@ impl RoutingTable {
                         &handler,
                         &lanes,
                         &router_name,
+                        max_txn_ops,
                     )
                     .await
                     {
@@ -957,7 +970,7 @@ impl RoutingTable {
                     // is open: a response carrying a plan's worth of
                     // freezes costs one round trip instead of one per
                     // partition.
-                    store.put_freeze_acks(&acks).await?;
+                    store.put_freeze_acks(&acks, max_txn_ops).await?;
                 }
             }
         }
@@ -985,6 +998,7 @@ impl RoutingTable {
         handler: &Arc<dyn StashHandler>,
         lanes: &Arc<DrainLanes>,
         router_name: &str,
+        max_txn_ops: usize,
     ) -> Result<()> {
         // Registrations are the address authority; refresh them wholesale
         // so a pod that re-registered at a new address is dialable even
@@ -1052,7 +1066,7 @@ impl RoutingTable {
 
         // One batched write after every stash above is open; deferring
         // an ack only delays the quorum, never lies to it.
-        store.put_freeze_acks(&acks).await?;
+        store.put_freeze_acks(&acks, max_txn_ops).await?;
 
         let assignments = store.list_assignments().await?;
         for assignment in assignments {

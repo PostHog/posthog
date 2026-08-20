@@ -7,32 +7,6 @@ use personhog_coordination::coordinator::REVOKE_TIMEOUT as COORDINATOR_REVOKE_TI
 use std::net::SocketAddr;
 use std::time::Duration;
 
-/// How long the lifecycle manager lets the coordinator component exit
-/// gracefully. Lives here rather than at the registration site because
-/// `validate_lease_timescales` has to check the teardown against it, and
-/// a budget defined where only one of the two is visible is how the
-/// revoke came to be bounded by the whole of it.
-pub const COORDINATOR_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(5);
-/// The gRPC server's phase-0 budget: it drains first while the
-/// coordination components keep serving its in-flight requests.
-pub const GRPC_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(15);
-/// The phase-1 coordination components' shared budget (routing table,
-/// coordinator, discovery, in parallel).
-pub const PHASE1_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(5);
-/// Both phases plus slack; kept under the chart's 40s termination grace
-/// so shutdown concludes process-side.
-pub const GLOBAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(25);
-
-// The global window must fit both phases with room, or the manager's
-// deadline fires before the phases it supervises. Compile-time, because
-// every term is a constant.
-const _: () = assert!(
-    GRPC_GRACEFUL_SHUTDOWN.as_secs() + PHASE1_GRACEFUL_SHUTDOWN.as_secs()
-        < GLOBAL_SHUTDOWN_TIMEOUT.as_secs()
-);
-const _: () =
-    assert!(COORDINATOR_GRACEFUL_SHUTDOWN.as_secs() <= PHASE1_GRACEFUL_SHUTDOWN.as_secs());
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplicaDiscoveryMode {
     /// DNS mode: static channels to ClusterIP URL.
@@ -355,6 +329,39 @@ pub struct Config {
     /// service account mount at /var/run/secrets/kubernetes.io/serviceaccount/namespace.
     #[envconfig(default = "")]
     pub k8s_namespace: String,
+
+    /// How many freeze acks the routing table may put in one etcd
+    /// transaction. Mirrors the server's `--max-txn-ops`: a batch above
+    /// it is refused outright, a smaller one only costs a round trip.
+    /// Defaults to etcd's own default.
+    #[envconfig(default = "128")]
+    pub etcd_max_txn_ops: usize,
+
+    // ── Shutdown budgets ─────────────────────────────────────────
+    // The lifecycle manager's per-phase windows. Configurable because
+    // the timings validated against them — the keepalive interval, the
+    // lease TTL — are, and a fixed ceiling under adjustable terms is a
+    // configuration an operator cannot resolve. Their relations are
+    // checked by `validate_shutdown_budgets` at startup.
+    /// The gRPC server's phase-0 budget: it drains first while the
+    /// coordination components keep serving its in-flight requests.
+    #[envconfig(default = "15")]
+    pub grpc_graceful_shutdown_secs: u64,
+
+    /// The phase-1 coordination components' shared budget (routing
+    /// table, coordinator, discovery, in parallel).
+    #[envconfig(default = "5")]
+    pub phase1_graceful_shutdown_secs: u64,
+
+    /// How long the lifecycle manager lets the coordinator component
+    /// exit gracefully, within phase 1.
+    #[envconfig(default = "5")]
+    pub coordinator_graceful_shutdown_secs: u64,
+
+    /// Both phases plus slack. Must stay under the chart's termination
+    /// grace period so shutdown concludes process-side.
+    #[envconfig(default = "25")]
+    pub global_shutdown_timeout_secs: u64,
 }
 
 #[cfg(test)]
@@ -521,6 +528,34 @@ mod tests {
                 "a zero pace must refuse startup"
             );
         }
+    }
+
+    /// The phase budgets have to fit the window supervising them. This
+    /// held at compile time while they were constants; as configuration
+    /// it is a startup refusal, and the defaults must still satisfy it.
+    #[test]
+    fn shutdown_phases_that_overrun_the_global_window_are_refused() {
+        let config = default_config();
+        assert!(
+            config.validate_shutdown_budgets().is_ok(),
+            "the defaults must satisfy their own relations"
+        );
+
+        let mut overrun = default_config();
+        overrun.global_shutdown_timeout_secs =
+            overrun.grpc_graceful_shutdown_secs + overrun.phase1_graceful_shutdown_secs;
+        assert!(
+            overrun.validate_shutdown_budgets().is_err(),
+            "phases summing to the whole global window leave the manager no slack"
+        );
+
+        let mut oversized_coordinator = default_config();
+        oversized_coordinator.coordinator_graceful_shutdown_secs =
+            oversized_coordinator.phase1_graceful_shutdown_secs + 1;
+        assert!(
+            oversized_coordinator.validate_shutdown_budgets().is_err(),
+            "the coordinator cannot outlast the phase it runs in"
+        );
     }
 
     /// The coordinator's graceful exit joins its keepalive and then
@@ -801,15 +836,62 @@ impl Config {
         // Checked here because both halves of the relation are known.
         let keepalive_bound = self.coordinator_keepalive_interval();
         let teardown = keepalive_bound + COORDINATOR_REVOKE_TIMEOUT;
-        if teardown >= COORDINATOR_GRACEFUL_SHUTDOWN {
+        let budget = self.coordinator_graceful_shutdown();
+        if teardown >= budget {
             return Err(format!(
                 "the coordinator's teardown ({teardown:?} = a {keepalive_bound:?} keepalive \
                  join plus a {COORDINATOR_REVOKE_TIMEOUT:?} lease revoke) must finish inside \
-                 its {COORDINATOR_GRACEFUL_SHUTDOWN:?} graceful shutdown budget; lower \
-                 COORDINATOR_KEEPALIVE_SECS"
+                 its {budget:?} graceful shutdown budget; lower COORDINATOR_KEEPALIVE_SECS \
+                 or raise COORDINATOR_GRACEFUL_SHUTDOWN_SECS"
             ));
         }
         Ok(())
+    }
+
+    /// The lifecycle manager's phases must fit the window that
+    /// supervises them, or its own deadline fires before theirs.
+    ///
+    /// Checked at startup rather than compile time because the budgets
+    /// are configuration: a fixed ceiling under adjustable phase
+    /// timings is a configuration an operator cannot resolve.
+    pub fn validate_shutdown_budgets(&self) -> Result<(), String> {
+        let phases = self.grpc_graceful_shutdown() + self.phase1_graceful_shutdown();
+        let global = self.global_shutdown_timeout();
+        if phases >= global {
+            return Err(format!(
+                "the shutdown phases ({phases:?} = a {:?} gRPC drain plus a {:?} coordination \
+                 phase) must finish inside the {global:?} global window with room to spare; \
+                 raise GLOBAL_SHUTDOWN_TIMEOUT_SECS or lower the phases",
+                self.grpc_graceful_shutdown(),
+                self.phase1_graceful_shutdown(),
+            ));
+        }
+        let coordinator = self.coordinator_graceful_shutdown();
+        let phase1 = self.phase1_graceful_shutdown();
+        if coordinator > phase1 {
+            return Err(format!(
+                "the coordinator's {coordinator:?} budget must fit the {phase1:?} phase it \
+                 runs in; lower COORDINATOR_GRACEFUL_SHUTDOWN_SECS or raise \
+                 PHASE1_GRACEFUL_SHUTDOWN_SECS"
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn grpc_graceful_shutdown(&self) -> Duration {
+        Duration::from_secs(self.grpc_graceful_shutdown_secs)
+    }
+
+    pub fn phase1_graceful_shutdown(&self) -> Duration {
+        Duration::from_secs(self.phase1_graceful_shutdown_secs)
+    }
+
+    pub fn coordinator_graceful_shutdown(&self) -> Duration {
+        Duration::from_secs(self.coordinator_graceful_shutdown_secs)
+    }
+
+    pub fn global_shutdown_timeout(&self) -> Duration {
+        Duration::from_secs(self.global_shutdown_timeout_secs)
     }
 
     fn validate_keepalive_pair(

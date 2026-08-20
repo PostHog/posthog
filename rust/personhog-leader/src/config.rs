@@ -9,30 +9,6 @@ use personhog_coordination::pod::{
     PodConfig, DRAIN_SETUP_BOUND, REVOKE_TIMEOUT, SHUTDOWN_FENCE_BOUND,
 };
 
-/// How long the lifecycle manager lets the coordination component exit
-/// gracefully, and the global window both phases must fit. Defined here
-/// rather than at the registration sites because
-/// `validate_lease_timescales` checks the pod's whole teardown — drain,
-/// fence, keepalive join, revoke — against the coordination budget, and
-/// a budget defined where only some of those terms are visible is how
-/// the sum came to be understated.
-pub const COORDINATION_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(55);
-/// The phase-1 components' shared budget: the gRPC server and the
-/// producer stop in parallel after coordination finishes.
-pub const PHASE1_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(15);
-/// Phase 0 (coordination) plus phase 1, with slack. Must stay under the
-/// chart's termination grace period so shutdown concludes process-side.
-pub const GLOBAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(75);
-
-// The global window must fit both phases with room, or the manager's
-// own deadline fires before the phases it supervises — the understated
-// sum this file's validation exists to refuse, one level up. Checked at
-// compile time because every term is a constant.
-const _: () = assert!(
-    COORDINATION_GRACEFUL_SHUTDOWN.as_secs() + PHASE1_GRACEFUL_SHUTDOWN.as_secs()
-        < GLOBAL_SHUTDOWN_TIMEOUT.as_secs()
-);
-
 #[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:50053")]
@@ -354,6 +330,30 @@ pub struct Config {
 
     #[envconfig(default = "10")]
     pub heartbeat_interval_secs: u64,
+
+    // ── Shutdown budgets ─────────────────────────────────────────
+    // The lifecycle manager's per-phase windows. Configurable because
+    // the terms validated against them — the drain timeout, the
+    // heartbeat interval — are, and a fixed ceiling under adjustable
+    // terms is a configuration an operator cannot resolve. Their
+    // relations are checked by `validate_shutdown_budgets` at startup.
+    /// How long the lifecycle manager lets the coordination component
+    /// exit gracefully. The pod's whole teardown — drain setup, drain,
+    /// fence, keepalive join, revoke — must fit inside it, which
+    /// `validate_lease_timescales` enforces.
+    #[envconfig(default = "55")]
+    pub coordination_graceful_shutdown_secs: u64,
+
+    /// The phase-1 components' shared budget: the gRPC server and the
+    /// producer stop in parallel after coordination finishes.
+    #[envconfig(default = "15")]
+    pub phase1_graceful_shutdown_secs: u64,
+
+    /// Phase 0 (coordination) plus phase 1, with slack. Must stay under
+    /// the chart's termination grace period so shutdown concludes
+    /// process-side.
+    #[envconfig(default = "75")]
+    pub global_shutdown_timeout_secs: u64,
 }
 
 /// A fenced write must resolve inside the runway the lease keepalive
@@ -617,16 +617,50 @@ impl Config {
         let drain = self.base_pod_config().drain_timeout;
         let teardown =
             DRAIN_SETUP_BOUND + drain + SHUTDOWN_FENCE_BOUND + heartbeat + REVOKE_TIMEOUT;
-        if teardown >= COORDINATION_GRACEFUL_SHUTDOWN {
+        let budget = self.coordination_graceful_shutdown();
+        if teardown >= budget {
             return Err(format!(
                 "the pod's teardown ({teardown:?} = setup {DRAIN_SETUP_BOUND:?} + drain \
                  {drain:?} + fence {SHUTDOWN_FENCE_BOUND:?} + a {heartbeat:?} keepalive join \
                  + revoke {REVOKE_TIMEOUT:?}) must finish inside the coordination \
-                 component's {COORDINATION_GRACEFUL_SHUTDOWN:?} graceful shutdown budget; \
-                 lower HEARTBEAT_INTERVAL_SECS"
+                 component's {budget:?} graceful shutdown budget; lower \
+                 HEARTBEAT_INTERVAL_SECS or raise COORDINATION_GRACEFUL_SHUTDOWN_SECS"
             ));
         }
         Ok(())
+    }
+
+    /// The lifecycle manager's phases must fit the window that
+    /// supervises them, or its own deadline fires before theirs.
+    ///
+    /// Checked at startup rather than compile time because the budgets
+    /// are configuration: a fixed ceiling under adjustable phase
+    /// timings is a configuration an operator cannot resolve.
+    pub fn validate_shutdown_budgets(&self) -> Result<(), String> {
+        let phases = self.coordination_graceful_shutdown() + self.phase1_graceful_shutdown();
+        let global = self.global_shutdown_timeout();
+        if phases >= global {
+            return Err(format!(
+                "the shutdown phases ({phases:?} = a {:?} coordination drain plus a {:?} \
+                 server and producer stop) must finish inside the {global:?} global window \
+                 with room to spare; raise GLOBAL_SHUTDOWN_TIMEOUT_SECS or lower the phases",
+                self.coordination_graceful_shutdown(),
+                self.phase1_graceful_shutdown(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn coordination_graceful_shutdown(&self) -> Duration {
+        Duration::from_secs(self.coordination_graceful_shutdown_secs)
+    }
+
+    pub fn phase1_graceful_shutdown(&self) -> Duration {
+        Duration::from_secs(self.phase1_graceful_shutdown_secs)
+    }
+
+    pub fn global_shutdown_timeout(&self) -> Duration {
+        Duration::from_secs(self.global_shutdown_timeout_secs)
     }
 
     /// The coordination-relevant half of the pod's configuration, shared
@@ -843,6 +877,28 @@ mod tests {
 #[cfg(test)]
 mod lease_timescale_tests {
     use super::*;
+
+    /// The phase budgets have to fit the window supervising them. This
+    /// held at compile time while they were constants; as configuration
+    /// it is a startup refusal, and the defaults must still satisfy it.
+    #[test]
+    fn shutdown_phases_that_overrun_the_global_window_are_refused() {
+        let config =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+        assert!(
+            config.validate_shutdown_budgets().is_ok(),
+            "the defaults must satisfy their own relations"
+        );
+
+        let mut overrun =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+        overrun.global_shutdown_timeout_secs =
+            overrun.coordination_graceful_shutdown_secs + overrun.phase1_graceful_shutdown_secs;
+        assert!(
+            overrun.validate_shutdown_budgets().is_err(),
+            "phases summing to the whole global window leave the manager no slack"
+        );
+    }
 
     /// The pod's teardown must fit the coordination component's budget,
     /// and the keepalive join is the one term an operator can move. A

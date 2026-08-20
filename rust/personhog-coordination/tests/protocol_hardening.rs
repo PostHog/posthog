@@ -5536,7 +5536,10 @@ async fn a_freeze_ack_batch_lands_every_key_across_the_chunk_boundary() {
             handoff_id: format!("h-{partition}"),
         })
         .collect();
-    store.put_freeze_acks(&acks).await.expect("batch write");
+    store
+        .put_freeze_acks(&acks, 128)
+        .await
+        .expect("batch write");
 
     for partition in [0u32, 127, 128, 129] {
         let listed = store.list_freeze_acks(partition).await.expect("list acks");
@@ -5549,7 +5552,7 @@ async fn a_freeze_ack_batch_lands_every_key_across_the_chunk_boundary() {
     }
 
     // An empty batch is a no-op, not an error.
-    store.put_freeze_acks(&[]).await.expect("empty batch");
+    store.put_freeze_acks(&[], 128).await.expect("empty batch");
 }
 
 /// A membership already read is answered from memory, not read again.
