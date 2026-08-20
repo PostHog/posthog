@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -6,6 +5,8 @@ from typing import Any, Optional
 import requests
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -40,7 +41,7 @@ MISSING_ACCESS_TOKEN_ERROR = "Missing Mercado Pago access token"
 NOW_ANCHOR = "NOW"
 
 
-@dataclasses.dataclass
+@frozen
 class MercadoPagoResumeConfig:
     # Offset of the next page to fetch on the search endpoint being synced.
     offset: int
@@ -252,6 +253,10 @@ def mercado_pago_source(
             "allowed_hosts": [],
             "allow_redirects": False,
             "request_timeout": REQUEST_TIMEOUT_SECONDS,
+            # These endpoints return payer identification, payment details, external references,
+            # order contents and checkout URLs that the generic scrubbers can't reliably remove, so
+            # keep raw bodies out of HTTP sample capture even when an operator enables it.
+            "capture": False,
         },
         "resource_defaults": {},
         "resources": [resource],
@@ -318,6 +323,9 @@ def validate_credentials(
     session = make_tracked_session(
         headers={"Accept": "application/json"},
         redact_values=auth_secret_values(auth),
+        # Same rationale as the sync client above: the probed response can carry payer and
+        # payment PII, so keep it out of HTTP sample capture.
+        capture=False,
     )
 
     try:
