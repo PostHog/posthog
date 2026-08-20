@@ -1291,13 +1291,27 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
             "bigquery.tables.create",
             "create",
         ),
+        # Querying a table/view that reads through a BigQuery connection (federated query or
+        # BigLake) the service account isn't authorized to use — denied with
+        # bigquery.connections.use on the connection resource, not the table/dataset.
+        (
+            str(
+                Forbidden(
+                    "Access Denied: Connection projects/proj/locations/us/connections/conn: User does not "
+                    "have bigquery.connections.use permission for connection "
+                    "projects/proj/locations/us/connections/conn."
+                )
+            ),
+            "bigquery.connections.use",
+            "connection",
+        ),
     ],
 )
-def test_temp_table_write_denial_surfaces_write_permission_guidance(observed_error, expected_key, expected_word):
-    # A temp-table write/create denial also contains "Access Denied:", so both that generic key and the
-    # write-specific key match. external_data_job surfaces the first matching key's message, so the
-    # write-specific key must sit above "Access Denied:" — otherwise the customer is told to grant read
-    # access to fix a write/create failure.
+def test_specific_permission_denial_outranks_generic_access_denied(observed_error, expected_key, expected_word):
+    # Each of these denials also contains "Access Denied:", so both the generic key and the
+    # more specific key match. external_data_job surfaces the first matching key's message, so the
+    # specific key must sit above "Access Denied:" — otherwise the customer is told to grant table
+    # read access to fix a failure that read access can't resolve.
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
     assert first_key == expected_key

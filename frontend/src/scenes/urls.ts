@@ -12,6 +12,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } from '~/types'
 
+import type { MetricFormPrefill } from 'products/data_catalog/frontend/common'
+
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
@@ -78,6 +80,7 @@ export const urls = {
         dashboard,
         filters,
         metricName,
+        metricPrefill,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
         query?: string | DataVisualizationNode | DataTableNode
@@ -93,6 +96,8 @@ export const urls = {
         filters?: HogQLFilters
         /** Opens the editor bound to this data catalog metric so its query can be updated in place */
         metricName?: string
+        /** Seeds the editor's "Save as metric" dialog with values already typed in the new metric modal */
+        metricPrefill?: MetricFormPrefill
     } = {}): string => {
         const params = new URLSearchParams()
 
@@ -120,6 +125,13 @@ export const urls = {
 
         if (metricName) {
             params.set('edit_metric', metricName)
+        }
+
+        if (metricPrefill) {
+            const filledPrefill = Object.fromEntries(Object.entries(metricPrefill).filter(([, value]) => !!value))
+            if (Object.keys(filledPrefill).length) {
+                params.set('metric_prefill', JSON.stringify(filledPrefill))
+            }
         }
 
         if (dashboard) {
@@ -251,7 +263,7 @@ export const urls = {
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
-    queryPerformance: (): string => '/instance/query_performance',
+    experimentsStaffTools: (): string => '/experiments/staff',
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,

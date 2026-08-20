@@ -44,6 +44,17 @@ export function navigateToActivity(): void {
   void getRouterOrNull()?.navigate({ to: "/website/activity" });
 }
 
+export function navigateToHome(): void {
+  void getRouterOrNull()?.navigate({ to: "/website/home" });
+}
+
+export function navigateToFeed(feedId: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/website/feeds/$feedId",
+    params: { feedId },
+  });
+}
+
 export function navigateToChannel(channelId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/website/$channelId",

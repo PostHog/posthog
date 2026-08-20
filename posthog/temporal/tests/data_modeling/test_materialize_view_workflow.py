@@ -22,6 +22,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 )
 
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, QualityAuditMode
+from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncActivityInputs
 
 pytestmark = pytest.mark.asyncio
 
@@ -372,3 +373,60 @@ class TestCollectShadowComparison:
         assert activity is fail_materialization_activity
         assert payload.job_id == "job-123"
         assert payload.update_node is False
+
+
+def _person_sync_result(**overrides) -> MaterializeViewResult:
+    kwargs: dict = {
+        "node_id": "node-1",
+        "node_name": "enriched_users",
+        "row_count": 3,
+        "table_uri": "s3://bucket/team_7_model_abc/modeling/enriched_users",
+        "file_uris": ["s3://bucket/f.parquet"],
+        "saved_query_id": "0198f2b1-0000-7000-8000-000000000001",
+    }
+    kwargs.update(overrides)
+    return MaterializeViewResult(**kwargs)
+
+
+class TestMaybeSyncPersonProperties:
+    async def test_starts_child_with_the_view_binding_when_rows_were_staged(self):
+        workflow = MaterializeViewWorkflow()
+        result = _person_sync_result(person_property_sync_enabled=True)
+        with patch.object(temporalio.workflow, "start_child_workflow", new=AsyncMock()) as start_child:
+            await workflow._maybe_sync_person_properties(_inputs(), result, "job-123")
+
+        start_child.assert_awaited_once()
+        assert start_child.await_args is not None
+        name, payload = start_child.await_args.args
+        assert name == "sync-warehouse-person-properties"
+        assert isinstance(payload, PersonPropertySyncActivityInputs)
+        # The child reads the rows this run staged, so it has to name the view, not a schema.
+        assert payload.schema_id is None
+        assert str(payload.saved_query_id) == result.saved_query_id
+        assert payload.binding.kind == "saved_query"
+        assert payload.job_id == "job-123"
+        # Keyed per job: a per-view id would coalesce a concurrent run's child and drop its staged rows.
+        assert start_child.await_args.kwargs["id"] == "sync-warehouse-person-properties-job-123"
+
+    async def test_no_child_when_nothing_was_staged(self):
+        # The flag defaults to False, so a run recorded before this existed decodes it as False and
+        # never fires this command during replay — which is what keeps in-flight runs deterministic.
+        workflow = MaterializeViewWorkflow()
+        assert _person_sync_result().person_property_sync_enabled is False
+        with patch.object(temporalio.workflow, "start_child_workflow", new=AsyncMock()) as start_child:
+            await workflow._maybe_sync_person_properties(_inputs(), _person_sync_result(), "job-123")
+        start_child.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "error",
+        [WorkflowAlreadyStartedError("sync-warehouse-person-properties-job-123", "type"), RuntimeError("boom")],
+    )
+    async def test_start_failures_never_fail_the_materialization(self, error):
+        workflow = MaterializeViewWorkflow()
+        result = _person_sync_result(person_property_sync_enabled=True)
+        with (
+            patch.object(temporalio.workflow, "start_child_workflow", new=AsyncMock(side_effect=error)),
+            patch.object(temporalio.workflow, "logger"),
+            patch(f"{WORKFLOW_MODULE}.capture_exception"),
+        ):
+            await workflow._maybe_sync_person_properties(_inputs(), result, "job-123")
