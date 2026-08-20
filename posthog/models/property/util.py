@@ -520,13 +520,13 @@ def prop_filter_json_extract(
                 f" {property_operator} {events_json_property_exists_expr}",
                 params,
             )
-        if is_denormalized:
-            return (
-                " {property_operator} {left} != ''".format(left=property_expr, property_operator=property_operator),
-                params,
-            )
+        # Always consult the raw JSON value so an explicit JSON `null` counts as unset.
+        # Compare against untrimmed JSONExtractRaw ('null'), not the quote-trimmed property
+        # expression — otherwise the string value "null" would be misclassified (see #29916).
+        # Skip the denormalized-column shortcut for the same reason: mat columns store JSON null
+        # as '', which is indistinguishable from a real empty string without the JSON blob.
         return (
-            " {property_operator} JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(
+            " {property_operator} (JSONHas({prop_var}, %(k{prepend}_{idx})s) AND JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s) != 'null')".format(
                 idx=idx,
                 prepend=prepend,
                 prop_var=prop_var,
@@ -544,13 +544,8 @@ def prop_filter_json_extract(
                 f" {property_operator} NOT ({events_json_property_exists_expr})",
                 params,
             )
-        if is_denormalized:
-            return (
-                " {property_operator} {left} = ''".format(left=property_expr, property_operator=property_operator),
-                params,
-            )
         return (
-            " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
+            " {property_operator} (isNull({left}) OR JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s) = 'null' OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
                 idx=idx,
                 prepend=prepend,
                 prop_var=prop_var,

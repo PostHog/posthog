@@ -1162,7 +1162,7 @@ class TestPrinter(BaseTest):
             (
                 self._json_dynamic_property_expr("foo")
                 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-                else "if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL)"
+                else "nullIf(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), '')"
             ),
         )
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
@@ -1197,7 +1197,7 @@ class TestPrinter(BaseTest):
             (
                 self._json_dynamic_person_property_expr("foo")
                 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-                else "if(has(events.person_properties_map_custom, %(hogql_val_0)s), events.person_properties_map_custom[%(hogql_val_1)s], NULL)"
+                else "nullIf(if(has(events.person_properties_map_custom, %(hogql_val_0)s), events.person_properties_map_custom[%(hogql_val_1)s], NULL), '')"
             ),
         )
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
@@ -1370,43 +1370,41 @@ class TestPrinter(BaseTest):
         )
 
     def test_property_groups_optimized_null_comparisons(self) -> None:
-        # NOT NULL comparisons should check to see if the key exists within the map (and should use the bloom filter to
-        # optimize the check), but do not need to load the values subcolumn.
+        # is_set / is_not_set must treat JSON null (stored as '' in Map(String, String)) as unset (#29916),
+        # so these read both the keys and values subcolumns.
         self._test_property_group_comparison(
             "properties.key is not null as p",
-            "has(events.properties_group_custom, %(hogql_val_0)s) AS p",
-            {"hogql_val_0": "key"},
-            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), notEquals(events.properties_group_custom[%(hogql_val_1)s], '')) AS p",
+            {"hogql_val_0": "key", "hogql_val_1": "key"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
         self._test_property_group_comparison(
             "properties.key != null as p",
-            "has(events.properties_group_custom, %(hogql_val_0)s) AS p",
-            {"hogql_val_0": "key"},
-            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), notEquals(events.properties_group_custom[%(hogql_val_1)s], '')) AS p",
+            {"hogql_val_0": "key", "hogql_val_1": "key"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
         self._test_property_group_comparison(
             "isNotNull(properties.key) as p",
-            "has(events.properties_group_custom, %(hogql_val_0)s) AS p",
-            {"hogql_val_0": "key"},
-            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            "not(or(not(has(events.properties_group_custom, %(hogql_val_0)s)), equals(events.properties_group_custom[%(hogql_val_1)s], ''))) AS p",
+            {"hogql_val_0": "key", "hogql_val_1": "key"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
 
-        # NULL comparisons don't really benefit from the bloom filter index like NOT NULL comparisons do, but like
-        # above, only need to check the keys subcolumn and not the values subcolumn.
         self._test_property_group_comparison(
             "properties.key is null as p",
-            "not(has(events.properties_group_custom, %(hogql_val_0)s)) AS p",
-            {"hogql_val_0": "key"},
+            "or(not(has(events.properties_group_custom, %(hogql_val_0)s)), equals(events.properties_group_custom[%(hogql_val_1)s], '')) AS p",
+            {"hogql_val_0": "key", "hogql_val_1": "key"},
         )
         self._test_property_group_comparison(
             "properties.key = null as p",
-            "not(has(events.properties_group_custom, %(hogql_val_0)s)) AS p",
-            {"hogql_val_0": "key"},
+            "or(not(has(events.properties_group_custom, %(hogql_val_0)s)), equals(events.properties_group_custom[%(hogql_val_1)s], '')) AS p",
+            {"hogql_val_0": "key", "hogql_val_1": "key"},
         )
         self._test_property_group_comparison(
             "isNull(properties.key) as p",
-            "not(has(events.properties_group_custom, %(hogql_val_0)s)) AS p",
-            {"hogql_val_0": "key"},
+            "or(not(has(events.properties_group_custom, %(hogql_val_0)s)), equals(events.properties_group_custom[%(hogql_val_1)s], '')) AS p",
+            {"hogql_val_0": "key", "hogql_val_1": "key"},
         )
 
     def test_property_groups_optimized_has(self) -> None:
@@ -1567,19 +1565,19 @@ class TestPrinter(BaseTest):
         )  # if changing this assumption, you'll need to change the printer too
         self._test_property_group_comparison(
             "properties.key in NULL",
-            "in(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), NULL)",
+            "in(nullIf(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), ''), NULL)",
         )
         self._test_property_group_comparison(
             "properties.key in (NULL)",
-            "in(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), NULL)",
+            "in(nullIf(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), ''), NULL)",
         )
         self._test_property_group_comparison(
             "properties.key in (NULL, NULL, NULL)",
-            "in(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), tuple(NULL, NULL, NULL))",
+            "in(nullIf(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), ''), tuple(NULL, NULL, NULL))",
         )
         self._test_property_group_comparison(
             "properties.key in [NULL, NULL, NULL]",
-            "in(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), [NULL, NULL, NULL])",
+            "in(nullIf(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), ''), [NULL, NULL, NULL])",
         )
 
         # Don't optimize comparisons to types that require additional type conversions.
@@ -1733,7 +1731,7 @@ class TestPrinter(BaseTest):
             assert "properties_group_custom" not in printed
         else:
             assert printed == (
-                "SELECT if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL) AS ft "
+                "SELECT nullIf(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), '') AS ft "
                 "FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), equals(events.properties_group_custom[%(hogql_val_2)s], %(hogql_val_3)s)) "
                 "LIMIT 50000"

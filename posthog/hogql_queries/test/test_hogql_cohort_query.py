@@ -657,3 +657,108 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLCohortQuery(cohort=cohort)
         with self.assertRaises(Cohort.DoesNotExist):
             hogql_query.query_str("clickhouse")
+
+    def test_person_property_is_set_excludes_null_values(self) -> None:
+        """Regression for #29916: cohort is_set must exclude persons whose property is JSON null."""
+        p_with_value = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p-set"],
+            properties={"custom_prop": "hello"},
+            immediate=True,
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p-null"],
+            properties={"custom_prop": None},
+            immediate=True,
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p-missing"],
+            properties={},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="is_set excludes null",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "custom_prop",
+                                    "type": "person",
+                                    "operator": "is_set",
+                                    "value": "is_set",
+                                    "negation": False,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        hogql_query = HogQLCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+        # HogQL lowers is_set to isNotNull over the scrubbed property read (JSON null → NULL).
+        self.assertIn("isNotNull", query_str)
+
+        result = hogql_query.get_query_executor().execute()
+        matched_ids = {row[0] for row in (result.results or [])}
+        self.assertEqual(matched_ids, {p_with_value.uuid})
+
+    def test_person_property_is_not_set_includes_null_values(self) -> None:
+        """Regression for #29916: cohort is_not_set must include persons whose property is JSON null."""
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p-set"],
+            properties={"custom_prop": "hello"},
+            immediate=True,
+        )
+        p_null = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p-null"],
+            properties={"custom_prop": None},
+            immediate=True,
+        )
+        p_missing = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p-missing"],
+            properties={},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="is_not_set includes null",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "custom_prop",
+                                    "type": "person",
+                                    "operator": "is_not_set",
+                                    "value": "is_not_set",
+                                    "negation": False,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        result = HogQLCohortQuery(cohort=cohort).get_query_executor().execute()
+        matched_ids = {row[0] for row in (result.results or [])}
+        self.assertEqual(matched_ids, {p_null.uuid, p_missing.uuid})
