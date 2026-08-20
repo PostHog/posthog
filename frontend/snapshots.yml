@@ -4937,17 +4937,17 @@ snapshots:
     products-dashboards-dashboard-widgets-widget-types-experiments-experiments-widget-settings--default--light:
         hash: v1.k794b7964.d5dbe93b525586357874c49627a55275abf01e67d68fb83ece720f205b73fe7e.v9g8wvzfgVkkkaGKaO_PvKGWh6DfkTlfMCC2eiY8rSw
     products-dashboards-dashboard-widgets-widget-types-logs-recent-logs--default--dark:
-        hash: v1.k794b7964.1218b42154e64d863d2ce295a54b7a30162f1fee60ce187153cdb296bba7bf4c.xJPzgpEURMRZop-Rp5b84Lx2g1LZP1Yi28C5MLixQKQ
+        hash: v1.k794b7964.8030c814428bf39109c50aff4651de48b8abac48125f0fd4b33e5758d0630aee.-5otWfkf9AkiSzbZjiVXSgU66b1omRextmYvZdCq1ow
     products-dashboards-dashboard-widgets-widget-types-logs-recent-logs--default--light:
-        hash: v1.k794b7964.09a79a317eddb8e0671abd52fa412ea4a0199aba5ac80c48c7368f68c9eec814.pGn0vgnaZ2L9zvP9vU6pS7b2Uz2S88moRRqduRJSEKw
+        hash: v1.k794b7964.74cb6b134a47f9ca08ea3e3dc6b03af584218928a249ee9bd1960d99bba3fa49.C8W2-v19-rlnqswSjA1ONm68Ipw0KbqyxUY7qsPEfY8
     products-dashboards-dashboard-widgets-widget-types-logs-recent-logs--empty--dark:
-        hash: v1.k794b7964.edb58201c5ff97bc5e8279b8aefbc1fd4ffa2ba264cf21ca547a1f8d9eb454aa.DY3PHLl-lRRjakSe7MNk_falysr6kW43a4UjmTuzmCc
+        hash: v1.k794b7964.230ff6e82f0aa6aa2d2f529eae4373206a419a84d9a8475cf069182413ea7128.Yoq_m5XP4BD3Zb6V9BzLk6oomCn93-nGeD3w17-4VhQ
     products-dashboards-dashboard-widgets-widget-types-logs-recent-logs--empty--light:
-        hash: v1.k794b7964.4f69ddab94cae07421d066cc1a4586ad004aaaa3e0cb4b98de40ce5cb0354e14.2Kuf5yTRWQ9hMtH-Zlb3pPZa_as-BsxYUwBBrb1KqkQ
+        hash: v1.k794b7964.92f72b1291e55fe5ee7650489b6741ccd509fe019834cfbe72371a37b8925f0b.1mcT5yTpk65rN7kH2uReC9RFjxswyaKUsUxgVBgn46A
     products-dashboards-dashboard-widgets-widget-types-logs-recent-logs--loading--dark:
-        hash: v1.k794b7964.0e488c170ef6d52da87a0a450ddaad59dd24e7bdd8050a0c53a2864de58f8c64.GFv5d3uFctY7JRfAaWfMOanvUysHRHtxagCKRVTaqmc
+        hash: v1.k794b7964.da170ab4c6fddf1f320cf1413c59e9ddf56cf2af50bf6ffb5a39eaf64accde47.8XLol5CLjgigNpR-4IuJpVMEmzwTTaJjPh4U0YMoNYI
     products-dashboards-dashboard-widgets-widget-types-logs-recent-logs--loading--light:
-        hash: v1.k794b7964.db009d4e427c5e30801c70eadf4a10a7c76c62dc9d58e18b074192eaa476b28b.79QRoddSWClznTaeKH1MqI1p1VkZrH2929m2j3Fsopk
+        hash: v1.k794b7964.6260ad900fc8658a1d423a7c39e2b771ad0f61cd3397b71dca6f244c3c71534c.AlHcVNrlN7e7gRxzpfxlALVm-zSY_DUjUOMZGASlhyg
     products-dashboards-dashboard-widgets-widget-types-logs-recent-logs--tile-filters-read-only--dark:
         hash: v1.k794b7964.6ed7f2977028a97730ba21035ce9e01cb64c87b8c179dfd215394d0da4a3c6bc.JisUFkgqMo7wRS4k5VI6CqEMd_kSh42yYc9ybyH1_xs
     products-dashboards-dashboard-widgets-widget-types-logs-recent-logs--tile-filters-read-only--light:
