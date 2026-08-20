@@ -25,6 +25,7 @@ import type {
     CanvasLayoutPublishApi,
     CanvasLayoutPublishResponseApi,
     CanvasLayoutResponseApi,
+    CanvasLocationApi,
     CanvasPromoteApi,
     CanvasPublishCurrentVersionApi,
     CanvasReportErrorApi,
@@ -53,6 +54,21 @@ import type {
     PaginatedCanvasVersionListApi,
     PatchedCanvasUpdateApi,
 } from './api.schemas'
+
+export const getCanvasLocationsRetrieveUrl = (id: string) => {
+    return `/api/canvas_locations/${id}/`
+}
+
+/**
+ * Resolve a canvas id to the project and organization that own it, without knowing the project up front. For clients that hold only a canvas share link (/code/canvas/<channel_id>/<canvas_id>) and need to know which project to open. Returns 404 for any canvas the caller cannot read, including canvases in projects they cannot access.
+ * @summary Find the project that owns a canvas
+ */
+export const canvasLocationsRetrieve = async (id: string, options?: RequestInit): Promise<CanvasLocationApi> => {
+    return apiMutator<CanvasLocationApi>(getCanvasLocationsRetrieveUrl(id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getCanvasesListUrl = (projectId: string, params?: CanvasesListParams) => {
     const normalizedParams = new URLSearchParams()

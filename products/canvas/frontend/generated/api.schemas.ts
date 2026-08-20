@@ -8,6 +8,28 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * Where a canvas lives: the project and organization that own it.
+ */
+export interface CanvasLocationApi {
+    /** Id of the canvas that was looked up. */
+    canvas_id: string
+    /** Display name of the canvas. */
+    canvas_name: string
+    /** Id of the channel the canvas is filed into. */
+    channel_id: string
+    /** Id of the project that owns the canvas. Use it as the project_id path segment on /api/projects/<project_id>/canvases/ to read the canvas itself. */
+    project_id: number
+    /** Display name of the owning project. */
+    project_name: string
+    /** Id of the organization the owning project belongs to. */
+    organization_id: string
+    /** Display name of that organization. */
+    organization_name: string
+    /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+    url: string
+}
+
+/**
  * * `freeform` - freeform
  * * `grid` - grid
  * * `component` - component

@@ -35,7 +35,7 @@ export function WebsiteDashboard({
     return <CanvasLoadFailed error={error} onRetry={refetch} />;
   }
   if (!dashboard) {
-    return <CanvasNotFound channelId={channelId} />;
+    return <CanvasNotFound channelId={channelId} dashboardId={dashboardId} />;
   }
   if (dashboard.kind === "grid") {
     return <GridCanvasView canvasId={dashboardId} interactive={editing} />;

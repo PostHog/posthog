@@ -1,6 +1,7 @@
 import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import type {
   CanvasDraft,
+  CanvasLocation,
   CanvasSource,
   CanvasVersion,
   DashboardRecord,
@@ -111,6 +112,30 @@ export function useDashboard(id: string | undefined): {
     error,
     refetch: () => void refetch(),
   };
+}
+
+/**
+ * Which project owns a canvas that this project does not have.
+ *
+ * Disabled unless a caller opts in, so the happy path never pays for it. Only the not-found
+ * screen has a reason to ask.
+ */
+export function useCanvasLocation(
+  id: string | undefined,
+  options?: { enabled?: boolean },
+): { location: CanvasLocation | null | undefined; isFetching: boolean } {
+  const trpc = useHostTRPC();
+  const { data, isFetching } = useQuery(
+    trpc.dashboards.location.queryOptions(
+      { id: id ?? "" },
+      {
+        enabled: !!id && (options?.enabled ?? false),
+        staleTime: SPACE_QUERY_STALE_TIME_MS,
+        meta: AUTH_SCOPED_QUERY_META,
+      },
+    ),
+  );
+  return { location: data, isFetching };
 }
 
 /** A canvas's source project — the head, or a historical version. */
