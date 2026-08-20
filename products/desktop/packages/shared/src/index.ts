@@ -323,6 +323,7 @@ export {
   type SessionStatus,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  TRANSCRIPT_TAIL_WINDOW,
 } from "./sessions";
 export type {
   SignalReportOrderingField,
@@ -344,6 +345,7 @@ export {
   serializeSkillMarkdown,
   stripFrontmatter,
 } from "./skills";
+export { leadingSlashCommand } from "./slash-commands";
 export type { PostHogAPIConfig } from "./task";
 export type {
   TaskCreationInput,
