@@ -35,7 +35,10 @@ from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
+from posthog.hogql_queries.insights.funnels.utils import (
+    funnel_window_interval_unit_to_sql,
+    resolve_funnel_persons_on_events_mode,
+)
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -118,6 +121,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         user: Optional[User] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
+        self.modifiers = resolve_funnel_persons_on_events_mode(self.modifiers)
         self._use_new_events_schema = use_new_events_schema(team.pk)
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
@@ -130,7 +134,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             query=self.funnels_query,
             team=team,
             timings=timings,
-            modifiers=modifiers,
+            modifiers=self.modifiers,
             limit_context=limit_context,
             user=user,
             # NOTE: we want to include the latest timestamp of the `target_step`,

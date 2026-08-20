@@ -339,6 +339,50 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(result[2]["name"], "watched movie")
             self.assertEqual(result[2]["count"], 1)
 
+    def test_funnel_applies_person_overrides_in_no_override_mode(self):
+        # Regression: under PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS a merge applied after
+        # ingestion was ignored, so a conversion crossing the merge got dropped and the two pre-merge
+        # persons were counted separately. The funnel now upgrades the mode to apply the override.
+        sync_execute(f"TRUNCATE TABLE {EVENTS_DATA_TABLE()}")
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
+
+        # The first step happens under one distinct id / person, the second under another. They are
+        # merged only afterwards, so the raw event.person_id differs across the two steps.
+        with freeze_time("2012-01-01T03:21:35.000Z"):
+            _create_person(distinct_ids=["signup_distinct_id"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="user signed up", distinct_id="signup_distinct_id", person_id=uuid.uuid4()
+            )
+
+        with freeze_time("2012-01-01T03:21:36.000Z"):
+            _create_person(distinct_ids=["pay_distinct_id"], team_id=self.team.pk)
+            _create_event(team=self.team, event="paid", distinct_id="pay_distinct_id", person_id=uuid.uuid4())
+
+        with freeze_time("2012-01-01T03:21:45.000Z"):
+            create_person_id_override_by_distinct_id("signup_distinct_id", "pay_distinct_id", self.team.pk)
+
+        with freeze_time("2012-01-01T03:21:46.000Z"):
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="user signed up", name="user signed up"),
+                    EventsNode(event="paid", name="paid"),
+                ],
+            )
+            runner = FunnelsQueryRunner(
+                query=query,
+                team=self.team,
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
+            )
+            result = runner.calculate().results
+
+        # The two signups belong to one merged person, so the funnel counts a single entrant that
+        # converted, not two separate entrants.
+        self.assertEqual(result[0]["count"], 1)
+        self.assertEqual(result[1]["count"], 1)
+
     def test_funnel_with_messed_up_order(self):
         action_play_movie = Action.objects.create(
             team=self.team,

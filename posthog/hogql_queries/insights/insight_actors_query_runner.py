@@ -64,6 +64,12 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             user=user,
         )
 
+        # Actors must resolve person identity the same way as the insight they come from. Funnel
+        # runners upgrade the person-on-events mode so merges are applied; adopt the source runner's
+        # resolved modifiers so the actors list matches the counts. A no-op for sources that leave
+        # the modifiers untouched.
+        self.modifiers = self.source_runner.modifiers
+
     @cached_property
     def source_runner(self) -> QueryRunner:
         return get_query_runner(

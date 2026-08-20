@@ -9,6 +9,8 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsDataWarehouseNode,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
 )
 
 from posthog.hogql import ast
@@ -34,6 +36,19 @@ CONVERSION_WINDOW_INTERVAL_BOUNDS: dict[FunnelConversionWindowTimeUnit, tuple[in
     FunnelConversionWindowTimeUnit.WEEK: (1, 53),
     FunnelConversionWindowTimeUnit.MONTH: (1, 12),
 }
+
+
+def resolve_funnel_persons_on_events_mode(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
+    # Funnels aggregate on events.person_id. Under PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS that
+    # column keeps its ingestion-time value, so a merge applied after ingestion never reaches funnel
+    # aggregation and conversions that cross the merge get dropped. Upgrade to the override mode, which
+    # resolves person_id through person_distinct_id_overrides like the rest of the product. Both modes
+    # read person properties from events, so only person_id resolution changes.
+    if modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+        return modifiers.model_copy(
+            update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+        )
+    return modifiers
 
 
 def conversion_window_to_seconds(interval: int, unit: FunnelConversionWindowTimeUnit) -> int:

@@ -48,7 +48,10 @@ from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     ValidateMaxFunnelSteps,
     ValidateOptionalFunnelSteps,
 )
-from posthog.hogql_queries.insights.funnels.utils import get_breakdown_cohort_name
+from posthog.hogql_queries.insights.funnels.utils import (
+    get_breakdown_cohort_name,
+    resolve_funnel_persons_on_events_mode,
+)
 from posthog.hogql_queries.insights.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
     BREAKDOWN_BASELINE_DISPLAY,
@@ -91,12 +94,14 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
+        self.modifiers = resolve_funnel_persons_on_events_mode(self.modifiers)
+
         self.just_summarize = just_summarize
         self.context = FunnelQueryContext(
             query=self.query,
             team=team,
             timings=timings,
-            modifiers=modifiers,
+            modifiers=self.modifiers,
             limit_context=limit_context,
             user=user,
         )
