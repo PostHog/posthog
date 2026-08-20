@@ -8,6 +8,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import v8 from "node:v8";
+import { WatchdogStore } from "@main/watchdog/store";
 import type { MemorySample } from "@main/watchdog/types";
 import {
   MemoryWatchdog,
@@ -183,6 +184,23 @@ describe("MemoryWatchdog", () => {
     }
 
     expect(await listReports(watchdog)).toHaveLength(2);
+  });
+
+  it("still reports a capture whose pruning failed", async () => {
+    collectSample.mockResolvedValue(sampleWithRss(2 * GB));
+    // `rm` can fail with EPERM or EBUSY. Pruning runs after the report is on
+    // disk, so treating that as a failed capture would discard a report that
+    // exists and skip the analytics for it.
+    vi.spyOn(WatchdogStore.prototype, "pruneReports").mockRejectedValue(
+      new Error("EBUSY"),
+    );
+    const onReport = vi.fn();
+    const watchdog = createWatchdog({}, { onReport });
+
+    const report = await watchdog.capture("manual", "cleanup will fail");
+
+    expect(report).not.toBeNull();
+    expect(onReport).toHaveBeenCalledOnce();
   });
 
   // Snapshots are heap-sized and can hang on a renderer too far gone to answer,
