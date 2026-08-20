@@ -6,7 +6,7 @@ import {
   spaceTreeTasksQueryRoot,
 } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { act, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -206,7 +206,12 @@ describe("useRenameTask", () => {
 
   it("skips rollback when a newer rename has advanced the title past ours", async () => {
     const failure = new Error("network down");
-    mockUpdateTask.mockRejectedValue(failure);
+    let failUpdate: (() => void) | undefined;
+    mockUpdateTask.mockReturnValue(
+      new Promise((_, reject) => {
+        failUpdate = () => reject(failure);
+      }),
+    );
     const { result, queryClient } = renderRenameHook();
 
     const listKey = taskKeys.list();
@@ -228,6 +233,14 @@ describe("useRenameTask", () => {
       newTitle: "First rename",
     });
 
+    // Our own optimistic write has to land before the newer rename overtakes
+    // it, or the test states the opposite of what it names.
+    await waitFor(() => {
+      expect(queryClient.getQueryData<Task[]>(listKey)?.[0].title).toBe(
+        "First rename",
+      );
+    });
+
     queryClient.setQueryData<Task[]>(listKey, [
       createTask({ title: "Second rename", title_manually_set: true }),
     ]);
@@ -245,6 +258,7 @@ describe("useRenameTask", () => {
 
     let caught: unknown;
     await act(async () => {
+      failUpdate?.();
       try {
         await renamePromise;
       } catch (error) {
@@ -270,6 +284,43 @@ describe("useRenameTask", () => {
       TASK_ID,
       "Original title",
     );
+  });
+
+  it("keeps the new title when a poll that was already in flight resolves with the old one", async () => {
+    mockUpdateTask.mockResolvedValue(undefined);
+    const { result, queryClient } = renderRenameHook();
+
+    queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
+      tasks: [createTask()],
+      count: 7,
+    });
+    let resolvePoll: ((page: SpaceTaskPage) => void) | undefined;
+    const inFlightPoll = queryClient
+      .fetchQuery<SpaceTaskPage>({
+        queryKey: SPACE_TREE_KEY,
+        queryFn: () =>
+          new Promise<SpaceTaskPage>((resolve) => {
+            resolvePoll = resolve;
+          }),
+      })
+      .catch(() => undefined);
+
+    await act(async () => {
+      await result.current.renameTask({
+        taskId: TASK_ID,
+        currentTitle: "Original title",
+        newTitle: "Renamed",
+      });
+    });
+
+    await act(async () => {
+      resolvePoll?.({ tasks: [createTask()], count: 7 });
+      await inFlightPoll;
+    });
+
+    expect(
+      queryClient.getQueryData<SpaceTaskPage>(SPACE_TREE_KEY)?.tasks[0].title,
+    ).toBe("Renamed");
   });
 
   it("does not write to the detail cache when no detail entry exists", async () => {

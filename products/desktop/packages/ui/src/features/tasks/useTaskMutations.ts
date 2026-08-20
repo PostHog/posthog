@@ -51,6 +51,7 @@ export function useUpdateTask() {
         queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
         queryClient.invalidateQueries({ queryKey: taskKeys.allSummaries() });
         queryClient.invalidateQueries({ queryKey: spaceTreeTasksQueryRoot });
+        queryClient.invalidateQueries({ queryKey: channelFeedQueryRoot });
       },
     },
   );
@@ -71,6 +72,22 @@ export function useRenameTask() {
       currentTitle: string;
       newTitle: string;
     }) => {
+      // Every one of these caches is polled. A fetch already in flight resolves
+      // with a title from before the rename and writes it over the optimistic
+      // one, so the row goes back to the old name until the next poll — the
+      // stale sidebar this rename path exists to avoid. Cancelling first also
+      // keeps the rollback honest: it reads these caches to decide whether our
+      // write is still the one on screen.
+      await Promise.all(
+        [
+          taskKeys.lists(),
+          channelFeedQueryRoot,
+          taskKeys.allSummaries(),
+          spaceTreeTasksQueryRoot,
+          taskKeys.detail(taskId),
+        ].map((queryKey) => queryClient.cancelQueries({ queryKey })),
+      );
+
       const previousListQueries = queryClient.getQueriesData<Task[]>({
         queryKey: taskKeys.lists(),
       });
