@@ -717,6 +717,12 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
                                           actions?: any[] | undefined
                                           events?: any[] | undefined
                                           filter_test_accounts?: boolean | undefined
@@ -856,6 +862,12 @@ export interface hogFlowEditorLogicActions {
                   trigger?:
                       | {
                             type: 'schedule'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'slack-message'
                         }
                       | {
                             filters: {
@@ -1511,6 +1523,12 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
                                           actions?: any[] | undefined
                                           events?: any[] | undefined
                                           filter_test_accounts?: boolean | undefined
@@ -1650,6 +1668,12 @@ export interface hogFlowEditorLogicActions {
                   trigger?:
                       | {
                             type: 'schedule'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'slack-message'
                         }
                       | {
                             filters: {

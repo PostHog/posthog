@@ -606,6 +606,11 @@ class AccountSerializer(DataclassSerializer):
         allow_null=True,
         help_text="When the account churned. Null means the account has not churned.",
     )
+    ignored_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When Track Rules ignored the account. Null means the account is tracked.",
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
@@ -622,6 +627,7 @@ class AccountSerializer(DataclassSerializer):
             "notebooks",
             "slack_summary_cadence",
             "churned_at",
+            "ignored_at",
             "created_at",
             "created_by",
             "updated_at",

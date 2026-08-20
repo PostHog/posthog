@@ -182,6 +182,13 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         }),
         key_property: z.string().optional(),
     }),
+    z.object({
+        type: z.literal('slack-message'),
+        filters: z.object({
+            // Message properties only, channel included — see the trigger registry entry
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
 ])
 
 /** Trigger types that use HogFlowSchedule for recurring execution */

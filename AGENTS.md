@@ -105,8 +105,8 @@ Guarding it inside the workflow is worse: skipping the gate job cascades to the 
 #### Stacked PRs
 
 GitHub's native stacked PRs are enabled on this repo — use the `gh stack` CLI and the `/stacking-prs` skill instead of hand-managing branch chains.
-A stack lands bottom-first: merge the layer based on `master` the usual way (see "Merging PRs" below), then `gh stack sync --prune` and repeat.
-Never `gh stack merge` — it merges the whole chain straight through GitHub's API, so the bottom layer reaches `master` outside that path.
+A stack lands through the merge queue: comment `/trunk merge` on the top layer to enqueue the whole stack (the queue tests and merges it and every unmerged layer below it atomically), or land bottom-first one layer at a time; either way, `gh stack sync --prune` afterwards.
+Never `gh stack merge` — it merges the whole chain straight through GitHub's API, so the stack reaches `master` outside the queue.
 
 Restacking force-pushes every branch, and each push triggers a full CI fan-out.
 Never restack while any branch in the stack is sitting in the merge queue — the force-push removes it from the queue.
@@ -136,8 +136,9 @@ In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix
 All merges into `master` go through the Trunk merge queue.
 Never run `gh pr merge` or click the GitHub merge button — both are blocked by branch ruleset.
 
-- Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`.
+- Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`. Enqueueing a stacked PR also enqueues every unmerged layer below it — comment on the top PR to merge the whole stack. `--no-batch` opts the PR (or stack) out of batching.
 - The Trunk CLI is an alternative to the comments: `trunk merge <number>` enqueues, `trunk merge status <number>` inspects, `trunk merge cancel <number>` dequeues. It ships in the flox environment but needs a one-time interactive `trunk login`, so agents and headless environments should keep using the comments.
+- Missing required approval: apply the `stamphog` label (`gh pr edit <number> --add-label stamphog`) to trigger the automated review-and-approve flow, and re-apply it whenever it was stripped (`REFUSED`/`ESCALATE` verdict) once the feedback is addressed — re-applying is always safe.
 - After enqueueing, babysit the PR until it merges or fails — follow [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) for the preflight, watch, and failure-handling loop.
 - Queue progress is the `Trunk Merge Queue (master)` check run on the PR's head commit. The PR's own checks don't reflect the queue's testing — it runs CI on a `trunk-merge/**` branch.
 - On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
@@ -215,7 +216,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Comments: never log change history or chat context in code — no "previously did X, now does Y", "per <task/PR>", "changed because…", or "AI:"/"agent:" notes. That goes in the commit message and PR description
 - Comments: when refactoring or moving code, preserve existing comments unless they are explicitly made obsolete by the change
 - Python tests: do not add doc comments
-- Python: do not create empty `__init__.py` files, with one exception: the package markers import tooling needs — `products/`, every product's `backend/`, and their `facade/` and `presentation/` trees. `products/` carries one so file-based mypy resolves `products.<name>.backend` rather than `<name>.backend`; that makes it a regular package, and grimp then stops descending at the first directory without a marker, silently dropping everything below it from every import-linter contract. `hogli product:lint` enforces those markers. Everywhere else — test directories, generated trees — leave the file out
+- Python: leave `__init__.py` alone unless a check asks for it. Whether a directory needs one depends on what sits above it. `hogli product:lint` and `posthog/test/repo_invariants/test_pytest_module_collisions.py` say where, and print the fix
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - Tests: prefer parameterized tests (use the `parameterized` library in Python) — if you're writing multiple assertions for variations of the same logic, it should be parameterized
 - Tests must earn their place: every new test has to catch a realistic regression no existing test already catches (if you can't name it, don't add it), assert observable behavior through the public interface rather than implementation details, and stay cheap — deterministic, isolated, and at the lowest level that catches the bug (see `/writing-tests`)

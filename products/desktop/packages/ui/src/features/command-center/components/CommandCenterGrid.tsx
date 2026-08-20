@@ -5,6 +5,13 @@ import {
   getExpansionCellIndex,
 } from "@posthog/core/command-center/grid";
 import { Button } from "@posthog/quill";
+import {
+  consumeTaskDrop,
+  readTaskDragData,
+  TASK_DRAG_TYPE,
+  TASK_IDS_DRAG_TYPE,
+} from "@posthog/ui/features/sidebar/taskDrag";
+import { useLiveTaskIds } from "@posthog/ui/features/tasks/useLiveTaskIds";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
@@ -14,11 +21,12 @@ import {
   useCommandCenterStore,
 } from "../commandCenterStore";
 import type { CommandCenterCellData } from "../hooks/useCommandCenterData";
-import { expandCommandCenterInto } from "../placeTaskInCommandCenter";
+import {
+  expandTasksInCommandCenterInto,
+  placeTasksInCommandCenterCell,
+} from "../placeTaskInCommandCenter";
 import { getTerminalCellStateKey } from "../terminalCells";
 import { CommandCenterPanel } from "./CommandCenterPanel";
-
-const TASK_DRAG_TYPE = "text/x-task-id";
 
 /**
  * Picking a tile by clicking and by dropping are the same interaction, so they
@@ -35,12 +43,16 @@ interface CommandCenterGridProps {
   cells: CommandCenterCellData[];
 }
 
+function hasTaskDragType(types: readonly string[]): boolean {
+  return types.includes(TASK_IDS_DRAG_TYPE) || types.includes(TASK_DRAG_TYPE);
+}
+
 function useTaskDragActive() {
   const [active, setActive] = useState(false);
 
   useEffect(() => {
     const onDragStart = (e: DragEvent) => {
-      if (e.dataTransfer?.types.includes(TASK_DRAG_TYPE)) {
+      if (e.dataTransfer && hasTaskDragType(e.dataTransfer.types)) {
         setActive(true);
       }
     };
@@ -65,13 +77,13 @@ function useTaskDragActive() {
   return active;
 }
 
-function useTaskDropTarget(onTask: (taskId: string) => void) {
+function useTaskDropTarget(onTasks: (taskIds: string[]) => void) {
   const [isOver, setIsOver] = useState(false);
 
   return {
     isOver,
     onDragOver: (e: React.DragEvent) => {
-      if (!e.dataTransfer.types.includes(TASK_DRAG_TYPE)) return;
+      if (!hasTaskDragType(e.dataTransfer.types)) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
       setIsOver(true);
@@ -80,8 +92,12 @@ function useTaskDropTarget(onTask: (taskId: string) => void) {
     onDrop: (e: React.DragEvent) => {
       e.preventDefault();
       setIsOver(false);
-      const taskId = e.dataTransfer.getData(TASK_DRAG_TYPE);
-      if (taskId) onTask(taskId);
+      const taskIds = readTaskDragData(e.dataTransfer);
+      if (taskIds.length === 0) return;
+      // Filing is what this drop was for, so the pin drag behind the same
+      // gesture leaves the sessions pinned where they were.
+      consumeTaskDrop();
+      onTasks(taskIds);
     },
   };
 }
@@ -163,14 +179,15 @@ function GridCell({
     [markActive],
   );
 
+  const liveTaskIds = useLiveTaskIds();
   const placeInCell = useCallback(
-    (taskId: string) => {
+    (taskIds: string[]) => {
       if (cell.terminalId) {
         destroyShellTerminal(getTerminalCellStateKey(cell.terminalId));
       }
-      useCommandCenterStore.getState().assignTask(cell.cellIndex, taskId);
+      placeTasksInCommandCenterCell(taskIds, cell.cellIndex, liveTaskIds);
     },
-    [cell.cellIndex, cell.terminalId],
+    [cell.cellIndex, cell.terminalId, liveTaskIds],
   );
 
   const dropTarget = useTaskDropTarget(placeInCell);
@@ -214,7 +231,7 @@ function GridCell({
           className={`absolute inset-0 z-10 p-4 ${TARGET_CLASSES} ${targetOutline(dropTarget.isOver)}`}
           onClick={
             placement.mode === "pick"
-              ? () => placeInCell(placement.taskId)
+              ? () => placeInCell([placement.taskId])
               : undefined
           }
           onDragOver={dropTarget.onDragOver}
@@ -244,9 +261,11 @@ function ExpandSlot({
   slot: number;
   placement: PlacementState;
 }) {
+  const liveTaskIds = useLiveTaskIds();
   const expand = useCallback(
-    (taskId: string) => expandCommandCenterInto(direction, slot, taskId),
-    [direction, slot],
+    (taskIds: string[]) =>
+      expandTasksInCommandCenterInto(direction, slot, taskIds, liveTaskIds),
+    [direction, liveTaskIds, slot],
   );
   const dropTarget = useTaskDropTarget(expand);
   const { cols, rows } = getGridDimensions(expanded);
@@ -256,7 +275,7 @@ function ExpandSlot({
       type="button"
       className={`flex-1 p-1 text-accent-11 ${TARGET_CLASSES} ${targetOutline(dropTarget.isOver)}`}
       onClick={
-        placement.mode === "pick" ? () => expand(placement.taskId) : undefined
+        placement.mode === "pick" ? () => expand([placement.taskId]) : undefined
       }
       onDragOver={dropTarget.onDragOver}
       onDragLeave={dropTarget.onDragLeave}

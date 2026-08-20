@@ -49,7 +49,7 @@ tools/owners/** @PostHog/team-security
 CODEOWNERS @PostHog/team-security
 
 # PR approval agent — can auto-approve PRs, so changes need review
-.github/workflows/pr-approval-agent.yml @PostHog/team-security
+products/stamphog/packages/pr-approval-agent/** @PostHog/team-security
 tools/pr-approval-agent/** @PostHog/team-security
 
 # Ingestion team owns persons migrations

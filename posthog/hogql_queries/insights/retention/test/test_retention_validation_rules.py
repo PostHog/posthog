@@ -11,6 +11,7 @@ from posthog.hogql_queries.insights.retention.retention_validation_rules import 
     DisallowCumulativeWith24HourWindows,
     DisallowGroupAggregationWithDataWarehouse24HourWindows,
     DisallowPropertyAggregationWith24HourWindows,
+    RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget,
 )
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationContext
@@ -211,3 +212,51 @@ class TestRetentionValidationRules(BaseTest):
 
         self.assertIn("Sum and average aggregation are not supported for 24 hour windows.", str(context.exception))
         self.assertEqual(context.exception.get_codes(), ["retention_24_hour_windows_property_aggregation_unsupported"])
+
+    @parameterized.expand(
+        [
+            ("no_custom_target_events_entities", False, "events", "events", False),
+            ("custom_target_events_entities", True, "events", "events", True),
+            ("custom_target_unset_entities", True, None, None, True),
+            ("custom_target_only_target_dwh", True, "dwh", "events", True),
+            ("custom_target_only_returning_dwh", True, "events", "dwh", True),
+            ("custom_target_both_dwh", True, "dwh", "dwh", False),
+        ]
+    )
+    def test_require_data_warehouse_entities_for_custom_aggregation_target(
+        self,
+        _name: str,
+        custom_aggregation_target: bool,
+        target_entity: str | None,
+        returning_entity: str | None,
+        raises_error: bool,
+    ) -> None:
+        def entity(kind: str | None) -> dict[str, str] | None:
+            if kind == "dwh":
+                return self._data_warehouse_entity()
+            if kind == "events":
+                return {"id": "$pageview", "type": EntityType.EVENTS}
+            return None
+
+        query = RetentionQuery(
+            retentionFilter=RetentionFilter(
+                customAggregationTarget=custom_aggregation_target,
+                targetEntity=entity(target_entity),
+                returningEntity=entity(returning_entity),
+            )
+        )
+
+        if not raises_error:
+            RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget().validate(self._context(query))
+            return
+
+        with self.assertRaises(ValidationError) as context:
+            RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget().validate(self._context(query))
+
+        self.assertIn(
+            "Custom entity aggregation target requires both retention entities to be data warehouse entities.",
+            str(context.exception),
+        )
+        self.assertEqual(
+            context.exception.get_codes(), ["retention_custom_aggregation_target_requires_data_warehouse_entities"]
+        )

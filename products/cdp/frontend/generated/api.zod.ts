@@ -1564,11 +1564,14 @@ export const HogFunctionsPublishCreateBody = /* @__PURE__ */ zod.object({
  * transformations during ingestion, `site_*` transpiled to client-side
  * JS). A re-enqueued invocation of one of those would never drain and
  * wedges the partition, so a rerun of a non-rerunnable type is rejected
- * with a 400 here.
+ * with a 400 here. A disabled function is rejected the same way: the
+ * worker skips its invocations, so the rerun could never execute.
  *
  * Because rerun replays historical event/person/group data, it requires
  * `person:read` and `group:read` on top of `hog_function:write`.
  */
+export const hogFunctionsRerunCreateBodyFilterOneErrorMessageContainsMax = 200
+
 export const hogFunctionsRerunCreateBodyFilterOneMaxAttemptsMax = 255
 
 export const hogFunctionsRerunCreateBodyFilterOneMaxCountMax = 10000
@@ -1600,6 +1603,13 @@ export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout')."
+                    ),
+                error_message_contains: zod
+                    .string()
+                    .max(hogFunctionsRerunCreateBodyFilterOneErrorMessageContainsMax)
+                    .optional()
+                    .describe(
+                        "Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind)."
                     ),
                 max_attempts: zod
                     .number()

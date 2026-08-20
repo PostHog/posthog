@@ -8,7 +8,7 @@ import { persist } from "zustand/middleware";
  */
 export type RightPanelSide = "timeline" | "artifacts" | "comments" | "changes";
 
-/** What a session opens on before anyone touches its panel. */
+/** The panel the column falls back to when it opens without a side of its own. */
 export const DEFAULT_RIGHT_PANEL_SIDE: RightPanelSide = "timeline";
 
 export const RIGHT_PANEL_MIN_WIDTH = 280;
@@ -20,10 +20,19 @@ interface RightPanelStore {
   /**
    * The panel each session (or the sessionless fallback key) has open, so
    * coming back to a session finds it as it was left. `null` is a panel someone
-   * closed; a missing entry is a session nobody has touched, which opens on the
-   * default. Not persisted, because this is within-run memory.
+   * closed; a missing entry is a session nobody has touched, which falls back to
+   * `closedByDefault`. Not persisted, because this is within-run memory.
    */
   sideByKey: Record<string, RightPanelSide | null | undefined>;
+  /**
+   * Whether a session nobody has touched opens with its panel away, following
+   * whichever someone did last: closing one turns this on, opening one turns it
+   * back off. Persisted, unlike `sideByKey`, because putting the panel away is a
+   * standing preference rather than a fact about one session - someone working
+   * in a narrow window closes it once and expects the sessions they open after
+   * that, this run and the next, to leave the width to the content.
+   */
+  closedByDefault: boolean;
   /**
    * How many artifacts a session had the last time its panel showed them, so
    * the switcher can mark the ones that arrived since. A missing entry is a
@@ -43,13 +52,16 @@ interface RightPanelStore {
  * wins, because every existing "open review" entry point (the command menu, PR
  * links, diff toggles) sets it and expects the changes to appear; then an
  * explicit choice, including the `null` of a panel someone closed; then the
- * default, so opening a session lands on its timeline rather than on nothing.
+ * timeline, unless the last thing anyone did to a panel was put it away, in
+ * which case a session opens leaving the width to its content.
  */
 export function resolveRightPanelSide({
   stored,
+  closedByDefault,
   isReviewOpen,
 }: {
   stored: RightPanelSide | null | undefined;
+  closedByDefault: boolean;
   isReviewOpen: boolean;
 }): RightPanelSide | null {
   if (isReviewOpen) return "changes";
@@ -60,7 +72,7 @@ export function resolveRightPanelSide({
   // has dropped its queries.
   if (stored === "changes") return null;
   if (stored !== undefined) return stored;
-  return DEFAULT_RIGHT_PANEL_SIDE;
+  return closedByDefault ? null : DEFAULT_RIGHT_PANEL_SIDE;
 }
 
 /**
@@ -100,12 +112,20 @@ export const useRightPanelStore = create<RightPanelStore>()(
       width: RIGHT_PANEL_DEFAULT_WIDTH,
       isResizing: false,
       sideByKey: {},
+      closedByDefault: false,
       seenArtifactCountByKey: {},
       setWidth: (width) =>
         set({ width: Math.max(RIGHT_PANEL_MIN_WIDTH, width) }),
       setIsResizing: (isResizing) => set({ isResizing }),
       setSideForKey: (key, side) =>
-        set((state) => ({ sideByKey: { ...state.sideByKey, [key]: side } })),
+        set((state) => ({
+          sideByKey: { ...state.sideByKey, [key]: side },
+          // Opening a review is not a vote on the panel: PR links and diff
+          // toggles open Changes without anyone reaching for the column, and
+          // resolving refuses to carry Changes into a session with no review
+          // open anyway. So a review leaves the preference where it was.
+          closedByDefault: side === "changes" ? state.closedByDefault : !side,
+        })),
       markArtifactsSeen: (key, count) =>
         set((state) =>
           state.seenArtifactCountByKey[key] === count
@@ -124,7 +144,10 @@ export const useRightPanelStore = create<RightPanelStore>()(
       // coalesces the burst behind its debounce instead of writing
       // synchronously on each one, the way every other panel store does.
       storage: electronStorage,
-      partialize: (state) => ({ width: state.width }),
+      partialize: (state) => ({
+        width: state.width,
+        closedByDefault: state.closedByDefault,
+      }),
     },
   ),
 );
