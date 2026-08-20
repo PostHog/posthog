@@ -60,7 +60,7 @@ export function StepDelayConfiguration({
 
                 <p className="mb-0">Wait for a specified duration.</p>
                 <HogFlowDuration
-                    value={config.delay_duration}
+                    value={config.delay_duration ?? ''}
                     onChange={(value) => setDelayWorkflowActionConfig(action.id, { delay_duration: value })}
                 />
             </>
