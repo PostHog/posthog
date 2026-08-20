@@ -16,22 +16,61 @@ The Django publisher must have warmed the `usage_ingestion/organization_id.json`
 HyperCache before relying on cache hits; PostgreSQL remains the source of truth
 for cold or stale mappings.
 
-## End-to-end test
+## End-to-end tests
 
-`tests/e2e.rs` runs the service in-process and checks that a retried record
-collapses to one canonical row in ClickHouse. It needs the local dev stack for
-Kafka and ClickHouse (with migration `0301_usage_records` applied), so it is
-`#[ignore]`d by default:
-
-```sh
-flox activate -- bash -c 'cd rust && cargo test -p usage-ingestion --test e2e -- --ignored'
-```
-
+Both tests run the service in-process and need the local dev stack for Kafka and
+ClickHouse (with migration `0301_usage_records` applied), so both are
+`#[ignore]`d by default.
 Override the endpoints with `USAGE_INGESTION_E2E_KAFKA_HOSTS` (default
 `localhost:9092`) and `USAGE_INGESTION_E2E_CLICKHOUSE_URL` (default
 `http://localhost:8123`).
 
-The test also pins a semantic gap: `ReplacingMergeTree(event_timestamp)` keeps
-the whole winning row, so a later event timestamp replaces the first
-`inserted_at` rather than preserving it. Anything that needs first-seen time has
-to derive it at read time.
+```sh
+flox activate -- bash -c 'cd rust && cargo test -p usage-ingestion -- --ignored --nocapture'
+```
+
+`tests/e2e.rs` checks that a retried record collapses to one canonical row.
+It also pins a semantic gap: `ReplacingMergeTree(event_timestamp)` keeps the
+whole winning row, so a later event timestamp replaces the first `inserted_at`
+rather than preserving it.
+Anything that needs first-seen time has to derive it at read time.
+
+### Load test
+
+`tests/load.rs` fires thousands of concurrent single-record requests across
+varied teams, organizations, usage keys and modes, a tenth of them retries of an
+earlier record shuffled so they can arrive before the original.
+
+```sh
+flox activate -- bash -c 'cd rust && cargo test -p usage-ingestion --test load -- --ignored --nocapture'
+```
+
+It asserts that every request succeeds, that concurrent throughput is at least
+5x the sequential baseline measured on the same machine, and that ClickHouse
+ends with exactly one row per record with every retry winning on event
+timestamp.
+The throughput floor is deliberately loose: it exists to catch a lock or single
+worker serializing the request path, not to pin a number to a laptop.
+
+The printed percentiles are the other half of the point.
+Raise the load to find where a machine stops scaling:
+
+| Env var | Default | |
+| --- | --- | --- |
+| `USAGE_INGESTION_E2E_LOAD_REQUESTS` | 5000 | total requests, 10% of them retries |
+| `USAGE_INGESTION_E2E_LOAD_CONCURRENCY` | 128 | requests in flight |
+| `USAGE_INGESTION_E2E_LOAD_CHANNELS` | 8 | gRPC connections the load spreads over |
+
+On an M-series laptop against the dev stack, p50 stays pinned to the Kafka
+producer's 20ms linger until concurrency passes ~512, where it starts climbing:
+
+| Concurrency | Throughput | p50 | p99 |
+| --- | --- | --- | --- |
+| 32 | 1.4k req/s | 23ms | 30ms |
+| 128 | 5.0k req/s | 25ms | 37ms |
+| 512 | 18.8k req/s | 26ms | 45ms |
+| 1024 | 22.7k req/s | 43ms | 71ms |
+
+A large run leaves its rows in `posthog.sharded_usage_records`; every query
+filters on a per-run record ID prefix, so runs never interfere, but
+`TRUNCATE TABLE posthog.sharded_usage_records` clears a dev instance.
