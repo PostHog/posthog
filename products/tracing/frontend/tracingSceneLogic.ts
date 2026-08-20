@@ -62,6 +62,7 @@ export interface tracingSceneLogicValues {
     latencyHeatmapData: TracingLatencyHeatmapData // tracingDataLogic
     latencyHeatmapLoading: boolean // tracingDataLogic
     listRows: Span[] // tracingDataLogic
+    matchingCountsError: string | null // tracingDataLogic
     showHeatmap: boolean // tracingDataLogic
     spanTree: {
         current: SpanTreeNode[]
@@ -74,7 +75,6 @@ export interface tracingSceneLogicValues {
     sparklineData: TracingSparklineData // tracingDataLogic
     sparklineLoading: boolean // tracingDataLogic
     totalMatchingFilters: number // tracingDataLogic
-    matchingCountsError: string | null // tracingDataLogic
     traceSpans: Span[] // tracingDataLogic
     traceSpansHasMore: boolean // tracingDataLogic
     traceSpansLoading: boolean // tracingDataLogic
