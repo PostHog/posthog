@@ -8,7 +8,6 @@ import {
   type StoredLogEntry,
   serializeError,
   type TaskRunStatus,
-  TRANSCRIPT_TAIL_WINDOW,
   TypedEventEmitter,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -444,6 +443,13 @@ export interface CloudTaskEngineDependencies {
   logger: RootLogger;
   mcpRelayExecutor?: McpRelayExecutor | null;
   streamFetch?: CloudTaskFetch;
+  /**
+   * Cap on the entries a snapshot carries, for hosts that page older history
+   * in from `windowStart`. Left out, a snapshot carries the whole chain: a
+   * host that renders a snapshot as the complete transcript would otherwise
+   * lose everything behind the window.
+   */
+  transcriptTailWindow?: number;
 }
 
 export type CloudTaskFetch = (
@@ -464,6 +470,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   private readonly analytics: IAnalytics;
   private readonly mcpRelayExecutor: McpRelayExecutor | null;
   private readonly streamFetch: CloudTaskFetch;
+  private readonly transcriptTailWindow: number | undefined;
 
   constructor({
     auth,
@@ -471,12 +478,14 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     logger,
     mcpRelayExecutor = null,
     streamFetch = globalThis.fetch.bind(globalThis),
+    transcriptTailWindow,
   }: CloudTaskEngineDependencies) {
     super();
     this.auth = auth;
     this.analytics = analytics;
     this.mcpRelayExecutor = mcpRelayExecutor;
     this.streamFetch = streamFetch;
+    this.transcriptTailWindow = transcriptTailWindow;
     this.log = logger.scope("cloud-task");
   }
 
@@ -1874,11 +1883,14 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // The merge below drops emitted entries it finds in the fetched history,
     // so the window must reach back over everything this watcher already
     // emitted; anything older than the window would be re-appended as
-    // "missing" at the wrong position.
-    const window = await this.fetchSessionLogsWindow(
-      watcher,
-      Math.max(TRANSCRIPT_TAIL_WINDOW, watcher.emittedLogEntries.length),
-    );
+    // "missing" at the wrong position. Sizing the window by the emitted count
+    // alone leaves no room for entries that reached the chain without being
+    // emitted (a read-leg switch drops the cursor), which push the oldest
+    // emitted entry out the back, so anchor on the offset instead.
+    const window = await this.fetchSessionLogsWindow(watcher, {
+      coverFromOffset:
+        watcher.totalEntryCount - watcher.emittedLogEntries.length,
+    });
     const currentWatcher = this.watchers.get(key);
     if (!currentWatcher || currentWatcher !== watcher || watcher.failed) {
       return;
@@ -2294,14 +2306,17 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   /**
    * A one-entry probe learns the chain total from X-Matching-Count without
    * downloading a page an oversized log would throw away, then only the
-   * newest TRANSCRIPT_TAIL_WINDOW entries are fetched; the renderer pages in
-   * older history on scroll. Servers that don't report the total get the
-   * full walk, continued from the probe's page. Null on failure.
+   * newest `transcriptTailWindow` entries are fetched; the renderer pages in
+   * older history on scroll. Hosts without a tail window, and servers that
+   * don't report the total, get the full walk continued from the probe's
+   * page. `coverFromOffset` pulls the window start down to a chain offset the
+   * caller needs covered. Null on failure.
    */
   private async fetchSessionLogsWindow(
     watcher: WatcherState,
-    tailWindow: number = TRANSCRIPT_TAIL_WINDOW,
+    options: { coverFromOffset?: number } = {},
   ): Promise<SessionLogsWindow | null> {
+    const tailWindow = this.transcriptTailWindow;
     const probe = await this.fetchSessionLogsPage(watcher, 0, 1);
     if (!probe) return null;
     if (!probe.hasMore) {
@@ -2311,13 +2326,19 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         chainTotal: probe.entries.length,
       };
     }
-    if (probe.matchingCount === null) {
+    if (tailWindow === undefined || probe.matchingCount === null) {
       const all = await this.fetchAllSessionLogs(watcher, probe.entries);
       return all
         ? { entries: all, windowStart: 0, chainTotal: all.length }
         : null;
     }
-    const tailStart = Math.max(0, probe.matchingCount - tailWindow);
+    const tailStart = Math.max(
+      0,
+      Math.min(
+        probe.matchingCount - tailWindow,
+        options.coverFromOffset ?? Number.POSITIVE_INFINITY,
+      ),
+    );
     const entries: StoredLogEntry[] = [];
     let offset = tailStart;
     // The probe's count is a snapshot, and a run whose log is still being
