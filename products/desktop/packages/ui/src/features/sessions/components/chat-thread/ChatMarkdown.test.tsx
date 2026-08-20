@@ -12,6 +12,26 @@ vi.mock("../../../../hooks/useAuthenticatedQuery", () => ({
   }),
 }));
 
+vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
+  usePrDetails: () => ({
+    meta: {
+      state: "open",
+      merged: false,
+      draft: false,
+      headRefName: "posthog/status-chip",
+      title: "Show pull request status in sessions",
+      author: "octocat",
+      isLoading: false,
+    },
+    commentThreads: new Map(),
+    commentsLoading: false,
+  }),
+}));
+
+vi.mock("@posthog/ui/features/pr-review/usePrChecks", () => ({
+  usePrChecks: () => ({ data: [], isLoading: false }),
+}));
+
 import { ChatMarkdown, ChatStreamingMarkdown } from "./ChatMarkdown";
 
 describe("ChatMarkdown", () => {
@@ -40,6 +60,18 @@ Verdict: valid.
     expect(html).toContain("Remote image blocked: internal service");
     expect(html).not.toContain("<img");
     expect(html).not.toContain("http://127.0.0.1/action");
+  });
+
+  it("renders a GitHub pull request with its live status chip", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown content="Review https://github.com/PostHog/posthog/pull/23985" />,
+    );
+
+    expect(html).toContain("PostHog/posthog#23985");
+    expect(html).toContain('aria-label="Open"');
+    expect(html).toContain(
+      'data-github-ref-url="https://github.com/PostHog/posthog/pull/23985"',
+    );
   });
 });
 

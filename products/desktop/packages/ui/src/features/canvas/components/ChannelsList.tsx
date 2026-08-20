@@ -47,6 +47,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
   ChannelItemHoverCard,
   SpaceHoverCard,
@@ -87,7 +88,7 @@ import {
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useUnreadSessionCount } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import {
-  keepListForNextRoute,
+  keepListForRoute,
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
@@ -111,6 +112,7 @@ import {
   taskDot,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import {
   OverflowTickerText,
   useOverflowTickerReveal,
@@ -424,7 +426,7 @@ function useOpenSpaceTask(): (spaceId: string, taskId: string) => void {
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
 
   return (spaceId, taskId) => {
-    keepListForNextRoute();
+    keepListForRoute(spaceId);
     // Still scoped: the space is where the session lives, so anything that then
     // asks for the channel pane opens on the right one.
     setCurrentChannel(spaceId);
@@ -466,6 +468,15 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
     (s) => s.highlightedValue === item.key,
   );
 
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  // Only the owner may hand a task off; the API 404s it for anyone else.
+  const currentUser = useCurrentUser();
+  const canHandoff =
+    item.kind === "task" &&
+    item.task != null &&
+    item.authorUser?.id != null &&
+    currentUser.data?.id === item.authorUser.id;
+
   // The tree only lists sessions, so this is always the task menu. Rename is
   // the one item the space's own list has and this doesn't, because it edits in
   // place and there is no inline editor on a row the keyboard is walking.
@@ -483,8 +494,11 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       onAddToCommandCenter: actions.commandCenterAssigner(item.id),
       onTogglePin: () => actions.togglePin(item),
       onArchive: () => actions.archive(item),
+      ...(canHandoff ? { onHandoff: () => setHandoffOpen(true) } : {}),
     }),
-    [item, spaceId, actions],
+    // canHandoff rides on the currentUser query, so it belongs in deps for a
+    // sign-in refresh to re-evaluate.
+    [item, spaceId, actions, canHandoff],
   );
 
   const row = (
@@ -533,6 +547,13 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
         >
           {row}
         </ChannelItemHoverCard>
+        {canHandoff && item.task ? (
+          <HandoffTaskDialog
+            task={item.task}
+            open={handoffOpen}
+            onOpenChange={setHandoffOpen}
+          />
+        ) : null}
       </TaskStatusTooltips>
     </TaskRowContextMenu>
   );
@@ -1477,7 +1498,7 @@ const sectionValue = (sectionId: string) => `section:${sectionId}`;
 // long). Unstyled parts give a plain label row that snaps.
 //
 // The whole header row is the trigger, and the label is all of it: the headings
-// are two, named, and always in the same order, so a glyph beside each was
+// are few, named, and always in the same order, so a glyph beside each was
 // decoration rather than a way of telling them apart.
 function ChannelGroup({
   sectionId,

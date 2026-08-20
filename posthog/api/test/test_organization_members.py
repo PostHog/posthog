@@ -57,16 +57,20 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             self.organization, "admin@posthog.com", None, level=OrganizationMembership.Level.ADMIN
         )
         # Private project: default "none" with explicit grants for the requester and one project mate
-        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
         AccessControl.objects.create(
             team=self.team,
             resource="project",
+            resource_id=str(self.team.id),
             organization_member=self.organization_membership,
             access_level="member",
         )
         AccessControl.objects.create(
             team=self.team,
             resource="project",
+            resource_id=str(self.team.id),
             organization_member=project_mate.organization_memberships.get(organization=self.organization),
             access_level="member",
         )
@@ -109,19 +113,22 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             admin.email,
         }
 
-    def test_open_project_keeps_all_members_visible_when_restricted(self):
+    def test_open_project_keeps_members_visible_except_those_explicitly_denied(self):
         from posthog.constants import AvailableFeature
 
         from ee.models.rbac.access_control import AccessControl
 
         other = User.objects.create_and_join(self.organization, "1@posthog.com", None)
         demoted = User.objects.create_and_join(self.organization, "demoted@posthog.com", None)
-        AccessControl.objects.create(team=self.team, resource="project", access_level="member")
-        # An explicit "none" override can't lower access below an open default today (max-wins);
-        # this pins the open-team visibility path — expectations flip if more-specific-wins lands.
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        # An explicit "none" override wins over the open default (the member's own rule is the most
+        # specific), so the demoted member has no access to the project and is hidden from it
         AccessControl.objects.create(
             team=self.team,
             resource="project",
+            resource_id=str(self.team.id),
             organization_member=demoted.organization_memberships.get(organization=self.organization),
             access_level="none",
         )
@@ -135,7 +142,6 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         assert {m["user"]["email"] for m in response.json()["results"]} == {
             self.user.email,
             other.email,
-            demoted.email,
         }
 
     def test_cant_list_members_for_an_alien_organization(self):

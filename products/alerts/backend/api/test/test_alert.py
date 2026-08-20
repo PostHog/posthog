@@ -23,7 +23,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
     channel="hog_function", target="Eng alerts", template="slack", at="2026-08-11T00:00:00+00:00"

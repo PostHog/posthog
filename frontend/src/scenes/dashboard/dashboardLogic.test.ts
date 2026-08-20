@@ -9,6 +9,7 @@ import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/uti
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import * as featureFlagLib from 'lib/logic/featureFlagLogic'
@@ -362,6 +363,57 @@ describe('dashboardLogic', () => {
 
             expect(logic.values.tiles[0].insight!.result).toEqual([{ count: 42 }])
             expect(logic.values.layouts).toBe(initialLayouts)
+        })
+
+        it('previews tile spacing immediately and persists only the final choice', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            ;(api.update as jest.Mock).mockClear()
+            const reportTileDensityConfigured = jest.spyOn(
+                eventUsageLogic.actions,
+                'reportDashboardTileDensityConfigured'
+            )
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.setDashboardTileSpacing('tight')
+                logic.actions.saveDashboardTileSpacing('tight')
+                logic.actions.setDashboardTileSpacing('relaxed')
+                logic.actions.saveDashboardTileSpacing('relaxed')
+
+                expect(logic.values.dashboard?.customization?.tile_spacing).toBe('relaxed')
+                expect(api.update).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenCalledTimes(1)
+                expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    grid_spacing: 'relaxed',
+                })
+                expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('does not report the default tile density', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const reportTileDensityConfigured = jest.spyOn(
+                eventUsageLogic.actions,
+                'reportDashboardTileDensityConfigured'
+            )
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.saveDashboardTileSpacing('standard')
+
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(reportTileDensityConfigured).not.toHaveBeenCalled()
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('saving without changes does not call api', async () => {
@@ -3030,6 +3082,27 @@ describe('dashboardLogic', () => {
                 results: [{ id: 'issue-1' }],
                 hasMore: false,
             })
+        })
+
+        it('surfaces a failed tile duplicate instead of resolving it as a success', async () => {
+            silenceKeaLoadersErrors()
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            jest.spyOn(api, 'update').mockRejectedValueOnce(
+                new ApiError('forbidden', 403, undefined, { detail: 'You do not have permission' })
+            )
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateTile(WIDGET_TILE)
+            })
+                .toDispatchActions(['duplicateTileFailure'])
+                .toFinishAllListeners()
+
+            expect(errorToast).toHaveBeenCalledWith('You do not have permission')
+            resumeKeaLoadersErrors()
         })
 
         it('addWidgetTiles refreshes newly created widget tiles', async () => {

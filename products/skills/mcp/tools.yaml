@@ -30,6 +30,9 @@ tools:
     llm-skills-name-export-retrieve:
         operation: llm_skills_name_export_retrieve
         enabled: false
+    llm-skills-name-publish-community-create:
+        operation: llm_skills_name_publish_community_create
+        enabled: false
     skill-archive:
         operation: llm_skills_name_archive_create
         enabled: true

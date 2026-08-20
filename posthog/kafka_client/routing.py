@@ -42,6 +42,7 @@ from posthog.kafka_client.topics import (
     KAFKA_EVENTS_JSON,
     KAFKA_FLAGS_CACHE_INVALIDATION,
     KAFKA_GROUPS,
+    KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
     KAFKA_METRICS_TIME_TO_SEE_DATA,
     KAFKA_NOTIFICATION_EVENTS,
@@ -95,6 +96,10 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # --- CYCLOTRON (Warpstream cyclotron) ---
     KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.CYCLOTRON,
     KAFKA_DWH_CDP_RAW_TABLE: KafkaClusterProfile.CYCLOTRON,
+    # The ClickHouse Kafka engine table for this topic reads from the
+    # warpstream-cyclotron named collection, so a Django producer has to target
+    # the same cluster the CDP workers produce to or the rows never arrive.
+    KAFKA_HOG_INVOCATION_RESULTS: KafkaClusterProfile.CYCLOTRON,
     # --- CALCULATED_EVENTS (Warpstream calculated-events) ---
     KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.CALCULATED_EVENTS,
     # --- REPLAY (Session replay) ---

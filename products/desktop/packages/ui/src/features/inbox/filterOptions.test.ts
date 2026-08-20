@@ -1,8 +1,10 @@
+import { filterInboxSourceOptions } from "@posthog/shared";
 import type { AvailableSuggestedReviewer } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
   buildSuggestedReviewerFilterOptions,
   getSuggestedReviewerDisplayName,
+  INBOX_SOURCE_OPTIONS,
 } from "./filterOptions";
 
 function makeReviewer(
@@ -58,6 +60,49 @@ describe("getSuggestedReviewerDisplayName", () => {
         isMe: true,
       }),
     ).toBe("Boss Person (Me)");
+  });
+});
+
+describe("filterInboxSourceOptions", () => {
+  const values = (enabled?: ReadonlySet<string>) =>
+    filterInboxSourceOptions(INBOX_SOURCE_OPTIONS, enabled, []).map(
+      (option) => option.value,
+    );
+
+  it("keeps only the warehouse sources that are switched on", () => {
+    expect(values(new Set(["github", "zendesk"]))).toEqual([
+      "session_replay",
+      "error_tracking",
+      "llm_analytics",
+      "conversations",
+      "signals_scout",
+      "health_checks",
+      "github",
+      "zendesk",
+    ]);
+  });
+
+  it("keeps PostHog's own products when nothing is switched on", () => {
+    expect(values(new Set())).toEqual([
+      "session_replay",
+      "error_tracking",
+      "llm_analytics",
+      "conversations",
+      "signals_scout",
+      "health_checks",
+    ]);
+  });
+
+  it("keeps a selected source so an active filter stays visible", () => {
+    expect(
+      filterInboxSourceOptions(INBOX_SOURCE_OPTIONS, new Set(), ["sentry"]),
+    ).toContainEqual(expect.objectContaining({ value: "sentry" }));
+  });
+
+  it("hides nothing while the enabled set is unknown", () => {
+    expect(
+      filterInboxSourceOptions(INBOX_SOURCE_OPTIONS, undefined, []),
+    ).toEqual(INBOX_SOURCE_OPTIONS);
   });
 });
 

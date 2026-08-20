@@ -695,6 +695,33 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it("reports the lifecycle of a native goal turn as background generation", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "thr_1" } },
+    });
+    const { client, extNotifications } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/bundle/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+
+    stub.emit("turn/started", { turn: { id: "goal_tick_1" } });
+    stub.emit("turn/completed", {
+      turn: { id: "goal_tick_1", status: "completed" },
+    });
+    await Promise.resolve();
+
+    expect(extNotifications).toContainEqual({
+      method: "_posthog/background_turn_started",
+      params: { sessionId: "thr_1" },
+    });
+    expect(extNotifications).toContainEqual({
+      method: "_posthog/background_turn_complete",
+      params: { sessionId: "thr_1", stopReason: "end_turn" },
+    });
+  });
+
   it("interrupts a native goal turn that started before it was paused", async () => {
     const stub = makeStubRpc({
       "thread/start": { thread: { id: "thr_1" } },

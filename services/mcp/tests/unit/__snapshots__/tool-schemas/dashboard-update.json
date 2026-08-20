@@ -53,6 +53,11 @@
             },
             "type": "object"
         },
+        "grid_spacing": {
+            "description": "Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+            "enum": ["tight", "condensed", "standard", "relaxed", "wide"],
+            "type": "string"
+        },
         "id": {
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"

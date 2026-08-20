@@ -10,7 +10,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
@@ -64,8 +64,13 @@ SAVE_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_days
 # sampling is unavailable they take an order-of-magnitude answer from a shorter window.
 PREVIEW_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_days=7, unsampled_scan_window_days=2)
 
-# Persisted per-scanner estimates older than this are recomputed by the sweep.
-ESTIMATE_STALE_AFTER = dt.timedelta(hours=24)
+# Persisted per-scanner estimates older than this are recomputed by the refresher. Estimates only
+# track data drift between edits (an edit nulls `estimated_at` and refreshes within one cycle), so a
+# slower clock trades projection freshness directly for ClickHouse reads.
+ESTIMATE_STALE_AFTER = dt.timedelta(hours=72)
+# Disabled scanners refresh on a slower clock still: fresh enough that re-enabling one puts a usable
+# number into the quota sum, without paying a full-price estimate for every parked scanner.
+DISABLED_ESTIMATE_STALE_AFTER = dt.timedelta(days=7)
 
 
 @dataclass(frozen=True)
@@ -268,13 +273,16 @@ def refresh_scanner_estimate(
     ch_user: ClickHouseUser = ClickHouseUser.APP,
 ) -> None:
     """Recompute and persist the scanner's projected monthly volume. Raises on failure; callers decide severity."""
-    estimate = estimate_scanner_session_volume(
-        team=scanner.team,
-        query=scanner.recordings_query(),
-        sampling_mode=scanner.sampling_mode,
-        budget=budget,
-        ch_user=ch_user,
-    )
+    # Scoped, not tag_queries: a bare tag on the worker thread would leak onto later queries and
+    # charge other scanners' reads to this one in the meter. Previews stay untagged (no scanner yet).
+    with tags_context(scanner_id=str(scanner.pk)):
+        estimate = estimate_scanner_session_volume(
+            team=scanner.team,
+            query=scanner.recordings_query(),
+            sampling_mode=scanner.sampling_mode,
+            budget=budget,
+            ch_user=ch_user,
+        )
     projection = project_monthly_observations(estimate, scanner.sampling_rate)
     estimated_at = timezone.now()
     # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.

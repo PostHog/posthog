@@ -47,6 +47,7 @@ const FALLBACK_MODEL_OPTIONS: Record<
     { value: "claude-sonnet-5", label: "Claude Sonnet 5" },
     { value: "claude-fable-5", label: "Claude Fable 5" },
     { value: "@cf/zai-org/glm-5.2", label: "GLM-5.2" },
+    { value: "zai-org/glm-5.3", label: "GLM-5.3" },
     { value: "moonshotai/kimi-k3", label: "Kimi K3" },
   ],
   codex: [

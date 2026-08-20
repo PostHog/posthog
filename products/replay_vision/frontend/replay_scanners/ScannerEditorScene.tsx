@@ -27,6 +27,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -55,6 +56,7 @@ import {
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper } from './ScannerEditorStepper'
+import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
 import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
@@ -268,6 +270,27 @@ function DetailsStep(): JSX.Element {
     )
 }
 
+// Live outcomes under the self-driving toggle: what turning it on has already produced. Renders
+// nothing until the scanner has emitted at least one signal, so a new scanner just sees the pitch.
+function SelfDrivingOutcomesLine({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { selfDrivingStats } = useValues(scannerSelfDrivingStatsLogic({ scannerId }))
+    if (!selfDrivingStats || selfDrivingStats.signals_emitted === 0) {
+        return null
+    }
+    const { signals_emitted, reports_contributed, prs_opened, prs_merged } = selfDrivingStats
+    return (
+        <div className="text-xs text-muted" data-attr="vision-editor-self-driving-outcomes">
+            So far this scanner has emitted <strong className="tabular-nums">{signals_emitted.toLocaleString()}</strong>{' '}
+            {pluralize(signals_emitted, 'signal', undefined, false)}, contributing to{' '}
+            <strong className="tabular-nums">{reports_contributed.toLocaleString()}</strong>{' '}
+            {pluralize(reports_contributed, 'report', undefined, false)} and{' '}
+            <strong className="tabular-nums">{prs_opened.toLocaleString()}</strong>{' '}
+            {pluralize(prs_opened, 'PR', undefined, false)}
+            {prs_opened > 0 ? <> ({prs_merged.toLocaleString()} merged)</> : null}.
+        </div>
+    )
+}
+
 function ConfigureStep(): JSX.Element {
     const { scannerId } = useValues(scannerEditorSceneLogic)
     const { scanner, isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
@@ -384,6 +407,7 @@ function ConfigureStep(): JSX.Element {
                                     </Link>
                                     .
                                 </div>
+                                {!isNew && <SelfDrivingOutcomesLine scannerId={scannerId} />}
                             </div>
                             <LemonSwitch
                                 checked={!!value}

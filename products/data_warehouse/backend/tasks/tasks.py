@@ -47,9 +47,9 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
-# A team can have both a legacy and a project-reader catalog, and each metadata query
-# has a 10-minute database timeout. Cover both serial queries so another task cannot
-# overlap the catalog writes near the old lock boundary.
+# A team can temporarily have dynamic, project-reader, and static compatibility
+# catalogs, and each metadata query has a 10-minute database timeout. Cover the
+# serial queries so another task cannot overlap catalog writes near the lock boundary.
 MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 30 * 60
 MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
 
@@ -90,15 +90,73 @@ def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id
 )
 @skip_team_scope_audit
 def soft_delete_managed_warehouse_sources_task(organization_id: str) -> None:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        soft_delete_legacy_managed_warehouse_sources,
+    )
+
+    soft_delete_legacy_managed_warehouse_sources(organization_id=organization_id)
+
+
+@shared_task(
+    ignore_result=True,
+    name="products.data_warehouse.backend.tasks.soft_delete_managed_warehouse_sources_v2",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def soft_delete_managed_warehouse_sources_v2_task(organization_id: str, expected_generation: int) -> None:
     from products.managed_warehouse.backend.facade.connection import (
         soft_delete_managed_warehouse_sources,  # noqa: PLC0415
     )
 
-    soft_delete_managed_warehouse_sources(organization_id=organization_id)
+    soft_delete_managed_warehouse_sources(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
 
 
-def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> None:
-    soft_delete_managed_warehouse_sources_task.delay(organization_id=str(organization_id))
+def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUID, expected_generation: int) -> None:
+    soft_delete_managed_warehouse_sources_v2_task.delay(
+        organization_id=str(organization_id),
+        expected_generation=expected_generation,
+    )
+
+
+@shared_task(
+    ignore_result=True,
+    name="products.data_warehouse.backend.tasks.ensure_managed_warehouse_direct_source_v2",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def ensure_managed_warehouse_direct_source_v2_task(
+    team_id: int,
+    organization_id: str,
+    expected_generation: int,
+) -> None:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        ensure_managed_warehouse_direct_source,
+    )
+
+    ensure_managed_warehouse_direct_source(
+        team_id=team_id,
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
+
+
+def schedule_managed_warehouse_direct_source_ensure(
+    *, team_id: int, organization_id: str | UUID, expected_generation: int
+) -> None:
+    ensure_managed_warehouse_direct_source_v2_task.delay(
+        team_id=team_id,
+        organization_id=str(organization_id),
+        expected_generation=expected_generation,
+    )
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_all_managed_warehouse_tables")

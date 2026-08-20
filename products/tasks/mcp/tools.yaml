@@ -279,24 +279,6 @@ tools:
     task-activity-mark-read-create:
         operation: task_activity_mark_read_create
         enabled: false
-    task-automations-create:
-        operation: task_automations_create
-        enabled: false
-    task-automations-destroy:
-        operation: task_automations_destroy
-        enabled: false
-    task-automations-list:
-        operation: task_automations_list
-        enabled: false
-    task-automations-partial-update:
-        operation: task_automations_partial_update
-        enabled: false
-    task-automations-retrieve:
-        operation: task_automations_retrieve
-        enabled: false
-    task-automations-run-create:
-        operation: task_automations_run_create
-        enabled: false
     task-channels-context-generation-retrieve:
         operation: task_channels_context_generation_retrieve
         enabled: false
@@ -326,6 +308,9 @@ tools:
         enabled: false
     task-channels-partial-update:
         operation: task_channels_partial_update
+        enabled: false
+    task-channels-provision-defaults-create:
+        operation: task_channels_provision_defaults_create
         enabled: false
     task-channels-star-create:
         operation: task_channels_star_create
@@ -388,6 +373,9 @@ tools:
                 - updated_at
     tasks-destroy:
         operation: tasks_destroy
+        enabled: false
+    tasks-handoff-create:
+        operation: tasks_handoff_create
         enabled: false
     tasks-list:
         operation: tasks_list
@@ -498,6 +486,9 @@ tools:
     tasks-runs-artifacts-presign-create:
         operation: tasks_runs_artifacts_presign_create
         enabled: false
+    tasks-runs-artifacts-references-create:
+        operation: tasks_runs_artifacts_references_create
+        enabled: false
     tasks-runs-cancel-create:
         operation: tasks_runs_cancel_create
         enabled: false
@@ -558,6 +549,12 @@ tools:
         enabled: false
     tasks-runs-partial-update:
         operation: tasks_runs_partial_update
+        enabled: false
+    tasks-runs-peers-message-create:
+        operation: tasks_runs_peers_message_create
+        enabled: false
+    tasks-runs-peers-retrieve:
+        operation: tasks_runs_peers_retrieve
         enabled: false
     tasks-runs-relay-message-create:
         operation: tasks_runs_relay_message_create
