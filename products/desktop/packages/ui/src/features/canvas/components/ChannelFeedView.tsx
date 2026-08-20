@@ -827,7 +827,9 @@ const FeedItem = memo(function FeedItem({
         });
       },
       onArchive: () => {
-        void archiveTask({ taskId: task.id });
+        void archiveTask({ taskId: task.id }).catch(() => {
+          toast.error("Couldn't archive task", { description: "Try again." });
+        });
       },
     }),
     [
