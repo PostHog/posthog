@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.test import override_settings
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from structlog.contextvars import get_contextvars
@@ -562,6 +563,32 @@ class TestWebEnsurePrecomputed(BaseTest):
         with tags_context(execution_mode=execution_mode):
             web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
+
+    @parameterized.expand(
+        [
+            # A fresh-enough current-day bucket is still hours coarse (today band
+            # is 4h), which an hourly graph renders as missing recent data. On a
+            # forced refresh the current day must read as expired so the request
+            # falls through to the live query instead of the coarse bucket.
+            ("forced", ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value, True),
+            ("not_forced", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value, False),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_forced_refresh_expires_current_day_band(self, _name, execution_mode, expect_override, mock_ensure):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        reset_query_tags()
+        with tags_context(execution_mode=execution_mode):
+            web_ensure_precomputed(team=self.team, ttl_seconds={"0d": 4 * 3600, "default": 3600}, table=None)
+        schedule = mock_ensure.call_args.kwargs["ttl_seconds"]
+        first_cutoff, first_ttl = schedule.rules[0]
+        if expect_override:
+            assert first_ttl == 1
+            assert first_cutoff.hour == 0 and first_cutoff.minute == 0
+            assert schedule.get_ttl(django_timezone.now()) == 1
+        else:
+            assert first_ttl == 4 * 3600
+            assert schedule.get_ttl(django_timezone.now()) == 4 * 3600
 
 
 class TestStaleRevalidationEnqueue(BaseTest):

@@ -15,8 +15,10 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.utils import timezone as django_timezone
 
 import structlog
 import posthoganalytics
@@ -353,8 +355,9 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     runner = kwargs.pop("runner", None)
     family = kwargs.pop("family", None)
     background = is_background_warming_request()
+    forced = is_forced_refresh_request()
     if "stale_while_revalidate_seconds" not in kwargs:
-        if is_forced_refresh_request():
+        if forced:
             # An explicit user-initiated force refresh must never be handed a
             # complete-but-stale row — that is exactly the state the user is trying
             # to clear (the reported bug: repeated Reload clicks kept serving the
@@ -402,6 +405,22 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
             schedule = parse_ttl_schedule(existing, team.timezone, settling_period_seconds=SESSION_SETTLING_SECONDS)
         if pinned:
             schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
+        if forced:
+            # A within-TTL current-day bucket can still be hours behind (the
+            # today band is 4h), which on an hourly graph reads as missing
+            # recent data. Disabling the grace above cannot help there — the
+            # bucket is not stale, just coarse. Treat the current team-local
+            # day as expired for this read only: the ensure reports a miss,
+            # the read falls through to the live query, and the SWR enqueue
+            # rebuilds the bucket in the background. `rules` are first-match
+            # by descending cutoff, so prepending today's cutoff wins over
+            # the normal today band.
+            today_start = (
+                django_timezone.now()
+                .astimezone(ZoneInfo(team.timezone))
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+            )
+            schedule = replace(schedule, rules=[(today_start, 1), *schedule.rules])
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
     if not result.ready and not background and runner is not None and family is not None:
