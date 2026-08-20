@@ -6,6 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -92,6 +93,22 @@ describe('maxGlobalLogic', () => {
 
             expect(logic.values.conversationHistory).toHaveLength(1)
             expect(logic.values.conversationHistory[0]?.id).toBe(MOCK_CONVERSATION_ID)
+        })
+
+        // A deleted chat must not crash the loader. When the URL still points at the missing chat we
+        // recover to a fresh chat; otherwise the history is left untouched.
+        it('recovers to a fresh chat when the open conversation 404s', async () => {
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+            logic.actions.prependOrReplaceConversation(MOCK_CONVERSATION)
+            router.actions.push(urls.ai(MOCK_CONVERSATION_ID))
+            jest.spyOn(api.conversations, 'get').mockRejectedValue({ status: 404 })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadConversation(MOCK_CONVERSATION_ID)
+            }).toFinishAllListeners()
+
+            expect(logic.values.conversationHistory).toHaveLength(1)
+            expect(router.values.searchParams.chat).toBeUndefined()
         })
     })
 

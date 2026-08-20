@@ -22,6 +22,7 @@ export interface actionLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     action: ActionType | null
     actionLoading: boolean
+    actionMissing: boolean
     breadcrumbs: Breadcrumb[]
     hasCohortFilters: boolean
     isComplete: boolean
@@ -67,6 +68,9 @@ export interface actionLogicActions {
         matchingHogFunctions: HogFunctionType[]
         payload?: any
     }
+    setActionMissing: () => {
+        value: true
+    }
     setIsComplete: (isComplete: any) => {
         isComplete: any
     }
@@ -103,8 +107,9 @@ export const actionLogic = kea<actionLogicType>([
         checkIsFinished: (action) => ({ action }),
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
         setIsComplete: (isComplete) => ({ isComplete }),
+        setActionMissing: true,
     })),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         action: [
             null as ActionType | null,
             {
@@ -112,7 +117,17 @@ export const actionLogic = kea<actionLogicType>([
                     if (!props.id) {
                         throw new Error('Cannot fetch an unsaved action from the API.')
                     }
-                    return await api.actions.get(props.id)
+                    try {
+                        return await api.actions.get(props.id)
+                    } catch (error: any) {
+                        // A deleted or cross-project action is a not-found state. Flag it so the scene
+                        // renders the standard not-found page instead of a stuck spinner. Still re-throw
+                        // so the load ends as a failure, not a success with a null action.
+                        if (error?.status === 404) {
+                            actions.setActionMissing()
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -146,6 +161,13 @@ export const actionLogic = kea<actionLogicType>([
             false as boolean,
             {
                 setIsComplete: (_, { isComplete }) => isComplete,
+            },
+        ],
+        actionMissing: [
+            false as boolean,
+            {
+                setActionMissing: () => true,
+                loadAction: () => false,
             },
         ],
     })),

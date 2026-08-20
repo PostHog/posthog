@@ -333,7 +333,20 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
 
                 loadConversation: async (conversationId: string) => {
-                    const response = await api.conversations.get(conversationId)
+                    let response: ConversationDetail | null
+                    try {
+                        response = await api.conversations.get(conversationId)
+                    } catch (error: any) {
+                        // A deleted chat is a not-found state, not a crash. If the URL still points at it,
+                        // recover to a fresh chat; otherwise just leave the history untouched.
+                        if (error?.status === 404) {
+                            if (values.currentConversationId === conversationId) {
+                                router.actions.push(urls.ai())
+                            }
+                            return values.conversationHistory
+                        }
+                        throw error
+                    }
                     if (!response) {
                         // The endpoint can return an empty body; a null in the history crashes consumers
                         return values.conversationHistory

@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -18,6 +18,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 
+import { actionsReferencesList } from '../generated/api'
 import type { ActionReferenceApi } from '../generated/api.schemas'
 import { deleteActionWithWarning } from '../utils/deleteAction'
 import { actionLogic } from './actionLogic'
@@ -366,9 +367,18 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     if (!props.id) {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.get(`api/projects/@current/actions/${props.id}/references`)
-                    return response
+                    try {
+                        // Scope to the project in the route, not the server's active project. A hardcoded
+                        // "@current" 404s when they disagree (a cross-project link, an unsettled switch).
+                        return await actionsReferencesList(String(ApiConfig.getCurrentProjectId()), props.id)
+                    } catch (error: any) {
+                        // A missing or forbidden action has no references we can show, so an empty list is
+                        // correct. Any other failure stays an error so the panel does not claim "none".
+                        if (error?.status === 404 || error?.status === 403) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],

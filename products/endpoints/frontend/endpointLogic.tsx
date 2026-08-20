@@ -31,6 +31,7 @@ export interface endpointLogicValues {
     endpoint: EndpointVersionType | null
     endpointDescription: string | null
     endpointLoading: boolean
+    endpointMissing: boolean
     endpointName: string | null
     isUpdateMode: boolean
     materializationStatus: EndpointType['materialization'] | null
@@ -50,6 +51,9 @@ export interface endpointLogicActions {
     } // sceneLayoutLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     clearMaterializationStatus: () => {
+        value: true
+    }
+    setEndpointMissing: () => {
         value: true
     }
     closeCreateFromInsightModal: () => {
@@ -243,6 +247,7 @@ export const endpointLogic = kea<endpointLogicType>([
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
         clearMaterializationStatus: true,
+        setEndpointMissing: true,
         deleteEndpointFailure: () => ({}),
         confirmToggleActive: (endpoint: EndpointType) => ({ endpoint }),
         saveTagsInline: (tags: string[]) => ({ tags }),
@@ -314,6 +319,13 @@ export const endpointLogic = kea<endpointLogicType>([
                 clearMaterializationStatus: () => null,
             },
         ],
+        endpointMissing: [
+            false,
+            {
+                setEndpointMissing: () => true,
+                loadEndpoint: () => false,
+            },
+        ],
     }),
     loaders(({ actions, values }) => ({
         endpoint: [
@@ -323,7 +335,17 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
-                    return await api.endpoint.get(name)
+                    try {
+                        return await api.endpoint.get(name)
+                    } catch (error: any) {
+                        // A deleted or renamed endpoint is a not-found state, not a crash. Flag it so the
+                        // scene renders the standard not-found page instead of a stuck spinner.
+                        if (error?.status === 404) {
+                            actions.setEndpointMissing()
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -334,7 +356,18 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
-                    const materializationStatus = await api.endpoint.getMaterializationStatus(name, version)
+                    let materializationStatus: EndpointType['materialization'] | null
+                    try {
+                        materializationStatus = await api.endpoint.getMaterializationStatus(name, version)
+                    } catch (error: any) {
+                        // A deleted or renamed endpoint has no status to show; treat it as a not-found
+                        // state rather than surfacing an error.
+                        if (error?.status === 404) {
+                            actions.setEndpointMissing()
+                            return null
+                        }
+                        throw error
+                    }
 
                     // Update the endpoint object with the new materialization status (only for current version)
                     if (values.endpoint && version === undefined) {
