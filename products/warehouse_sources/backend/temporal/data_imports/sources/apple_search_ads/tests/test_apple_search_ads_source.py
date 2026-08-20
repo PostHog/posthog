@@ -145,6 +145,28 @@ class TestAppleSearchAdsSource:
         assert any(str(status) in key and "searchads.apple.com" in key for key in errors)
         assert all(message for message in errors.values())
 
+    @parameterized.expand(
+        [
+            ("campaigns", "https://api.searchads.apple.com/api/v5/campaigns?limit=1000&offset=0"),
+            ("ad_group_report", "https://api.searchads.apple.com/api/v5/reports/campaigns/123/adgroups"),
+        ]
+    )
+    def test_retryable_errors_match_read_endpoint_503(self, _name: str, url: str) -> None:
+        observed_error = f"503 Server Error: Service Unavailable for url: {url}"
+
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            # A 4xx on a read endpoint is a real bug, not a transient blip — stays loud.
+            ("400", "400 Client Error: Bad Request for url: https://api.searchads.apple.com/api/v5/campaigns"),
+            # A 503 from the auth host is outside the read API scope.
+            ("token", "503 Server Error: Service Unavailable for url: https://appleid.apple.com/auth/oauth2/token"),
+        ]
+    )
+    def test_retryable_errors_do_not_match_other_failures(self, _name: str, other_error: str) -> None:
+        assert not any(key in other_error for key in self.source.get_retryable_errors())
+
     def test_validate_credentials_maps_the_config_onto_apple_credentials(self) -> None:
         with mock.patch(f"{SOURCE_MODULE}.validate_apple_search_ads_credentials") as mock_validate:
             mock_validate.return_value = (True, None)

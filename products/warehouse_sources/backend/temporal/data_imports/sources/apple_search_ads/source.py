@@ -61,6 +61,17 @@ class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSear
             "Could not sign the Apple Search Ads client secret": "The private key isn't a valid unencrypted EC (P-256) PEM. Paste the key you generated for your Search Ads API key and reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # The read API already retries a 503 five times (`APPLE_SEARCH_ADS_RETRY`), but with
+        # `raise_on_status=False` the final 503 returns as a response and `request_json` turns it
+        # into an HTTPError. Apple returns 503 during brief outages, and Temporal retries the whole
+        # activity, so the import self-recovers — keep it out of tracked exception noise. Matched on
+        # the 503 status and reason phrase plus the read host, so a real 4xx on the same endpoints
+        # stays loud.
+        return {
+            "503 Server Error: Service Unavailable for url: https://api.searchads.apple.com",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
