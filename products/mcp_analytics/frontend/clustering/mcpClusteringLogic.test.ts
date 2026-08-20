@@ -418,6 +418,45 @@ describe('mcpClusteringLogic category scope', () => {
         expect(logic.values.selectedToolName).toBe('a')
     })
 
+    // A shared `?categories=…&cluster=…` link applies the selection before the category map
+    // has loaded, so the scope isn't known yet and the reconcile has nothing to work with.
+    // Once the map arrives the selection must move into the scoped list — otherwise the list
+    // is scoped but the detail pane sits on a cluster the scope excludes, with no row lit up.
+    it('reconciles an out-of-scope url selection once the category map arrives', async () => {
+        logic.unmount()
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), {
+            categories: 'Data',
+            cluster: String(NO_TOOLS_ID),
+        })
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // NO_TOOLS_ID routes to no Data tool, so it is never in the Data scope.
+        const scopedIds = logic.values.scopedClusters.map((c) => c.id)
+        expect(scopedIds).not.toContain(NO_TOOLS_ID)
+        expect(scopedIds).toContain(logic.values.selectedClusterId)
+    })
+
+    // The 30-day category window is wider than the snapshot's, so a category can name only
+    // tools the snapshot never carried. Its scope then matches nothing, and the selection
+    // must clear rather than strand the detail pane on a cluster the scope excludes.
+    it('clears the selection when the selected category matches nothing in the snapshot', async () => {
+        logic.unmount()
+        mockQuery.mockResolvedValue({ results: [...CATEGORY_MAP, { tool: 'ghost', category: 'Ghost' }] })
+        router.actions.push(urls.mcpAnalyticsIntentClustering())
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSelectedCategories(['Ghost'])
+
+        expect(logic.values.scopedClusters).toEqual([])
+        expect(logic.values.scopedTools).toEqual([])
+        expect(logic.values.selectedClusterId).toBeNull()
+        expect(logic.values.selectedToolName).toBeNull()
+    })
+
     // A single category comes back from the url as a bare string rather than an array,
     // which would otherwise scope to the individual characters of its name.
     it.each([

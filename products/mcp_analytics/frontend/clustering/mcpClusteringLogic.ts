@@ -754,21 +754,17 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             } else {
                 actions.stopPolling()
             }
-            // Fill or reconcile the selection: fall back to the highest-traffic cluster
-            // when nothing is selected, and also when the current selection is absent from
-            // this snapshot. A `?cluster=` link or a recompute that reassigned ids would
-            // otherwise leave the detail pane empty with the fallback suppressed.
-            const clusterPresent = snapshot.clusters.some((c) => c.id === values.selectedClusterId)
-            if (!clusterPresent && snapshot.clusters.length > 0) {
-                const top = [...snapshot.clusters].sort((a, b) => b.call_count - a.call_count)[0]
-                actions.selectCluster(top.id)
-            }
-            const tools = snapshot.tools ?? []
-            const toolPresent = tools.some((t) => t.tool === values.selectedToolName)
-            if (!toolPresent && tools.length > 0) {
-                const topTool = [...tools].sort((a, b) => b.call_count - a.call_count)[0]
-                actions.selectTool(topTool.tool)
-            }
+            // Fill or reconcile the selection against the scoped list. A `?cluster=` link, a
+            // recompute that reassigned ids, or an active category scope can all leave the
+            // selection pointing at a cluster or tool this snapshot no longer shows; follow
+            // the list so the detail pane never lands on one the list omits.
+            actions.keepSelectionVisible()
+        },
+        // The category map arrives after the url has already applied the selection, so the
+        // scope is only known now. Reconcile against it: without this the list becomes scoped
+        // while the selection can sit outside it, leaving the detail pane on an excluded item.
+        loadCategoryMapSuccess: () => {
+            actions.keepSelectionVisible()
         },
         triggerRecomputeSuccess: ({ snapshot }) => {
             lemonToast.info('Clustering started — this usually takes 30–60 seconds.')
@@ -811,12 +807,40 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             actions.keepSelectionVisible()
         },
         keepSelectionVisible: () => {
-            const { filteredClusters, selectedClusterId, sortedTools, selectedToolName } = values
-            if (filteredClusters.length > 0 && !filteredClusters.some((c) => c.id === selectedClusterId)) {
-                actions.selectCluster(filteredClusters[0].id)
+            const {
+                filteredClusters,
+                selectedClusterId,
+                clusters,
+                scopedClusters,
+                sortedTools,
+                selectedToolName,
+                tools,
+                scopedTools,
+                categoryMapLoading,
+            } = values
+            // Reconcile each selection against the list its pane renders: move it to the top of
+            // the list when the current one is no longer there, and clear it only when the scope
+            // genuinely excludes every row the snapshot carries. While the category map is still
+            // loading the scope isn't known, so an empty scoped list means "not ready" rather
+            // than "excluded" — leave the selection be so a deep-linked cluster or tool survives
+            // until its data arrives. A plain search or filter that matches nothing keeps the
+            // selection too; only a category scope that names none of the snapshot's tools clears
+            // it, so the detail pane can never describe an item the scope hides.
+            const clusterScopeExcludesAll = !categoryMapLoading && clusters.length > 0 && scopedClusters.length === 0
+            if (!filteredClusters.some((c) => c.id === selectedClusterId)) {
+                if (filteredClusters.length > 0) {
+                    actions.selectCluster(filteredClusters[0].id)
+                } else if (clusterScopeExcludesAll && selectedClusterId !== null) {
+                    actions.selectCluster(null)
+                }
             }
-            if (sortedTools.length > 0 && !sortedTools.some((t) => t.tool === selectedToolName)) {
-                actions.selectTool(sortedTools[0].tool)
+            const toolScopeExcludesAll = !categoryMapLoading && tools.length > 0 && scopedTools.length === 0
+            if (!sortedTools.some((t) => t.tool === selectedToolName)) {
+                if (sortedTools.length > 0) {
+                    actions.selectTool(sortedTools[0].tool)
+                } else if (toolScopeExcludesAll && selectedToolName !== null) {
+                    actions.selectTool(null)
+                }
             }
         },
     })),
