@@ -1945,12 +1945,30 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 request=request,
             )
 
+    # A tile holds exactly one related object. update_or_create only writes the incoming FK,
+    # so a payload that targets an existing tile of another type would leave the old FK in place
+    # and break the dash_tile_exactly_one_related_object CHECK. Reject that instead.
+    TILE_RELATED_FIELDS = ("insight", "text", "button_tile", "widget")
+
     @staticmethod
     def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
+        tile_id = tile_data.get("id", None)
+        incoming = next((f for f in DashboardSerializer.TILE_RELATED_FIELDS if f in extra_defaults), None)
+        if tile_id is not None and incoming is not None:
+            existing = DashboardTile.objects_including_soft_deleted.filter(id=tile_id, dashboard=instance).first()
+            if existing is not None:
+                current = next(
+                    (f for f in DashboardSerializer.TILE_RELATED_FIELDS if getattr(existing, f + "_id") is not None),
+                    None,
+                )
+                if current is not None and current != incoming:
+                    raise serializers.ValidationError(
+                        {incoming: f"This tile is a {current} tile and cannot be changed into a {incoming} tile."}
+                    )
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
         return DashboardTile.objects_including_soft_deleted.update_or_create(
-            id=tile_data.get("id", None),
+            id=tile_id,
             dashboard=instance,
             defaults={**tile_defaults, **extra_defaults, "dashboard": instance},
         )
@@ -2049,19 +2067,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_at"] = now()
 
             existing_text_id = text_json.get("id", None)
-            if existing_text_id:
-                try:
-                    text = Text.objects.get(id=existing_text_id, team_id=instance.team_id)
-                    if not DashboardTile.objects.filter(dashboard=instance, text_id=existing_text_id).exists():
-                        raise serializers.ValidationError({"text": "Text tile not found."})
-                    for attr, val in validated_data.items():
-                        setattr(text, attr, val)
-                    text.save()
-                except Text.DoesNotExist:
-                    raise serializers.ValidationError({"text": "Text tile not found in this team."})
-            else:
-                text = Text.objects.create(**validated_data)
-            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, text=text)
+            # Atomic so a rejected tile write rolls back a freshly created Text instead of orphaning it.
+            with transaction.atomic():
+                if existing_text_id:
+                    try:
+                        text = Text.objects.get(id=existing_text_id, team_id=instance.team_id)
+                        if not DashboardTile.objects.filter(dashboard=instance, text_id=existing_text_id).exists():
+                            raise serializers.ValidationError({"text": "Text tile not found."})
+                        for attr, val in validated_data.items():
+                            setattr(text, attr, val)
+                        text.save()
+                    except Text.DoesNotExist:
+                        raise serializers.ValidationError({"text": "Text tile not found in this team."})
+                else:
+                    text = Text.objects.create(**validated_data)
+                tile, created = DashboardSerializer._upsert_tile(instance, tile_data, text=text)
             return tile, created
         elif tile_data.get("button_tile", None):
             button_tile_json: dict = tile_data.get("button_tile", {})
@@ -2090,19 +2110,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_at"] = now()
 
             existing_button_id = button_tile_json.get("id", None)
-            if existing_button_id:
-                try:
-                    button_tile = ButtonTile.objects.get(id=existing_button_id, team_id=instance.team_id)
-                    if not DashboardTile.objects.filter(dashboard=instance, button_tile_id=existing_button_id).exists():
-                        raise serializers.ValidationError({"button_tile": "Button tile not found."})
-                    for attr, val in validated_data.items():
-                        setattr(button_tile, attr, val)
-                    button_tile.save()
-                except ButtonTile.DoesNotExist:
-                    raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})
-            else:
-                button_tile = ButtonTile.objects.create(**validated_data)
-            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
+            # Atomic so a rejected tile write rolls back a freshly created ButtonTile instead of orphaning it.
+            with transaction.atomic():
+                if existing_button_id:
+                    try:
+                        button_tile = ButtonTile.objects.get(id=existing_button_id, team_id=instance.team_id)
+                        if not DashboardTile.objects.filter(
+                            dashboard=instance, button_tile_id=existing_button_id
+                        ).exists():
+                            raise serializers.ValidationError({"button_tile": "Button tile not found."})
+                        for attr, val in validated_data.items():
+                            setattr(button_tile, attr, val)
+                        button_tile.save()
+                    except ButtonTile.DoesNotExist:
+                        raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})
+                else:
+                    button_tile = ButtonTile.objects.create(**validated_data)
+                tile, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
             return tile, created
         elif tile_data.get("widget", None):
             widget_json: dict = tile_data.get("widget", {})
@@ -2114,45 +2138,47 @@ class DashboardSerializer(DashboardMetadataSerializer):
             user_access_control = UserAccessControl(user=user, team=instance.team)
             existing_widget_id = widget_data.get("id")
 
-            if existing_widget_id:
-                try:
-                    widget = DashboardWidget.objects.get(id=existing_widget_id, team_id=instance.team_id)
-                    if not DashboardTile.objects.filter(dashboard=instance, widget_id=existing_widget_id).exists():
-                        raise serializers.ValidationError({"widget": "Widget tile not found."})
-                    DashboardSerializer._apply_patch_widget_update(
-                        widget=widget,
-                        widget_data=widget_data,
-                        user=user,
-                        user_access_control=user_access_control,
-                        dashboard=instance,
-                        request=request,
-                    )
-                except DashboardWidget.DoesNotExist:
-                    raise serializers.ValidationError({"widget": "Widget not found in this team."})
-            else:
-                try:
-                    canonical_widget_type, config = prepare_widget_tile_create(
-                        team=instance.team,
-                        widget_type=str(widget_data["widget_type"]),
-                        config=widget_data.get("config", {}),
-                        user=user,
-                        user_access_control=user_access_control,
-                    )
-                except serializers.ValidationError as exc:
-                    raise DashboardSerializer._widget_tile_validation_error(exc) from exc
+            # Atomic so a rejected tile write rolls back a freshly created DashboardWidget instead of orphaning it.
+            with transaction.atomic():
+                if existing_widget_id:
+                    try:
+                        widget = DashboardWidget.objects.get(id=existing_widget_id, team_id=instance.team_id)
+                        if not DashboardTile.objects.filter(dashboard=instance, widget_id=existing_widget_id).exists():
+                            raise serializers.ValidationError({"widget": "Widget tile not found."})
+                        DashboardSerializer._apply_patch_widget_update(
+                            widget=widget,
+                            widget_data=widget_data,
+                            user=user,
+                            user_access_control=user_access_control,
+                            dashboard=instance,
+                            request=request,
+                        )
+                    except DashboardWidget.DoesNotExist:
+                        raise serializers.ValidationError({"widget": "Widget not found in this team."})
+                else:
+                    try:
+                        canonical_widget_type, config = prepare_widget_tile_create(
+                            team=instance.team,
+                            widget_type=str(widget_data["widget_type"]),
+                            config=widget_data.get("config", {}),
+                            user=user,
+                            user_access_control=user_access_control,
+                        )
+                    except serializers.ValidationError as exc:
+                        raise DashboardSerializer._widget_tile_validation_error(exc) from exc
 
-                _check_dashboard_widget_count_limit(dashboard=instance, user=user)
+                    _check_dashboard_widget_count_limit(dashboard=instance, user=user)
 
-                widget = DashboardWidget.objects.create(
-                    team_id=instance.team_id,
-                    widget_type=canonical_widget_type,
-                    name=widget_data.get("name") or None,
-                    description=widget_data.get("description", ""),
-                    config=config,
-                    created_by=user,
-                    last_modified_by=user,
-                )
-            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, widget=widget)
+                    widget = DashboardWidget.objects.create(
+                        team_id=instance.team_id,
+                        widget_type=canonical_widget_type,
+                        name=widget_data.get("name") or None,
+                        description=widget_data.get("description", ""),
+                        config=config,
+                        created_by=user,
+                        last_modified_by=user,
+                    )
+                tile, created = DashboardSerializer._upsert_tile(instance, tile_data, widget=widget)
             return tile, created
         elif (
             "deleted" in tile_data

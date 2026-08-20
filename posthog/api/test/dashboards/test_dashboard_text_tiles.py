@@ -12,6 +12,8 @@ from rest_framework import status
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import Organization, User
 
+from products.dashboards.backend.models.dashboard_tile import Text
+
 
 class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
@@ -323,3 +325,19 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             {"tiles": [tile]},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_turn_an_insight_tile_into_a_text_tile(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight", "dashboards": [dashboard_id]})
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        insight_tile_id = dashboard_json["tiles"][0]["id"]
+
+        text_count_before = Text.objects.count()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": insight_tile_id, "text": {"body": "hello world"}}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # The rejected write leaves no orphan Text row behind.
+        self.assertEqual(Text.objects.count(), text_count_before)
