@@ -3073,6 +3073,12 @@ def upload_task_run_artifacts(
     return uploaded, response_manifest
 
 
+# Each request is capped by the serializer, but entries accumulate across requests on
+# one TaskRun.artifacts JSON value; without a total budget a caller could grow that row
+# (and every later read of it) without bound.
+MAX_RUN_REFERENCE_ARTIFACTS = 100
+
+
 def register_task_run_posthog_references(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -3089,6 +3095,7 @@ def register_task_run_posthog_references(
         run = TaskRun.objects.select_for_update().get(pk=run.pk)
         manifest = [dict(entry) for entry in (run.artifacts or []) if isinstance(entry, dict)]
         by_id = {str(entry.get("id")): entry for entry in manifest if entry.get("id")}
+        reference_count = sum(1 for entry in manifest if entry.get("type") == "reference")
         now = django_timezone.now().isoformat()
 
         for reference in references:
@@ -3109,6 +3116,9 @@ def register_task_run_posthog_references(
                 existing["metadata"] = metadata
                 continue
 
+            if reference_count >= MAX_RUN_REFERENCE_ARTIFACTS:
+                continue
+            reference_count += 1
             name = re.sub(r"[\[\]\n]", " ", str(reference["name"])).strip()[:255] or object_id[:255]
             entry = {
                 "id": artifact_id,

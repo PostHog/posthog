@@ -8190,6 +8190,50 @@ class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
         self.assertEqual(events.count(), 1)
         self.assertEqual(events.get().payload["reference_type"], "posthog_object")
 
+    def test_reference_artifacts_are_capped_per_run(self) -> None:
+        from products.tasks.backend.facade.api import MAX_RUN_REFERENCE_ARTIFACTS
+
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/"
+
+        for batch_start in range(0, MAX_RUN_REFERENCE_ARTIFACTS + 10, 50):
+            references = [
+                {
+                    "name": f"Insight {index}",
+                    "object_kind": "insight",
+                    "object_id": f"id-{index}",
+                    "source_message_id": "turn-1-message-1",
+                }
+                for index in range(batch_start, batch_start + 50)
+            ]
+            response = self.client.post(url, {"references": references}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        run.refresh_from_db()
+        reference_entries = [entry for entry in run.artifacts if entry.get("type") == "reference"]
+        self.assertEqual(len(reference_entries), MAX_RUN_REFERENCE_ARTIFACTS)
+
+        # An update to an existing entry still lands once the cap is reached.
+        update = self.client.post(
+            url,
+            {
+                "references": [
+                    {
+                        "name": "Insight 0",
+                        "object_kind": "insight",
+                        "object_id": "id-0",
+                        "source_message_id": "turn-2-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(update.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        updated = next(entry for entry in run.artifacts if entry["metadata"].get("object_id") == "id-0")
+        self.assertEqual(updated["metadata"]["occurrence_count"], 2)
+
     def test_download_of_reference_artifact_returns_404(self) -> None:
         task = self.create_task()
         run = task.create_run(environment=TaskRun.Environment.CLOUD)
