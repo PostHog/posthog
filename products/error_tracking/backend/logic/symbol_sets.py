@@ -73,17 +73,17 @@ def generate_symbol_set_file_key() -> str:
 
 
 def generate_symbol_set_upload_presigned_urls(file_key: str) -> dict[str, Any]:
-    primary, fallback = object_storage.get_presigned_post_pair(
+    pair = object_storage.get_presigned_post_pair(
         file_key=file_key,
         conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
         expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
     )
-    urls: dict[str, Any] = {"presigned_url": primary}
-    if fallback is not None:
+    urls: dict[str, Any] = {"presigned_url": pair.primary}
+    if pair.fallback is not None:
         # Some networks (firewalls, egress allowlists) reset connections to the
         # transfer-acceleration domain while regular S3 works, so the CLI needs a
         # standard-endpoint presigned POST to retry against.
-        urls["fallback_presigned_url"] = fallback
+        urls["fallback_presigned_url"] = pair.fallback
     return urls
 
 
