@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { toDisplayOrderFrames } from 'lib/components/Errors/displayOrder'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { formatResolvedName, formatType, hasNoCodeLocation, hasUsableStackTrace } from 'lib/components/Errors/utils'
+import { formatResolvedName, formatType, hasUsableStackTrace } from 'lib/components/Errors/utils'
 
 export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string; copyableStacktraceText: string } => {
     const { exceptionList, stackFrameRecords, stackFrameRecordsLoading, framesStoredCrashFirst } =
@@ -53,9 +53,7 @@ function generateExceptionText(
     for (const frame of frames) {
         const inAppMarker = options.includeInAppMarkers && frame.in_app ? ' [IN-APP]' : ''
         const resolvedName = formatResolvedName(frame)
-        // Matches the frame header, which hides a document URL standing in for a source file.
-        const source = hasNoCodeLocation(frame) ? null : frame.source
-        result += `\n${inAppMarker}  File "${source || 'Unknown Source'}"${frame.line ? `, line: ${frame.line}` : ''}${resolvedName ? `, in: ${resolvedName}` : ''}`
+        result += `\n${inAppMarker}  File "${frame.source || 'Unknown Source'}"${frame.line ? `, line: ${frame.line}` : ''}${resolvedName ? `, in: ${resolvedName}` : ''}`
 
         const frameRecord = stackFrameRecords[frame.raw_id]
         if (frameRecord?.context?.line?.line) {

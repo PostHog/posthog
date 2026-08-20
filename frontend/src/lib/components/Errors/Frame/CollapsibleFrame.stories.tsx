@@ -180,26 +180,6 @@ export function FrameWithNothingToShow(): JSX.Element {
     return <Wrapper frame={{ ...addressOnlyFrame, raw_id: 'nothing-1', junk_drawer: undefined }} />
 }
 
-export function FrameWithNoCodeLocation(): JSX.Element {
-    return (
-        <Wrapper
-            frame={{
-                ...baseFrame,
-                raw_id: 'no-location-1',
-                mangled_name: '?',
-                resolved_name: null,
-                // Every cymbal conversion for a JS frame emits this lang, including TypeScript sources.
-                lang: 'javascript',
-                source: '/dashboard/1',
-                line: 0,
-                column: 0,
-                in_app: true,
-                junk_drawer: { raw_frame: { lineno: 0, colno: 0 } },
-            }}
-        />
-    )
-}
-
 const rustFrame: ErrorTrackingStackFrame = {
     ...baseFrame,
     raw_id: 'rust-1',

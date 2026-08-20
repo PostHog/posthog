@@ -6,7 +6,6 @@ import {
     getInstructionAddress,
     getRuntimeFromLib,
     getSessionId,
-    hasNoCodeLocation,
     hasUsableStackTrace,
 } from './utils'
 
@@ -278,37 +277,23 @@ describe('Error Display', () => {
         expect(getInstructionAddress({ junk_drawer } as ErrorTrackingStackFrame)).toEqual(expected)
     })
 
-    test.each([
-        ['a zeroed line and column', 'javascript', { lineno: 0, colno: 0 }, true],
-        ['a real line at column zero', 'javascript', { lineno: 1, colno: 0 }, false],
-        ['column one on line zero', 'javascript', { lineno: 0, colno: 1 }, false],
-        ['a real position', 'javascript', { lineno: 1, colno: 662 }, false],
-        ['a missing position', 'javascript', {}, false],
-        ['a zeroed position on a non-JavaScript frame', 'java', { lineno: 0, colno: 0 }, false],
-    ])('detects a missing code location from %s', (_name, lang, raw_frame, expected) => {
-        expect(hasNoCodeLocation({ lang, junk_drawer: { raw_frame } } as ErrorTrackingStackFrame)).toEqual(expected)
-    })
-
-    it('treats a frame with no junk drawer as located', () => {
-        expect(hasNoCodeLocation({ lang: 'javascript' } as ErrorTrackingStackFrame)).toBe(false)
-    })
-
-    const jsFrame = (lineno: number, colno: number): ErrorTrackingStackFrame =>
-        ({ lang: 'javascript', junk_drawer: { raw_frame: { lineno, colno } } }) as ErrorTrackingStackFrame
+    const frame = (lang: string, raw_frame: { lineno?: number; colno?: number }): ErrorTrackingStackFrame =>
+        ({ lang, junk_drawer: { raw_frame } }) as ErrorTrackingStackFrame
+    const jsFrame = (lineno: number, colno: number): ErrorTrackingStackFrame => frame('javascript', { lineno, colno })
 
     test.each([
         ['a missing stacktrace', undefined, false],
-        ['an empty frame list', { type: 'resolved', frames: [] }, false],
-        ['a non-array frame list', { type: 'resolved', frames: null }, false],
-        ['a null frame', { type: 'resolved', frames: [null] }, false],
-        ['only a zero-location frame', { type: 'resolved', frames: [jsFrame(0, 0)] }, false],
-        ['two zero-location frames', { type: 'resolved', frames: [jsFrame(0, 0), jsFrame(0, 0)] }, false],
-        ['a located frame', { type: 'resolved', frames: [jsFrame(11, 5)] }, true],
-        [
-            'a zero-location frame beside a located one',
-            { type: 'resolved', frames: [jsFrame(0, 0), jsFrame(11, 5)] },
-            true,
-        ],
+        ['an empty frame list', { frames: [] }, false],
+        ['a non-array frame list', { frames: null }, false],
+        ['a null frame', { frames: [null] }, false],
+        ['only a zeroed frame', { frames: [jsFrame(0, 0)] }, false],
+        ['two zeroed frames', { frames: [jsFrame(0, 0), jsFrame(0, 0)] }, false],
+        ['a located frame', { frames: [jsFrame(11, 5)] }, true],
+        ['a zeroed frame beside a located one', { frames: [jsFrame(0, 0), jsFrame(11, 5)] }, true],
+        ['a real line at column zero', { frames: [jsFrame(1, 0)] }, true],
+        ['column one on line zero', { frames: [jsFrame(0, 1)] }, true],
+        ['a frame with no raw position', { frames: [frame('javascript', {})] }, true],
+        ['a zeroed non-JavaScript frame', { frames: [frame('java', { lineno: 0, colno: 0 })] }, true],
     ])('reports a usable stack trace for %s', (_name, stacktrace, expected) => {
         expect(hasUsableStackTrace({ stacktrace } as ErrorTrackingException)).toEqual(expected)
     })

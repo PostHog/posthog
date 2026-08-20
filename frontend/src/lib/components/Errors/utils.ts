@@ -303,7 +303,7 @@ export function formatFunctionName(
  * Scoped to JavaScript because other SDKs express "no position" differently: a Java pass-through
  * frame carries no line either, but its filename is real and worth showing.
  */
-export function hasNoCodeLocation(frame: Pick<ErrorTrackingStackFrame, 'lang' | 'junk_drawer'>): boolean {
+function hasNoCodeLocation(frame: Pick<ErrorTrackingStackFrame, 'lang' | 'junk_drawer'>): boolean {
     if (frame.lang !== 'javascript') {
         return false
     }

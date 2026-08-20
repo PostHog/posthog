@@ -14,7 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { FingerprintRecordPartDisplay } from '../FingerprintRecordPartDisplay'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
-import { formatFunctionName, getInstructionAddress, hasNoCodeLocation } from '../utils'
+import { formatFunctionName, getInstructionAddress } from '../utils'
 import { FrameDropDownMenu } from './FrameDropDownMenu'
 
 const UNKNOWN_FRAME_LABEL = 'Unknown frame'
@@ -34,15 +34,11 @@ export function CollapsibleFrameHeader({
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
 
     const part = getFrameFingerprint(raw_id)
-    // Without a code position the filename is the document URL, and the function name is the
-    // SDK's `?` placeholder. Dropping both routes the frame into the unsymbolicated branch below,
-    // instead of rendering a page path where a source file belongs.
-    const noCodeLocation = hasNoCodeLocation(frame)
-    const functionName = noCodeLocation ? undefined : formatFunctionName(frame)
+    const functionName = formatFunctionName(frame)
     const hasRecordContext = !!record && !!record.context
     const sourceRef = useRef<HTMLSpanElement>(null)
     const functionRef = useRef<HTMLSpanElement>(null)
-    const sourceLine = noCodeLocation ? undefined : formatSourceLine(source, line, column)
+    const sourceLine = formatSourceLine(source, line, column)
     const instructionAddress = getInstructionAddress(frame)
     const isUnsymbolicated = !functionName && !sourceLine
     const sourceContent = sourceLine ?? instructionAddress ?? (functionName ? undefined : UNKNOWN_FRAME_LABEL)
@@ -93,7 +89,6 @@ export function CollapsibleFrameHeader({
                     {isUnsymbolicated ? (
                         <UnsymbolicatedIcon
                             in_app={in_app}
-                            noCodeLocation={noCodeLocation}
                             resolve_failure={resolve_failure}
                             instructionAddress={instructionAddress}
                         />
@@ -164,41 +159,32 @@ function NoContextIcon({ lang, raw_id }: { lang: string; raw_id: string }): JSX.
 
 function UnsymbolicatedIcon({
     in_app,
-    noCodeLocation,
     resolve_failure,
     instructionAddress,
 }: {
     in_app: boolean
-    noCodeLocation: boolean
     resolve_failure: string | null
     instructionAddress: string | null
 }): JSX.Element {
     return (
         <FrameWarningIcon
             title={UNKNOWN_FRAME_LABEL}
-            // A frame the browser never located is not a symbolication problem, so it stays muted
-            // however the SDK classified it.
-            severity={in_app && !noCodeLocation ? 'error' : 'muted'}
+            severity={in_app ? 'error' : 'muted'}
             // Symbol sets are only actionable when we have an address to match them against
             docLink={instructionAddress ? SYMBOL_SETS_DOC_LINK : undefined}
-            resolveFailure={noCodeLocation ? null : resolve_failure}
+            resolveFailure={resolve_failure}
         >
-            {match([noCodeLocation, !!instructionAddress])
-                .with([true, P.any], () => (
-                    <p>The browser reported this error without a code location, so there is no file or line to show.</p>
-                ))
-                .with([false, true], () => (
-                    <>
-                        <p>The SDK sent only a memory address for this frame.</p>
-                        <p>PostHog couldn't resolve that address to a function or file name.</p>
-                    </>
-                ))
-                .otherwise(() => (
-                    <p>
-                        The SDK sent no function name, file name or memory address for this frame, so there is nothing
-                        to identify it with.
-                    </p>
-                ))}
+            {instructionAddress ? (
+                <>
+                    <p>The SDK sent only a memory address for this frame.</p>
+                    <p>PostHog couldn't resolve that address to a function or file name.</p>
+                </>
+            ) : (
+                <p>
+                    The SDK sent no function name, file name or memory address for this frame, so there is nothing to
+                    identify it with.
+                </p>
+            )}
         </FrameWarningIcon>
     )
 }

@@ -160,7 +160,7 @@ export function StacktracelessSafariScriptError(): JSX.Element {
     )
 }
 
-export function ResizeObserverLoopError(): JSX.Element {
+export function StacktracelessLocationlessFrame(): JSX.Element {
     return (
         <ErrorDisplay
             eventProperties={errorProperties({
