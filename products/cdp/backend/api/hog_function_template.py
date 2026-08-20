@@ -121,6 +121,20 @@ class PublicHogFunctionTemplateViewSet(
         except (Team.DoesNotExist, ValueError, TypeError):
             raise NotFound("Project not found.")
 
+    def get_object(self) -> HogFunctionTemplate:
+        # HogFunctionTemplate is sha-versioned: one template_id can own several rows
+        # (unique_together = template_id, sha). DRF's default get_object() runs
+        # .get(template_id=...), which raises MultipleObjectsReturned (a bare 500) on
+        # those templates. Resolve the latest sha the same way HogFunctionTemplate.get_template does.
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        template_id = self.kwargs[lookup_url_kwarg]
+        obj = queryset.filter(template_id=template_id).order_by("-created_at").first()
+        if obj is None:
+            raise NotFound("Template not found.")
+        self.check_object_permissions(self.request, obj)
+        return obj
+
     def get_permissions(self):
         # The dedicated public catalog endpoint is intentionally anonymous. The project-nested
         # mount is part of the authenticated app and must not expose templates (including hidden

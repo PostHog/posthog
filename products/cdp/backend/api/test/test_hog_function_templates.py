@@ -165,6 +165,31 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.json()["id"] == "template-slack"
         assert response.json()["type"] == "destination"
 
+    def test_retrieve_function_template_with_multiple_shas(self):
+        # save() recomputes sha from content, so change a hashed field (code) to mint a second row.
+        HogFunctionTemplate.objects.create(
+            template_id="template-webhook",
+            name="Webhook v2",
+            description="Newer webhook template",
+            code="return {...event, v: 2}",
+            code_language="hog",
+            inputs_schema={},
+            type="destination",
+            status="stable",
+            category=["Integrations"],
+            free=True,
+        )
+        assert HogFunctionTemplate.objects.filter(template_id="template-webhook").count() == 2
+
+        response = self.client.get("/api/projects/@current/hog_function_templates/template-webhook")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == "template-webhook"
+        assert response.json()["name"] == "Webhook v2"
+
+    def test_retrieve_missing_function_template_returns_404(self):
+        response = self.client.get("/api/projects/@current/hog_function_templates/template-does-not-exist")
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
     def test_retrieve_function_template_with_other_type(self):
         response = self.client.get("/api/projects/@current/hog_function_templates/template-site-destination")
         assert response.status_code == status.HTTP_200_OK, response.json()
