@@ -2,7 +2,7 @@ import { get } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowAction, isRowScopedTrigger } from '~/cdp/schema/hogflow'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
@@ -177,11 +177,7 @@ export class HogFlowExecutorService {
             const trigger = hogFlow.trigger
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
-            if (
-                trigger.type !== 'event' &&
-                trigger.type !== 'data-warehouse-table' &&
-                trigger.type !== 'slack-message'
-            ) {
+            if (trigger.type !== 'event' && trigger.type !== 'slack-message' && !isRowScopedTrigger(trigger)) {
                 continue
             }
 
