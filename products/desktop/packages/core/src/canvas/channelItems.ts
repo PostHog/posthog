@@ -106,6 +106,12 @@ export interface ChannelWorkspaceFacts {
   mode?: WorkspaceMode;
   folderPath?: string;
   branch?: string;
+  /**
+   * A synthetic scratch dir for a repo-less session, not a checkout. Its
+   * folderPath is `<scratchBase>/<taskId>`, so resolving a repository from it
+   * would label the session by its own id — skip it.
+   */
+  isScratch?: boolean;
 }
 
 const NO_SESSION_FACTS: ChannelSessionFacts = {
@@ -180,7 +186,10 @@ export function buildChannelItems({
   const taskItems: ChannelItemModel[] = feedTasks.flatMap((task) => {
     if (archivedTaskIds.has(task.id)) return [];
     const workspace = sessionFacts.workspaceByTaskId.get(task.id);
-    const repository = getRepositoryInfo(task, workspace?.folderPath);
+    const repository = getRepositoryInfo(
+      task,
+      workspace?.isScratch ? undefined : workspace?.folderPath,
+    );
     return [
       {
         key: `task:${task.id}`,

@@ -90,6 +90,7 @@ export function useChannelItems(channelId: string): {
       workspaceByTaskId.set(taskId, {
         mode: workspace.mode,
         folderPath: workspace.folderPath,
+        isScratch: workspace.isScratch,
         // The linked branch wins: a worktree's own branch is where the work is
         // only until it is linked to the branch the PR is on.
         branch: workspace.linkedBranch ?? workspace.branchName ?? undefined,
