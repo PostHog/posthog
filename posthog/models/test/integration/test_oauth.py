@@ -1582,3 +1582,77 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+@override_settings(DROPBOX_APP_CLIENT_ID="dropbox-client-id", DROPBOX_APP_CLIENT_SECRET="dropbox-client-secret")
+class TestDropboxIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("dropbox")
+        assert config.authorize_url == "https://www.dropbox.com/oauth2/authorize"
+        assert config.token_url == "https://api.dropboxapi.com/oauth2/token"
+        assert config.client_id == "dropbox-client-id"
+        assert config.client_secret == "dropbox-client-secret"
+        # Team scopes are deliberately absent: any of them would make every token team-linked.
+        assert config.scope == "account_info.read files.metadata.read sharing.read"
+        # Without offline access Dropbox issues no refresh token, so the ~4h token dies unrenewable.
+        assert config.additional_authorize_params == {"token_access_type": "offline"}
+        assert config.id_path == "account_id"
+        assert config.name_path == "dropbox_account_name"
+
+    @override_settings(DROPBOX_APP_CLIENT_ID="", DROPBOX_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Dropbox app not configured"):
+            OauthIntegration.oauth_config_for_kind("dropbox")
+
+    @staticmethod
+    def _token_response():
+        token_res = MagicMock()
+        token_res.status_code = 200
+        token_res.json.return_value = {
+            "access_token": "sl.at_1",
+            "refresh_token": "rt_1",
+            "expires_in": 14400,
+            "token_type": "bearer",
+            "account_id": "dbid:AAA",
+            "uid": "123",
+            "scope": "account_info.read files.metadata.read sharing.read",
+        }
+        return token_res
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_labels_the_account(self, mock_post):
+        account_res = MagicMock()
+        account_res.status_code = 200
+        account_res.json.return_value = {"name": {"display_name": "Ada Lovelace"}, "email": "ada@acme.com"}
+        mock_post.side_effect = [self._token_response(), account_res]
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "dropbox",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.kind == "dropbox"
+        assert integration.integration_id == "dbid:AAA"
+        assert integration.config["dropbox_account_name"] == "Ada Lovelace"
+        assert integration.config["expires_in"] == 14400
+        assert integration.sensitive_config["access_token"] == "sl.at_1"
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+        assert mock_post.call_args_list[1].args[0] == "https://api.dropboxapi.com/2/users/get_current_account"
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_survives_a_failed_name_lookup(self, mock_post):
+        account_res = MagicMock()
+        account_res.status_code = 401
+        mock_post.side_effect = [self._token_response(), account_res]
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "dropbox",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "dbid:AAA"
+        assert integration.config["dropbox_account_name"] == "dbid:AAA"

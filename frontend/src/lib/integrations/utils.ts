@@ -9,6 +9,7 @@ import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
 import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
+import IconDropbox from 'public/services/dropbox.png'
 import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
 import IconGitLab from 'public/services/gitlab.png'
@@ -108,6 +109,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
     'youtube-analytics': IconYouTubeAnalytics,
+    dropbox: IconDropbox,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
