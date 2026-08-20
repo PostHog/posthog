@@ -1127,14 +1127,7 @@ class HogFunctionViewSet(
 
         # The worker skips invocations of disabled functions, so an enqueued re-run could never execute.
         if not hog_function.enabled:
-            return Response(
-                {
-                    "queued_count": 0,
-                    "skipped_count": 0,
-                    "detail": "This function is disabled. Enable it to re-run invocations.",
-                },
-                status=400,
-            )
+            raise serializers.ValidationError("This function is disabled. Enable it to re-run invocations.")
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
