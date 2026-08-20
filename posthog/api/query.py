@@ -66,6 +66,8 @@ from posthog.rate_limit import (
     APIQueriesSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    ErrorTrackingFingerprintProjectionBurstRateThrottle,
+    ErrorTrackingFingerprintProjectionSustainedRateThrottle,
     HogQLQueryThrottle,
 )
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -171,6 +173,7 @@ def _process_query_request(
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "AccountsTableQuery": ["query:read", "account:read"],
+    "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
@@ -214,15 +217,20 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if self.action == "get_query_log":
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
+        query = self.request.data.get("query")
+        if isinstance(query, dict) and query.get("kind") == "ErrorTrackingFingerprintProjectionQuery":
+            return [
+                ErrorTrackingFingerprintProjectionBurstRateThrottle(),
+                ErrorTrackingFingerprintProjectionSustainedRateThrottle(),
+            ]
         if (
             self.team_id in settings.API_QUERIES_PER_TEAM
             or (settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency())
             or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
-        if query := self.request.data.get("query"):
-            if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
-                return [HogQLQueryThrottle()]
+        if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
+            return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     def check_team_api_queries_concurrency(self):

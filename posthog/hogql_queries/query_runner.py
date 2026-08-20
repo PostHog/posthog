@@ -978,6 +978,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "ErrorTrackingFingerprintProjectionQuery":
+        from products.error_tracking.backend.facade.queries import ErrorTrackingFingerprintProjectionQueryRunner
+
+        return ErrorTrackingFingerprintProjectionQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "ErrorTrackingBreakdownsQuery":
         from products.error_tracking.backend.facade.queries import ErrorTrackingBreakdownsQueryRunner
 
