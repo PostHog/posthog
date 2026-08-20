@@ -56,7 +56,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from products.cohorts.backend.facade.models import Cohort
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.facade.models import Dashboard, DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed

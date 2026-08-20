@@ -6,6 +6,7 @@ from functools import lru_cache
 from typing import Any, Union, cast
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
@@ -144,7 +145,6 @@ from posthog.utils import (
 )
 
 from products.alerts.backend.facade.api import delete_insight_alerts, insight_alerts_prefetch, serialize_insight_alerts
-from products.cohorts.backend.facade.models import Cohort
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
     dashboard_access_method,
@@ -2491,7 +2491,10 @@ When set, the specified dashboard's filters and date range override will be appl
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except UserAccessControlError as e:
             raise ValidationError(str(e))
-        except Cohort.DoesNotExist as e:
+        except ObjectDoesNotExist as e:
+            # The legacy filter path resolves cohort and action ids while building the query, and a
+            # dangling id surfaces as that model's DoesNotExist. The request is what is wrong, so it
+            # is a 400 rather than a 500.
             raise ValidationError(str(e))
 
         filter = Filter(request=request, team=self.team)
