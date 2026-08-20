@@ -6,7 +6,7 @@ import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from time import perf_counter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
 
@@ -144,6 +144,9 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactOpenResponseSerializer,
     TaskRunLivingArtifactResponseSerializer,
     TaskRunLivingArtifactsResponseSerializer,
+    TaskRunPeerMessageRequestSerializer,
+    TaskRunPeerMessageResponseSerializer,
+    TaskRunPeersResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
@@ -558,15 +561,21 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ComputeBillingLimitExceeded as error:
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
-            # `code` distinguishes this from the compute-quota 429 for frontend handling.
-            return Response(
-                TaskRunErrorResponseSerializer(
-                    {"type": "rate_limit", "code": "signal_report_task_cap", "error": error.detail}
-                ).data,
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+            return self._report_task_cap_response(error.detail)
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+    def _report_task_cap_response(self, detail: str) -> Response:
+        """429 for a report that has spent its task allowance, on both create and run.
+
+        `code` distinguishes this from the compute-quota 429 for frontend handling.
+        """
+        return Response(
+            TaskRunErrorResponseSerializer(
+                {"type": "rate_limit", "code": "signal_report_task_cap", "error": detail}
+            ).data,
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
 
     def _forward_signals_discussion_note(
         self, request, task: tasks_contracts.TaskDetailDTO, relationship: str | None
@@ -929,7 +938,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             404: OpenApiResponse(description="Task not found"),
             429: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "Team is over its posthog_code usage limit, or the task's signal report has "
+                    "reached its task limit (code `signal_report_task_cap`)"
+                ),
             ),
         },
         summary="Run task",
@@ -956,7 +969,16 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
-        result = tasks_facade.run_task(pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data))
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
+            ReportTaskCapExceeded,
+        )
+
+        try:
+            result = tasks_facade.run_task(
+                pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data)
+            )
+        except ReportTaskCapExceeded as error:
+            return self._report_task_cap_response(error.detail)
         if result is None:
             raise NotFound()
         if result.error is not None:
@@ -1967,6 +1989,131 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if url is None:
             raise NotFound()
         return HttpResponseRedirect(url)
+
+    def _peer_messaging_gate(self, task_id: str) -> Response | None:
+        """Server-side authorization for the peers endpoints. Tool gating in the
+        harness is UX, never authorization — everything is re-checked here.
+
+        - A sandbox-app OAuth token must be bound to exactly this task: the token's
+          user may well control other tasks too (same creator), so without this a
+          compromised sandbox for task A could send as task B's runs.
+        - The requester must be the task's creator: peer visibility and message
+          attribution derive entirely from the creating user, so broader task
+          access (e.g. the Slack same-team carve-out) must not let a teammate
+          enumerate or send as another user's runs.
+        - Both feature flags and the Pi runtime are enforced per request, mirroring
+          how every Pi write path re-checks ``pi_cloud_runtime_enabled`` — a stale
+          tool in a resumed sandbox can't outlive a rollback of either flag.
+        """
+        authenticator = self.request.successful_authenticator
+        if isinstance(authenticator, OAuthAccessTokenAuthentication):
+            access_token = authenticator.access_token
+            application = access_token.application
+            if (
+                application is not None
+                and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+                and access_token.sandbox_task_id != UUID(task_id)
+            ):
+                raise NotFound("Task not found")
+        user = cast(User, self.request.user)
+        if not tasks_facade.task_created_by_user(task_id, self.team_id, user.id):
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "Peer messaging is only available to the task creator's runs"}
+                ).data,
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not tasks_facade.task_uses_pi_runtime(task_id, self.team_id):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Peer messaging requires the Pi runtime"}).data,
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not tasks_facade.pi_cloud_runtime_enabled(self.team, user):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "The Pi cloud runtime is not enabled for this team"}).data,
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not tasks_facade.agent_peer_messaging_enabled(self.team, user):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Peer messaging is not enabled for this team"}).data,
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunPeersResponseSerializer,
+                description="Active agent runs this run may message",
+            ),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Peer messaging is disabled or the task is not on the Pi runtime",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="List peer agent runs",
+        description=(
+            "Agent runs this run may send messages to: cloud Pi runs of tasks created by the same user, "
+            "currently in progress or queued. Discovery and send validation share one visibility policy, "
+            "so a run can only message what it can list; the per-entry `sendable` flag is the liveness "
+            "contract."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="peers", required_scopes=["task:read"])
+    def peers(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        if (gate_response := self._peer_messaging_gate(task_id)) is not None:
+            return gate_response
+        peers = tasks_facade.list_task_run_peers(pk, task_id, self.team_id)
+        if peers is None:
+            raise NotFound()
+        return Response(TaskRunPeersResponseSerializer({"peers": peers}).data)
+
+    @validated_request(
+        request_serializer=TaskRunPeerMessageRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunPeerMessageResponseSerializer,
+                description="Synchronous send result (accepted / target_finished / rejected)",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid message payload"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Peer messaging is disabled or the task is not on the Pi runtime",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Send a message to a peer agent run",
+        description=(
+            "Relay a message from this run to a peer agent run. The body is delivered below a "
+            "server-composed provenance envelope as a queued (non-steer) turn; attachments are copied "
+            "into the target run's own artifact storage. `accepted` means queued for delivery, never "
+            "delivered — the sandbox handoff happens later inside the target's workflow."
+        ),
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"peers/(?P<target_run_id>[^/]+)/message",
+        required_scopes=["task:write"],
+    )
+    def peers_message(self, request, pk=None, target_run_id=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        if (gate_response := self._peer_messaging_gate(task_id)) is not None:
+            return gate_response
+        result = tasks_facade.signal_task_run_peer_message(
+            pk,
+            task_id,
+            self.team_id,
+            target_run_id=target_run_id,
+            content=request.validated_data["content"],
+            artifact_ids=list(request.validated_data.get("artifact_ids") or []),
+        )
+        if result is None:
+            raise NotFound()
+        return Response(TaskRunPeerMessageResponseSerializer(result).data)
 
     @extend_schema(
         extensions={"x-product": "logs"},
