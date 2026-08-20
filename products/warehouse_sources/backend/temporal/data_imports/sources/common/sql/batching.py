@@ -21,7 +21,8 @@ region became gigabytes. Two bounds, then, doing two different jobs:
 * the byte budget bounds one batch, so what the caller materialises into Arrow stays bounded
   whatever the row count works out to. This is not a memory bound on its own.
 
-Peak residency is therefore one page plus one batch.
+Peak residency is therefore one page or one batch, not their sum: a batch that leaves no room
+for another page is flushed before that page is fetched.
 
 The residual exposure is one fetch: a region can only be measured once some of it has been
 read, so an abrupt jump in row size is paid for at whatever page size preceded it. What keeps
@@ -152,10 +153,12 @@ def fetch_row_batches(
             break
 
         widest_in_page = 0
+        page_bytes = 0
         measured, fixed_bytes = _measure_plan(page[0]) if budget is not None else ((), 0)
         for row in page:
             row_bytes = _planned_row_bytes(row, measured, fixed_bytes) if budget is not None else 0
             widest_in_page = max(widest_in_page, row_bytes)
+            page_bytes += row_bytes
             # Flush *before* appending whatever would overflow, never after, or a nearly full
             # batch could still take a further full-sized row (mirrors the repartition rewrite).
             if batch and budget is not None and batch_bytes + row_bytes > budget:
@@ -170,6 +173,17 @@ def fetch_row_batches(
                 yield batch
                 batch = []
                 batch_bytes = 0
+
+        # Hand over a batch that leaves no room for another page rather than holding it while that
+        # page lands. A batch carried across a fetch is resident *alongside* it, so the two peak
+        # together; flushing here makes residency one or the other. The next page is sized from
+        # the same estimate as the one just read, which is what makes its size predictable enough
+        # to budget for. Below that, a batch still spans as many fetches as it takes to fill —
+        # a driver reading 1000 rows at a time would otherwise yield a batch per fetch.
+        if batch and budget is not None and batch_bytes + page_bytes > budget:
+            yield batch
+            batch = []
+            batch_bytes = 0
 
         # Halving rather than forgetting: a table with one outsized row among millions would
         # otherwise stay stuck on tiny pages for the rest of the read, and one that has genuinely

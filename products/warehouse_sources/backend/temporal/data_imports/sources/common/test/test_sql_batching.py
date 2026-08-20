@@ -139,6 +139,31 @@ class TestFetchRowBatches:
         assert set(cursor.page_sizes) == {expected}
 
 
+class TestPageAlignedFlush:
+    def test_a_batch_never_spans_a_fetch_once_pages_are_large(self) -> None:
+        # A batch carried across a fetch is resident alongside the page that lands next, so the
+        # two peak together. Pages of ~1 KiB rows against a 12 KB budget: each page nearly fills
+        # a batch on its own, so carrying the remainder would double residency for one more row.
+        cursor = _FakeCursor(_wide(50, value_bytes=1000))
+
+        batches = list(
+            fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_rows=1_000, max_bytes=12_000, max_page_rows=10)
+        )
+
+        assert [len(batch) for batch in batches] == [10, 10, 10, 10, 10]
+
+    def test_small_pages_still_coalesce_across_fetches(self) -> None:
+        # The other half: a driver reading 1000 narrow rows at a time must not yield a batch per
+        # fetch just because the page boundary arrived.
+        cursor = _FakeCursor(_narrow(100))
+
+        batches = list(
+            fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_rows=1_000, max_bytes=12_000, max_page_rows=10)
+        )
+
+        assert [len(batch) for batch in batches] == [100]
+
+
 class TestByteBoundedOff:
     def test_batches_and_fetches_on_the_row_count_alone(self) -> None:
         # The rollout gate has to leave the old loop exactly as it was: one fetch of the chunk
