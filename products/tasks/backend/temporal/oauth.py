@@ -189,6 +189,15 @@ def create_oauth_access_token_for_run(
     to mint creator credentials for a Slack run by omitting one kwarg. Loop-fired runs
     (``loop_id`` in run state) get ``loop:write`` stripped from the granted scopes here.
     """
+    if task.is_system_report_canvas:
+        if scopes != "report_canvas":
+            raise TaskInvalidStateError(
+                f"System report-canvas task {task.id} requested unexpected scopes",
+                {"task_id": task.id},
+                cause=RuntimeError("system task scope escalation"),
+            )
+        return create_system_oauth_access_token(task)
+
     actor_user = get_task_run_credential_user(task, state)
     loop_id = (state or {}).get("loop_id")
     if task.origin_product == Task.OriginProduct.WORKFLOW:

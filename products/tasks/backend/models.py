@@ -430,6 +430,14 @@ class Task(DeletedMetaFields, models.Model):
             self._track_task_created()
 
     @property
+    def is_system_report_canvas(self) -> bool:
+        return (
+            self.created_by_id is None
+            and self.system_principal == self.SystemPrincipal.SIGNALS
+            and self.system_workload == self.SystemWorkload.REPORT_CANVAS
+        )
+
+    @property
     def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
         expected_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(self.origin_product)
         marker = (self.state or {}).get(MCP_BUILT_IN_AGENT_STATE_KEY)

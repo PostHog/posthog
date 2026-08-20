@@ -224,7 +224,31 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
     """
-    return not task.internal
+    return not task.internal and task.is_system_report_canvas is not True
+
+
+def _validate_system_report_canvas_context(task: Task, ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> None:
+    if task.is_system_report_canvas is not True:
+        return
+    if scopes != "report_canvas":
+        raise OAuthTokenError(
+            f"System report-canvas task {task.id} requested unexpected scopes",
+            {"task_id": task.id},
+            cause=RuntimeError("system task scope escalation"),
+        )
+    if (
+        ctx.repositories
+        or ctx.github_integration_id
+        or ctx.github_user_integration_id
+        or ctx.sandbox_environment_id
+        or ctx.custom_image_name
+        or task.mcp_credential_owner_id is not None
+    ):
+        raise OAuthTokenError(
+            f"System report-canvas task {task.id} requested personal sandbox resources",
+            {"task_id": task.id},
+            cause=RuntimeError("system task credential isolation violation"),
+        )
 
 
 def _ensure_required_posthog_mcp_available(
@@ -256,7 +280,8 @@ def _ensure_required_posthog_mcp_available(
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
     try:
         task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
-        actor_user = get_task_run_credential_user(task, ctx.state)
+        _validate_system_report_canvas_context(task, ctx, scopes)
+        actor_user = None if task.is_system_report_canvas is True else get_task_run_credential_user(task, ctx.state)
         access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
     except OAuthTokenError:
         raise
@@ -304,26 +329,38 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_id=str(ctx.task_id),
     )
     include_personal = _include_personal_mcp_for_task(task)
-    user_mcp_configs = get_user_mcp_server_configs(
-        token=access_token,
-        team_id=ctx.team_id,
-        user_id=actor_user.id if actor_user else None,
-        include_personal=include_personal,
-        interaction_origin=ctx.interaction_origin,
-        allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
-        origin_product=task.origin_product,
-        task_agent_key=task.mcp_builtin_agent_key,
-        credential_owner_id=task.mcp_credential_owner_id,
-        allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
+    user_mcp_configs = (
+        []
+        if task.is_system_report_canvas is True
+        else get_user_mcp_server_configs(
+            token=access_token,
+            team_id=ctx.team_id,
+            user_id=actor_user.id if actor_user else None,
+            include_personal=include_personal,
+            interaction_origin=ctx.interaction_origin,
+            allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
+            origin_product=task.origin_product,
+            task_agent_key=task.mcp_builtin_agent_key,
+            credential_owner_id=task.mcp_credential_owner_id,
+            allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
+        )
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
 
-    imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+    imported_mcp_configs = (
+        []
+        if task.is_system_report_canvas is True
+        else get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+    )
     if imported_mcp_configs:
         mcp_configs = mcp_configs + imported_mcp_configs
 
-    relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    relayed_names = (
+        []
+        if task.is_system_report_canvas is True
+        else get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    )
     if relayed_names:
         emit_agent_log(
             ctx.run_id,

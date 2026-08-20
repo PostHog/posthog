@@ -116,6 +116,7 @@ from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
+    task_admin_q,
     task_control_q,
     task_run_visibility_q,
     task_visibility_q,
@@ -3934,6 +3935,23 @@ def bootstrap_task_run(
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
     relayed_mcp_servers = validated_data.get("relayed_mcp_servers")
+    if task.is_system_report_canvas and any(
+        (
+            validated_data.get("repository"),
+            imported_mcp_servers,
+            relayed_mcp_servers,
+            github_user_token,
+            validated_data.get("custom_image_id"),
+            sandbox_environment_id,
+        )
+    ):
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="System report-canvas tasks cannot use personal sandbox resources.",
+            )
+        )
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -5088,7 +5106,7 @@ def update_task(
     task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
 ) -> contracts.TaskDetailDTO | None:
     """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/controllable."""
-    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
+    task = Task.objects.filter(team_id=team_id, deleted=False).filter(task_admin_q(user_id), id=task_id).first()
     if task is None:
         return None
 
@@ -5128,7 +5146,7 @@ def update_task(
 
 def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
     """Soft-delete a task. Returns whether a task was found/controllable and deleted."""
-    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
+    task = Task.objects.filter(team_id=team_id, deleted=False).filter(task_admin_q(user_id), id=task_id).first()
     if task is None:
         return False
     logger.info("Soft deleting task %s", task.id)

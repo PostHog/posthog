@@ -31,16 +31,30 @@ def _creator_q(user_id: int | None) -> Q:
     return Q(pk__in=[]) if user_id is None else Q(created_by_id=user_id)
 
 
-def task_control_q(user_id: int | None) -> Q:
-    """Tasks the user may mutate or drive.
+def task_admin_q(user_id: int | None) -> Q:
+    """Tasks the user may rename, move, archive, or delete.
 
     A task with a channel must be visible through that channel and owned by the user.
     Null-channel tasks keep the product-origin control rules used before channels.
     """
     channeled_q = Q(channel_id__isnull=False) & Channel.visible_to_q(user_id, relation="channel") & _creator_q(user_id)
-    legacy_q = Q(channel_id__isnull=True) & (
-        _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS)
+    legacy_q = Q(channel_id__isnull=True) & _creator_q(user_id)
+    return channeled_q | legacy_q
+
+
+def task_control_q(user_id: int | None) -> Q:
+    """Tasks the user may participate in by messaging, cancelling, or resuming."""
+    system_task_q = Q(
+        system_principal=Task.SystemPrincipal.SIGNALS,
+        system_workload=Task.SystemWorkload.REPORT_CANVAS,
+        created_by_id__isnull=True,
     )
+    channeled_q = (
+        Q(channel_id__isnull=False)
+        & Channel.visible_to_q(user_id, relation="channel")
+        & (_creator_q(user_id) | system_task_q)
+    )
+    legacy_q = Q(channel_id__isnull=True) & (_creator_q(user_id) | Q(origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS))
     return channeled_q | legacy_q
 
 

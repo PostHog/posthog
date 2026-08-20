@@ -2,6 +2,7 @@ import pytest
 from freezegun import freeze_time
 
 from products.tasks.backend.exceptions import (
+    OAuthTokenError,
     RequiredMcpUnavailableError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
@@ -19,6 +20,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _network_enforcement_observation,
     _record_boot_total,
     _resolve_protected_base_branch,
+    _validate_system_report_canvas_context,
     start_agent_server,
 )
 from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -189,6 +191,19 @@ def _mock_github_integration(mocker, pr_base: str | None):
 def test_include_personal_mcp_for_task(mocker, internal, expected) -> None:
     task = mocker.Mock(internal=internal)
     assert _include_personal_mcp_for_task(task) is expected
+
+
+def test_system_report_canvas_rejects_personal_sandbox_resources(mocker) -> None:
+    task = mocker.Mock(
+        id="task-id",
+        is_system_report_canvas=True,
+        mcp_credential_owner_id=None,
+    )
+
+    _validate_system_report_canvas_context(task, _context(), "report_canvas")
+
+    with pytest.raises(OAuthTokenError, match="personal sandbox resources"):
+        _validate_system_report_canvas_context(task, _context(repository="posthog/posthog"), "report_canvas")
 
 
 @pytest.mark.parametrize(
