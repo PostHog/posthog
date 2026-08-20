@@ -640,9 +640,9 @@ FREE_CHANNELS: tuple[DemoFreeChannel, ...] = (
         purchase_rate=0.005,
         scenario="Organic page posts under an alias of Meta Ads",
     ),
-    # Pinterest is unconnected and its traffic is entirely organic, so once #83218 lands
-    # the gate has positive evidence and connect_source stays silent. Reddit is the
-    # mirror: also unconnected, but its campaign is paid, so there the suggestion is right.
+    # Pinterest is unconnected and its traffic is entirely organic, so the paid gate has
+    # positive evidence and connect_source stays silent. Reddit is the mirror: also
+    # unconnected, but its campaign is paid, so there the suggestion is right.
     DemoFreeChannel(
         key="pinterest_organic",
         daily_sessions=14,

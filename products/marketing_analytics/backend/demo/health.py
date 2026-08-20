@@ -34,13 +34,16 @@ PLATFORM_STATES: dict[str, tuple[tuple[str, ...], str]] = {
 
 # Left without a source so the diagnose service reports `events_only`, which is the
 # only way the setup plan reaches `connect_source`. Reddit keeps its paid campaign, so
-# the suggestion is correct there and fires; Pinterest is gone from this table entirely
-# and now sends organic traffic only, which is the half the paid gate suppresses — but
-# only once #83218 ships that gate. Until then `connect_source` never reads utm_medium,
-# so Pinterest draws the suggestion too: the fixture is staged, not yet exercised.
-# Reddit was in the `ok` state, so no health scenario is lost — its cost-table format
-# is, and `--connect-all` brings it back.
+# the suggestion is correct there and fires. Reddit was in the `ok` state, so no health
+# scenario is lost — its cost-table format is, and `--connect-all` brings it back.
 UNCONNECTED_PLATFORMS: frozenset[str] = frozenset({"RedditAds"})
+
+# Absent from PLATFORM_STATES entirely rather than listed above, because `--connect-all`
+# must not connect them: they send organic traffic only, which is the half the paid gate
+# suppresses, so they reach `events_only` and draw no suggestion. That's the mirror of
+# Reddit and the pair is the point of the fixture. Named here so the dry-run summary can
+# count them — deriving `events_only` from PLATFORM_STATES alone silently misses them.
+ORGANIC_ONLY_PLATFORMS: frozenset[str] = frozenset({"PinterestAds"})
 
 
 def _create_job(

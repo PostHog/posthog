@@ -63,7 +63,10 @@ class Command(BaseCommand):
         parser.add_argument(
             "--connect-all",
             action="store_true",
-            help="Connect every ad platform, trading the events_only / connect_source case for full cost-table coverage.",
+            help=(
+                "Connect every staged ad platform, trading the connect_source case for full cost-table "
+                "coverage. Organic-only platforms stay unconnected — they draw no suggestion either way."
+            ),
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -222,8 +225,15 @@ class Command(BaseCommand):
             if platform not in unconnected
         )
         connected = len(health.PLATFORM_STATES) - len(unconnected)
+        # A platform reaches events_only whenever it has no source and its utm_source
+        # matches, so the organic-only ones count too even though `--connect-all` never
+        # touches them. Only the paid half draws connect_source; the gate suppresses the rest.
+        drawing = ", ".join(sorted(unconnected)) or "none"
+        suppressed = ", ".join(sorted(health.ORGANIC_ONLY_PLATFORMS)) or "none"
+        events_only = len(unconnected) + len(health.ORGANIC_ONLY_PLATFORMS)
         self.stdout.write(
             f"Plus: health fixtures for {connected} connected platforms, "
-            f"{len(unconnected)} left unconnected (events_only), "
+            f"{events_only} in events_only ({drawing} draw connect_source; "
+            f"{suppressed} organic-only, suppressed by the paid gate), "
             f"{native_tables + 2} warehouse tables, conversion goals, flags."
         )
