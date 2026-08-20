@@ -48,7 +48,7 @@ function findPressableWithText(
 describe("PlanApprovalCard", () => {
   it("renders the plan with the markdown renderer", () => {
     const plan = "# Plan\n\n1. Inspect renderer\n2. Fix markdown output";
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -77,16 +77,14 @@ describe("PlanApprovalCard", () => {
       );
     });
 
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
-
-    expect(renderer.root.findByType("MarkdownText").props.content).toBe(plan);
+    expect(
+      renderer.root.find((node) => node.props.content === plan).props.content,
+    ).toBe(plan);
   });
 
   it("renders the plan from the tool call when the permission is gone", () => {
     const plan = "# Plan\n\n1. Inspect renderer\n2. Fix markdown output";
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -100,11 +98,9 @@ describe("PlanApprovalCard", () => {
       );
     });
 
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
-
-    expect(renderer.root.findByType("MarkdownText").props.content).toBe(plan);
+    expect(
+      renderer.root.find((node) => node.props.content === plan).props.content,
+    ).toBe(plan);
   });
 
   it.each<[ToolStatus, string, string]>([
@@ -114,7 +110,7 @@ describe("PlanApprovalCard", () => {
     "shows the outcome for a %s plan when the permission is gone",
     (status, expectedLabel, unexpectedLabel) => {
       const plan = "# Plan\n\n1. Inspect renderer";
-      let renderer: ReturnType<typeof create> | null = null;
+      let renderer!: ReturnType<typeof create>;
 
       act(() => {
         renderer = create(
@@ -128,14 +124,9 @@ describe("PlanApprovalCard", () => {
         );
       });
 
-      if (!renderer) {
-        throw new Error("Renderer not created");
-      }
-
       const hasLabel = (label: string) =>
-        (renderer as NonNullable<ReturnType<typeof create>>).root.findAll(
-          (node) => node.props.children === label,
-        ).length > 0;
+        renderer.root.findAll((node) => node.props.children === label).length >
+        0;
 
       expect(hasLabel(expectedLabel)).toBe(true);
       expect(hasLabel(unexpectedLabel)).toBe(false);
@@ -144,7 +135,7 @@ describe("PlanApprovalCard", () => {
 
   it("shows a rejection when a live permission has no local response and errored", () => {
     const plan = "# Plan\n\n1. Inspect renderer";
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -174,14 +165,8 @@ describe("PlanApprovalCard", () => {
       );
     });
 
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
-
     const hasLabel = (label: string) =>
-      (renderer as NonNullable<ReturnType<typeof create>>).root.findAll(
-        (node) => node.props.children === label,
-      ).length > 0;
+      renderer.root.findAll((node) => node.props.children === label).length > 0;
 
     expect(hasLabel("Sent back with guidance")).toBe(true);
     expect(hasLabel("Plan approved")).toBe(false);
@@ -189,7 +174,7 @@ describe("PlanApprovalCard", () => {
 
   it("sends the selected approval option immediately", () => {
     const onSendPermissionResponse = vi.fn();
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -218,10 +203,6 @@ describe("PlanApprovalCard", () => {
       );
     });
 
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
-
     const approveButton = findPressableWithText(
       renderer,
       "Yes, and manually approve edits",
@@ -240,7 +221,7 @@ describe("PlanApprovalCard", () => {
 
   it("collects feedback before sending the reject option", () => {
     const onSendPermissionResponse = vi.fn();
-    let renderer: ReturnType<typeof create> | null = null;
+    let renderer!: ReturnType<typeof create>;
 
     act(() => {
       renderer = create(
@@ -269,10 +250,6 @@ describe("PlanApprovalCard", () => {
         }),
       );
     });
-
-    if (!renderer) {
-      throw new Error("Renderer not created");
-    }
 
     const feedbackOption = findPressableWithText(
       renderer,
