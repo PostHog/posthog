@@ -88,6 +88,12 @@ describe("list item appearance", () => {
     ).toEqual([]);
   });
 
+  // A row's height turns on whether it has a second row, so "nothing to show"
+  // has to come back as nothing rather than as an empty row.
+  it("returns no segments when nothing was chosen", () => {
+    expect(taskMetadataSegments(task, "Ada Lovelace", [])).toEqual([]);
+  });
+
   it("sanitizes persisted fields to known unique values", () => {
     expect(
       sanitizeListItemMetadataFields([

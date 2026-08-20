@@ -522,10 +522,10 @@ describe("ChannelItemRow", () => {
       }),
     );
 
-    // The parts are separate spans now, so the order is read off the row.
-    expect(
-      screen.getByText("posthog/session-list").closest("button")?.textContent,
-    ).toContain("posthog/session-list · PostHog/code");
+    // Order is the segment builder's job and is tested there; a row's job is
+    // to show what the settings asked for.
+    expect(screen.getByText("posthog/session-list")).toBeInTheDocument();
+    expect(screen.getByText("PostHog/code")).toBeInTheDocument();
   });
 
   it("leaves a row single-line when no metadata fields are chosen", () => {

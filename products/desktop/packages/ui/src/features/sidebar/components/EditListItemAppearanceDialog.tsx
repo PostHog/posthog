@@ -18,13 +18,12 @@ import {
 } from "@posthog/shared/analytics-events";
 import { TaskStatusDot } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import { ListItemMetadata } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
+import { taskMetadata } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import {
   LIST_ITEM_METADATA_FIELDS,
   type ListItemMetadataField,
   moveListItemMetadataField,
-  taskMetadataSegments,
 } from "@posthog/ui/features/sidebar/listItemAppearance";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { track } from "@posthog/ui/shell/analytics";
@@ -113,7 +112,6 @@ export function EditListItemAppearanceDialog({
 }) {
   // Dated when the dialog opens, so the preview's ages are the ages the list
   // is showing rather than whenever this module loaded.
-  const [previewTasks, setPreviewTasks] = useState<PreviewTask[]>(datedPreview);
   const storedFields = useSidebarStore((state) => state.listItemMetadataFields);
   const setStoredFields = useSidebarStore(
     (state) => state.setListItemMetadataFields,
@@ -132,7 +130,6 @@ export function EditListItemAppearanceDialog({
 
   useEffect(() => {
     if (!open) return;
-    setPreviewTasks(datedPreview());
     setFieldOrder(orderedFieldList(storedFields));
     setSelectedFields(new Set(storedFields));
     lastMove.current = null;
@@ -171,6 +168,9 @@ export function EditListItemAppearanceDialog({
   };
 
   const visibleFields = fieldOrder.filter((field) => selectedFields.has(field));
+  // Dated per render, so the ages are the ages the list is showing rather than
+  // whenever this module loaded. Three objects from three constants.
+  const previewTasks = datedPreview();
 
   const handleSave = () => {
     const changed =
@@ -219,15 +219,7 @@ export function EditListItemAppearanceDialog({
                   // list, so the preview reads as the list it stands for.
                   icon={<TaskStatusDot dot={taskDot({})} />}
                   label={task.title}
-                  subtitle={
-                    <ListItemMetadata
-                      segments={taskMetadataSegments(
-                        task,
-                        task.creatorName,
-                        visibleFields,
-                      )}
-                    />
-                  }
+                  subtitle={taskMetadata(task, task.creatorName, visibleFields)}
                   tabIndex={-1}
                 />
               ))}

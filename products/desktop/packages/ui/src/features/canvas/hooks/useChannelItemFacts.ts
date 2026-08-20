@@ -1,12 +1,12 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import { metadataFromValues } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
 import {
   activityValue,
   type ListItemMetadataField,
-  type ListItemMetadataSegment,
   type ListItemMetadataValue,
-  listItemMetadataSegments,
 } from "@posthog/ui/features/sidebar/listItemAppearance";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import type { ReactNode } from "react";
 
 /**
  * What a space list can say about a session, beyond its name. Read off the item
@@ -15,7 +15,7 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
  * repository a session belongs to.
  */
 export type ChannelItemFacts = Partial<
-  Record<ListItemMetadataField, ListItemMetadataValue>
+  Record<ListItemMetadataField, ListItemMetadataValue | string>
 >;
 
 export function channelItemFacts(item: ChannelItemModel): ChannelItemFacts {
@@ -33,8 +33,8 @@ export function channelItemFacts(item: ChannelItemModel): ChannelItemFacts {
  */
 export function useChannelItemMetadata(
   item: ChannelItemModel,
-): ListItemMetadataSegment[] {
+): ReactNode | undefined {
   const fields = useSidebarStore((state) => state.listItemMetadataFields);
-  if (fields.length === 0) return [];
-  return listItemMetadataSegments(channelItemFacts(item), fields);
+  if (fields.length === 0) return undefined;
+  return metadataFromValues(channelItemFacts(item), fields);
 }

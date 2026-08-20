@@ -20,20 +20,17 @@ export const LIST_ITEM_METADATA_LABELS: Record<ListItemMetadataField, string> =
   };
 
 /**
- * One field's value. The object form carries what the short text leaves out,
- * which the row hangs off a tooltip: "2h ago" is what a reader wants at a
- * glance, and the exact moment is what they want when the glance isn't enough.
+ * One field's value. `title` carries what the short text leaves out, which the
+ * row hangs off a tooltip: "2h ago" is what a reader wants at a glance, and the
+ * exact moment is what they want when the glance isn't enough.
  */
-export type ListItemMetadataValue =
-  | string
-  | null
-  | undefined
-  | { text: string; title: string };
-
-export interface ListItemMetadataSegment {
-  field: ListItemMetadataField;
+export interface ListItemMetadataValue {
   text: string;
   title?: string;
+}
+
+export interface ListItemMetadataSegment extends ListItemMetadataValue {
+  field: ListItemMetadataField;
 }
 
 export function sanitizeListItemMetadataFields(
@@ -76,7 +73,7 @@ export function moveListItemMetadataField(
 /** When something last happened, as a phrase with the moment behind it. */
 export function activityValue(
   timestamp: number | null | undefined,
-): ListItemMetadataValue {
+): ListItemMetadataValue | undefined {
   if (!timestamp) return undefined;
   return {
     text: formatRelativeAge(timestamp),
@@ -90,20 +87,19 @@ export function activityValue(
  * channel item) share the order this way rather than each deciding it.
  */
 export function listItemMetadataSegments(
-  values: Partial<Record<ListItemMetadataField, ListItemMetadataValue>>,
+  values: Partial<
+    Record<ListItemMetadataField, ListItemMetadataValue | string | null>
+  >,
   fields: readonly ListItemMetadataField[],
 ): ListItemMetadataSegment[] {
   const segments: ListItemMetadataSegment[] = [];
   for (const field of fields) {
     const value = values[field];
     if (!value) continue;
-    const text = typeof value === "string" ? value.trim() : value.text.trim();
-    if (!text) continue;
-    segments.push({
-      field,
-      text,
-      title: typeof value === "string" ? undefined : value.title,
-    });
+    const { text, title } =
+      typeof value === "string" ? { text: value, title: undefined } : value;
+    if (!text.trim()) continue;
+    segments.push({ field, text: text.trim(), title });
   }
   return segments;
 }

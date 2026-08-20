@@ -15,9 +15,9 @@ const COPIED_MS = 1500;
  * `bare` drops the border/background so it can nest inside another pill or a
  * line of text.
  *
- * `confirm` picks how it says it worked: the check icon where the button has
- * room to change, or an anchored tooltip where it doesn't — a 14px glyph at the
- * end of a truncated line has nowhere to put a word.
+ * `confirm` answers one question: does the button have room to say it worked? A
+ * bordered button with a label swaps its glyph for a check. A 12px glyph at the
+ * end of a truncated line has nowhere to put that, so the word goes above it.
  */
 export function CopyButton({
   text,
@@ -71,14 +71,13 @@ export function CopyButton({
     </button>
   );
 
-  if (confirm === "icon") return button;
   return (
     <span className="relative inline-flex">
-      {/* The confirmation is its own element rather than the tooltip forced
-          open. Base UI closes a tooltip on click, so it never showed the
-          confirmation; holding it open with state instead left it stuck open on
-          its resting label once the pointer had gone. */}
-      {copied ? (
+      {/* Its own element rather than the tooltip held open. Base UI closes a
+          tooltip on click, so it never showed the confirmation; holding it open
+          with state instead left it stuck open on its resting label once the
+          pointer had gone. */}
+      {copied && confirm === "tooltip" ? (
         <output className="-translate-x-1/2 pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 select-none whitespace-nowrap rounded-(--radius-2) bg-(--gray-12) px-2 py-1 text-(--gray-1) text-xs shadow-md">
           Copied!
         </output>

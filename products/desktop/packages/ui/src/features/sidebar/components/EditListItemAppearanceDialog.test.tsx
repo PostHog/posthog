@@ -71,9 +71,7 @@ describe("EditListItemAppearanceDialog", () => {
     expect(screen.getByText("posthog/code")).toBeInTheDocument();
 
     await user.click(screen.getByRole("checkbox", { name: "Branch" }));
-    expect(
-      screen.getByText("posthog/code").closest("button")?.textContent,
-    ).toContain("posthog/code · posthog/session-list");
+    expect(screen.getByText("posthog/session-list")).toBeInTheDocument();
 
     await user.click(screen.getByText("Save"));
 

@@ -39,7 +39,6 @@ import {
   type TaskDot,
   taskDot,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import { ListItemMetadata } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
@@ -288,7 +287,7 @@ export function ChannelItemRow({
   onContextMenuOpenChange?: (open: boolean) => void;
 }) {
   const status = useChannelTaskStatus(item);
-  const metadata = useChannelItemMetadata(item);
+  const subtitle = useChannelItemMetadata(item);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const currentUser = useCurrentUser();
@@ -367,7 +366,7 @@ export function ChannelItemRow({
       <ChannelItemRowView
         item={item}
         status={status}
-        subtitle={<ListItemMetadata segments={metadata} />}
+        subtitle={subtitle}
         isActive={isActive}
         isSelected={isSelected}
         showPinBadge={showPinBadge}
