@@ -4,8 +4,8 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.api.insight import InsightViewSet
 from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.presentation.insight import InsightViewSet
 
 
 class CanEditInsight(BasePermission):

@@ -25,7 +25,7 @@ from posthog.schema_enums import AlertState
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.api import (
     _extract_alert_snooze_hints,
     _handle_insight_alert_snooze,

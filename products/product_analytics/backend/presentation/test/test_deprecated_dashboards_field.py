@@ -12,8 +12,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.api.insight import should_serve_deprecated_dashboards_field
 from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.presentation.insight import should_serve_deprecated_dashboards_field
 
 
 def _fake_request(authenticator: object | None, query_params: dict[str, str] | None = None) -> MagicMock:

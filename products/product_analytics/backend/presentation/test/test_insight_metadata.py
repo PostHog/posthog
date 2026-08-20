@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.llm.completions import OpenAICompletion
 
-MOCK_PATH = "products.product_analytics.backend.api.insight_metadata.hit_openai"
+MOCK_PATH = "products.product_analytics.backend.presentation.insight_metadata.hit_openai"
 
 
 def _completion(content: str) -> OpenAICompletion:
