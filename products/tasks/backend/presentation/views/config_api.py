@@ -17,6 +17,7 @@ from posthog.models.user import User
 from posthog.permissions import APIScopePermission, TeamMemberStrictManagementPermission
 
 from products.tasks.backend.facade import ai_run_defaults
+from products.tasks.backend.feature_flags import get_model_access_error
 from products.tasks.backend.presentation.serializers import (
     TasksAIRunPreferencesSerializer,
     TasksTeamConfigResponseSerializer,
@@ -34,7 +35,15 @@ def _user_id(request: Request) -> int:
 def _validated_triple(request: Request) -> dict:
     serializer = TasksAIRunPreferencesSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    return serializer.validated_data
+    triple = serializer.validated_data
+    # Storing a flag-gated model the writer isn't entitled to would only ever
+    # produce runs the resolver skips or the run paths refuse — reject it here
+    # so the settings page says so immediately. Resolution re-checks per acting
+    # user, which also covers entitlements that change after the write.
+    error = get_model_access_error(triple.get("model"), distinct_id=cast(User, request.user).distinct_id)
+    if error is not None:
+        raise ValidationError({"model": error})
+    return triple
 
 
 class TasksTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

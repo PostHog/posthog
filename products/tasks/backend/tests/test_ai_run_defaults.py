@@ -140,6 +140,63 @@ class TestResolveAIRunDefaults(APIBaseTest):
         )
 
 
+class TestModelAccessGating(APIBaseTest):
+    GATED = "claude-opus-4-8"
+
+    def _set_team(self, prefs: dict[str, Any]) -> None:
+        TeamTasksConfig.objects.update_or_create(team=self.team, defaults={"ai_run_preferences": prefs})
+
+    def _set_user(self, prefs: dict[str, Any]) -> None:
+        UserTasksConfig.objects.for_team(self.team.id).update_or_create(
+            team_id=self.team.id, user_id=self.user.id, defaults={"ai_run_preferences": prefs}
+        )
+
+    def _gate(self, module: str):
+        gated = self.GATED
+        return (
+            patch(
+                f"{module}.get_required_model_flag",
+                side_effect=lambda model: "gated-model-flag" if model == gated else None,
+            ),
+            patch(
+                f"{module}.get_model_access_error",
+                side_effect=lambda model, *, distinct_id: (
+                    f"'{model}' is not available for your account." if model == gated else None
+                ),
+            ),
+        )
+
+    RESOLVER = "products.tasks.backend.logic.services.ai_run_defaults"
+
+    def test_gated_user_default_falls_through_to_team(self):
+        self._set_user(TEAM_TRIPLE)  # names the gated model
+        self._set_team(USER_TRIPLE)
+        flag_patch, access_patch = self._gate(self.RESOLVER)
+        with flag_patch, access_patch as access_mock:
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert resolved.source == "team"
+        assert resolved.model == "gpt-5.5"
+        access_mock.assert_called_once_with(self.GATED, distinct_id=self.user.distinct_id)
+
+    def test_gated_team_default_resolves_to_none(self):
+        self._set_team(TEAM_TRIPLE)
+        flag_patch, access_patch = self._gate(self.RESOLVER)
+        with flag_patch, access_patch:
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert resolved.source == "none"
+        assert resolved.model is None
+
+    def test_storing_a_gated_model_as_a_default_is_rejected(self):
+        # The API check calls get_model_access_error directly; no flag patch needed.
+        _, access_patch = self._gate("products.tasks.backend.presentation.views.config_api")
+        with access_patch:
+            response = self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", TEAM_TRIPLE)
+            assert response.status_code == 400
+            assert "not available" in str(response.json())
+            response = self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", USER_TRIPLE)
+            assert response.status_code == 200
+
+
 class TestCreateRunAppliesDefaults(APIBaseTest):
     def _task(self, **overrides) -> Task:
         params: dict[str, Any] = {

@@ -19,7 +19,9 @@ available model list drifts as the LLM gateway evolves, so an unknown model id
 passes through (the agent server owns the final fallback), a triple whose
 runtime adapter is no longer valid is skipped in favor of the next level, and
 a reasoning effort the resolved model doesn't support is dropped. This module
-never raises during resolution.
+never raises during resolution. The one hard gate is entitlement: a level whose
+model is behind an access flag the acting user doesn't hold is skipped, so a
+stored default can never launch a model the run paths would refuse.
 """
 
 from dataclasses import dataclass
@@ -31,7 +33,9 @@ from posthog.models.scoping import get_current_team_id
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
+from products.tasks.backend.feature_flags import get_model_access_error, get_required_model_flag
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort
 from products.tasks.backend.models import TeamTasksConfig, UserTasksConfig
 from products.tasks.backend.temporal.process_task.utils import (
@@ -135,6 +139,22 @@ def resolve_ai_run_defaults(
     """
     canonical_team_id = _canonical_team_id(team_id)
 
+    # Entitlement gating is lazy: the distinct_id lookup only happens when a level
+    # actually resolves to a flag-gated model, which keeps the per-run-creation
+    # hot path free of an extra query in the common case.
+    acting_distinct_id: str | None = None
+    acting_distinct_id_loaded = False
+
+    def _model_accessible(model: str | None) -> bool:
+        if get_required_model_flag(model) is None:
+            return True
+        nonlocal acting_distinct_id, acting_distinct_id_loaded
+        if not acting_distinct_id_loaded:
+            acting_distinct_id_loaded = True
+            if user_id is not None:
+                acting_distinct_id = User.objects.filter(id=user_id).values_list("distinct_id", flat=True).first()
+        return get_model_access_error(model, distinct_id=acting_distinct_id) is None
+
     if user_preferences is None and user_id is not None:
         user_preferences = (
             UserTasksConfig.objects.for_team(canonical_team_id, canonical=True)
@@ -143,14 +163,17 @@ def resolve_ai_run_defaults(
             .first()
         )
     resolved = _resolve_from_preferences(user_preferences, source="user")
-    if resolved is not None:
+    # A default naming a model the acting user isn't entitled to falls through to
+    # the next level, the same way an unusable pair does — a stored default must
+    # never launch a model the cold run path would have refused.
+    if resolved is not None and _model_accessible(resolved.model):
         return resolved
 
     team_prefs = (
         TeamTasksConfig.objects.filter(team_id=canonical_team_id).values_list("ai_run_preferences", flat=True).first()
     )
     resolved = _resolve_from_preferences(team_prefs, source="team")
-    if resolved is not None:
+    if resolved is not None and _model_accessible(resolved.model):
         return resolved
 
     return ResolvedAIRunConfig(source="none")
