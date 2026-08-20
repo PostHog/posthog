@@ -14,6 +14,7 @@ use metrics::gauge;
 use tracing::{info, warn};
 
 use crate::config::{CaptureMode, Config};
+use crate::emergency_kafka_fallback::{report_fallback_gauge, EmergencyKafkaFallback};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::prometheus::setup_metrics_recorder;
@@ -133,7 +134,7 @@ pub struct CaptureComponents {
 }
 
 pub async fn build_components(
-    config: Config,
+    mut config: Config,
     sink_env: HashMap<String, String>,
     handles: LifecycleHandles,
 ) -> CaptureComponents {
@@ -156,6 +157,17 @@ pub async fn build_components(
             config.capture_mode.as_tag(),
         )
     });
+
+    // Before anything reads a broker address: the switch rewrites the hosts and
+    // TLS of every producer destination, so it has to land while they are still
+    // plain config.
+    let emergency_kafka_fallback = EmergencyKafkaFallback::from_env(&sink_env)
+        .unwrap_or_else(|e| panic!("invalid configuration: {e:#}"));
+    if let Some(fallback) = &emergency_kafka_fallback {
+        fallback.apply(&mut config);
+        fallback.log_active();
+    }
+    report_fallback_gauge(emergency_kafka_fallback.is_some());
 
     let redis_client = Arc::new(
         RedisClient::with_config(
@@ -370,8 +382,13 @@ pub async fn build_components(
 
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
         Some(
-            create_v1_sink_router(&config, &sink_env, v1_sink_handles)
-                .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}")),
+            create_v1_sink_router(
+                &config,
+                &sink_env,
+                v1_sink_handles,
+                emergency_kafka_fallback.as_ref(),
+            )
+            .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}")),
         )
     } else {
         None
@@ -516,9 +533,15 @@ fn create_v1_sink_router(
     config: &Config,
     sink_env: &HashMap<String, String>,
     handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
+    emergency_kafka_fallback: Option<&EmergencyKafkaFallback>,
 ) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
     let mut sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
         .context("failed to parse CAPTURE_V1_SINKS")?;
+    // Ahead of validation, so the checks run against the cluster the sinks will
+    // actually produce to.
+    if let Some(fallback) = emergency_kafka_fallback {
+        fallback.apply_to_v1_sinks(&mut sinks_cfg);
+    }
     sinks_cfg
         .validate()
         .context("v1 sink config validation failed")?;
@@ -1045,7 +1068,7 @@ mod tests {
                 })
                 .collect();
 
-        let err = create_v1_sink_router(&config, &HashMap::new(), handles)
+        let err = create_v1_sink_router(&config, &HashMap::new(), handles, None)
             .err()
             .expect("should fail with invalid config");
         let msg = format!("{err:#}");
