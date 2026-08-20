@@ -1,7 +1,5 @@
 from uuid import UUID
 
-from django.conf import settings
-
 import structlog
 from celery import shared_task
 from prometheus_client import Counter
@@ -96,9 +94,6 @@ def soft_delete_managed_warehouse_sources_task(organization_id: str) -> None:
         soft_delete_legacy_managed_warehouse_sources,
     )
 
-    if settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED:
-        logger.warning("Ignoring a legacy managed warehouse cleanup task after dynamic auth enablement")
-        return
     soft_delete_legacy_managed_warehouse_sources(organization_id=organization_id)
 
 
@@ -123,13 +118,10 @@ def soft_delete_managed_warehouse_sources_v2_task(organization_id: str, expected
 
 
 def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUID, expected_generation: int) -> None:
-    if settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED:
-        soft_delete_managed_warehouse_sources_v2_task.delay(
-            organization_id=str(organization_id),
-            expected_generation=expected_generation,
-        )
-        return
-    soft_delete_managed_warehouse_sources_task.delay(organization_id=str(organization_id))
+    soft_delete_managed_warehouse_sources_v2_task.delay(
+        organization_id=str(organization_id),
+        expected_generation=expected_generation,
+    )
 
 
 @shared_task(
@@ -146,8 +138,6 @@ def ensure_managed_warehouse_direct_source_v2_task(
     organization_id: str,
     expected_generation: int,
 ) -> None:
-    if not settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED:
-        return
     from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
         ensure_managed_warehouse_direct_source,
     )
@@ -162,8 +152,6 @@ def ensure_managed_warehouse_direct_source_v2_task(
 def schedule_managed_warehouse_direct_source_ensure(
     *, team_id: int, organization_id: str | UUID, expected_generation: int
 ) -> None:
-    if not settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED:
-        return
     ensure_managed_warehouse_direct_source_v2_task.delay(
         team_id=team_id,
         organization_id=str(organization_id),

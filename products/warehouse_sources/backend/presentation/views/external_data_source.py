@@ -100,7 +100,6 @@ from products.data_warehouse.backend.facade.api import (
     unpause_cdc_extraction_schedule,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
-from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
@@ -4831,24 +4830,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             .order_by(self.ordering)
         )
-        managed_warehouse_enabled = managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team)
-        managed_source = None
-        if managed_warehouse_enabled:
-            managed_candidates = connection_sources.filter(ExternalDataSource.ready_managed_warehouse_q()).only(
-                "id",
-                "team_id",
-                "prefix",
-                "description",
-                "connection_metadata",
-                "source_type",
-                "access_method",
-                "direct_query_enabled",
-                "job_inputs",
-            )
-            managed_source = next(
-                (source for source in managed_candidates if source.is_dynamic_managed_warehouse),
-                None,
-            ) or next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+        managed_candidates = connection_sources.filter(ExternalDataSource.ready_managed_warehouse_q()).only(
+            "id",
+            "team_id",
+            "prefix",
+            "description",
+            "connection_metadata",
+            "source_type",
+            "access_method",
+            "direct_query_enabled",
+            "job_inputs",
+        )
+        managed_source = next(
+            (source for source in managed_candidates if source.is_dynamic_managed_warehouse),
+            None,
+        ) or next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+        if managed_source is not None:
             external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
         else:
             canonical_source = _canonical_legacy_managed_warehouse_source(connection_sources)
