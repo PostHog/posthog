@@ -3,11 +3,15 @@ import {
   CaretDownIcon,
   ChatCircleIcon,
   GitPullRequestIcon,
+  ShapesIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import { Button } from "@posthog/quill";
+import { CHANNEL_REPORTS_FLAG } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
@@ -66,6 +70,19 @@ export function ReportDetailActions({ report }: ReportDetailActionsProps) {
     reportTitle: report.title ?? null,
     cloudRepository,
   });
+
+  const canvasActionEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const { createCanvasReport, isCreatingCanvas } = useCreateCanvasReport({
+    reportId: report.id,
+    reportTitle: report.title ?? null,
+    channelId: report.channel_id ?? null,
+    cloudRepository,
+  });
+
+  const handleCreateCanvas = useCallback(() => {
+    fireAction("create_canvas");
+    void createCanvasReport();
+  }, [createCanvasReport, fireAction]);
 
   const [discussQuestion, setDiscussQuestion] = useState("");
   const [discussOpen, setDiscussOpen] = useState(false);
@@ -192,6 +209,21 @@ export function ReportDetailActions({ report }: ReportDetailActionsProps) {
           </form>
         </Popover.Content>
       </Popover.Root>
+
+      {canvasActionEnabled && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isCreatingCanvas}
+          className="gap-1"
+          onClick={handleCreateCanvas}
+          title="Have your agent build a canvas from this report"
+        >
+          {isCreatingCanvas ? <Spinner size="1" /> : <ShapesIcon size={12} />}
+          Canvas
+        </Button>
+      )}
 
       {showPr && (
         <Popover.Root

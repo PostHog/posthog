@@ -29,6 +29,9 @@ import {
   PopoverTrigger,
   Skeleton,
   Spinner,
+  Tabs,
+  TabsList,
+  TabsTrigger,
 } from "@posthog/quill";
 import {
   formatRelativeTimeShort,
@@ -36,6 +39,7 @@ import {
   readPrUrls,
 } from "@posthog/shared";
 import type {
+  SignalReport,
   Task,
   TaskRunStatus,
   UserBasic,
@@ -46,9 +50,12 @@ import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { TaskTabIcon } from "@posthog/ui/features/browser-tabs/TaskTabIcon";
 import {
   type FeedEntry,
+  type FeedKindFilter,
+  feedEntryMatchesKind,
   mergeFeedEntries,
   stripContextBlocks,
 } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
+import { ReportFeedRow } from "@posthog/ui/features/canvas/components/ReportFeedRow";
 import {
   TaskRowContextMenu,
   TaskRowDropdownMenu,
@@ -1318,6 +1325,15 @@ function DaySeparator({ label }: { label: string }) {
   );
 }
 
+const FEED_KIND_FILTERS: readonly {
+  value: FeedKindFilter;
+  label: string;
+}[] = [
+  { value: "all", label: "All" },
+  { value: "sessions", label: "Sessions" },
+  { value: "reports", label: "Reports" },
+];
+
 // The channel feed: every task kicked off in the channel, newest first in a
 // plain top-down scroll (Twitter-style, not a bottom-anchored chat).
 // Multiplayer — the list is team-visible and polls for teammates' cards and
@@ -1328,6 +1344,9 @@ export function ChannelFeedView({
   tasks,
   pending = NO_PENDING,
   systemMessages,
+  reports,
+  onOpenReport,
+  showKindFilter = true,
   isLoading,
   emptyState,
   intro,
@@ -1339,6 +1358,13 @@ export function ChannelFeedView({
   tasks: Task[];
   pending?: PendingKickoff[];
   systemMessages?: ChannelFeedSystemMessage[];
+  /** Reports interleaved into the feed as compact cards. Providing this (even
+   * empty) also shows the sessions/reports kind filter. */
+  reports?: SignalReport[];
+  onOpenReport?: (reportId: string) => void;
+  /** Off for single-kind feeds (a `type:report` saved feed), where the
+   * sessions/reports tabs would only offer empty views. */
+  showKindFilter?: boolean;
   isLoading: boolean;
   emptyState?: React.ReactNode;
   /** Rendered pinned above the first entry — the Slack-style channel intro
@@ -1361,9 +1387,23 @@ export function ChannelFeedView({
     [tasks, archivedTaskIds],
   );
 
+  // Which entry kinds show. Reset per space so a filter chosen in one channel
+  // doesn't silently empty another. Only rendered when reports are wired in.
+  const [kindFilter, setKindFilter] = useState<{
+    channelId: string;
+    value: FeedKindFilter;
+  }>({ channelId, value: "all" });
+  const activeKindFilter =
+    kindFilter.channelId === channelId ? kindFilter.value : "all";
+
   const entries = useMemo<FeedEntry[]>(
-    () => mergeFeedEntries(visibleTasks, systemMessages ?? []),
-    [visibleTasks, systemMessages],
+    () =>
+      mergeFeedEntries(
+        visibleTasks,
+        systemMessages ?? [],
+        reports ?? [],
+      ).filter((entry) => feedEntryMatchesKind(entry, activeKindFilter)),
+    [visibleTasks, systemMessages, reports, activeKindFilter],
   );
 
   // The channel's dominant repo: on a single-repo channel every card would
@@ -1409,6 +1449,32 @@ export function ChannelFeedView({
     <div className="mx-auto mb-2 w-full max-w-[660px]">{composer}</div>
   );
 
+  const kindFilterBlock = reports !== undefined && showKindFilter && (
+    <div className="mx-auto flex w-full max-w-[660px] items-center gap-0.5 pt-1">
+      <Tabs
+        value={activeKindFilter}
+        onValueChange={(value: string) =>
+          setKindFilter({ channelId, value: value as FeedKindFilter })
+        }
+      >
+        <TabsList
+          variant="line"
+          className="quill-tabs-fill h-auto gap-0.5 border-b-0"
+        >
+          {FEED_KIND_FILTERS.map(({ value, label }) => (
+            <TabsTrigger
+              key={value}
+              value={value}
+              className="rounded-sm px-1 py-0.5 text-[13px]"
+            >
+              {label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+    </div>
+  );
+
   if (isLoading && pending.length === 0) {
     // Everything already known renders now. The skeleton cards hold the
     // feed's shape while keeping the intro and composer available.
@@ -1430,6 +1496,9 @@ export function ChannelFeedView({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full px-4 pt-4 pb-10">
           {composerBlock}
+          {/* The filter stays visible while it's what emptied the list, so the
+              user can switch back out of an empty kind. */}
+          {kindFilterBlock}
           {emptyState}
         </div>
       </div>
@@ -1465,6 +1534,12 @@ export function ChannelFeedView({
           onOpenTask={onOpenTask}
           onOpenThread={onOpenThread}
         />
+      ) : entry.kind === "report" ? (
+        <ReportFeedRow
+          key={entry.id}
+          report={entry.report}
+          onOpenReport={onOpenReport ?? (() => {})}
+        />
       ) : (
         <SystemFeedRow key={entry.id} message={entry.message} />
       ),
@@ -1476,6 +1551,7 @@ export function ChannelFeedView({
       <div className="mx-auto w-full px-4 pt-4 pb-10">
         {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
         {composerBlock}
+        {kindFilterBlock}
         {rows}
       </div>
     </div>

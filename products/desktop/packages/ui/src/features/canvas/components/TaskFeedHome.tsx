@@ -26,6 +26,7 @@ import { useProjectTaskFeed } from "@posthog/ui/features/canvas/hooks/useProject
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import type { ThreadPanelTab } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -46,9 +47,12 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
     isFetching,
     isLoading,
     issues,
+    mode,
     refetch,
+    reports,
     tasks,
   } = useTaskFeedResults(feed?.query);
+  const openReport = useOpenInboxReport();
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
@@ -198,6 +202,9 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
         <ChannelFeedView
           channelId={feed.id}
           tasks={tasks}
+          reports={mode === "reports" ? reports : undefined}
+          onOpenReport={openReport}
+          showKindFilter={false}
           isLoading={isLoading}
           intro={intro}
           onOpenTask={handleOpenTask}

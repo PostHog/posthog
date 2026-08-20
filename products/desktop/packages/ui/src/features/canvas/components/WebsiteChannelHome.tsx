@@ -1,5 +1,13 @@
-import { isPersonalChannel } from "@posthog/core/canvas/channelName";
+import {
+  isGeneralChannel,
+  isPersonalChannel,
+} from "@posthog/core/canvas/channelName";
+import {
+  channelReportView,
+  generalReportView,
+} from "@posthog/core/inbox/reportChannelScope";
 import { insertTaskDedup } from "@posthog/core/tasks/taskDelete";
+import { CHANNEL_REPORTS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
@@ -25,6 +33,10 @@ import {
   useChannelFeed,
 } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { useChannelFeedMessages } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
+import {
+  EMPTY_CHANNEL_REPORTS_FILTERS,
+  useChannelReports,
+} from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
@@ -34,6 +46,8 @@ import {
   type ThreadPanelTab,
   useThreadPanelStore,
 } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
@@ -78,6 +92,24 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   const { messages: systemMessages, isLoading: isLoadingMessages } =
     useChannelFeedMessages(channelId);
   const isLoading = isLoadingChannels || isLoadingFeed || isLoadingMessages;
+
+  // Reports interleave into the feed as compact cards: the general space shows
+  // every report, any other space only its own. Their load doesn't gate the
+  // feed — report cards land when their (slower) poll resolves.
+  const reportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
+  const reportView = useMemo(
+    () =>
+      channel && !isGeneralChannel(channel)
+        ? channelReportView(channelId)
+        : generalReportView(),
+    [channel, channelId],
+  );
+  const { reports } = useChannelReports(
+    reportView,
+    EMPTY_CHANNEL_REPORTS_FILTERS,
+    { enabled: reportsEnabled },
+  );
+  const openReport = useOpenInboxReport();
 
   useSetHeaderContent(
     useMemo(
@@ -301,6 +333,8 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           tasks={tasks}
           pending={visiblePending}
           systemMessages={systemMessages}
+          reports={reportsEnabled ? reports : undefined}
+          onOpenReport={openReport}
           isLoading={isLoading}
           emptyState={emptyState}
           intro={intro}
