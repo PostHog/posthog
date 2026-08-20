@@ -51,11 +51,15 @@ class TestReportCanvasGeneration(APIBaseTest):
             total_weight=1.0,
         )
 
+    def _provision_spaces(self) -> None:
+        tasks_facade.provision_default_channels(self.team.id, self.user.id)
+
     def _generation_result(self, task_id: uuid.UUID, run_id: uuid.UUID) -> SimpleNamespace:
         return SimpleNamespace(task_id=task_id, latest_run=SimpleNamespace(id=run_id))
 
     def test_creates_one_shared_session_and_reuses_in_flight_generation(self) -> None:
         report = self._report()
+        self._provision_spaces()
         generation_task_id = uuid.uuid4()
         generation_run_id = uuid.uuid4()
 
@@ -103,6 +107,22 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert discussion.state["activity_target"] == {"scope": "desktop_canvas", "id": str(canvas.id)}
         assert attempt.status == SignalReportCanvasGeneration.Status.GENERATING
         assert attempt.generation_task_id == generation_task_id
+
+    def test_skips_a_team_without_a_general_space(self) -> None:
+        report = self._report()
+
+        with (
+            patch("products.signals.backend.report_canvas.report_canvases_enabled", return_value=True),
+            patch("products.signals.backend.report_canvas._fetch_report_signals", return_value=[]),
+            patch("products.signals.backend.report_canvas.tasks_facade.create_and_run_task") as create_generation,
+        ):
+            result = ensure_and_start_report_canvas_generation(team_id=self.team.id, report_id=str(report.id))
+
+        assert result is None
+        create_generation.assert_not_called()
+        with team_scope(self.team.id):
+            assert not self.channel_model.objects.filter(team=self.team).exists()
+            assert not SignalReportCanvas.objects.filter(report=report).exists()
 
     def test_generation_prompt_includes_current_report_decisions_and_rejects_fake_controls(self) -> None:
         report = self._report()

@@ -309,6 +309,9 @@ tools:
     task-channels-partial-update:
         operation: task_channels_partial_update
         enabled: false
+    task-channels-provision-defaults-create:
+        operation: task_channels_provision_defaults_create
+        enabled: false
     task-channels-star-create:
         operation: task_channels_star_create
         enabled: false
@@ -370,6 +373,9 @@ tools:
                 - updated_at
     tasks-destroy:
         operation: tasks_destroy
+        enabled: false
+    tasks-handoff-create:
+        operation: tasks_handoff_create
         enabled: false
     tasks-list:
         operation: tasks_list
