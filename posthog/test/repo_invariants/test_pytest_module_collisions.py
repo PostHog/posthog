@@ -107,18 +107,28 @@ def _module_name(path: Path) -> str:
 
 
 def _test_files() -> dict[str, str]:
-    ignored = _ini_ignores()
     found = {}
     for path in REPO_ROOT.rglob("*.py"):
         if not any(path.match(glob) for glob in TEST_FILE_GLOBS):
             continue
         if any(fnmatch(part, pattern) for part in path.parts for pattern in NORECURSEDIRS):
             continue
-        relative = str(path.relative_to(REPO_ROOT))
-        if any(relative == i or relative.startswith(f"{i}/") for i in ignored):
-            continue
-        found[relative] = _module_name(path)
+        found[str(path.relative_to(REPO_ROOT))] = _module_name(path)
     return found
+
+
+def _active_ini_ignores(targets: tuple[str, ...]) -> tuple[str, ...]:
+    """An --ignore in pytest.ini does not override a path named on the command line.
+
+    ci-python.yml runs `pytest tools/hogli/tests` even though addopts carries
+    --ignore=tools/hogli, and those tests do collect. So an ignore only bites a session
+    that does not point inside it.
+    """
+    return tuple(
+        ignore
+        for ignore in _ini_ignores()
+        if not any(target == ignore or target.startswith(f"{ignore}/") for target in targets)
+    )
 
 
 def _collect() -> dict[str, list[str]]:
@@ -126,11 +136,12 @@ def _collect() -> dict[str, list[str]]:
     files = _test_files()
     collisions: dict[str, list[str]] = {}
     for session, (targets, ignores) in sorted(_sessions().items()):
+        skipped = ignores + _active_ini_ignores(targets)
         by_module: dict[str, list[str]] = {}
         for relative, module in files.items():
             if not any(relative == t or relative.startswith(f"{t}/") for t in targets):
                 continue
-            if any(relative == i or relative.startswith(f"{i}/") for i in ignores):
+            if any(relative == i or relative.startswith(f"{i}/") for i in skipped):
                 continue
             by_module.setdefault(module, []).append(relative)
         for module, paths in by_module.items():
