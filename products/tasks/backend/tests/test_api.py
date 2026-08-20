@@ -12400,6 +12400,50 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
 
 
 class TestTaskSerializerResponseRoundTrip(BaseTaskAPITest):
+    def test_task_principal_serialization(self):
+        human_task = self.create_task()
+        system_task = Task.objects.create(
+            team=self.team,
+            created_by=None,
+            title="System task",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            system_principal=Task.SystemPrincipal.SIGNALS,
+        )
+        legacy_task = Task.objects.create(
+            team=self.team,
+            created_by=None,
+            title="Legacy task",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        human_response = self.client.get(f"/api/projects/@current/tasks/{human_task.id}/")
+        system_response = self.client.get(f"/api/projects/@current/tasks/{system_task.id}/")
+        legacy_response = self.client.get(f"/api/projects/@current/tasks/{legacy_task.id}/")
+
+        self.assertEqual(human_response.json()["principal"]["type"], "user")
+        self.assertEqual(human_response.json()["principal"]["user"]["id"], self.user.id)
+        self.assertEqual(
+            system_response.json()["principal"],
+            {"type": "system", "name": "signals", "label": "Signals", "user": None},
+        )
+        self.assertIsNone(legacy_response.json()["principal"])
+
+    def test_public_create_cannot_claim_system_principal(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Claim Signals",
+                "description": "",
+                "origin_product": Task.OriginProduct.USER_CREATED,
+                "system_principal": Task.SystemPrincipal.SIGNALS,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_task_response_can_be_read_back(self):
         # `@validated_request` re-reads its own response through `to_internal_value` whenever DEBUG is
         # on (posthog/api/mixins.py). That read drops read-only fields, so declaring one that

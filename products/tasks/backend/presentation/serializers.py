@@ -33,6 +33,7 @@ from products.tasks.backend.facade.contracts import (
     TaskActivityPageDTO,
     TaskDetailDTO,
     TaskMentionDTO,
+    TaskPrincipalDTO,
     TaskRunDetailDTO,
     TaskSummaryDTO,
     TaskThreadMessageDTO,
@@ -142,6 +143,14 @@ class TaskUserBasicInfoSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = TaskUserBasicInfo
+
+
+class TaskPrincipalSerializer(DataclassSerializer):
+    user = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    type = serializers.ChoiceField(choices=("user", "system"))
+
+    class Meta:
+        dataclass = TaskPrincipalDTO
 
 
 class SlackThreadReferenceSerializer(DataclassSerializer):
@@ -416,6 +425,7 @@ class TaskSerializer(DataclassSerializer):
 
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    principal = TaskPrincipalSerializer(allow_null=True, required=False)
     slack_thread_references = SlackThreadReferenceSerializer(many=True, read_only=True)
     # Not `read_only`, even though this is a response-only serializer: `@validated_request` re-reads
     # its own output through `to_internal_value`, which drops read-only fields, and `runtime` is
@@ -451,6 +461,7 @@ class TaskSerializer(DataclassSerializer):
             "updated_at",
             "last_activity_at",
             "created_by",
+            "principal",
             "ci_prompt",
             "channel",
             "slack_thread_references",

@@ -1458,6 +1458,26 @@ export interface TaskRunDetailDTOApi {
     completed_at?: string | null
 }
 
+/**
+ * * `user` - user
+ * * `system` - system
+ */
+export type TaskPrincipalDTOTypeEnumApi = (typeof TaskPrincipalDTOTypeEnumApi)[keyof typeof TaskPrincipalDTOTypeEnumApi]
+
+export const TaskPrincipalDTOTypeEnumApi = {
+    User: 'user',
+    System: 'system',
+} as const
+
+export interface TaskPrincipalDTOApi {
+    user?: TaskUserBasicInfoApi | null
+    type: TaskPrincipalDTOTypeEnumApi
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    label?: string | null
+}
+
 export interface SlackThreadReferenceDTOApi {
     url: string
     channel: string
@@ -1515,6 +1535,7 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     last_activity_at?: string | null
     created_by?: TaskUserBasicInfoApi | null
+    principal?: TaskPrincipalDTOApi | null
     /** @nullable */
     ci_prompt: string | null
     /** @nullable */

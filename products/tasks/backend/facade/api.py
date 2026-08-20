@@ -381,6 +381,18 @@ def _user_basic_info(user: "User | None") -> contracts.TaskUserBasicInfo | None:
     )
 
 
+def _task_principal(task: Task) -> contracts.TaskPrincipalDTO | None:
+    if task.system_principal:
+        return contracts.TaskPrincipalDTO(
+            type="system",
+            name=task.system_principal,
+            label=Task.SystemPrincipal(task.system_principal).label,
+        )
+    if task.created_by_id:
+        return contracts.TaskPrincipalDTO(type="user", user=_user_basic_info(task.created_by))
+    return None
+
+
 # Presigned log URLs are cached just under their 1-hour S3 expiry to avoid regeneration.
 _TASK_RUN_LOG_URL_CACHE_TTL = 55 * 60
 
@@ -603,6 +615,7 @@ def _task_detail_to_dto(
         updated_at=task.updated_at,
         last_activity_at=task.last_activity_at or task.updated_at,
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
+        principal=_task_principal(task),
         latest_run_id=latest_run_id,
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),

@@ -67,6 +67,19 @@ class TestTask(TestCase):
         self.assertEqual(task.description, "Test Description")
         self.assertEqual(task.origin_product, origin_product)
 
+    def test_task_rejects_multiple_principals(self):
+        user = User.objects.create(email="owner@example.com")
+
+        with self.assertRaises(IntegrityError):
+            Task.objects.create(
+                team=self.team,
+                title="Invalid ownership",
+                description="",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                created_by=user,
+                system_principal=Task.SystemPrincipal.SIGNALS,
+            )
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_minimal(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")

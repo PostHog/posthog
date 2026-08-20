@@ -178,6 +178,9 @@ class TaskClientProvenance(models.TextChoices):
 
 
 class Task(DeletedMetaFields, models.Model):
+    class SystemPrincipal(models.TextChoices):
+        SIGNALS = "signals", "Signals"
+
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
         PI = "pi", "Pi"
@@ -223,6 +226,14 @@ class Task(DeletedMetaFields, models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+    system_principal = models.CharField(
+        max_length=32,
+        choices=SystemPrincipal,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="Trusted system principal that owns this task. Mutually exclusive with created_by.",
+    )
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
@@ -375,6 +386,10 @@ class Task(DeletedMetaFields, models.Model):
             models.Index(fields=["hog_flow_id", "-created_at"], name="posthog_task_hog_flow_idx"),
         ]
         constraints = [
+            models.CheckConstraint(
+                condition=models.Q(created_by__isnull=True) | models.Q(system_principal__isnull=True),
+                name="posthog_task_single_principal",
+            ),
             models.UniqueConstraint(
                 fields=["team", "origin_key"],
                 condition=models.Q(origin_key__isnull=False),

@@ -150,6 +150,16 @@ class TaskSlackUnfurlDTO:
 
 
 @dataclass(frozen=True)
+class TaskPrincipalDTO:
+    """The persisted owner of a task, distinct from its source product and interaction actors."""
+
+    type: str
+    name: str | None = None
+    label: str | None = None
+    user: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
@@ -186,6 +196,7 @@ class TaskDetailDTO:
     updated_at: datetime | None = None
     last_activity_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
+    principal: TaskPrincipalDTO | None = None
     latest_run_id: UUID | None = None
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
