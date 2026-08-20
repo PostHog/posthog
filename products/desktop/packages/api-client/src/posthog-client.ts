@@ -4370,6 +4370,9 @@ export class PostHogAPIClient {
         String(params.has_implementation_pr),
       );
     }
+    if (params?.channel_id) {
+      url.searchParams.set("channel_id", params.channel_id);
+    }
 
     const response = await this.api.fetcher.fetch({
       method: "get",

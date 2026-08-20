@@ -18,6 +18,12 @@ import {
   PINNED_SECTION_KEY,
   sortChannelItems,
 } from "@posthog/core/canvas/channelItems";
+import { isGeneralChannel } from "@posthog/core/canvas/channelName";
+import {
+  channelReportView,
+  generalReportView,
+  type ReportChannelView,
+} from "@posthog/core/inbox/reportChannelScope";
 import {
   Button,
   cn,
@@ -34,12 +40,13 @@ import {
   TabsList,
   TabsTrigger,
 } from "@posthog/quill";
-import { LOOPS_FLAG } from "@posthog/shared";
+import { CHANNEL_REPORTS_FLAG, LOOPS_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
 import { ChannelItemDragPreview } from "@posthog/ui/features/canvas/components/ChannelItemDragPreview";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
+import { ChannelReportsSection } from "@posthog/ui/features/canvas/components/ChannelReportsSection";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import { cnHeaderButton } from "@posthog/ui/features/canvas/components/channelHeaderButton";
 import {
@@ -82,7 +89,7 @@ const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
 
 /** The list holds two kinds of thing, and shows one of them at a time. */
-type ChannelTab = ChannelItemModel["kind"];
+type ChannelTab = ChannelItemModel["kind"] | "report";
 
 const CHANNEL_TABS: readonly { value: ChannelTab; label: string }[] = [
   { value: "task", label: "Sessions" },
@@ -91,6 +98,7 @@ const CHANNEL_TABS: readonly { value: ChannelTab; label: string }[] = [
 
 function RecentSectionHeader({
   tab,
+  tabs,
   onTabChange,
   searchOpen,
   onToggleSearch,
@@ -105,8 +113,10 @@ function RecentSectionHeader({
   showCreatedBy,
   showRunFilters,
   filtersActive,
+  showItemControls = true,
 }: {
   tab: ChannelTab;
+  tabs: readonly { value: ChannelTab; label: string }[];
   onTabChange: (tab: ChannelTab) => void;
   searchOpen: boolean;
   onToggleSearch: () => void;
@@ -126,6 +136,8 @@ function RecentSectionHeader({
   /** False on the canvases tab: a canvas has no run to ask these about. */
   showRunFilters: boolean;
   filtersActive: boolean;
+  /** False on the Reports tab, which carries its own search and filters. */
+  showItemControls?: boolean;
 }) {
   return (
     <>
@@ -144,7 +156,7 @@ function RecentSectionHeader({
             variant="line"
             className="quill-tabs-fill h-auto gap-0.5 border-b-0"
           >
-            {CHANNEL_TABS.map(({ value, label }) => (
+            {tabs.map(({ value, label }) => (
               <TabsTrigger
                 key={value}
                 value={value}
@@ -155,29 +167,33 @@ function RecentSectionHeader({
             ))}
           </TabsList>
         </Tabs>
-        <Button
-          variant="default"
-          size="icon-xs"
-          aria-label="Search"
-          aria-pressed={searchOpen}
-          onClick={onToggleSearch}
-          className={cnHeaderButton(searchOpen)}
-        >
-          <MagnifyingGlass size={12} />
-        </Button>
-        <ChannelFilterMenu
-          filters={filters}
-          onFilterChange={onFilterChange}
-          onClearFilters={onClearFilters}
-          sort={sort}
-          onSortChange={onSortChange}
-          sources={sources}
-          showCreatedBy={showCreatedBy}
-          showRunFilters={showRunFilters}
-          active={filtersActive}
-        />
+        {showItemControls && (
+          <>
+            <Button
+              variant="default"
+              size="icon-xs"
+              aria-label="Search"
+              aria-pressed={searchOpen}
+              onClick={onToggleSearch}
+              className={cnHeaderButton(searchOpen)}
+            >
+              <MagnifyingGlass size={12} />
+            </Button>
+            <ChannelFilterMenu
+              filters={filters}
+              onFilterChange={onFilterChange}
+              onClearFilters={onClearFilters}
+              sort={sort}
+              onSortChange={onSortChange}
+              sources={sources}
+              showCreatedBy={showCreatedBy}
+              showRunFilters={showRunFilters}
+              active={filtersActive}
+            />
+          </>
+        )}
       </div>
-      {searchOpen && (
+      {showItemControls && searchOpen && (
         <div className="px-1 pb-1">
           <Input
             autoFocus
@@ -286,6 +302,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const reportsEnabled = useFeatureFlag(CHANNEL_REPORTS_FLAG);
 
   const { items, actions, me, isLoading, channelMissing } =
     useChannelItems(channelId);
@@ -318,8 +335,22 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const { channels } = useChannels();
   // By type, not by name: the list relabels the personal channel on the way in,
   // so its name is no longer the backend's.
-  const isPersonalChannel =
-    channels.find((c) => c.id === channelId)?.channelType === "personal";
+  const channel = channels.find((c) => c.id === channelId);
+  const isPersonalChannel = channel?.channelType === "personal";
+  // The general space is the reports catch-all: it lists every report, while any
+  // other space lists only reports assigned to it.
+  const reportView: ReportChannelView =
+    channel &&
+    !isGeneralChannel({ channel_type: channel.channelType, name: channel.name })
+      ? channelReportView(channelId)
+      : generalReportView();
+  const visibleTabs = useMemo(
+    () =>
+      reportsEnabled
+        ? [...CHANNEL_TABS, { value: "report" as ChannelTab, label: "Reports" }]
+        : CHANNEL_TABS,
+    [reportsEnabled],
+  );
   // The tab is the list, so everything below it — the filters, the empty state,
   // the sections — is about one kind of thing at a time.
   const tabItems = useMemo(
@@ -368,6 +399,12 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     if (dashboard) return `canvas:${dashboard[1]}`;
     const task = pathname.match(/\/tasks\/([^/]+)$/);
     return task ? `task:${task[1]}` : null;
+  }, [pathname]);
+  const activeReportId = useMemo(() => {
+    const match = pathname.match(
+      /\/inbox\/(?:reports|pulls|dismissed)\/([^/]+)$/,
+    );
+    return match ? match[1] : null;
   }, [pathname]);
 
   // Pins sort to the top because a pin is a request not to lose the thing:
@@ -699,10 +736,40 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         ref={listAnchorRef}
         className="relative mt-2 flex min-h-0 flex-1 flex-col"
       >
-        {showHeader && (
+        {tab === "report" && (
+          <>
+            <div className="border-border border-b px-2">
+              <RecentSectionHeader
+                tab={tab}
+                tabs={visibleTabs}
+                onTabChange={setTab}
+                showItemControls={false}
+                searchOpen={false}
+                onToggleSearch={() => {}}
+                query=""
+                onQueryChange={() => {}}
+                filters={filters}
+                onFilterChange={() => {}}
+                onClearFilters={() => {}}
+                sort={sort}
+                onSortChange={() => {}}
+                sources={sources}
+                showCreatedBy={false}
+                showRunFilters={false}
+                filtersActive={false}
+              />
+            </div>
+            <ChannelReportsSection
+              view={reportView}
+              activeReportId={activeReportId}
+            />
+          </>
+        )}
+        {tab !== "report" && showHeader && (
           <div className="border-border border-b px-2">
             <RecentSectionHeader
               tab={tab}
+              tabs={visibleTabs}
               onTabChange={setTab}
               searchOpen={searchOpen}
               onToggleSearch={() => {
@@ -730,72 +797,80 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         )}
         {/* Pin and unpin stay reachable from the row's menu and its context
             menu, so the drag adds no keyboard-only path. */}
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
-        <div
-          aria-busy={isLoading}
-          className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
-          onDragOver={pinDrag.listProps.onDragOver}
-          onDrop={pinDrag.listProps.onDrop}
-        >
-          {listState === "loading" && <ChannelItemsSkeleton />}
+        {tab !== "report" && (
+          <>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
+            <div
+              aria-busy={isLoading}
+              className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
+              onDragOver={pinDrag.listProps.onDragOver}
+              onDrop={pinDrag.listProps.onDrop}
+            >
+              {listState === "loading" && <ChannelItemsSkeleton />}
 
-          {listState === "unavailable" && (
-            <Empty className="border-0 py-6">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <PackageIcon size={18} />
-                </EmptyMedia>
-                <EmptyTitle>Space unavailable</EmptyTitle>
-                <EmptyDescription>
-                  It may have been deleted, or belong to another project.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
+              {listState === "unavailable" && (
+                <Empty className="border-0 py-6">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <PackageIcon size={18} />
+                    </EmptyMedia>
+                    <EmptyTitle>Space unavailable</EmptyTitle>
+                    <EmptyDescription>
+                      It may have been deleted, or belong to another project.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )}
 
-          {showHeader &&
-            (listState === "empty" ? (
-              <TabEmptyState tab={tab} />
-            ) : sections.length > 0 ? (
-              <div className="flex flex-col gap-px">
-                {/* Always mounted, empty or not. Inserting the run on
+              {showHeader &&
+                (listState === "empty" ? (
+                  <TabEmptyState tab={tab} />
+                ) : sections.length > 0 ? (
+                  <div className="flex flex-col gap-px">
+                    {/* Always mounted, empty or not. Inserting the run on
                     dragstart restructures the list under the dragged row, and
                     Chromium ends the drag on the spot: dragstart, then dragend,
                     before the pointer moves. Growing one already there is
                     fine. */}
-                {pinnedRun()}
-                {datedSections.map((section) => (
-                  <Fragment key={section.key}>
-                    {section.label && <MenuLabel>{section.label}</MenuLabel>}
-                    {section.items.map((item) => taskRow(item, true))}
-                  </Fragment>
+                    {pinnedRun()}
+                    {datedSections.map((section) => (
+                      <Fragment key={section.key}>
+                        {section.label && (
+                          <MenuLabel>{section.label}</MenuLabel>
+                        )}
+                        {section.items.map((item) => taskRow(item, true))}
+                      </Fragment>
+                    ))}
+                  </div>
+                ) : (
+                  <Empty className="border-0 py-6">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <MagnifyingGlass size={18} />
+                      </EmptyMedia>
+                      <EmptyTitle>No matches</EmptyTitle>
+                      <EmptyDescription>
+                        Try a different search or clear the filters.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
                 ))}
-              </div>
-            ) : (
-              <Empty className="border-0 py-6">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <MagnifyingGlass size={18} />
-                  </EmptyMedia>
-                  <EmptyTitle>No matches</EmptyTitle>
-                  <EmptyDescription>
-                    Try a different search or clear the filters.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ))}
-        </div>
-        <ChannelsFab channelId={channelId} />
-        <MarqueeOverlay rect={marquee} />
+            </div>
+            <ChannelsFab channelId={channelId} />
+            <MarqueeOverlay rect={marquee} />
+          </>
+        )}
       </div>
 
       {/* Below the list rather than floating over it: the bottom rows are where
           a shift-click range usually ends, and the FAB already sits there. */}
-      <SidebarBulkActionBar
-        actions={bulkActions}
-        onClearSelection={clearSelection}
-        onArchive={archiveConfirm.requestArchive}
-      />
+      {tab !== "report" && (
+        <SidebarBulkActionBar
+          actions={bulkActions}
+          onClearSelection={clearSelection}
+          onArchive={archiveConfirm.requestArchive}
+        />
+      )}
       {archiveConfirm.dialog}
 
       {pinDrag.drag ? (

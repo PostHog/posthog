@@ -1,0 +1,96 @@
+import type { SignalReport, SignalReportPriority } from "@posthog/shared/types";
+
+import { isExcludedFromInbox, matchesInboxScope } from "./reportMembership";
+
+/**
+ * How the sidebar Reports list is scoped to a space. The general space is the
+ * catch-all: it lists every report regardless of assignment. Any other space
+ * lists only the reports assigned to it (`report.channel_id === channelId`).
+ */
+export type ReportChannelView =
+  | { kind: "general" }
+  | { kind: "channel"; channelId: string };
+
+export function generalReportView(): ReportChannelView {
+  return { kind: "general" };
+}
+
+export function channelReportView(channelId: string): ReportChannelView {
+  return { kind: "channel", channelId };
+}
+
+function reportMatchesChannelView(
+  report: SignalReport,
+  view: ReportChannelView,
+): boolean {
+  if (view.kind === "general") return true;
+  return report.channel_id === view.channelId;
+}
+
+export interface ChannelReportListOptions {
+  view: ReportChannelView;
+  /** When true, keep only reports the current user is a suggested reviewer for. */
+  relevantToMeOnly?: boolean;
+  /** Case-insensitive substring match against the report title. */
+  search?: string;
+  /** Keep only reports at one of these priorities; empty means no priority filter. */
+  priorities?: SignalReportPriority[];
+}
+
+function reportTimestampMs(report: SignalReport): number {
+  const value = report.updated_at ?? report.created_at;
+  if (!value) return 0;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * The ordered list the sidebar Reports tab renders. Suppressed, resolved, and
+ * deleted reports drop out (they live in the archive); the rest are narrowed by
+ * the space scope and the active filters, then sorted newest-first. Pure so the
+ * ordering the user sees is testable without a render.
+ */
+export function buildChannelReportList(
+  reports: SignalReport[],
+  options: ChannelReportListOptions,
+): SignalReport[] {
+  const search = options.search?.trim().toLowerCase();
+  const priorities =
+    options.priorities && options.priorities.length > 0
+      ? new Set<SignalReportPriority>(options.priorities)
+      : null;
+
+  return reports
+    .filter((report) => {
+      if (isExcludedFromInbox(report)) return false;
+      if (!reportMatchesChannelView(report, options.view)) return false;
+      if (options.relevantToMeOnly && report.is_suggested_reviewer !== true) {
+        return false;
+      }
+      if (
+        priorities &&
+        (!report.priority || !priorities.has(report.priority))
+      ) {
+        return false;
+      }
+      if (search) {
+        const title = report.title?.toLowerCase() ?? "";
+        if (!title.includes(search)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => reportTimestampMs(b) - reportTimestampMs(a));
+}
+
+/** Count for the tab badge: reports in this space the user should notice. */
+export function countChannelReportsForMe(
+  reports: SignalReport[],
+  view: ReportChannelView,
+): number {
+  return reports.filter(
+    (report) =>
+      !isExcludedFromInbox(report) &&
+      reportMatchesChannelView(report, view) &&
+      matchesInboxScope(report, "for-you"),
+  ).length;
+}
