@@ -27,7 +27,7 @@ import {
 import type { FunnelsFilter, FunnelsQuery } from '../../queries/schema/schema-general'
 import type { FunnelStepWithNestedBreakdown } from '../../types'
 import { funnelDataLogic } from './funnelDataLogic'
-import { parseBreakdownValue, parseEventAndProperty } from './funnelUtils'
+import { parseBreakdownValue, parseEventAndProperty, toScalarBreakdownValue } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -213,7 +213,8 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                 kind: NodeKind.FunnelsActorsQuery,
                 source: values.querySource!,
                 funnelStep: converted ? stepNo : -stepNo,
-                funnelStepBreakdown: series.breakdown_value === 'Baseline' ? null : series.breakdown_value,
+                funnelStepBreakdown:
+                    series.breakdown_value === 'Baseline' ? null : toScalarBreakdownValue(series.breakdown_value),
                 // In compare mode each bar belongs to one period; scope its actors to that period.
                 compare: series.compare_label,
                 includeRecordings: true,

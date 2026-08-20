@@ -1,14 +1,62 @@
 import uuid
+from typing import Literal, Union
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from drf_spectacular.utils import OpenApiResponse
+from pydantic import BaseModel, ValidationError
 from rest_framework import serializers, status
 from rest_framework.response import Response
 
-from posthog.api.mixins import validated_request
+from posthog.api.mixins import MAX_REPORTED_VALIDATION_ERRORS, summarize_validation_error, validated_request
+
+
+class _BranchA(BaseModel):
+    kind: Literal["a"]
+    value: int
+
+
+class _BranchB(BaseModel):
+    kind: Literal["b"]
+    value: str
+
+
+class _UnionModel(BaseModel):
+    query: Union[_BranchA, _BranchB]
+
+
+class TestSummarizeValidationError:
+    def _union_error(self) -> ValidationError:
+        # A wrong discriminator makes every union branch fail, mirroring how a bad
+        # QueryRequest reports one error per query kind.
+        with pytest.raises(ValidationError) as exc_info:
+            _UnionModel.model_validate({"query": {"kind": "c"}})
+        return exc_info.value
+
+    def test_strips_pydantic_doc_urls(self) -> None:
+        assert "pydantic.dev" not in summarize_validation_error(self._union_error())
+
+    def test_caps_the_number_of_reported_errors(self) -> None:
+        exc = self._union_error()
+        summary = summarize_validation_error(exc)
+
+        total = len(exc.errors())
+        assert total > MAX_REPORTED_VALIDATION_ERRORS
+        assert f"(and {total - MAX_REPORTED_VALIDATION_ERRORS} more)" in summary
+        assert summary.count(";") == MAX_REPORTED_VALIDATION_ERRORS - 1
+
+    def test_reports_the_failing_field_location(self) -> None:
+        assert "query" in summarize_validation_error(self._union_error())
+
+    def test_omits_the_suffix_when_under_the_cap(self) -> None:
+        with pytest.raises(ValidationError) as exc_info:
+            _BranchA.model_validate({"kind": "a", "value": "not-an-int"})
+
+        summary = summarize_validation_error(exc_info.value)
+        assert "value" in summary
+        assert "more)" not in summary
 
 
 class EventCaptureRequestSerializer(serializers.Serializer):
