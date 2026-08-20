@@ -1640,6 +1640,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
             // Fires on request rather than result, so failed drafts still count as entering the AI path.
             draftScannerFromGoal: ({ goal }) => {
+                // Clear the prior failure toast as the retry starts, so it cannot outlive this attempt:
+                // a success routes between steps without unmounting, and a new failure supersedes its id.
+                if (cache.goalDraftErrorToastId !== undefined) {
+                    lemonToast.dismissShown(cache.goalDraftErrorToastId)
+                    cache.goalDraftErrorToastId = undefined
+                }
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
                     template_key: null,

@@ -221,6 +221,29 @@ describe('replayScannerLogic', () => {
             expect(dismissSpy).toHaveBeenCalledWith(toastId)
         })
 
+        it('dismisses the prior error toast when a retry starts, so a successful retry has no stale toast', async () => {
+            draftSpy.mockReturnValue([503, { detail: 'model down' }])
+            const errorSpy = jest.spyOn(lemonToast, 'error')
+            const dismissSpy = jest.spyOn(lemonToast, 'dismissShown')
+
+            await expectLogic(logic, () => logic.actions.draftScannerFromGoal('find rage clicks'))
+                .toDispatchActions(['draftScannerFromGoalFailure'])
+                .toFinishAllListeners()
+            const firstToastId = errorSpy.mock.results.at(-1)?.value
+
+            // The retry routes between steps without unmounting, so its start must clear the old toast.
+            draftSpy.mockReturnValue([
+                200,
+                { name: 'Rage clicks', description: '', scanner_type: 'monitor', scanner_config: { prompt: 'x' } },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('find rage clicks')
+            ).toFinishAllListeners()
+
+            expect(dismissSpy).toHaveBeenCalledWith(firstToastId)
+        })
+
         // The in-player analysis nudge hands the goal to the wizard via a one-shot sessionStorage
         // hand-off that authorizes the auto-start; the free text never travels in the URL.
         it('consumes the nudge hand-off: prefills the box and starts the draft with the goal never in the URL', async () => {
