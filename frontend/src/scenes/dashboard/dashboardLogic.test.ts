@@ -445,7 +445,9 @@ describe('dashboardLogic', () => {
 
         it('persists the latest movement mode after a save is already in flight', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            let resolveFirstSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void
+            let resolveFirstSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void = () => {
+                throw new Error('First save resolver is unavailable')
+            }
             const firstSave = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
                 resolveFirstSave = resolve
             })
