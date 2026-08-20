@@ -1492,6 +1492,26 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
+    def test_a_materialized_view_destination_with_a_placeholder_entry_carrying_a_table_name(self):
+        # An entry can carry both the picker's placeholder name and a table_name (e.g. a picker that
+        # never overwrote its default label). The filters serializer strips it purely by name, so
+        # counting it as a real selection here would let it through and then land as `[]`.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "hog": "fetch(inputs.url);",
+                "enabled": True,
+                "inputs": {},
+                "filters": {
+                    "source": "data-warehouse-view",
+                    "data_warehouse": [{"name": "Select a table", "table_name": "daily_revenue"}],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     @parameterized.expand(
         [
             ("data-warehouse-table", status.HTTP_201_CREATED),

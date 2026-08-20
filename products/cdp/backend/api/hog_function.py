@@ -163,10 +163,21 @@ def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
 
 
 def _named_warehouse_tables(entries: Any) -> list[Any]:
-    """The warehouse tables a filters blob actually names, ignoring the picker's placeholder row."""
+    """The warehouse tables a filters blob actually names, ignoring the picker's placeholder row.
+
+    Matches the placeholder rule `HogFunctionFiltersSerializer.validate` applies moments later
+    (posthog/cdp/validation.py): it drops any entry named "Select a table" outright, regardless of
+    whether that entry also carries a `table_name`. Checking `table_name` alone here would accept
+    `{"name": "Select a table", "table_name": "x"}` — the serializer would still strip it a moment
+    later, leaving `data_warehouse: []` stored despite this check having passed.
+    """
     if not isinstance(entries, list):
         return []
-    return [entry for entry in entries if isinstance(entry, dict) and entry.get("table_name")]
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("table_name") and entry.get("name") != "Select a table"
+    ]
 
 
 def _without(value: Any, keys: tuple[str, ...]) -> Any:
