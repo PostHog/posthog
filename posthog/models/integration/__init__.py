@@ -53,7 +53,7 @@ from .google_cloud import (
 from .jira import JiraIntegration
 from .linear import LinearIntegration
 from .linkedin_ads import LinkedInAdsIntegration
-from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
+from .meta import FacebookPagesIntegration, InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
 from .model import (
     Integration,
     IntegrationManager,
@@ -64,6 +64,7 @@ from .model import (
     integration_secret_decrypt_counter,
 )
 from .oauth import (
+    FACEBOOK_PAGES_SCOPE,
     INSTAGRAM_OAUTH_SCOPE,
     POSTHOG_CONNECT_ALLOWED_REGIONS,
     POSTHOG_CONNECT_DEFAULT_SCOPES,
@@ -213,6 +214,8 @@ __all__ = [
     "MetaGraphIntegration",
     "MetaAdsIntegration",
     "InstagramIntegration",
+    "FacebookPagesIntegration",
+    "FACEBOOK_PAGES_SCOPE",
     "TwilioIntegration",
     "ANTHROPIC_MANAGED_AGENTS_BETA_HEADER",
     "ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX",

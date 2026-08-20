@@ -2956,6 +2956,7 @@ class IntegrationKind(StrEnum):
     GITLAB = "gitlab"
     META_ADS = "meta-ads"
     INSTAGRAM = "instagram"
+    FACEBOOK_PAGES = "facebook-pages"
     CLICKUP = "clickup"
     REDDIT_ADS = "reddit-ads"
     DATABRICKS = "databricks"

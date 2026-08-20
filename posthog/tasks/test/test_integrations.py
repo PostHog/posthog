@@ -51,6 +51,18 @@ class TestIntegrationsTasks(APIBaseTest):
 
         assert refresh_integration_mock.call_args_list == [((eligible.id,),)]
 
+    @parameterized.expand([("meta-ads",), ("facebook-pages",)])
+    def test_refresh_integrations_excludes_meta_kinds(self, kind: str) -> None:
+        # Meta issues no refresh token, so the generic OAuth refresh this sweep enqueues could only
+        # fail and mark the integration errored. Both Meta kinds re-mint on the sync path instead.
+        self.create_integration(kind, config={"refreshed_at": time.time() - 3600})
+        eligible = self.create_integration("slack", config={"refreshed_at": time.time() - 3600})
+
+        with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
+            refresh_integrations()
+
+        assert refresh_integration_mock.call_args_list == [((eligible.id,),)]
+
     def test_refresh_integration_skips_resend(self) -> None:
         # Defense in depth for a task enqueued before the sweep exclusion shipped: even if a Resend
         # id reaches refresh_integration, it must not spend the rotating token via the unlocked path.
