@@ -249,6 +249,32 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.subjectHealth).toHaveLength(2)
     })
 
+    it('summarises a project that has failing checks', async () => {
+        await mountLogic()
+
+        expect(logic.values.overviewSummary).toEqual('1 of 3 checks failing, across 1 tables and views.')
+    })
+
+    it.each<[string, (string | null)[], string]>([
+        // The regression: a not-failing check was reported as passed, so a page of never-run checks
+        // read as an all-clear the moment they were created.
+        ['never-run checks as not run, never as passed', [null, null], 'None of your checks have run yet.'],
+        ['a fully passing project as all passed', ['passed', 'passed'], 'All 2 checks passed on their last run.'],
+        [
+            'a mix without claiming the unrun ones passed',
+            ['passed', null],
+            '1 of 2 checks passed on their last run, 1 not run yet.',
+        ],
+    ])('summarises %s', async (_case, statuses, expected) => {
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
+            results: statuses.map((status, index) => buildCheck(`check-${index}`, 'orders', status)),
+        })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
+        await mountLogic()
+
+        expect(logic.values.overviewSummary).toEqual(expected)
+    })
+
     it('sends no ids when running everything', async () => {
         // An empty list is what the endpoint reads as "every enabled check", so it must not be
         // replaced by the currently filtered rows.

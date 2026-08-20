@@ -147,6 +147,7 @@ export interface dataQualityOverviewLogicValues {
     overview: OverviewSnapshot | null
     overviewError: string | null
     overviewLoading: boolean
+    overviewSummary: string | null
     pollTimedOut: boolean
     runError: string | null
     runTarget: OverviewRunTarget | null
@@ -278,6 +279,11 @@ export interface dataQualityOverviewLogicMeta {
         ) => DataQualityOverviewCheckApi[]
         failingCheckCount: (checks: DataQualityOverviewCheckApi[]) => number
         failingSubjectCount: (subjectHealth: DataQualitySubjectHealthApi[]) => number
+        overviewSummary: (
+            checks: DataQualityOverviewCheckApi[],
+            failingCheckCount: number,
+            failingSubjectCount: number
+        ) => string | null
         subjectGroups: (
             filteredChecks: DataQualityOverviewCheckApi[],
             healthBySubjectKey: {
@@ -487,6 +493,33 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             (s) => [s.subjectHealth],
             (subjectHealth: DataQualitySubjectHealthApi[]) =>
                 subjectHealth.filter((entry) => ['failing', 'erroring'].includes(entry.health)).length,
+        ],
+        // A not-failing check is not a passed check: a never-run or skipped one also has no failure.
+        // Only claim every check passed when every check actually passed, so a fresh page of unrun
+        // checks does not read as an all-clear.
+        overviewSummary: [
+            (s) => [s.checks, s.failingCheckCount, s.failingSubjectCount],
+            (
+                checks: DataQualityOverviewCheckApi[],
+                failingCheckCount: number,
+                failingSubjectCount: number
+            ): string | null => {
+                if (checks.length === 0) {
+                    return null
+                }
+                if (failingCheckCount > 0) {
+                    return `${failingCheckCount} of ${checks.length} checks failing, across ${failingSubjectCount} tables and views.`
+                }
+                const passed = checks.filter((check) => check.last_status === 'passed').length
+                if (passed === checks.length) {
+                    return `All ${checks.length} checks passed on their last run.`
+                }
+                if (passed === 0) {
+                    return 'None of your checks have run yet.'
+                }
+                const notRun = checks.filter((check) => !check.last_status).length
+                return `${passed} of ${checks.length} checks passed on their last run, ${notRun} not run yet.`
+            },
         ],
         subjectGroups: [
             (s) => [s.filteredChecks, s.healthBySubjectKey],

@@ -67,8 +67,7 @@ export function DataQualityOverview(): JSX.Element {
         runTarget,
         pollTimedOut,
         runError,
-        failingCheckCount,
-        failingSubjectCount,
+        overviewSummary,
         lastActionCheckId,
     } = useValues(dataQualityOverviewLogic)
     const { setFilters, runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
@@ -139,13 +138,7 @@ export function DataQualityOverview(): JSX.Element {
                     </LemonButton>
                 </div>
 
-                {checks.length > 0 && (
-                    <p className="mb-0 text-secondary">
-                        {failingCheckCount === 0
-                            ? `All ${checks.length} checks passed on their last run.`
-                            : `${failingCheckCount} of ${checks.length} checks failing, across ${failingSubjectCount} tables and views.`}
-                    </p>
-                )}
+                {overviewSummary && <p className="mb-0 text-secondary">{overviewSummary}</p>}
 
                 {overviewError && snapshotLoaded && (
                     <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadOverview }}>
