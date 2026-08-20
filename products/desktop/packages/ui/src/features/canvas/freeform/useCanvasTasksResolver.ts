@@ -9,7 +9,7 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 import { taskKeys } from "../../tasks/taskKeys";
 
 // How stale the task LIST may be when a canvas polls ph.tasks. The list only
@@ -35,16 +35,14 @@ export function useCanvasTasksResolver(): (
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
   const { data: me } = useMeQuery();
-  // Read via a ref so the returned callback stays referentially stable — its
-  // identity feeds onDataRequest memoization, and churning it on every auth/me
-  // refresh would rebuild those callbacks for no visible change.
-  const authRef = useRef({ client, meId: me?.id });
-  authRef.current = { client, meId: me?.id };
+  // Plain deps, no latest-value ref: the client identity only moves on an auth
+  // state change and meId is a stable scalar, so the resolver (and the
+  // onDataRequest callbacks it feeds) rebuilds rarely — and never mid-request.
+  const meId = me?.id;
 
   return useCallback(
     async (input: CanvasTasksInput) => {
-      const { client: apiClient, meId } = authRef.current;
-      if (!apiClient || !meId) {
+      if (!client || !meId) {
         throw new Error("ph.tasks requires a signed-in app");
       }
       // Same key shape as useTasks' default view (undefined filters drop out
@@ -53,7 +51,7 @@ export function useCanvasTasksResolver(): (
       const tasks = await queryClient.fetchQuery({
         queryKey: taskKeys.list({ createdBy: meId }),
         queryFn: () =>
-          apiClient.getTasks({ createdBy: meId }) as unknown as Promise<Task[]>,
+          client.getTasks({ createdBy: meId }) as unknown as Promise<Task[]>,
         staleTime: TASKS_STALE_MS,
         meta: AUTH_SCOPED_QUERY_META,
       });
@@ -63,6 +61,6 @@ export function useCanvasTasksResolver(): (
         input,
       );
     },
-    [queryClient],
+    [queryClient, client, meId],
   );
 }
