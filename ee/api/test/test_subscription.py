@@ -36,7 +36,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl

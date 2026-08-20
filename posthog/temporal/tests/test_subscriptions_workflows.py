@@ -79,7 +79,7 @@ from products.exports.backend.temporal.subscriptions.workflows import (
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, SLACK_DISCONNECTED_DISABLE_REASON
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
