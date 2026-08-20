@@ -307,10 +307,7 @@ def _apply_gateway_route(gateway: tuple[str, str] | None, attribution: dict[str,
 # differently. Keys are ReviewTrigger values from the hosted context.
 _INVOCATION_LINES = {
     "label": "Invocation: this repo reviews on request only, and this PR carries the request label.",
-    "all": (
-        "Invocation: this repo reviews every pull request automatically. No one asked for a verdict "
-        "on this PR specifically."
-    ),
+    "all": "Invocation: this repo reviews every pull request automatically.",
     "self_driving": "Invocation: dispatched from a self-driving Inbox implementation run.",
 }
 

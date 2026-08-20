@@ -26,7 +26,7 @@ from products.stamphog.backend.logic.github_client import (
     StamphogGitHubError,
     _build_app_jwt,
 )
-from products.stamphog.backend.logic.review_trigger import derive_review_trigger
+from products.stamphog.backend.logic.review_trigger import derive_review_trigger, trigger_for_run
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
 from products.stamphog.backend.models import StamphogRepoConfig
@@ -180,6 +180,25 @@ class ReviewTriggerTests(SimpleTestCase):
     )
     def test_precedence(self, _name: str, has_inbox: bool, mode: ReviewMode, expected: ReviewTrigger) -> None:
         assert derive_review_trigger(has_inbox_review=has_inbox, review_mode=mode) == expected
+
+    def test_a_stamped_trigger_survives_a_mode_change(self) -> None:
+        # The reviewer reads this as fact. An admin switching the repo to LABEL while the run sat in
+        # the queue must not make it claim a request label the PR never carried.
+        stamped = {"review_trigger": ReviewTrigger.ALL.value}
+        assert trigger_for_run(output=stamped, review_mode=ReviewMode.LABEL) == "all"
+
+    @parameterized.expand(
+        [
+            ("no_output", None, ReviewMode.ALL, "all"),
+            ("empty_output", {}, ReviewMode.LABEL, "label"),
+            ("inbox_only", {"inbox_review": {"trigger": "inbox"}}, ReviewMode.ALL, "self_driving"),
+        ]
+    )
+    def test_an_unstamped_run_derives_live(
+        self, _name: str, output: dict | None, mode: ReviewMode, expected: str
+    ) -> None:
+        # Runs queued before the stamp existed still have to answer, or their reviewer loses the slot.
+        assert trigger_for_run(output=output, review_mode=mode) == expected
 
 
 class DigestCapTests(SimpleTestCase):
