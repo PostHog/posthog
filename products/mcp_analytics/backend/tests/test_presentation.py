@@ -679,6 +679,16 @@ class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         # still include it after the round-trip — otherwise we'd get just ["last_tool"].
         assert [c["tool_name"] for c in response.json()["results"]] == ["first_tool", "last_tool"]
 
+    def test_tool_calls_route_matches_session_id_with_a_dot(self) -> None:
+        # Session ids come from the client-supplied $session_id column, so they can hold a dot.
+        # DRF's default lookup regex drops the dot and the request falls through to the 404
+        # catch-all; lookup_value_regex = "[^/]+" must let it route.
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/mcp_analytics/sessions/host.docker.internal/tool_calls/"
+            )
+        assert response.status_code == status.HTTP_200_OK
+
 
 class TestMCPSessionListQuerySerializer(SimpleTestCase):
     def test_defaults_when_pagination_params_omitted(self) -> None:

@@ -169,6 +169,10 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = "mcp-analytics"
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPSessionPagination
+    # Session ids come straight from the client-supplied $session_id column, so they can hold a dot.
+    # DRF's default lookup regex ([^/.]+) drops the dot, so those sessions match no detail route and
+    # return a 404. Accept any character except a path slash instead.
+    lookup_value_regex = "[^/]+"
 
     def dangerously_get_queryset(self) -> QuerySet:
         # Sessions live in ClickHouse, not a Django model, but GenericViewSet still needs a

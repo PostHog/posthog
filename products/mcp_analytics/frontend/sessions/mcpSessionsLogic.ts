@@ -533,6 +533,10 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         generateIntentFailure: () => {
             lemonToast.error('Could not generate the session intent. Please try again.')
         },
+        // A failed fetch leaves the panel empty; surface a toast so the user knows why.
+        loadToolCallsFailure: () => {
+            lemonToast.error('Could not load the tool calls for this session. Please try again.')
+        },
         // Only fires on a reset load (not on loadMore), so appending more pages doesn't
         // steal the user's selection. Auto-selects the first row when the set changes.
         loadSessionsSuccess: ({ sessions }) => {
