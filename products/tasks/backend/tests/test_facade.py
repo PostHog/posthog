@@ -1,7 +1,7 @@
 import importlib
 import threading
 from datetime import timedelta
-from typing import ClassVar
+from typing import Any, ClassVar
 from uuid import uuid4
 
 from unittest.mock import MagicMock, patch
@@ -129,6 +129,71 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
         self.assertIsNotNone(handoff)
         self.assertEqual(results, [None])
         self.assertFalse(TaskRun.objects.filter(task=self.task).exists())
+
+    def test_handoff_waits_for_in_flight_task_update(self) -> None:
+        update_at_save = threading.Event()
+        allow_update_save = threading.Event()
+        update_saved = threading.Event()
+        handoff_finished = threading.Event()
+        errors: list[BaseException] = []
+        original_save = Task.save
+
+        def delayed_save(task: Task, *args: Any, **kwargs: Any) -> None:
+            if task.id == self.task.id and task.title == "Updated title" and not update_saved.is_set():
+                update_at_save.set()
+                if not allow_update_save.wait(timeout=10):
+                    raise TimeoutError("update save was not released")
+                result = original_save(task, *args, **kwargs)
+                update_saved.set()
+                return result
+            return original_save(task, *args, **kwargs)
+
+        def update() -> None:
+            close_old_connections()
+            try:
+                facade.update_task(
+                    self.task.id,
+                    self.team.id,
+                    self.owner.id,
+                    validated_data={"title": "Updated title"},
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                close_old_connections()
+
+        def handoff() -> None:
+            close_old_connections()
+            try:
+                facade.handoff_task(
+                    self.task.id,
+                    self.team.id,
+                    self.owner.id,
+                    target_user_id=self.recipient.id,
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                handoff_finished.set()
+                close_old_connections()
+
+        with patch.object(Task, "save", new=delayed_save):
+            update_thread = threading.Thread(target=update)
+            update_thread.start()
+            self.assertTrue(update_at_save.wait(timeout=10))
+            handoff_thread = threading.Thread(target=handoff)
+            handoff_thread.start()
+            self.assertFalse(handoff_finished.wait(timeout=1))
+            allow_update_save.set()
+            update_thread.join(timeout=10)
+            handoff_thread.join(timeout=10)
+
+        self.assertFalse(update_thread.is_alive())
+        self.assertFalse(handoff_thread.is_alive())
+        self.assertEqual(errors, [])
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.title, "Updated title")
+        self.assertEqual(self.task.created_by_id, self.recipient.id)
 
 
 class TestFacadeReadsAndMappers(TestCase):
