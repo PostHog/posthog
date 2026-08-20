@@ -49,11 +49,7 @@ const TEMPLATE_NOT_FOUND_RE = /Template '([^']+)' not found/
 // The runtime matcher throws a bare "Template '<id>' not found" carrying an internal template UUID
 // when a step points at a template that no longer exists. Rewrite it to name the step so the user
 // knows which one to fix instead of reading a raw ID.
-export const humanizeWorkflowTestError = (
-    error: string,
-    workflow: HogFlow,
-    testedActionId?: string | null
-): string => {
+export const humanizeWorkflowTestError = (error: string, workflow: HogFlow, testedActionId?: string | null): string => {
     const match = error.match(TEMPLATE_NOT_FOUND_RE)
     if (!match) {
         return error

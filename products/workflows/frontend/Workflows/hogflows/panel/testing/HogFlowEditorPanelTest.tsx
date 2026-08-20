@@ -339,7 +339,9 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                       ? 'Workflow was skipped because the event did not match the filter criteria'
                                       : 'Error: ' +
                                         (testResult.errors
-                                            ?.map((error) => humanizeWorkflowTestError(error, workflow, selectedNode.id))
+                                            ?.map((error) =>
+                                                humanizeWorkflowTestError(error, workflow, selectedNode.id)
+                                            )
                                             .join(', ') ?? '')}
                             </LemonBanner>
 
