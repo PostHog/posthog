@@ -5364,14 +5364,14 @@ def handoff_task(
 
     Visibility follows the recipient when the task lives in a private space: a
     task in the actor's ``#me`` (or a legacy channel-less task) moves into the
-    recipient's ``#me`` so they can actually open what's now theirs. Public
-    channels stay put — both sides keep the shared view.
+    recipient's ``#me`` so they can open what's now theirs. Public channels stay
+    put; both sides keep the shared view.
 
     Only the owner can hand a task off: ``task_control_q`` also grants control
     over team-owned origin products, and giving a task away is stricter than
-    driving it. The recipient must be an org member WITH access to this project
+    driving it. The recipient must be an org member with access to this project
     (``all_users_with_access`` honors private-project access control), otherwise
-    they'd end up owning a task they can't even open.
+    they'd end up owning a task they can't open.
 
     Returns the updated task detail, or ``None`` when the actor can't control the
     task or no longer owns it. Raises ``TaskHandoffError`` for invalid targets
@@ -5389,7 +5389,7 @@ def handoff_task(
         raise TaskHandoffError("That person already owns this task.")
     target = task.team.all_users_with_access().filter(id=target_user_id).first()
     if target is None:
-        raise TaskHandoffError("Tasks can only be handed off to a member of this project.")
+        raise TaskHandoffError("Tasks can only be handed off to someone with access to this project.")
 
     previous_owner_id = task.created_by_id
     actor = User.objects.filter(id=user_id).only("first_name", "email", "distinct_id").first() if user_id else None
@@ -5416,7 +5416,7 @@ def handoff_task(
         locked.created_by = target
         # The stored GitHub-user preference names the old owner's installation; the
         # recipient picks their own on their next run. Carrying it across would
-        # silently defer to user-scoped resolution anyway, so clear it explicitly.
+        # defer to user-scoped resolution anyway (it keys on created_by), so clear it.
         if locked.github_user_integration_id is not None:
             locked.github_user_integration = None
         # A stamped built-in agent task may borrow its credential owner's MCP Store

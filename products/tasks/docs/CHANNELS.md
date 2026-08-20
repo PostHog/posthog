@@ -104,9 +104,9 @@ membership without adding permissions to Task.
 - A task controller can move a task by updating `channel` to a public or owned private space. Existing callers can still clear `channel` for legacy compatibility.
 - `TaskSerializer` / `TaskDetailDTO` emit `channel`.
 - `GET /tasks/?channel=<uuid>` filters the list to a channel's feed.
-- `POST /tasks/{task_id}/handoff/ {user}` — hand a task off to a colleague. The
-  requester must control the task (for a channeled task, own it); the target must
-  be a member of the project and not the current owner. Ownership (`created_by`)
+- `POST /tasks/{task_id}/handoff/ {user}`: hand a task off to a colleague. The
+  requester must own the task; the target must have access to the project and not
+  be the current owner. Ownership (`created_by`)
   moves to the recipient, so they drive the task afterwards and future runs
   resolve GitHub authorship and notification recipients from them. A task in a
   private `#me` space (or with no channel) moves into the recipient's `#me`, so a

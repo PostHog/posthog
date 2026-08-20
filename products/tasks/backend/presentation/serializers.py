@@ -2273,8 +2273,7 @@ class TaskHandoffRequestSerializer(serializers.Serializer):
     user = serializers.IntegerField(
         min_value=1,
         help_text=(
-            "ID of the user taking over the task. Must be a member of this project's organization "
-            "and not the task's current owner."
+            "ID of the user taking over the task. Must have access to this project and not be the task's current owner."
         ),
     )
 
