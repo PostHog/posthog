@@ -96,7 +96,7 @@ class PipelineScopedModel(TeamScopedRootMixin, UUIDModel):
     def save(self, *args: Any, **kwargs: Any) -> None:
         # RelatedObjectDoesNotExist subclasses AttributeError, so an unset pipeline reads as None.
         pipeline = getattr(self, "pipeline", None)
-        if self.team_id is None and pipeline is not None:
+        if getattr(self, "team_id", None) is None and pipeline is not None:
             self.team_id = pipeline.team_id
         super().save(*args, **kwargs)
 
