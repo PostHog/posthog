@@ -1950,6 +1950,42 @@ def _capture_xmin_ceiling(
     )
 
 
+def build_incremental_condition(
+    incremental_field: str,
+    incremental_field_type: IncrementalFieldType,
+    db_incremental_field_last_value: Any,
+    *,
+    upper_bound_inclusive: Optional[Any] = None,
+) -> sql.Composed:
+    """The `field <op> watermark` predicate every incremental read of a table shares.
+
+    One builder so the streaming read, the row count and the has-new-rows probe cannot drift
+    apart on the operator or on how a missing watermark is normalized. A probe whose predicate
+    is narrower than the read's would report "nothing new" for rows the read would return.
+
+    `>=` for Date comes from `incremental_type_to_operator`; a windowed read passes
+    `upper_bound_inclusive` and keeps `>`, because consecutive windows reuse the previous
+    window's high value as the next one's low and `>=` would re-fetch the boundary rows.
+    """
+    if incremental_field_type == IncrementalFieldType.XID:
+        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
+
+    # A stored watermark of "" (a stale or corrupted sync_type_config value) must not become a
+    # literal `''`: Postgres rejects casting it against a numeric/date column with "invalid input
+    # syntax", so treat it the same as no watermark at all.
+    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
+        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+
+    operator = (
+        sql.SQL(incremental_type_to_operator(incremental_field_type)) if upper_bound_inclusive is None else sql.SQL(">")
+    )
+    return sql.SQL("{incremental_field} {op} {last_value}").format(
+        incremental_field=sql.Identifier(incremental_field),
+        op=operator,
+        last_value=sql.Literal(db_incremental_field_last_value),
+    )
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -2004,56 +2040,34 @@ def _build_query(
     # `xmin` is a synthetic system column with no ordering operators against a plain integer
     # (see `_xmin_predicate`) — it only works through the dedicated xmin replication sync type,
     # which never reaches this generic path (it always sets `xmin_bounds` and returns above).
-    # Picking `xmin` as a plain incremental/append field builds `"xmin" >= 0`, which Postgres
-    # rejects with `UndefinedFunction`.
-    if incremental_field_type == IncrementalFieldType.XID:
-        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
-
-    # A stored watermark of "" (e.g. a stale/corrupted sync_type_config value) must not become a
-    # literal `''` in the WHERE clause — Postgres rejects casting it against a numeric/date/etc.
-    # column with "invalid input syntax", so treat it the same as no watermark at all.
-    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
-        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
-
-    # Use the type-aware operator (`>=` for Date) only for single-shot scans. Windowed
-    # scans (upper_bound_inclusive set) must keep `>` because consecutive windows use the
-    # previous window's hi as the next window's lo — `>=` would re-fetch every row at the
-    # boundary value, duplicating each window's hi inside a single run.
-    operator = (
-        sql.SQL(incremental_type_to_operator(incremental_field_type)) if upper_bound_inclusive is None else sql.SQL(">")
+    incremental_condition = build_incremental_condition(
+        incremental_field,
+        incremental_field_type,
+        db_incremental_field_last_value,
+        upper_bound_inclusive=upper_bound_inclusive,
     )
 
     if add_sampling:
         if table_type == "view":
-            query = sql.SQL(
-                "SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value} AND random() < 0.01"
-            ).format(
+            query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {predicate} AND random() < 0.01").format(
                 cols=select_clause,
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
-                incremental_field=sql.Identifier(incremental_field),
-                op=operator,
-                last_value=sql.Literal(db_incremental_field_last_value),
+                predicate=incremental_condition,
             )
         else:
-            query = sql.SQL(
-                "SELECT {cols} FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} {op} {last_value}"
-            ).format(
+            query = sql.SQL("SELECT {cols} FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {predicate}").format(
                 cols=select_clause,
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
-                incremental_field=sql.Identifier(incremental_field),
-                op=operator,
-                last_value=sql.Literal(db_incremental_field_last_value),
+                predicate=incremental_condition,
             )
     else:
-        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {predicate}").format(
             cols=select_clause,
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
-            incremental_field=sql.Identifier(incremental_field),
-            op=operator,
-            last_value=sql.Literal(db_incremental_field_last_value),
+            predicate=incremental_condition,
         )
 
     if add_sampling:
@@ -2139,19 +2153,12 @@ def _build_count_query(
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
 
-    if incremental_field_type == IncrementalFieldType.XID:
-        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
-
-    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
-        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
-
-    operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
-    return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+    return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {predicate}").format(
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
-        incremental_field=sql.Identifier(incremental_field),
-        op=operator,
-        last_value=sql.Literal(db_incremental_field_last_value),
+        predicate=build_incremental_condition(
+            incremental_field, incremental_field_type, db_incremental_field_last_value
+        ),
     )
 
 
@@ -2163,28 +2170,17 @@ def build_has_new_rows_query(
     db_incremental_field_last_value: Any,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> sql.Composed:
-    """Existence check carrying `_build_query`'s predicate verbatim.
+    """Existence check over the same rows `_build_query` would stream.
 
-    Same operator (`>=` for Date), same empty-watermark normalization, same row filters joined
-    the same way. A predicate narrower than the sync's would report "nothing new" for rows the
-    sync would have read, so these must not drift apart. `upper_bound_inclusive` is deliberately
-    absent: it windows a single run's reads rather than defining what counts as new.
+    Shares its predicate and row filters, and drops only what a "does anything match" question
+    does not need: the projection, the ordering, and every row past the first. No
+    `upper_bound_inclusive` either, since that windows one run's reads rather than defining what
+    counts as new.
     """
-    if incremental_field_type == IncrementalFieldType.XID:
-        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
-
-    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
-        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
-
     conditions = [
-        sql.SQL("{incremental_field} {op} {last_value}").format(
-            incremental_field=sql.Identifier(incremental_field),
-            op=sql.SQL(incremental_type_to_operator(incremental_field_type)),
-            last_value=sql.Literal(db_incremental_field_last_value),
-        ),
+        build_incremental_condition(incremental_field, incremental_field_type, db_incremental_field_last_value),
         *render_psycopg_row_filter_conditions(row_filters or []),
     ]
-
     return sql.SQL("SELECT 1 FROM {schema}.{table} WHERE {predicate} LIMIT 1").format(
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
