@@ -766,11 +766,17 @@ def forward_posthog_code_followup_activity(
     slack_user_id: str,
     event_text: str,
     user_message_ts: str | None,
+    model_override: SlackAppModelOverride | None = None,
 ) -> bool:
     """Forward a follow-up message to the running agent if a mapping exists.
 
     Returns True if the message was handled (forwarded or rejected), False if
     no mapping exists and the caller should continue with the normal new-task flow.
+
+    ``model_override`` is classified by the workflow, above the point where the
+    follow-up and new-task paths diverge, so a retry of this activity reuses the model
+    the first attempt announced. It defaults to ``None`` for histories recorded before
+    the workflow classified this early, which simply leave the run on its own model.
     """
     from posthog.models.integration import Integration, SlackIntegration
 
@@ -861,6 +867,7 @@ def forward_posthog_code_followup_activity(
             user_message_ts,
             actor_user=actor_user,
             user_text_prefix=followup_user_text_prefix,
+            model_override=model_override,
         )
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
@@ -945,7 +952,7 @@ def forward_posthog_code_followup_activity(
         thread_ts,
         task_run=task_run,
         task_id=mapping.task_id,
-        override=_classify_followup_model_override(integration, event_text),
+        override=model_override,
         actor_user=actor_user,
     )
 
@@ -1014,21 +1021,6 @@ def forward_posthog_code_followup_activity(
 
     logger.info("posthog_code_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
     return True
-
-
-def _classify_followup_model_override(integration: Any, event_text: str) -> SlackAppModelOverride | None:
-    """What model or effort the follow-up asked for, or ``None``.
-
-    Best-effort throughout: a routing call that fails must not cost the user their
-    follow-up, so the message goes on to the agent exactly as it would have.
-    """
-    from posthog.temporal.ai.slack_app.activities.classifiers import classify_model_override_for_integration
-
-    try:
-        return classify_model_override_for_integration(integration, event_text)
-    except Exception:
-        logger.exception("slack_app_followup_model_override_classify_failed", integration_id=integration.id)
-        return None
 
 
 def _apply_followup_model_override(
@@ -1228,6 +1220,7 @@ def _resume_task_with_new_run(
     user_message_ts: str | None,
     actor_user: Any | None = None,
     user_text_prefix: str | None = None,
+    model_override: SlackAppModelOverride | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
     from products.slack_app.backend.services.slack_messages import decode_slack_event_text  # noqa: PLC0415
@@ -1282,7 +1275,6 @@ def _resume_task_with_new_run(
     # again, including the runtime a live run could never be moved onto. Resolved rather
     # than carried over, like the keys above: a preference changed since the previous run
     # is picked up too.
-    model_override = _classify_followup_model_override(integration, event_text)
     extra_state.update(_run_preference_state(integration, slack_user_id, model_override))
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))

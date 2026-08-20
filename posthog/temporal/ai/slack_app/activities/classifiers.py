@@ -531,10 +531,14 @@ def classify_model_override_for_integration(
 ) -> SlackAppModelOverride | None:
     """The model a Slack message asked for, gated on the flag and the live catalogue.
 
-    Shared by the mention path (through its own activity) and the follow-up path, which
-    calls it inline once it knows the message is reaching a run — classifying earlier
-    would spend a call on every mention that turns out to start a new task instead.
+    Serves both the mention and the follow-up path, which reach it through the same
+    activity — the workflow classifies once, above the point where the two diverge.
     """
+    if not event_text.strip():
+        # Nothing to read. Distinct from the keyword pre-filter the activity rejects:
+        # that one decides which phrasings may steer a run, this one is an empty page.
+        return None
+
     if not is_slack_app_model_classifier_enabled(integration):
         return None
 
@@ -561,13 +565,14 @@ def classify_model_override_for_integration(
 @activity.defn
 @close_db_connections
 def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
-    """Resolve the model the mention asked for, or ``None`` to use saved preferences.
+    """Resolve the model a message asked for, or ``None`` to use saved preferences.
 
-    Runs as its own activity rather than inside task creation so the choice is
-    recorded in workflow history once: task creation retries, and re-running a
-    classifier there could hand the second attempt a different model.
+    Runs as its own activity rather than inside the activity that consumes it so the
+    choice is recorded in workflow history once: both task creation and follow-up
+    forwarding retry, and re-running a classifier there could hand the second attempt a
+    different model than the first one announced.
 
-    Every mention behind the flag reaches the classifier. A keyword pre-filter would
+    Every message behind the flag reaches the classifier. A keyword pre-filter would
     save the Haiku call on the majority that name no model, but it also decides — on
     a substring match — which phrasings can ever steer a run, and that judgement
     belongs to the model reading the sentence, not to a word list.
