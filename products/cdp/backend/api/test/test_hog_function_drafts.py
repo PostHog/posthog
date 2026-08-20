@@ -417,6 +417,9 @@ class TestHogFunctionDrafts(DraftTestCase):
     )
     def test_create_as_enabled(self, _name: str, from_agent: bool, function_type: str, expected: int):
         payload = {**BASE_FUNCTION, "type": function_type}
+        if function_type == "internal_destination":
+            # Internal destinations have to name the event they subscribe to.
+            payload["filters"] = {"events": [{"id": "$activity_log_entry_created", "type": "events"}]}
         headers = {"x-posthog-client": "mcp"} if from_agent else {}
 
         response = self.client.post(self._url(), data=payload, headers=headers)

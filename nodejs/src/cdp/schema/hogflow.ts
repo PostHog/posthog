@@ -94,10 +94,10 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         key_property: z.string().optional(),
     }),
     z.object({
-        type: z.literal('slack-message'),
+        type: z.literal('internal-event'),
         filters: z.object({
-            // Message-property filters only. Channel is one of these rather than a field of its own,
-            // so it composes with poster and text conditions instead of being matched separately.
+            source: z.literal('internal-events'),
+            events: z.array(z.any()).min(1),
             properties: z.array(z.any()).optional(),
         }),
     }),

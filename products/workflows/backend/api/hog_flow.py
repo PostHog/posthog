@@ -1111,10 +1111,10 @@ class HogFlowActionSerializer(serializers.Serializer):
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. "
-            "slack-message runs once per message posted in a connected Slack channel, and takes only "
-            "filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, "
-            "subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. "
+            "internal-event requires filters.events with one or more explicit event ids and runs once "
+            "for a matching event on the internal-events stream. Runs are person-less, so person-dependent "
+            "steps are rejected. "
             "webhook and "
             "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
             "requires template_id: 'template-source-webhook-pixel'. "
@@ -1416,31 +1416,26 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
-            elif data.get("config", {}).get("type") == "slack-message":
-                # Everything the trigger selects on — channel, poster, text, thread — is a property
-                # of the Slack message, so there is no config beyond the filters. The event name is
-                # fixed, which is what makes an events/actions entry here meaningless.
+            elif data.get("config", {}).get("type") == "internal-event":
                 filters = data.get("config", {}).get("filters", {}) or {}
                 if not isinstance(filters, dict):
                     raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
-                filters.pop("events", None)
-                filters.pop("actions", None)
-                _normalize_slack_channel_filters(filters)
-                if not is_draft and not _has_slack_channel_filter(filters):
-                    raise serializers.ValidationError(
-                        {
-                            "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
-                        }
-                    )
-                # Left on the default "events" source: the internal event is event-shaped, so
-                # property filters compile against event.properties.* with no special casing.
+                filters["source"] = "internal-events"
+                is_slack_message = any(
+                    isinstance(event, dict) and event.get("id") == "$slack_message_received"
+                    for event in filters.get("events", [])
+                )
+                if is_slack_message:
+                    _normalize_slack_channel_filters(filters)
+                    if not is_draft and not _has_slack_channel_filter(filters):
+                        raise serializers.ValidationError(
+                            {
+                                "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
+                            }
+                        )
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                if is_draft:
-                    if serializer.is_valid():
-                        data["config"]["filters"] = serializer.validated_data
-                else:
-                    serializer.is_valid(raise_exception=True)
-                    data["config"]["filters"] = serializer.validated_data
+                serializer.is_valid(raise_exception=True)
+                data["config"]["filters"] = serializer.validated_data
             else:
                 if strict:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})

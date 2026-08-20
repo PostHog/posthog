@@ -52,7 +52,7 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
         "webhook",
         "data-warehouse-table",
         "data-warehouse-view",
-        "slack-message",
+        "internal-event",
     }
 )
 
@@ -73,13 +73,12 @@ PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
     "random_cohort_branch",
 }
 
-# Trigger types that start a run with no person attached: a synced warehouse row and a Slack message
-# are both authored by something PostHog has no person record for. Keep in sync with the frontend's
+# Trigger types that start a run with no person attached. Keep in sync with the frontend's
 # ROW_SCOPED_TRIGGER_TYPES.
 ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-table",
     "data-warehouse-view",
-    "slack-message",
+    "internal-event",
 }
 
 

@@ -24,17 +24,23 @@ import {
     encodeSlackFilters,
 } from './slackTriggerFilters'
 
-export type SlackMessageTriggerConfig = {
-    type: 'slack-message'
+export type InternalEventTriggerConfig = {
+    type: 'internal-event'
     filters: {
+        source: 'internal-events'
+        events: { id: string; type: 'events' }[]
         properties?: any[]
     }
 }
 
 export function isSlackMessageTriggerConfig(
     config: Extract<HogFlowAction, { type: 'trigger' }>['config']
-): config is SlackMessageTriggerConfig {
-    return config.type === 'slack-message'
+): config is InternalEventTriggerConfig {
+    return (
+        config.type === 'internal-event' &&
+        config.filters.source === 'internal-events' &&
+        config.filters.events.some((event) => event.id === '$slack_message_received')
+    )
 }
 
 // Slack messages never reach ClickHouse, so the advanced list has no stored values to
@@ -67,7 +73,7 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
 
-    const config = node.data.config as SlackMessageTriggerConfig
+    const config = node.data.config as InternalEventTriggerConfig
     const filters = decodeSlackFilters(config.filters?.properties)
     const validationResult = actionValidationErrorsById[node.data.id]
     const integrations = slackIntegrations ?? []
@@ -75,8 +81,12 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
 
     const update = (changes: Partial<typeof filters>): void => {
         setWorkflowActionConfig(node.data.id, {
-            type: 'slack-message',
-            filters: { properties: encodeSlackFilters({ ...filters, ...changes }) },
+            type: 'internal-event',
+            filters: {
+                source: 'internal-events',
+                events: [{ id: '$slack_message_received', type: 'events' }],
+                properties: encodeSlackFilters({ ...filters, ...changes }),
+            },
         })
     }
 
@@ -185,7 +195,7 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
 }
 
 registerTriggerType({
-    value: 'slack-message',
+    value: 'internal-event',
     label: 'Slack message posted',
     icon: <IconSlack />,
     description: 'Trigger when someone posts in a Slack channel',
@@ -193,8 +203,10 @@ registerTriggerType({
     featureFlag: 'slack-workflow-triggers',
     matchConfig: (config) => isSlackMessageTriggerConfig(config),
     buildConfig: () => ({
-        type: 'slack-message',
+        type: 'internal-event',
         filters: {
+            source: 'internal-events',
+            events: [{ id: '$slack_message_received', type: 'events' }],
             properties: encodeSlackFilters({
                 channel: null,
                 posterMode: 'people',
@@ -205,7 +217,7 @@ registerTriggerType({
         },
     }),
     validate: (config): { valid: boolean; errors: Record<string, string> } | null => {
-        if (config.type !== 'slack-message') {
+        if (!isSlackMessageTriggerConfig(config)) {
             return null
         }
         const filters = decodeSlackFilters(config.filters?.properties)

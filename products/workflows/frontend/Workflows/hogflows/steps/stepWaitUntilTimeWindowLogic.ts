@@ -143,9 +143,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -417,9 +419,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   filters: {

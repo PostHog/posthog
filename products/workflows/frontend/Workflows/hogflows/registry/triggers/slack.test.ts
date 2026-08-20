@@ -7,7 +7,7 @@ import { getRegisteredTriggerTypes } from './triggerTypeRegistry'
 
 describe('slack message trigger', () => {
     const getTriggerType = (): ReturnType<typeof getRegisteredTriggerTypes>[number] => {
-        const triggerType = getRegisteredTriggerTypes().find((t) => t.value === 'slack-message')
+        const triggerType = getRegisteredTriggerTypes().find((t) => t.value === 'internal-event')
         if (!triggerType) {
             throw new Error('Slack message trigger type not registered')
         }
@@ -99,11 +99,18 @@ describe('slack message trigger', () => {
             { name: 'channel filter present', properties: [{ key: 'channel', value: ['C0ALERTS'] }], valid: true },
             { name: 'other filters alone', properties: [{ key: 'text', value: ['fire'] }], valid: false },
         ])('validate returns valid=$valid for $name', ({ properties, valid }) => {
-            const result = getTriggerType().validate!({ type: 'slack-message', filters: { properties } } as any)
+            const result = getTriggerType().validate!({
+                type: 'internal-event',
+                filters: {
+                    source: 'internal-events',
+                    events: [{ id: '$slack_message_received', type: 'events' }],
+                    properties,
+                },
+            } as any)
             expect(result?.valid).toBe(valid)
         })
 
-        it('validate returns null for a non slack-message config', () => {
+        it('validate returns null for a non-Slack internal-event config', () => {
             expect(getTriggerType().validate!({ type: 'event', filters: {} } as any)).toBeNull()
         })
 
@@ -114,7 +121,7 @@ describe('slack message trigger', () => {
         it('buildConfig produces a config recognized by matchConfig', () => {
             const triggerType = getTriggerType()
             const config = triggerType.buildConfig()
-            expect(config.type).toBe('slack-message')
+            expect(config.type).toBe('internal-event')
             expect(triggerType.matchConfig!(config)).toBe(true)
         })
 

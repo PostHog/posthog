@@ -190,12 +190,15 @@ export function sanitizeInputs(
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const filters = data.filters ?? {}
-    filters.source = filters.source ?? 'events'
+    filters.source = data.type === 'internal_destination' ? 'internal-events' : (filters.source ?? 'events')
 
     if (filters.source === 'person-updates' || Array.isArray(data?.mappings)) {
         // Ensure we aren't passing in values that aren't supported
         delete filters.actions
         delete filters.events
+    } else if (filters.source === 'internal-events') {
+        delete filters.actions
+        delete filters.data_warehouse
     }
 
     const payload: HogFunctionConfigurationType = {

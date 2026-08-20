@@ -167,9 +167,11 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                     "slack_workspace": {"value": 1},
                     "channel": {"value": "#general"},
                 },
+                "filters": {"events": [{"id": "$activity_log_entry_created", "type": "events"}]},
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.json()["filters"]["source"], "internal-events")
         function_id = response.json()["id"]
 
         # Update it

@@ -20,11 +20,37 @@ import { counterParseError } from './metrics'
 
 const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
 
-// The event that starts each trigger type. Type alone would match every other signal on this topic.
-const INTERNAL_EVENT_TRIGGER_EVENTS = new Map([['slack-message', SLACK_MESSAGE_RECEIVED_EVENT]])
+function getInternalEventFilterEventIds(filters: unknown): string[] | null {
+    if (!filters || typeof filters !== 'object') {
+        return null
+    }
+
+    const { source, events, actions, data_warehouse } = filters as {
+        source?: unknown
+        events?: unknown
+        actions?: unknown
+        data_warehouse?: unknown
+    }
+    const hasUnsupportedFilters =
+        (actions !== undefined && (!Array.isArray(actions) || actions.length > 0)) ||
+        (data_warehouse !== undefined && (!Array.isArray(data_warehouse) || data_warehouse.length > 0))
+    if (source !== 'internal-events' || !Array.isArray(events) || !events.length || hasUnsupportedFilters) {
+        return null
+    }
+
+    const eventIds = events.map((event) => (event && typeof event === 'object' ? (event as { id?: unknown }).id : null))
+    return eventIds.every((eventId): eventId is string => typeof eventId === 'string' && eventId.trim().length > 0)
+        ? eventIds
+        : null
+}
+
+function hasMatchingInternalEventFilter(filters: unknown, eventName: string): boolean {
+    return getInternalEventFilterEventIds(filters)?.includes(eventName) ?? false
+}
 
 export class CdpInternalEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpInternalEventsConsumer'
+    // This type boundary is temporary; canonical stream selection is filters.source.
     protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
 
     protected hogQueue: JobQueue
@@ -84,8 +110,16 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
         const [hogInvocations, hogflowInvocations] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
-                filterFn: () => true,
+                filterFn: (fn) => {
+                    if (fn.filters?.source === 'internal-events') {
+                        return getInternalEventFilterEventIds(fn.filters) !== null
+                    }
+                    return (fn.filters?.source ?? 'events') === 'events'
+                },
                 invocationFilterFn: (fn, globals) => {
+                    if (fn.filters?.source === 'internal-events') {
+                        return hasMatchingInternalEventFilter(fn.filters, globals.event.event)
+                    }
                     if (!isManagedAlertInternalEvent(globals.event.event)) {
                         return true
                     }
@@ -105,7 +139,8 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             }),
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
                 eligibilityFn: (flow, globals) =>
-                    INTERNAL_EVENT_TRIGGER_EVENTS.get(flow.trigger.type) === globals.event.event &&
+                    flow.trigger.type === 'internal-event' &&
+                    hasMatchingInternalEventFilter(flow.trigger.filters, globals.event.event) &&
                     !ownSlackMessages.has(globals),
             }),
         ])

@@ -377,9 +377,11 @@ export interface hogFlowEditorTestLogicMeta {
                             }
                           | {
                                 filters: {
+                                    events: any[]
                                     properties?: any[] | undefined
+                                    source: 'internal-events'
                                 }
-                                type: 'slack-message'
+                                type: 'internal-event'
                             }
                           | {
                                 filters: {
@@ -507,9 +509,11 @@ export interface hogFlowEditorTestLogicMeta {
                             }
                           | {
                                 filters: {
+                                    events: any[]
                                     properties?: any[] | undefined
+                                    source: 'internal-events'
                                 }
-                                type: 'slack-message'
+                                type: 'internal-event'
                             }
                           | {
                                 filters: {

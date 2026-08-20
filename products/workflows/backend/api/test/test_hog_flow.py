@@ -2399,7 +2399,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
 
-    def test_hog_flow_slack_trigger_stores_the_bare_channel_id(self):
+    def test_hog_flow_internal_event_trigger_stores_the_bare_slack_channel_id(self):
         # The channel picker identifies a channel as `C123|#name`, but the event carries `C123`, so
         # storing the composite compiles a filter that never matches and the workflow never runs.
         trigger_action = {
@@ -2407,8 +2407,9 @@ class TestHogFlowAPI(APIBaseTest):
             "name": "trigger_1",
             "type": "trigger",
             "config": {
-                "type": "slack-message",
+                "type": "internal-event",
                 "filters": {
+                    "events": [{"id": "$slack_message_received", "type": "events"}],
                     "properties": [
                         {
                             "key": "channel",
@@ -2416,7 +2417,7 @@ class TestHogFlowAPI(APIBaseTest):
                             "operator": "exact",
                             "type": "event",
                         }
-                    ]
+                    ],
                 },
             },
         }
@@ -2425,6 +2426,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
+        assert response.json()["trigger"]["filters"]["source"] == "internal-events"
         stored = response.json()["trigger"]["filters"]["properties"][0]["value"]
         assert stored == ["C0ALERTS"]
 
@@ -2434,7 +2436,14 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
-            "config": {"type": "slack-message", "filters": {"properties": properties}},
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "source": "internal-events",
+                    "events": [{"id": "$slack_message_received", "type": "events"}],
+                    "properties": properties,
+                },
+            },
         }
 
     @parameterized.expand(
@@ -2491,6 +2500,20 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
+
+    def test_hog_flow_internal_event_trigger_requires_an_explicit_event_even_when_draft(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "internal-event", "filters": {}},
+        }
+        hog_flow = {"name": "Incomplete internal event flow", "status": "draft", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "events" in str(response.json())
 
     def test_hog_flow_data_warehouse_table_trigger_forces_exit_only_at_end(self):
         # Other exit conditions re-evaluate trigger/conversion filters that may reference person
