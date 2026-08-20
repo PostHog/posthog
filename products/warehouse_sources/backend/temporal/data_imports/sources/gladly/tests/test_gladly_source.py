@@ -58,6 +58,16 @@ class TestGladlySource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
+    def test_missing_report_columns_copy_points_at_gladly_not_a_retry(self):
+        # A report keyed column that Gladly never returns is deterministic per window, so the copy
+        # must not send the operator back to re-enable the sync or to the incremental-field picker.
+        message = self.source.get_non_retryable_errors()["Gladly report is missing required columns"]
+        assert message is not None
+        lowered = message.lower()
+        assert "re-enable" not in lowered
+        assert "incremental" not in lowered
+        assert "gladly support" in lowered
+
     def test_non_retryable_errors_does_not_match_server_errors(self):
         non_retryable_errors = self.source.get_non_retryable_errors()
         error = "500 Server Error for url: https://myorg.gladly.com/api/v1/export/jobs"

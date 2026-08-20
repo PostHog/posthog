@@ -67,12 +67,14 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Gladly authentication failed. Please check your agent email and API token.",
             "403 Client Error: Forbidden for url": "Gladly denied access. Please check that the agent has the API User permission.",
-            # Raised by `_report_rows` when a report header is missing the columns the stream is
-            # keyed on. Gladly returns the same body for that window on a retry, so stop and tell
-            # the customer rather than replaying it.
+            # Raised by `_report_rows` when a report body is missing the columns the stream is
+            # keyed on. Gladly returns the same body for that window on a retry (for this report it
+            # returns a plain-text error in place of the CSV), so the sync cannot fix it and neither
+            # can the incremental-field picker. Point the operator at Gladly instead.
             "Gladly report is missing required columns": (
-                "Gladly returned a report without the columns this table syncs on, so there was no "
-                "data to sync. Re-enable the sync to try again, and contact support if it keeps happening."
+                "Gladly did not return the report this table needs, so there was no data to sync. "
+                "This happens when Gladly cannot build the report for your account. Ask Gladly "
+                "support to check that this report is available for your account."
             ),
         }
 
