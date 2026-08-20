@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
+    GOOGLE_ADS_INITIAL_BACKFILL_DAYS,
     GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
     clean_customer_id,
@@ -98,6 +99,8 @@ class GoogleAdsSource(
         VersionDeprecation(version="v23", sunset_at=datetime.date(2027, 2, 1)),
         VersionDeprecation(version="v24", sunset_at=None),
     )
+
+    history_lookback = datetime.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -243,6 +246,8 @@ class GoogleAdsSource(
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
+            history_start=inputs.history_start,
         )
 
     @property

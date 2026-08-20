@@ -41,6 +41,23 @@ describe("formatInlineComments", () => {
     );
   });
 
+  test("replaces an existing inline annotation", () => {
+    const source = `posthog.capture('a'); // [PostHog] Event: "old"`;
+    const items = [eventItem("a", 0, false)];
+    const events = new Map([["a", enrichedEvent("a")]]);
+    const out = formatInlineComments(
+      source,
+      "javascript",
+      items,
+      new Map<string, EnrichedFlag>(),
+      events,
+    );
+
+    expect(out.match(/\[PostHog\]/g)).toHaveLength(1);
+    expect(out).toContain(`Event: "a" \u2014 (verified)`);
+    expect(out).not.toContain(`Event: "old"`);
+  });
+
   test("pure JSX line uses {/* */} suffix", () => {
     const source = `<Button onClick={() => track('a')} />`;
     const items = [eventItem("a", 0, true)];
@@ -55,6 +72,30 @@ describe("formatInlineComments", () => {
     expect(out).toBe(
       `<Button onClick={() => track('a')} /> {/* [PostHog] Event: "a" \u2014 (verified) */}`,
     );
+  });
+
+  test("keeps project metadata inside the generated comment", () => {
+    const source = `<Button onClick={() => track('a')} />`;
+    const items = [eventItem("a", 0, true)];
+    const events = new Map([
+      [
+        "a",
+        {
+          ...enrichedEvent("a"),
+          definition: { description: "details\n*/} injected" },
+        } as EnrichedEvent,
+      ],
+    ]);
+    const out = formatInlineComments(
+      source,
+      "javascriptreact",
+      items,
+      new Map<string, EnrichedFlag>(),
+      events,
+    );
+
+    expect(out.split("\n")).toHaveLength(1);
+    expect(out).toContain("details * /} injected");
   });
 
   test("mixed JSX and JS items on the same line fall back to a leading JSX comment", () => {
@@ -77,6 +118,29 @@ describe("formatInlineComments", () => {
       `  {/* [PostHog] Event: "b" \u2014 (verified) | Event: "a" \u2014 (verified) */}`,
     );
     expect(lines[1]).toBe(source);
+  });
+
+  test("replaces an existing mixed-context leading annotation", () => {
+    const source = [
+      `{/* [PostHog] Event: "old" */}`,
+      `<Button onClick={() => track('a')} />; posthog.capture('b');`,
+    ].join("\n");
+    const items = [eventItem("a", 1, true), eventItem("b", 1, false)];
+    const events = new Map([
+      ["a", enrichedEvent("a")],
+      ["b", enrichedEvent("b")],
+    ]);
+    const out = formatInlineComments(
+      source,
+      "typescriptreact",
+      items,
+      new Map<string, EnrichedFlag>(),
+      events,
+    );
+
+    expect(out.split("\n")).toHaveLength(2);
+    expect(out.match(/\[PostHog\]/g)).toHaveLength(1);
+    expect(out).not.toContain(`Event: "old"`);
   });
 
   test("multiple mixed-context lines insert leading comments without shifting indices", () => {

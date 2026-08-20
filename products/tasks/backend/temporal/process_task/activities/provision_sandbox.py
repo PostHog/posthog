@@ -82,7 +82,6 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     set_git_remote_token,
 )
 from products.tasks.backend.temporal.process_task.utils import (
-    ai_gateway_env_vars,
     get_git_identity_env_vars,
     get_readonly_github_token,
     get_sandbox_api_url,
@@ -92,6 +91,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
     parse_run_state,
+    run_gateway_env_vars,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -465,7 +465,7 @@ def _build_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
-    environment_variables.update(ai_gateway_env_vars())
+    environment_variables.update(run_gateway_env_vars(ctx, task))
 
     if settings.DEBUG:
         # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
@@ -892,10 +892,12 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
 @asyncify
 def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRepositoryInSandboxOutput:
     ctx = input.context
+    blobless_clone = _is_blobless_signals_clone_enabled(ctx)
 
     with log_activity_execution(
         "clone_repository_in_sandbox",
         sandbox_id=input.sandbox_id,
+        blobless_clone=blobless_clone,
         **ctx.to_log_context(),
     ):
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
@@ -903,7 +905,6 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
 
         state = ctx.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
-        blobless_clone = _is_blobless_signals_clone_enabled(ctx)
 
         with StepTimer(
             "repository_clone",
