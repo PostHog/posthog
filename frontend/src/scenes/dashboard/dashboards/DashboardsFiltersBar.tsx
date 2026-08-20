@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
-import { LemonInput, Popover } from '@posthog/lemon-ui'
+import { IconChevronDown, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { LemonInput, LemonSelect, Popover } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -13,7 +13,7 @@ interface DashboardsFiltersBarProps {
 }
 
 export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
-    const { filters, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
+    const { filters, currentTab, filteredTags, tagSearch, showTagPopover, folderOptions } = useValues(dashboardsLogic)
     const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
 
     const createdByIds = filters.createdBy === 'All users' ? [] : filters.createdBy
@@ -146,19 +146,16 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                             Shared
                         </LemonButton>
                     </div>
-                    {filters.folder != null && (
-                        <LemonButton
-                            active
-                            type="secondary"
+                    {folderOptions.length > 0 && (
+                        <LemonSelect
                             size="small"
-                            className="max-w-full"
-                            icon={<IconFolder />}
-                            sideIcon={<IconX />}
-                            onClick={() => setFilters({ folder: null })}
-                            tooltip="Clear folder filter"
-                        >
-                            <span className="truncate">{filters.folder || 'Project root'}</span>
-                        </LemonButton>
+                            placeholder="Folder"
+                            allowClear
+                            value={filters.folder ?? null}
+                            onChange={(folder) => setFilters({ folder: folder ?? null })}
+                            options={folderOptions}
+                            dropdownMatchSelectWidth={false}
+                        />
                     )}
                 </div>
                 {currentTab !== DashboardsTab.Yours && (
