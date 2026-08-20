@@ -13,7 +13,8 @@ const meta: Meta<typeof PhaiLegacyNudgeBanner> = {
         onSubmitReason: () => {},
     },
     parameters: {
-        layout: 'padded',
+        // Fullscreen so the centered chat column reads at its real width instead of inside Storybook's inset.
+        layout: 'fullscreen',
     },
 }
 export default meta

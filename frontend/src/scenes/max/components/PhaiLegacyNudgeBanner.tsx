@@ -2,12 +2,15 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { PhaiLegacyNudgeReason } from '../logics/phaiLegacyNudgeLogic'
 
+// Matches the chat column on `/ai`, which `Thread` and `SidebarQuestionInput` both set to `max-w-180`
+// centered. In the side panel the max-width never binds, so the banner just fills the panel.
+const CHAT_COLUMN = 'w-full max-w-180 self-center mx-auto px-3 pt-3'
+
 const REASON_OPTIONS: { reason: PhaiLegacyNudgeReason; label: string }[] = [
     { reason: 'too_slow', label: 'Too slow' },
     { reason: 'missing_chats', label: 'Missing my chats' },
     { reason: 'broke', label: 'Something broke' },
     { reason: 'worse_answers', label: 'Worse answers' },
-    { reason: 'just_looking', label: 'Just looking' },
 ]
 
 export interface PhaiLegacyNudgeBannerProps {
@@ -35,7 +38,7 @@ export function PhaiLegacyNudgeBanner({
 }: PhaiLegacyNudgeBannerProps): JSX.Element {
     if (mode === 'reason') {
         return (
-            <div className="px-4 pt-4">
+            <div className={CHAT_COLUMN}>
                 <LemonBanner type="ai" onClose={onDismiss}>
                     <div className="flex flex-wrap items-center gap-2">
                         <span>Why did you switch back?</span>
@@ -57,7 +60,7 @@ export function PhaiLegacyNudgeBanner({
     }
 
     return (
-        <div className="px-4 pt-4">
+        <div className={CHAT_COLUMN}>
             <LemonBanner type="ai" onClose={onDismiss}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>

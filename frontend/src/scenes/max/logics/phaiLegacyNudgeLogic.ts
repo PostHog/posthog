@@ -24,7 +24,7 @@ import { PHAI_LEGACY_NUDGE_IMPRESSION_BUDGET, phaiLegacyNudgeStoreLogic } from '
  */
 
 /** Why someone went back to the legacy chat. Values are pinned: they are analytics property values. */
-export type PhaiLegacyNudgeReason = 'too_slow' | 'missing_chats' | 'broke' | 'worse_answers' | 'just_looking'
+export type PhaiLegacyNudgeReason = 'too_slow' | 'missing_chats' | 'broke' | 'worse_answers'
 
 export interface PhaiLegacyNudgeLogicProps {
     panelId: string
