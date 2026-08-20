@@ -84,10 +84,9 @@ def test_summarize_assurance_excludes_author_self_review() -> None:
 
 
 def test_to_dict_includes_reviewed_base_and_head_shas() -> None:
-    """The post-review workflow step reads base_sha/head_sha from the JSON output
-    to lock the resulting GitHub review to the sha the LLM actually saw and to
-    skip the approval if the PR's base or head changed after review — see
-    `.github/workflows/pr-approval-agent.yml`'s "Post review" step."""
+    # The verdict is posted against the base_sha and head_sha from the JSON output. This locks
+    # the GitHub review to the diff the LLM actually saw, and skips the approval when the base
+    # or the head changed after the review.
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="07dfeff14d95be1247e4c8c1065fd958a367389e")
     pipeline.pr.base_sha = "b5412a26ec97b9d97367c7356cfe9d9b836ae3cb"

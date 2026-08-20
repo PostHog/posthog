@@ -34,9 +34,9 @@ _OWNERS_PKG = Path(__file__).resolve().parents[1] / "owners"
 # ── Dependency ecosystems ────────────────────────────────────────
 #
 # Source of truth for how each package ecosystem pairs manifests with
-# lockfiles. The deps_toolchain deny patterns, DISMISS_TIME_LOCKFILES, and
-# the manifest/lockfile helper sets all derive from this table — add a new
-# ecosystem here, not in several places. (requirements*.{txt,in} stays out:
+# lockfiles. The deps_toolchain deny patterns and the manifest/lockfile
+# helper sets all derive from this table, so add a new ecosystem here, and
+# not in several places. (requirements*.{txt,in} stays out:
 # a pinned requirements.txt is arguably both manifest and lockfile, so
 # has_dependency_changes recognizes it directly instead of forcing it into
 # one column of this table.)
@@ -50,46 +50,33 @@ _OWNERS_PKG = Path(__file__).resolve().parents[1] / "owners"
 class Ecosystem:
     manifests: frozenset[str]
     lockfiles: frozenset[str]
-    # Whether this ecosystem's lockfiles are trivially trusted at dismiss
-    # time (a lockfile-only push retains a prior stamphog approval without
-    # LLM re-review). Defaults to NOT trusted so a newly added ecosystem
-    # narrows trust rather than silently widening it — dismiss-time trust
-    # is an explicit decision made here, not inherited from the deny list.
-    trusted_at_dismiss: bool = False
 
 
 DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
     "node": Ecosystem(
         manifests=frozenset({"package.json", "pnpm-workspace.yaml"}),
         lockfiles=frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock", "npm-shrinkwrap.json"}),
-        trusted_at_dismiss=True,
     ),
     "python": Ecosystem(
         # setup.py/setup.cfg execute code at install/build time even though
         # no lockfile pairs with them in this repo.
         manifests=frozenset({"pyproject.toml", "setup.py", "setup.cfg", "pipfile"}),
         lockfiles=frozenset({"uv.lock", "poetry.lock", "pipfile.lock"}),
-        trusted_at_dismiss=True,
     ),
     "ruby": Ecosystem(
         manifests=frozenset({"gemfile"}),
         lockfiles=frozenset({"gemfile.lock"}),
-        trusted_at_dismiss=True,
     ),
     # No composer usage in-repo today; listed so a future composer.json
     # doesn't arrive ungated.
     "php": Ecosystem(
         manifests=frozenset({"composer.json"}),
         lockfiles=frozenset({"composer.lock"}),
-        trusted_at_dismiss=True,
     ),
     "rust": Ecosystem(
         manifests=frozenset({"cargo.toml"}),
         lockfiles=frozenset({"cargo.lock"}),
-        trusted_at_dismiss=True,
     ),
-    # go.sum deliberately stays untrusted at dismiss time: it hashes what
-    # go.mod names rather than being the sole source of installed code.
     "go": Ecosystem(
         manifests=frozenset({"go.mod"}),
         lockfiles=frozenset({"go.sum"}),
@@ -291,14 +278,13 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
 
 # ── Policy-sourced data ──────────────────────────────────────────
 #
-# The deny/allow/size/tier/dismiss data lives in .stamphog/policy.yml and is
+# The deny/allow/size/tier data lives in .stamphog/policy.yml and is
 # loaded here at import time, keeping the existing module-level constant names
-# populated so importers and tests are unchanged. DEPENDENCY_ECOSYSTEMS (and
-# DISMISS_TIME_LOCKFILES below) stay code-derived; the loader splices the
-# lockfile names into the deps_toolchain deny paths and validates the declared
-# ownership formats against OWNERSHIP_FORMATS. A malformed policy raises at
-# import - fail closed, the tool crashes rather than gating on a half-loaded
-# policy.
+# populated so importers and tests are unchanged. DEPENDENCY_ECOSYSTEMS stays
+# code-derived; the loader splices the lockfile names into the deps_toolchain
+# deny paths and validates the declared ownership formats against
+# OWNERSHIP_FORMATS. A malformed policy raises at import. The tool fails
+# closed, and crashes rather than gating on a half-loaded policy.
 POLICY = load_policy(lockfile_names=_ALL_LOCKFILE_NAMES, ownership_formats=OWNERSHIP_FORMAT_LOCATORS)
 
 _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = POLICY.deny_pattern_defs()
@@ -353,76 +339,9 @@ def _compile_patterns(
 
 DENY_PATTERNS = _compile_patterns(_DENY_PATTERN_DEFS)
 
-# Compiled path patterns for stamphog's own policy/engine files. A dismiss-time
-# guard consults these so a retained approval can't silently absorb a policy
-# edit - .md is otherwise blanket-trivial and AGENT_APPROVALS.md would slip in.
-_STAMPHOG_POLICY_PATH_PATTERNS = DENY_PATTERNS["stamphog_policy"]["paths"]
-
 ALLOW_ONLY_EXTENSIONS = set(POLICY.allow_extensions)
 
 ALLOW_PATH_PATTERNS = list(POLICY.allow_path_patterns)
-
-# ── Dismiss-time allow-list ──────────────────────────────────────
-#
-# Stricter than ALLOW_PATH_PATTERNS / ALLOW_ONLY_EXTENSIONS. Used by
-# dismiss_check.py to decide whether to retain Stamphog's prior approval
-# after new commits land on a PR. At approve time the LLM also reviews;
-# at dismiss time the path alone is the only signal, so this list excludes
-# anything that could carry executable code into CI, prod, or the build
-# pipeline (workflows, configs, build files) even though those paths may
-# be allow-listed at approve time.
-
-# Derived from the ecosystems that explicitly opted in via trusted_at_dismiss
-# — dismiss-time trust is a per-ecosystem decision made in the table, never a
-# default a new deny-list entry inherits. See the field's comment on Ecosystem.
-DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset().union(
-    *(spec.lockfiles for spec in DEPENDENCY_ECOSYSTEMS.values() if spec.trusted_at_dismiss)
-)
-
-_DISMISS_TIME_TEST_RE = re.compile(POLICY.dismiss.test_regex, re.IGNORECASE)
-
-# Non-executable-at-dismiss-time on purpose: at dismiss time the path is
-# the only signal, so generated files in runnable backend languages
-# (.py, .go) trigger re-review even though the LLM accepted them at
-# approve time. Type stubs (.pyi) are read by type checkers, not runtime.
-# Real-world cost in this repo: proto regen under
-# posthog/personhog_client/proto/generated/ falls through to re-review,
-# which is rare and cheap.
-_DISMISS_TIME_GENERATED_RE = re.compile(POLICY.dismiss.generated_regex, re.IGNORECASE)
-
-
-def is_trivial_at_dismiss_time(path: str) -> bool:
-    """Return True if `path` alone is safe enough to retain a prior approval.
-
-    Strictly narrower than `is_allow_listed_only`: excludes `.github/**`,
-    bare `*.yaml`/`*.json` configs, `Dockerfile*`, `*.sh`, `Makefile`, and
-    anything else that can execute or alter build/CI behavior.
-    """
-    # Stamphog's own policy/engine files are never trivial at dismiss time -
-    # otherwise a retained approval would let a post-approval policy edit land
-    # unreviewed (AGENT_APPROVALS.md is .md, which is blanket-trivial below).
-    if any(rx.search(path) for rx in _STAMPHOG_POLICY_PATH_PATTERNS):
-        return False
-
-    name = Path(path).name
-    name_lower = name.lower()
-    if name_lower in DISMISS_TIME_LOCKFILES:
-        return True
-
-    suffix = Path(path).suffix.lower()
-    if suffix in POLICY.dismiss.trivial_extensions:
-        return True
-    if name_lower.startswith(POLICY.dismiss.trivial_name_prefixes):
-        return True
-    if path.startswith("docs/") or "/docs/" in path:
-        return True
-    if "/__snapshots__/" in path or path.startswith("__snapshots__/"):
-        return True
-    if _DISMISS_TIME_TEST_RE.search(path):
-        return True
-    if _DISMISS_TIME_GENERATED_RE.search(path):
-        return True
-    return False
 
 
 CONVENTIONAL_RE = re.compile(r"^(\w+)(?:\(([^)]*)\))?!?:\s*(.+)")

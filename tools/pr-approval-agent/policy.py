@@ -1,6 +1,6 @@
 """Declarative merge-gate policy: loader, resolver, and prompt sanitizer.
 
-The engine's deny/allow/size/tier/dismiss data lives in `.stamphog/policy.yml`
+The engine's deny/allow/size/tier data lives in `.stamphog/policy.yml`
 (global, trusted) and optional per-folder `AGENT_APPROVALS.md` overrides
 (untrusted, positive allow-list). This module loads and validates the global
 policy, resolves the effective policy for a given set of changed files, and
@@ -115,14 +115,6 @@ class T1Subclass:
 
 
 @dataclass(frozen=True)
-class DismissData:
-    trivial_extensions: frozenset[str]
-    trivial_name_prefixes: tuple[str, ...]
-    test_regex: str
-    generated_regex: str
-
-
-@dataclass(frozen=True)
 class OverrideContract:
     ceiling: int
 
@@ -177,7 +169,6 @@ class Policy:
     allow_extensions: frozenset[str]
     size_gate: SizeGate
     t1_subclasses: dict[str, T1Subclass]
-    dismiss: DismissData
     overrides: dict[str, OverrideContract]
     familiarity: FamiliarityPolicy
     ownership: tuple[OwnershipSource, ...]
@@ -227,16 +218,19 @@ class PolicyError(ValueError):
 
 # ── Global policy loading + validation ───────────────────────────
 
-_TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "dismiss", "overrides", "familiarity", "ownership"}
-# Keys the hosted server owns and parses itself (products/stamphog/backend/logic/digest_config.py),
-# not the engine. Allowed at the top level so a repo declaring one doesn't hard-fail every review, but
-# never required and never read here — the engine ignores their contents.
-_SERVER_ONLY_TOP_LEVEL_KEYS = {"digest"}
+_TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides", "familiarity", "ownership"}
+# Keys that the hosted server owns and parses itself, and that the engine does not. The top level
+# allows them, so a repo that declares one does not hard-fail every review. They are never required,
+# and the engine never reads their contents. `digest` is read by logic/digest_config.py. `dismiss`
+# is tolerated for policies that still declare it, and nothing reads it: the server decides whether
+# a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
+# rules could keep an approval standing across arbitrary code pushes.
+_SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
 # The delegation contract's only delegable key. Everything else (deny, allow,
-# dismiss, tiers, size_gate.max_lines) is non-delegable by construction.
+# tiers, size_gate.max_lines) is non-delegable by construction.
 _DELEGABLE_KEYS = {"size_gate.max_files"}
 
 # Invariant 7: self-governance deny must cover these path families so a future
@@ -350,26 +344,6 @@ def _parse_tiers(raw: Any) -> dict[str, T1Subclass]:
         _require(breadth in _BREADTH_RULES, f"{name}.breadth: must be one of {sorted(_BREADTH_RULES)}")
         subclasses[name] = T1Subclass(max_lines=max_lines, max_files=max_files, breadth=breadth)
     return subclasses
-
-
-def _parse_dismiss(raw: Any) -> DismissData:
-    _require(isinstance(raw, dict), "dismiss: must be a mapping")
-    extensions = raw.get("trivial_extensions")
-    prefixes = raw.get("trivial_name_prefixes")
-    test_regex = raw.get("test_regex")
-    generated_regex = raw.get("generated_regex")
-    _require(isinstance(extensions, list) and bool(extensions), "dismiss.trivial_extensions: must be a non-empty list")
-    _require(isinstance(prefixes, list) and bool(prefixes), "dismiss.trivial_name_prefixes: must be a non-empty list")
-    _require(isinstance(test_regex, str), "dismiss.test_regex: must be a string")
-    _require(isinstance(generated_regex, str), "dismiss.generated_regex: must be a string")
-    _compile_or_raise(test_regex, "dismiss.test_regex")
-    _compile_or_raise(generated_regex, "dismiss.generated_regex")
-    return DismissData(
-        trivial_extensions=frozenset(str(e) for e in extensions),
-        trivial_name_prefixes=tuple(str(p) for p in prefixes),
-        test_regex=test_regex,
-        generated_regex=generated_regex,
-    )
 
 
 def _parse_overrides(raw: Any) -> dict[str, OverrideContract]:
@@ -510,7 +484,6 @@ def load_policy(
         allow_extensions=extensions,
         size_gate=_parse_size_gate(raw["size_gate"]),
         t1_subclasses=_parse_tiers(raw["tiers"]),
-        dismiss=_parse_dismiss(raw["dismiss"]),
         overrides=_parse_overrides(raw["overrides"]),
         familiarity=_parse_familiarity(raw["familiarity"]),
         ownership=_parse_ownership(raw["ownership"], ownership_formats),

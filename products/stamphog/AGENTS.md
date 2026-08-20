@@ -88,8 +88,8 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   and `include_internal_scopes=False`. Never switch to `include_internal_scopes=True` — that
   drags `task:write` into a sandbox running an LLM over untrusted PR content. The
   `internal_run:read` marker is what satisfies the gateway route's `requires_server_credential`.
-- The raw-Anthropic fallback is for the Action runtime only; hosted runs fail closed without a
-  gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
+- The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
+  without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
 - Egress is an explicit domain allowlist (`_sandbox_egress_allowlist`). Additions go through
   `STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS`, not code edits.
 - Everything posted to GitHub goes through `_scrub_credentials` AND `_neutralize_active_markdown`
@@ -99,9 +99,9 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 
 ## The self-driving inbox carve-out (the one exception to the bot-author refusal)
 
-Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review_skip_reason`),
-the engine (`review_pr.py::_refuse_bot_author`, mirrored by `review_local.py`), and the
-Action's job gates — with ONE deliberate exception: a PR **positively linked** to a
+Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review_skip_reason`) and
+the engine (`review_pr.py::_refuse_bot_author`, called by `review_local.py`) — with ONE deliberate
+exception: a PR **positively linked** to a
 self-driving Inbox implementation run (a signal-report-carrying TaskRun at
 `ai_stage="implementation"`, matched through the tasks facade), one of whose assigned reviewers
 opted in via ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exception
@@ -129,8 +129,8 @@ narrow:
   PR #72680), and a teammate who can edit the _report_ before auto-start still influences what
   the implementation agent builds — that is the product working as designed, reviewed as any PR.
 - The engine flag (`self_driving_review` in the hosted context JSON →
-  `Pipeline(self_driving=...)`) defaults closed and the Action never sets it, so Action
-  behavior is unchanged by construction. It relaxes exactly two gates — the bot-author
+  `Pipeline(self_driving=...)`) defaults closed, so a local `review_pr.py` run never turns it on.
+  It relaxes exactly two gates — the bot-author
   refusal and the draft prerequisite (the verdict must exist at Inbox triage time, while the
   PR is still a draft) — and swaps human-author trust context for a TRUSTED provenance block
   in the prompt. The hosted server sets the flag exclusively from the run's persisted inbox
@@ -181,23 +181,24 @@ narrow:
 
 ## Engine parity (tools/pr-approval-agent)
 
-`review_local.py` (hosted) must mirror `review_pr.py` (Action) semantics wherever both apply:
+`review_local.py` is the entrypoint the sandbox runs. It drives `review_pr.Pipeline`'s own steps, so
 gate order, review filtering (bare COMMENTED reviews dropped, non-empty ones kept), in-flight
 bot-reviewer WAIT behavior (`TRUSTED_REACTOR_BOTS` mirrored in `temporal/constants.py`), and
-ownership summaries (individual owners count, not just teams). When you change one runtime,
-check the other; divergence here has produced real approve-when-should-wait findings.
+ownership summaries (individual owners count, not just teams) all come from shared code. `review_pr.py`
+remains as the manual entrypoint for reviewing a PR from a local checkout; changing a `Pipeline` method
+changes both, and divergence here has produced real approve-when-should-wait findings.
 
-Inputs the Action fetches over the network reach the sandbox through the context JSON instead, and
+Inputs `review_pr.py` fetches over the network reach the sandbox through the context JSON instead, and
 dropping one is a silent behavior change rather than a missing section. `author_team_slugs` feeds
 `author_on_owning_team`, which the reviewer prompt reads with a default of `True`, so an unset key
 tells the reviewer that every author owns the code they touched. `pr_provenance` needs no token and
 is computed in the sandbox from the checkout.
 
-One divergence is deliberate. A pending `Migration risk` check returns WAIT here rather than
-falling through to a refusal, because a hosted refusal costs a ReviewHog handoff and a trigger-label
-strip over what is a race with CI. It also can't reuse `Pipeline._only_pending_migration_check`: that
-method disqualifies on any failing gate other than the deny-list, and a migrations deny always drags
-the tier gate to T2-never with it, so it answers False for every PR it exists to catch.
+A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
+refusal costs a ReviewHog handoff and a trigger-label strip over what is a race with CI. It can't
+reuse `Pipeline._only_pending_migration_check`: that method disqualifies on any failing gate other
+than the deny-list, and a migrations deny always drags the tier gate to T2-never with it, so it
+answers False for every PR it exists to catch.
 
 ## Temporal specifics
 

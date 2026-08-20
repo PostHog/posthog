@@ -1429,3 +1429,28 @@ def test_retention_needs_a_usable_approved_base_sha(team, repo_config, output):
     )
 
     mock_execute.assert_called_once()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("action,expect_comment", [("labeled", True), ("synchronize", False)])
+def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, expect_comment):
+    # A labeled dependabot PR gets an explanation and loses the label again. Without that removal
+    # the label stays on the PR while every later delivery silently takes the bot-author skip, so
+    # the PR looks reviewed but never is. The explanation is posted only where a person just
+    # acted.
+    with team_scope(team.id):
+        repo_config.review_mode = ReviewMode.LABEL
+        repo_config.save()
+    payload = _pr_payload(
+        action=action,
+        author_login="dependabot[bot]",
+        user_type="Bot",
+        labels=["stamphog"],
+        added_label="stamphog",
+    )
+
+    client = _run_task(payload, f"delivery-bot-label-{action}", team.id).github
+    client.remove_pr_label.assert_called_once_with(REPO, 42, "stamphog")
+    assert client.upsert_sticky_comment.called is expect_comment
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 0

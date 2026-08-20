@@ -938,9 +938,9 @@ class Pipeline:
         posthoganalytics.capture(
             distinct_id=pr.author,
             event="stamphog_review_completed",
-            # Extras first so the base props win on collision: the hosted server stamps its
-            # runtime/team context through this hook; absent in the Action, so Action events
-            # are unchanged (no prop = action runtime).
+            # Extras first, so the base props win on a collision. The hosted server stamps its
+            # runtime and team context through this hook. A local run has no such hook, so its
+            # events are unchanged, and a missing prop means a local runtime.
             properties={
                 **analytics_extra_properties(),
                 "ai_product": "stamphog",
