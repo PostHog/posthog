@@ -4,7 +4,7 @@ import re
 import json
 import uuid as uuid_mod
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -851,6 +851,12 @@ class TestPersonsDedupPrivilegePreflight:
         assert deleted_tables <= probed, f"deletes without a DELETE grant probe: {sorted(deleted_tables - probed)}"
 
 
+# _scalar is stubbed in these tests, so the connection is never touched -- this stands in
+# for one without opening a real session.
+def _no_conn() -> psycopg.Connection:
+    return cast(psycopg.Connection, object())
+
+
 class TestPersonsDedupReplicaLag:
     # This branch cannot be reached from a live database here: CI and local Postgres are
     # primaries, so pg_is_in_recovery() is false and the replica path never runs. That gap
@@ -865,7 +871,7 @@ class TestPersonsDedupReplicaLag:
         monkeypatch.setattr(persons_dedup_command, "_scalar", unsupported)
 
         with capture_logs() as logs:
-            assert persons_dedup_command._replica_lag_seconds(object()) is None
+            assert persons_dedup_command._replica_lag_seconds(_no_conn()) is None
 
         assert any(entry["event"] == "persons_dedup.replica_lag_unavailable" for entry in logs), (
             "an unavailable lag must be reported, not swallowed"
@@ -874,7 +880,7 @@ class TestPersonsDedupReplicaLag:
     def test_reports_the_lag_where_the_platform_supports_it(self, monkeypatch):
         monkeypatch.setattr(persons_dedup_command, "_scalar", lambda conn, sql, params=None: 42)
 
-        assert persons_dedup_command._replica_lag_seconds(object()) == 42
+        assert persons_dedup_command._replica_lag_seconds(_no_conn()) == 42
 
 
 class TestPersonsDedupConnectionRouting:
