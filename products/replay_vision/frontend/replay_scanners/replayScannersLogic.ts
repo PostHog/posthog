@@ -15,6 +15,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -622,7 +623,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     }),
 
     trackedActionToUrl(({ values }) => {
-        const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] => {
+        const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] | void => {
+            // The editor scene loads its JS chunk asynchronously, so this logic (and its listeners, like
+            // the debounced search or the out-of-range page correction) can still be mounted after the URL
+            // has already moved to e.g. /replay-vision/new/template. Only rewrite the URL if it's still ours.
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.replayVision()) {
+                return
+            }
             const { filters } = values
             const sortParam = serializeSortParam(filters.sort, DEFAULT_SORT)
             return [
