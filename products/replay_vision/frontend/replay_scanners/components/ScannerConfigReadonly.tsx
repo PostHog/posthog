@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Fragment } from 'react'
 
 import {
@@ -37,10 +37,10 @@ import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
 import { CreditPriceNote } from '../../components/PricingLink'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
-import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
+import type { ObservationStatsApi } from '../../generated/api.schemas'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditsMaybeUsd } from '../../utils/credits'
-import { replayScannerLogic } from '../replayScannerLogic'
+import { ObservationStatusStats } from '../scannerStats'
 import {
     ReplayScanner,
     SAMPLING_MODE_OPTIONS,
@@ -348,8 +348,13 @@ function VersionFields({ config, changed }: { config: VersionConfig; changed: Se
     )
 }
 
-function ConfigVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Element | null {
-    const { observationStatsApi } = useValues(replayScannerLogic({ id: scanner.id }))
+function ConfigVersionHistory({
+    scanner,
+    observationStatsApi,
+}: {
+    scanner: ReplayScanner
+    observationStatsApi: ObservationStatsApi | null
+}): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const markers = observationStatsApi?.labels.version_markers ?? []
     const currentVersion = scanner.scanner_version
@@ -436,10 +441,21 @@ function ConfigVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
     )
 }
 
-export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): JSX.Element {
-    const { observationStats, togglingEnabled } = useValues(replayScannerLogic({ id: scanner.id }))
-    const { showUsd } = useValues(visionQuotaLogic)
-    const { toggleEnabled } = useActions(replayScannerLogic({ id: scanner.id }))
+export function ScannerConfigReadonly({
+    scanner,
+    observationStats,
+    observationStatsApi,
+    togglingEnabled,
+    showUsd,
+    onToggleEnabled,
+}: {
+    scanner: ReplayScanner
+    observationStats: ObservationStatusStats
+    observationStatsApi: ObservationStatsApi | null
+    togglingEnabled: boolean
+    showUsd: boolean
+    onToggleEnabled: () => void
+}): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
@@ -471,7 +487,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                             <div className="flex items-center gap-2">
                                 <LemonSwitch
                                     checked={scanner.enabled}
-                                    onChange={() => toggleEnabled()}
+                                    onChange={() => onToggleEnabled()}
                                     loading={togglingEnabled}
                                     disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
                                     data-attr="vision-scanner-toggle-enabled"
@@ -574,7 +590,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                     </div>
                 </LemonCard>
             </div>
-            <ConfigVersionHistory scanner={scanner} />
+            <ConfigVersionHistory scanner={scanner} observationStatsApi={observationStatsApi} />
         </div>
     )
 }
