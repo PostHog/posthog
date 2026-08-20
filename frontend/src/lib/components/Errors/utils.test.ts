@@ -1,4 +1,4 @@
-import { ErrorEventProperties, ErrorTrackingStackFrame, ExceptionAttributes } from './types'
+import { ErrorEventProperties, ErrorTrackingException, ErrorTrackingStackFrame, ExceptionAttributes } from './types'
 import {
     getExceptionAttributes,
     getExceptionList,
@@ -7,6 +7,7 @@ import {
     getRuntimeFromLib,
     getSessionId,
     hasNoCodeLocation,
+    hasUsableStackTrace,
 } from './utils'
 
 describe('Error Display', () => {
@@ -290,5 +291,25 @@ describe('Error Display', () => {
 
     it('treats a frame with no junk drawer as located', () => {
         expect(hasNoCodeLocation({ lang: 'javascript' } as ErrorTrackingStackFrame)).toBe(false)
+    })
+
+    const jsFrame = (lineno: number, colno: number): ErrorTrackingStackFrame =>
+        ({ lang: 'javascript', junk_drawer: { raw_frame: { lineno, colno } } }) as ErrorTrackingStackFrame
+
+    test.each([
+        ['a missing stacktrace', undefined, false],
+        ['an empty frame list', { type: 'resolved', frames: [] }, false],
+        ['a non-array frame list', { type: 'resolved', frames: null }, false],
+        ['a null frame', { type: 'resolved', frames: [null] }, false],
+        ['only a zero-location frame', { type: 'resolved', frames: [jsFrame(0, 0)] }, false],
+        ['two zero-location frames', { type: 'resolved', frames: [jsFrame(0, 0), jsFrame(0, 0)] }, false],
+        ['a located frame', { type: 'resolved', frames: [jsFrame(11, 5)] }, true],
+        [
+            'a zero-location frame beside a located one',
+            { type: 'resolved', frames: [jsFrame(0, 0), jsFrame(11, 5)] },
+            true,
+        ],
+    ])('reports a usable stack trace for %s', (_name, stacktrace, expected) => {
+        expect(hasUsableStackTrace({ stacktrace } as ErrorTrackingException)).toEqual(expected)
     })
 })

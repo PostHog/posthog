@@ -160,6 +160,42 @@ export function StacktracelessSafariScriptError(): JSX.Element {
     )
 }
 
+export function ResizeObserverLoopError(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_list: [
+                    {
+                        type: 'Error',
+                        value: 'ResizeObserver loop completed with undelivered notifications.',
+                        mechanism: { synthetic: true, handled: false },
+                        stacktrace: {
+                            type: 'resolved',
+                            frames: [
+                                {
+                                    raw_id: 'resize-observer-1',
+                                    mangled_name: '?',
+                                    line: 0,
+                                    column: 0,
+                                    source: '/dashboard/1',
+                                    in_app: true,
+                                    resolved_name: null,
+                                    lang: 'javascript',
+                                    resolved: true,
+                                    resolve_failure: null,
+                                    module: null,
+                                    junk_drawer: { raw_frame: { lineno: 0, colno: 0 } },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })}
+            eventId="error"
+        />
+    )
+}
+
 export function StacktracelessImportModuleError(): JSX.Element {
     return (
         <ErrorDisplay

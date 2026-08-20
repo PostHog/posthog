@@ -311,6 +311,25 @@ export function hasNoCodeLocation(frame: Pick<ErrorTrackingStackFrame, 'lang' | 
     return rawFrame?.lineno === 0 && rawFrame?.colno === 0
 }
 
+/**
+ * Whether an exception carries frames worth rendering as a stack trace.
+ *
+ * Rejects a malformed stacktrace, and one whose frames all lack a code location. posthog-js
+ * fabricates a single placeholder frame for a browser error reported without a position, and that
+ * frame carries the document URL as its filename, so rendering it puts a page path where a source
+ * file belongs and tells the reader nothing.
+ */
+export function hasUsableStackTrace(exception: Pick<ErrorTrackingException, 'stacktrace'>): boolean {
+    const stacktrace = exception.stacktrace
+    if (!stacktrace || !Array.isArray(stacktrace.frames) || stacktrace.frames.length === 0) {
+        return false
+    }
+    if (stacktrace.frames.some((frame) => frame === null || typeof frame !== 'object')) {
+        return false
+    }
+    return stacktrace.frames.some((frame) => !hasNoCodeLocation(frame))
+}
+
 export function getInstructionAddress(frame: Pick<ErrorTrackingStackFrame, 'junk_drawer'>): string | null {
     const address = frame.junk_drawer?.raw_frame?.instruction_addr
     if (typeof address !== 'string') {

@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { toDisplayOrderFrames } from 'lib/components/Errors/displayOrder'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { formatResolvedName, formatType, hasNoCodeLocation } from 'lib/components/Errors/utils'
+import { formatResolvedName, formatType, hasNoCodeLocation, hasUsableStackTrace } from 'lib/components/Errors/utils'
 
 export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string; copyableStacktraceText: string } => {
     const { exceptionList, stackFrameRecords, stackFrameRecordsLoading, framesStoredCrashFirst } =
@@ -44,8 +44,11 @@ function generateExceptionText(
 ): string {
     let result = `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
 
-    // match the on-screen order: most recent call first
-    const frames = toDisplayOrderFrames(exception.stacktrace?.frames || [], options.storedCrashFirst)
+    // match the on-screen order: most recent call first. An exception the renderer shows as having
+    // no stack trace contributes only its type and value here, the same as a frameless one.
+    const frames = hasUsableStackTrace(exception)
+        ? toDisplayOrderFrames(exception.stacktrace?.frames || [], options.storedCrashFirst)
+        : []
 
     for (const frame of frames) {
         const inAppMarker = options.includeInAppMarkers && frame.in_app ? ' [IN-APP]' : ''

@@ -1,5 +1,6 @@
 import './load-failed'
 import './non-error-promise-rejection'
 import './react-minified-error'
+import './resize-observer-loop'
 import './script-error'
 import './syntax-error'
