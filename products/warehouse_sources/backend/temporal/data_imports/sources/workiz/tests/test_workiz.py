@@ -175,6 +175,18 @@ class TestPagination:
 
         assert rows == [{"UUID": "a"}]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_session_excludes_responses_from_sample_capture(self, MockSession: mock.MagicMock) -> None:
+        # Jobs/Leads rows carry customer PII (contact details, addresses, job comments) the
+        # name-based sample scrubbers aren't built to catch, so the client must opt the sync
+        # session out of HTTP diagnostic sample capture entirely.
+        session = MockSession.return_value
+        _wire(session, [_raw_response([])])
+
+        _rows(_source(_make_manager()))
+
+        assert MockSession.call_args.kwargs["capture"] is False
+
 
 class TestIncrementalParams:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -292,3 +304,10 @@ class TestValidateCredentials:
     def test_probe_failure_is_not_validated(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("tok") == (False, "Could not reach Workiz to validate the API token.")
+
+    @mock.patch(WORKIZ_SESSION_PATCH)
+    def test_probe_session_excludes_response_from_sample_capture(self, mock_session: mock.MagicMock) -> None:
+        # The probe response is a team-member list -- same PII concern as the sync client.
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("tok")
+        assert mock_session.call_args.kwargs["capture"] is False

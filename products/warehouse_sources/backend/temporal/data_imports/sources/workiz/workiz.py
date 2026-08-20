@@ -129,6 +129,11 @@ def workiz_source(
         "client": {
             "base_url": f"{API_BASE_URL}/{api_token}",
             "auth": _PathTokenAuth(api_token),
+            # `capture=False`: Jobs/Leads rows carry customer PII (contact details, addresses,
+            # job comments, internal notes) the name-based sample scrubbers aren't built to
+            # catch, so keep them out of HTTP diagnostic sample storage entirely, same as the
+            # other PII/free-text field-service sources (e.g. ServiceM8).
+            "capture": False,
         },
         "resources": [get_resource(endpoint, should_use_incremental_field, incremental_field)],
     }
@@ -156,9 +161,10 @@ def workiz_source(
 
 def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     # The token unlocks every read endpoint at once (no per-endpoint scopes), so one cheap probe
-    # against the smallest list endpoint validates it.
+    # against the smallest list endpoint validates it. `capture=False`: the probe response is a
+    # team-member list, same PII concern as the sync client above.
     ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_token,)),
+        lambda: make_tracked_session(redact_values=(api_token,), capture=False),
         f"{API_BASE_URL}/{api_token}/team/all/",
     )
     if ok:
