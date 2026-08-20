@@ -608,6 +608,16 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             finishSuiteRun: ({ suiteRun }) => {
                 cache.disposables.dispose('suiteRunPoll')
                 actions.loadOverview()
+                // loadOverview refreshes status and rollups but not the runs cached under an expanded
+                // row, so reload each; without this a row expanded before the run keeps showing the
+                // pre-run history, and openFailingRows opens the stale query.
+                const checksById = new Map(values.checks.map((check) => [check.id, check]))
+                Object.keys(values.checkRunsByCheckId).forEach((checkId) => {
+                    const check = checksById.get(checkId)
+                    if (check) {
+                        actions.loadCheckRuns(check)
+                    }
+                })
                 const outcome = suiteRunOutcome(suiteRun)
                 if (outcome === 'empty') {
                     lemonToast.info('No enabled checks to run')

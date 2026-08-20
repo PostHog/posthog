@@ -359,6 +359,24 @@ describe('dataQualityOverviewLogic', () => {
         expect(lemonToast.warning).toHaveBeenCalledWith('2 passed, 1 failed')
     })
 
+    it('refreshes the run history cached under expanded rows when a run finishes', async () => {
+        // A row expanded before the run caches its history; loadOverview refreshes status and
+        // rollups but not those runs, so without a reload the just-finished run is missing until a
+        // collapse and re-expand.
+        ;(warehouseSavedQueriesChecksRunsList as jest.Mock).mockResolvedValue([{ compiled_query: 'SELECT 1' }])
+        await mountLogic()
+        logic.actions.loadCheckRuns(buildCheck('check-1', 'orders', 'failed'))
+        await expectLogic(logic).toFinishAllListeners()
+        const runsLoadsBeforeFinish = (warehouseSavedQueriesChecksRunsList as jest.Mock).mock.calls.length
+
+        logic.actions.finishSuiteRun(buildSuiteRun({ status: 'completed', checks_passed: 3 }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((warehouseSavedQueriesChecksRunsList as jest.Mock).mock.calls.length).toBeGreaterThan(
+            runsLoadsBeforeFinish
+        )
+    })
+
     it('stops polling a run that never finishes', async () => {
         ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
         ;(dataQualityRunsRetrieve as jest.Mock).mockResolvedValue(buildSuiteRun())
