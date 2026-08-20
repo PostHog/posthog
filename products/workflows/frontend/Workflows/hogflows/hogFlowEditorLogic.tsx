@@ -487,6 +487,9 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1003,6 +1006,9 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1305,6 +1311,9 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1821,6 +1830,9 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined

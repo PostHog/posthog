@@ -336,6 +336,19 @@ export const TileSpacingEnumApi = {
     Wide: 'wide',
 } as const
 
+/**
+ * * `vertical` - vertical
+ * * `horizontal` - horizontal
+ * * `stable` - stable
+ */
+export type LayoutCompactionEnumApi = (typeof LayoutCompactionEnumApi)[keyof typeof LayoutCompactionEnumApi]
+
+export const LayoutCompactionEnumApi = {
+    Vertical: 'vertical',
+    Horizontal: 'horizontal',
+    Stable: 'stable',
+} as const
+
 export interface DashboardCustomizationApi {
     /** Named tile density preset.
      *
@@ -345,6 +358,12 @@ export interface DashboardCustomizationApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     tile_spacing?: TileSpacingEnumApi
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
+    layout_compaction?: LayoutCompactionEnumApi
 }
 
 /**
@@ -425,6 +444,12 @@ export interface DashboardApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     grid_spacing?: TileSpacingEnumApi
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
+    layout_compaction?: LayoutCompactionEnumApi
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -1006,6 +1031,12 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     grid_spacing?: TileSpacingEnumApi
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
+    layout_compaction?: LayoutCompactionEnumApi
     /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */
@@ -4870,6 +4901,16 @@ export interface LastEventApi {
     uuid: string
 }
 
+export type ErrorTrackingQueryIssueSeverityApi =
+    (typeof ErrorTrackingQueryIssueSeverityApi)[keyof typeof ErrorTrackingQueryIssueSeverityApi]
+
+export const ErrorTrackingQueryIssueSeverityApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
 export type ErrorTrackingIssueStatusApi = (typeof ErrorTrackingIssueStatusApi)[keyof typeof ErrorTrackingIssueStatusApi]
 
 export const ErrorTrackingIssueStatusApi = {
@@ -4894,6 +4935,7 @@ export interface ErrorTrackingIssueApi {
     last_seen: string
     library?: string | null
     name?: string | null
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     source?: string | null
     status: ErrorTrackingIssueStatusApi
 }
@@ -4944,6 +4986,7 @@ export interface ErrorTrackingCorrelatedIssueApi {
     name?: string | null
     odds_ratio: number
     population: PopulationApi
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     status: ErrorTrackingIssueStatusApi
 }
 
@@ -7563,6 +7606,7 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
     issue_description?: string | null
     issue_id: string
     issue_name?: string | null
+    issue_severity?: ErrorTrackingQueryIssueSeverityApi | null
     issue_status: string
     /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
     version: number

@@ -8,6 +8,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingBypassRule,
     ErrorTrackingGroupingRule,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingSeverityRule,
     ErrorTrackingSuppressionRule,
 )
 
@@ -65,6 +66,7 @@ _ReorderableRule = TypeVar(
     ErrorTrackingAssignmentRule,
     ErrorTrackingBypassRule,
     ErrorTrackingGroupingRule,
+    ErrorTrackingSeverityRule,
     ErrorTrackingSuppressionRule,
 )
 
@@ -148,6 +150,55 @@ def delete_assignment_rule(team_id: int, rule_id: str) -> bool:
 
 def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
     _reorder_rules(ErrorTrackingAssignmentRule, team_id, orders)
+
+
+def list_severity_rules(team_id: int) -> QuerySet[ErrorTrackingSeverityRule]:
+    return ErrorTrackingSeverityRule.objects.filter(team_id=team_id).order_by("order_key", "created_at", "id")
+
+
+def get_severity_rule(team_id: int, rule_id: str) -> ErrorTrackingSeverityRule | None:
+    return ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=rule_id).first()
+
+
+def create_severity_rule(
+    team_id: int, *, filters: dict, severity: str, order_key: int = 0
+) -> ErrorTrackingSeverityRule:
+    return ErrorTrackingSeverityRule.objects.create(
+        team_id=team_id,
+        filters=filters,
+        bytecode=_rule_bytecode(team_id, filters),
+        severity=severity,
+        order_key=order_key,
+    )
+
+
+def update_severity_rule(
+    team_id: int,
+    rule_id: str,
+    *,
+    filters: dict | None = None,
+    severity: str | None = None,
+) -> ErrorTrackingSeverityRule | None:
+    rule = get_severity_rule(team_id, rule_id)
+    if rule is None:
+        return None
+    if filters is not None:
+        rule.filters = filters
+        rule.bytecode = _rule_bytecode(team_id, filters)
+        rule.disabled_data = None
+    if severity is not None:
+        rule.severity = severity
+    rule.save()
+    return rule
+
+
+def delete_severity_rule(team_id: int, rule_id: str) -> bool:
+    deleted, _ = ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    return deleted > 0
+
+
+def reorder_severity_rules(team_id: int, orders: dict[str, int]) -> None:
+    _reorder_rules(ErrorTrackingSeverityRule, team_id, orders)
 
 
 def list_grouping_rules(team_id: int) -> QuerySet[ErrorTrackingGroupingRule]:

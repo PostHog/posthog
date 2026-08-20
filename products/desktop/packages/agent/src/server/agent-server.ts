@@ -15,13 +15,14 @@ import {
 } from "@agentclientprotocol/sdk";
 import { type ServerType, serve } from "@hono/node-server";
 import { execGh } from "@posthog/git/gh";
-import { getCurrentBranch } from "@posthog/git/queries";
+import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
   type Adapter,
   buildPrOutput,
   getErrorMessage,
   isIgnoredSkillPath,
+  isSkillBundleArtifactMetadata,
   type McpServerConnection,
   mergePrUrls,
   parseMcpToolName,
@@ -79,8 +80,9 @@ import {
 } from "../posthog-exec-permission";
 import {
   findPrUrls,
-  wasCreatedByLogin,
-  wasCreatedRecently,
+  type OwnedBranch,
+  parsePrRepository,
+  wasCreatedByThisRun,
 } from "../pr-url-detector";
 import {
   formatConversationForResume,
@@ -440,6 +442,56 @@ export function codexAuthFromGatewayEnv(env: GatewayEnv): {
   apiKey: string;
 } {
   return { apiBaseUrl: env.openaiBaseUrl, apiKey: env.openaiApiKey };
+}
+
+interface PrAttribution {
+  createdAt: string | null;
+  author: string | null;
+  headRefName: string | null;
+  isCrossRepository: boolean | null;
+}
+
+const GITHUB_REMOTE_REGEX = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i;
+
+export function parseGithubRemoteRepository(
+  remoteUrl: string | null | undefined,
+): string | null {
+  if (!remoteUrl) return null;
+  const match = GITHUB_REMOTE_REGEX.exec(remoteUrl.trim());
+  return match ? match[1].toLowerCase() : null;
+}
+
+// Branches the run has pushed, as recorded on its task run by signed commits
+// (`output.head_branches`, per repository) and by the branch sync
+// (`output.head_branch`, repository unknown). This is what proves ownership when
+// the agent-server has no checkout of its own, as in no-repository mode.
+export function ownedBranchesFromOutput(
+  output: Record<string, unknown> | null | undefined,
+): OwnedBranch[] {
+  if (!output) return [];
+  const owned: OwnedBranch[] = [];
+  const listed = output.head_branches;
+  if (Array.isArray(listed)) {
+    for (const entry of listed) {
+      if (!entry || typeof entry !== "object") continue;
+      const { repository, branch } = entry as {
+        repository?: unknown;
+        branch?: unknown;
+      };
+      if (typeof branch !== "string" || !branch) continue;
+      owned.push({
+        repository:
+          typeof repository === "string" && repository
+            ? repository.trim().toLowerCase()
+            : null,
+        branch,
+      });
+    }
+  }
+  if (typeof output.head_branch === "string" && output.head_branch) {
+    owned.push({ repository: null, branch: output.head_branch });
+  }
+  return owned;
 }
 
 export class AgentServer {
@@ -1683,6 +1735,8 @@ export class AgentServer {
       true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
+    const runtimeAdapter = this.getRuntimeAdapter();
+
     const gatewayEnv = this.configureEnvironment({
       isInternal: preTask?.internal === true,
       originProduct: preTask?.origin_product,
@@ -1692,6 +1746,17 @@ export class AgentServer {
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
       taskTitle: preTask?.title,
+      repositories: this.taskRepositories,
+      runtimeAdapter,
+      sandboxEnvironmentId: getTaskRunStateString(
+        preTaskRun,
+        "sandbox_environment_id",
+      ),
+      snapshotKind: preTaskRun
+        ? (getTaskRunStateString(preTaskRun, "snapshot_kind") ?? "absent")
+        : null,
+      prewarmed: preTaskRun ? this.prewarmedRun : null,
+      executionEnvironment: "cloud",
     });
 
     if (this.config.repoReadyFile && gatewayEnv.anthropicBaseUrl) {
@@ -1727,7 +1792,6 @@ export class AgentServer {
       ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
       : null;
 
-    const runtimeAdapter = this.getRuntimeAdapter();
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
       slackThreadUrl,
@@ -3004,7 +3068,8 @@ export class AgentServer {
       const hasMatchingArtifact = artifacts.some(
         (artifact) =>
           artifact.type === "skill_bundle" &&
-          artifact.metadata?.skill_name === invocation.skillName,
+          isSkillBundleArtifactMetadata(artifact.metadata) &&
+          artifact.metadata.skill_name === invocation.skillName,
       );
       const installedSkill = hasMatchingArtifact
         ? this.installedSkillBundleInfo.get(
@@ -3045,8 +3110,16 @@ export class AgentServer {
     messageText: string,
   ): LocalSkillPromptContext | null {
     const installed = artifacts
-      .filter((artifact) => artifact.type === "skill_bundle")
-      .map((artifact) => artifact.metadata?.skill_name)
+      .filter(
+        (artifact) =>
+          artifact.type === "skill_bundle" &&
+          isSkillBundleArtifactMetadata(artifact.metadata),
+      )
+      .map((artifact) =>
+        isSkillBundleArtifactMetadata(artifact.metadata)
+          ? artifact.metadata.skill_name
+          : null,
+      )
       .filter((name): name is string => typeof name === "string")
       .map((name) =>
         this.installedSkillBundleInfo.get(
@@ -3167,15 +3240,14 @@ export class AgentServer {
     artifact: TaskRunArtifact,
   ): Promise<void> {
     const metadata = artifact.metadata;
-    const skillName = metadata?.skill_name;
-    const expectedSha256 = metadata?.content_sha256;
-
-    if (!artifact.storage_path || !skillName || !expectedSha256) {
+    if (!artifact.storage_path || !isSkillBundleArtifactMetadata(metadata)) {
       throw new Error(
         `Skill bundle artifact ${artifact.name} is missing metadata`,
       );
     }
 
+    const skillName = metadata.skill_name;
+    const expectedSha256 = metadata.content_sha256;
     const installKey = `${runId}:${expectedSha256}:${skillName}`;
     if (
       this.installedSkillBundles.has(installKey) &&
@@ -4096,6 +4168,25 @@ ${commonInstructions}
     }
   }
 
+  // The checked-out branch and the GitHub repository its `origin` points at, or
+  // null without a checkout (no-repository mode) or on a detached HEAD.
+  private async getCurrentCheckout(): Promise<OwnedBranch | null> {
+    const branch = await this.getCurrentGitBranch();
+    if (!branch || !this.config.repositoryPath) return null;
+    let repository: string | null = null;
+    try {
+      repository = parseGithubRemoteRepository(
+        await getRemoteUrl(this.config.repositoryPath),
+      );
+    } catch (error) {
+      this.logger.debug("Failed to determine git origin", {
+        repositoryPath: this.config.repositoryPath,
+        error,
+      });
+    }
+    return { repository, branch };
+  }
+
   private async syncCloudBranchMetadata(payload: JwtPayload): Promise<void> {
     const branchName = await this.getCurrentGitBranch();
     if (!branchName || branchName === this.lastReportedBranch) {
@@ -4221,6 +4312,12 @@ ${commonInstructions}
     taskRunId,
     taskUserId,
     taskTitle,
+    repositories,
+    runtimeAdapter,
+    sandboxEnvironmentId,
+    snapshotKind,
+    prewarmed,
+    executionEnvironment,
   }: {
     isInternal?: boolean;
     originProduct?: Task["origin_product"] | null;
@@ -4230,6 +4327,12 @@ ${commonInstructions}
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    repositories?: string[];
+    runtimeAdapter?: string | null;
+    sandboxEnvironmentId?: string | null;
+    snapshotKind?: string | null;
+    prewarmed?: boolean | null;
+    executionEnvironment?: "local" | "cloud";
   } = {}): GatewayEnv {
     const { apiKey, apiUrl, projectId } = this.config;
     const product = resolveGatewayProduct({ isInternal, originProduct });
@@ -4273,6 +4376,14 @@ ${commonInstructions}
       task_run_id: taskRunId,
       task_user_id: taskUserId,
       task_title: taskTitle,
+      task_repositories: repositories?.length
+        ? JSON.stringify(repositories)
+        : null,
+      task_runtime_adapter: runtimeAdapter,
+      task_sandbox_environment_id: sandboxEnvironmentId,
+      task_snapshot_kind: snapshotKind,
+      task_prewarmed: prewarmed,
+      task_execution_environment: executionEnvironment ?? "cloud",
     };
     // The Claude path appends the project scope in buildEnvironment from
     // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below
@@ -4786,12 +4897,19 @@ ${commonInstructions}
     // Already the attributed PR (e.g. seeded from a Slack notification, or re-detected).
     if (prUrl === this.detectedPrUrl) return;
 
-    let attribution: { createdAt: string | null; author: string | null };
+    let attribution: PrAttribution;
     let ghLogin: string | null;
+    let checkout: OwnedBranch | null;
+    let freshOutput: Record<string, unknown> | null;
     try {
-      [attribution, ghLogin] = await Promise.all([
+      [attribution, ghLogin, checkout, freshOutput] = await Promise.all([
         this.fetchPrAttribution(prUrl),
         this.fetchGhLogin(),
+        this.getCurrentCheckout(),
+        this.posthogAPI
+          .getTaskRun(payload.task_id, payload.run_id)
+          .then((run) => run.output ?? null)
+          .catch(() => null),
       ]);
     } catch (err) {
       this.logger.debug("PR attribution lookup failed", {
@@ -4802,21 +4920,45 @@ ${commonInstructions}
       return;
     }
 
-    // Only attribute PRs created during this run — not ones the agent merely
-    // viewed. GitHub App installation tokens (all cloud runs) can't read
-    // `gh api user`, so ghLogin is null there; enforce the author match only when
-    // we resolved our own identity, otherwise the recency gate alone scopes
-    // attribution to PRs created during this run.
-    if (!wasCreatedRecently(attribution.createdAt, Date.now())) return;
-    if (ghLogin && !wasCreatedByLogin(attribution.author, ghLogin)) return;
+    const ownedBranches = [
+      ...(checkout ? [checkout] : []),
+      ...ownedBranchesFromOutput(freshOutput),
+    ];
+    // GitHub App installation tokens (all cloud runs) can't read `gh api user`, so
+    // ghLogin is null there and the head-branch match is what proves ownership.
+    const owned = wasCreatedByThisRun({
+      createdAt: attribution.createdAt,
+      nowMs: Date.now(),
+      author: attribution.author,
+      ghLogin,
+      prRepository: parsePrRepository(prUrl),
+      headRefName: attribution.headRefName,
+      isCrossRepository: attribution.isCrossRepository,
+      ownedBranches,
+      baseBranch: this.config.baseBranch ?? null,
+    });
+    if (!owned) {
+      // Info, not debug: a wrongly rejected PR leaves the run with no PR until the
+      // webhook backstop binds it, and this line is the only trace of why.
+      this.logger.info(
+        "PR seen in output is not this run's, skipping attribution",
+        {
+          runId: payload.run_id,
+          prUrl,
+          createdAt: attribution.createdAt,
+          author: attribution.author,
+          ghLogin,
+          headRefName: attribution.headRefName,
+          isCrossRepository: attribution.isCrossRepository,
+          ownedBranches,
+        },
+      );
+      return;
+    }
 
     this.detectedPrUrl = prUrl;
 
     try {
-      const freshOutput = await this.posthogAPI
-        .getTaskRun(payload.task_id, payload.run_id)
-        .then((run) => run.output)
-        .catch(() => null);
       const urls = mergePrUrls(readPrUrls(freshOutput), [prUrl]);
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         output: buildPrOutput(freshOutput, urls),
@@ -4845,29 +4987,46 @@ ${commonInstructions}
     return token === undefined ? undefined : ghTokenEnv(token);
   }
 
-  private async fetchPrAttribution(
-    prUrl: string,
-  ): Promise<{ createdAt: string | null; author: string | null }> {
+  private async fetchPrAttribution(prUrl: string): Promise<PrAttribution> {
+    const unknown: PrAttribution = {
+      createdAt: null,
+      author: null,
+      headRefName: null,
+      isCrossRepository: null,
+    };
     const res = await execGh(
-      ["pr", "view", prUrl, "--json", "createdAt,author"],
+      [
+        "pr",
+        "view",
+        prUrl,
+        "--json",
+        "createdAt,author,headRefName,isCrossRepository",
+      ],
       {
         cwd: this.config.repositoryPath,
         timeoutMs: 10_000,
         env: this.ghActorEnv(),
       },
     );
-    if (res.exitCode !== 0) return { createdAt: null, author: null };
+    if (res.exitCode !== 0) return unknown;
     try {
       const data = JSON.parse(res.stdout) as {
         createdAt?: string;
         author?: { login?: string };
+        headRefName?: string;
+        isCrossRepository?: boolean;
       };
       return {
         createdAt: data.createdAt ?? null,
         author: data.author?.login ?? null,
+        headRefName: data.headRefName ?? null,
+        isCrossRepository:
+          typeof data.isCrossRepository === "boolean"
+            ? data.isCrossRepository
+            : null,
       };
     } catch {
-      return { createdAt: null, author: null };
+      return unknown;
     }
   }
 
