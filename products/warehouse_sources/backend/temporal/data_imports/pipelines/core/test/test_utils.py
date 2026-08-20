@@ -60,6 +60,17 @@ def test_table_from_py_list_uuid():
     )
 
 
+def test_table_from_py_list_schema_missing_uuid_column():
+    # A UUID column present in the batch but absent from the provided schema has its Arrow field
+    # inferred by `_python_type_to_pyarrow_type`, which must map UUID to string rather than raising.
+    uuid_ = uuid.uuid4()
+    schema = pa.schema(cast(Any, [pa.field("id", pa.int64())]))
+    table = table_from_py_list([{"id": 1, "uid": uuid_}], schema)
+
+    assert table.schema.field("uid").type == pa.string()
+    assert table.column("uid").to_pylist() == [str(uuid_)]
+
+
 def test_table_from_py_list_inconsistent_list():
     table = table_from_py_list([{"column": "hello"}, {"column": ["hi"]}])
 
@@ -474,7 +485,6 @@ def test_get_max_decimal_type_returns_correct_decimal_type(
     decimals: list[decimal.Decimal],
     expected: pa.Decimal128Type | pa.Decimal256Type,
 ):
-    """Test whether expected PyArrow decimal type variant is returned."""
     result = _get_max_decimal_type(decimals)
     assert result == expected
 
@@ -991,7 +1001,6 @@ def test_raise_on_nullability_drift_permits_valid_batches(
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
-    """Test that evolve_pyarrow_schema can handle struct columns with non-JSON-serializable types."""
     metadata_struct_type = pa.struct(
         [
             ("role", pa.string()),
@@ -1030,7 +1039,6 @@ def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
 
 
 def test_evolve_pyarrow_schema_with_list_containing_datetime():
-    """Test that evolve_pyarrow_schema can handle list columns with non-JSON-serializable types."""
     arrow_table = pa.table(
         {
             "id": pa.array([1, 2], type=pa.int64()),

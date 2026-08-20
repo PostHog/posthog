@@ -1276,7 +1276,7 @@ impl FeatureFlagMatcher {
                     evaluation_tags: None,
                     bucketing_identifier: None,
                 };
-                (stub, Err(FlagError::BatchEvaluationPanicked))
+                (stub, Err(FlagError::batch_evaluation_panicked()))
             })
             .collect()
     }
@@ -2301,7 +2301,7 @@ impl FeatureFlagMatcher {
                 tracing::debug!(
                     "Person properties not in cache — DB prep was skipped (overrides cover all needed keys)"
                 );
-                Err(FlagError::PersonNotFound)
+                Err(FlagError::person_not_found())
             }
             PersonPropertyState::Pending => {
                 inc(
@@ -2317,7 +2317,7 @@ impl FeatureFlagMatcher {
                     log.eval.person_properties_not_cached = true;
                 });
                 tracing::error!("Person properties not found — DB prep never ran");
-                Err(FlagError::PersonNotFound)
+                Err(FlagError::person_not_found())
             }
         }
     }
@@ -2560,19 +2560,37 @@ mod tests {
         assert_eq!(stub_a.key, "flag_a");
         assert_eq!(stub_a.id, 10);
         assert_eq!(stub_a.version, Some(3));
-        assert!(matches!(err_a, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_a,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         let (stub_b, err_b) = &results[1];
         assert_eq!(stub_b.key, "flag_b");
         assert_eq!(stub_b.id, 20);
         assert_eq!(stub_b.version, None);
-        assert!(matches!(err_b, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_b,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         let (stub_c, err_c) = &results[2];
         assert_eq!(stub_c.key, "flag_c");
         assert_eq!(stub_c.id, 30);
         assert_eq!(stub_c.version, Some(1));
-        assert!(matches!(err_c, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_c,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         for (stub, _) in &results {
             assert_eq!(stub.team_id, team_id);

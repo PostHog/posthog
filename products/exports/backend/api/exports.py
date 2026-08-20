@@ -26,7 +26,6 @@ from posthog.models.organization import Organization
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
@@ -37,13 +36,13 @@ from posthog.temporal.session_replay.rasterize_recording.types import (
     RasterizeRecordingInputs,
 )
 
-from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import (
     ExportedAsset,
     get_content_response,
     is_valid_session_recording_id,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.exports.backend.stuck_exports import STUCK_EXPORT_MESSAGE, is_stuck_export
+from products.product_analytics.backend.facade.models import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
 FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
@@ -60,37 +59,6 @@ def get_full_video_exports_limit_for_organization(organization: Organization | N
 
 
 logger = structlog.get_logger(__name__)
-
-STUCK_EXPORT_MESSAGE = "Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
-
-# Slack on top of a pipeline's envelope before we call an export stuck, so a render finishing right
-# at its deadline isn't reported as a failure.
-_STUCK_EXPORT_GRACE = timedelta(seconds=30)
-
-
-def stuck_export_threshold(instance: ExportedAsset) -> timedelta:
-    """How long an export may sit without content before nothing can still be working on it.
-
-    Matched to whichever pipeline renders the format: video renders get the rasterize workflow's
-    envelope, dataset exports the export workflow's, and everything else the HogQL query timeout it
-    inherits from the Celery exporter.
-    """
-    if instance.is_rasterized_export:
-        return RASTERIZE_WORKFLOW_TIMEOUT
-    if instance.is_dataset_export:
-        return EXPORT_WORKFLOW_TIMEOUT
-    return timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME)
-
-
-def is_stuck_export(instance: ExportedAsset) -> bool:
-    """No content, no recorded exception, and past the point its pipeline could still be rendering.
-
-    Nothing will ever mark these failed on their own — whatever was rendering them died without
-    writing a reason back to the row.
-    """
-    if instance.has_content or instance.exception:
-        return False
-    return instance.created_at < now() - stuck_export_threshold(instance) - _STUCK_EXPORT_GRACE
 
 
 class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):

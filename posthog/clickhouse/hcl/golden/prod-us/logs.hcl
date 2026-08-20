@@ -776,7 +776,7 @@ database "posthog" {
   }
 
   table "logs_volume_buckets" {
-    order_by     = ["team_id", "time_bucket", "generation", "service_name", "namespace", "environment", "severity_text"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(42)"
     settings = {
@@ -790,9 +790,6 @@ database "posthog" {
       type  = "DateTime('UTC')"
       codec = "DoubleDelta, ZSTD(1)"
     }
-    column "generation" {
-      type = "UInt64"
-    }
     column "service_name" {
       type = "LowCardinality(String)"
     }
@@ -806,9 +803,9 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "log_count" {
-      type = "UInt64"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
-    engine "replicated_merge_tree" {
+    engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.logs_volume_buckets"
       replica_name = "{replica}-{shard}"
     }
@@ -822,9 +819,6 @@ database "posthog" {
       type  = "DateTime('UTC')"
       codec = "DoubleDelta, ZSTD(1)"
     }
-    column "generation" {
-      type = "UInt64"
-    }
     column "service_name" {
       type = "LowCardinality(String)"
     }
@@ -838,10 +832,10 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "log_count" {
-      type = "UInt64"
+      type = "SimpleAggregateFunction(sum, UInt64)"
     }
     engine "distributed" {
-      cluster_name    = "posthog_single_shard"
+      cluster_name    = "logs"
       remote_database = "posthog"
       remote_table    = "logs_volume_buckets"
     }

@@ -15,7 +15,14 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.models.integration import Integration
 
 from ..facade import contracts
-from ..facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus, ReviewVerdict
+from ..facade.enums import (
+    ChannelResolutionSource,
+    DigestRunStatus,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 
 
 class _GateResultSummarySerializer(serializers.Serializer):
@@ -323,9 +330,22 @@ class ReviewRunSerializer(DataclassSerializer):
         read_only=True,
         help_text="Full URL to the pull request on GitHub.",
     )
+    title = serializers.CharField(
+        read_only=True,
+        help_text="Pull request title as of the last webhook delivery applied.",
+    )
+    author_login = serializers.CharField(
+        read_only=True,
+        help_text="GitHub login of the pull request author.",
+    )
     head_branch = serializers.CharField(
         read_only=True,
         help_text="Branch name of the PR head.",
+    )
+    trigger = serializers.ChoiceField(
+        choices=[(t.value, t.name) for t in ReviewTrigger],
+        read_only=True,
+        help_text="What caused this run to exist: self-driving inbox provenance, the repo's trigger label, or the repo reviewing every PR event.",
     )
     status = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in ReviewRunStatus],
@@ -346,6 +366,21 @@ class ReviewRunSerializer(DataclassSerializer):
         read_only=True,
         allow_null=True,
         help_text="When the review run reached a terminal state, if it has.",
+    )
+    posted_review_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the GitHub review this run posted, null if it never posted one.",
+    )
+    verdict_posted_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When this run's verdict reached GitHub, null if it never did.",
+    )
+    approval_dismissed_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When this run's GitHub approval was retracted because the head moved, null if it wasn't.",
     )
     gate_result = serializers.SerializerMethodField(
         help_text=(
@@ -394,14 +429,20 @@ class ReviewRunSerializer(DataclassSerializer):
             "repository",
             "pr_number",
             "pr_url",
+            "title",
+            "author_login",
             "head_sha",
             "head_branch",
             "delivery_id",
+            "trigger",
             "status",
             "verdict",
             "gate_result",
             "output",
             "error",
+            "posted_review_id",
+            "verdict_posted_at",
+            "approval_dismissed_at",
             "created_at",
             "updated_at",
             "completed_at",

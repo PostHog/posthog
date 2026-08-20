@@ -89,6 +89,18 @@ function backgroundTurnCompleteMsg(
   };
 }
 
+function backgroundTurnStartedMsg(ts: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/background_turn_started",
+      params: { sessionId: "session-1" },
+    },
+  };
+}
+
 function agentMessageMsg(ts: number, text: string): AcpMessage {
   return {
     type: "acp_message",
@@ -213,6 +225,31 @@ describe("buildConversationItems", () => {
         ],
       },
     ]);
+  });
+
+  it("keeps item ids stable when older history is prepended", () => {
+    const older: AcpMessage[] = [
+      userPromptMsg(1, 1, "first question"),
+      agentMessageMsg(2, "first reply"),
+      promptResponseMsg(3, 1),
+      userPromptMsg(4, 2, "second question"),
+      agentMessageMsg(5, "second reply"),
+      promptResponseMsg(6, 2),
+    ];
+    const tail: AcpMessage[] = [
+      userPromptMsg(10, 3, "later question"),
+      agentMessageMsg(11, "later reply"),
+      consoleMsg(12, "later tool output"),
+      promptResponseMsg(13, 3),
+    ];
+
+    const tailIds = buildConversationItems(tail, null).items.map((i) => i.id);
+    const fullIds = buildConversationItems([...older, ...tail], null).items.map(
+      (i) => i.id,
+    );
+
+    expect(tailIds.length).toBeGreaterThan(0);
+    expect(fullIds.slice(-tailIds.length)).toEqual(tailIds);
   });
 
   it("clears the compacting spinner on a successful completion status, without duplicating the row", () => {
@@ -1063,6 +1100,27 @@ describe("buildConversationItems", () => {
       expect(distinctContexts.size).toBe(4);
     });
 
+    it("keeps item ids distinct across implicit turns that share a timestamp", () => {
+      // Entries with a missing or unparseable timestamp all resolve to one `ts`.
+      // The virtualizer keys its measurement cache and its prepend anchor on the
+      // item id, so a duplicate anchors older history onto the wrong row.
+      const events = [
+        userPromptMsg(1, 1, "use a monitor"),
+        agentMessageMsg(2, "Monitor is running."),
+        turnCompleteMsg(3),
+        agentMessageMsg(10, "ping 1 received."),
+        backgroundTurnCompleteMsg(10),
+        agentMessageMsg(10, "ping 2 received."),
+        backgroundTurnCompleteMsg(10),
+      ];
+
+      const ids = buildConversationItems(events, true).items.map(
+        (item) => item.id,
+      );
+
+      expect(new Set(ids).size).toBe(ids.length);
+    });
+
     it("computes a real duration for an implicit turn once a background reply completes it", () => {
       const events = [
         userPromptMsg(1, 1, "use a monitor"),
@@ -1076,6 +1134,24 @@ describe("buildConversationItems", () => {
 
       expect(lastTurnInfo?.isComplete).toBe(true);
       expect(lastTurnInfo?.durationMs).toBeGreaterThan(0);
+    });
+
+    it("tracks an active background turn until its completion arrives", () => {
+      const active = buildConversationItems(
+        [backgroundTurnStartedMsg(10), agentMessageMsg(11, "Working")],
+        false,
+      );
+      const completed = buildConversationItems(
+        [
+          backgroundTurnStartedMsg(10),
+          agentMessageMsg(11, "Working"),
+          backgroundTurnCompleteMsg(12),
+        ],
+        false,
+      );
+
+      expect(active.isBackgroundTurnActive).toBe(true);
+      expect(completed.isBackgroundTurnActive).toBe(false);
     });
 
     it("does not spawn a phantom turn for a silent trailing update like usage_update", () => {

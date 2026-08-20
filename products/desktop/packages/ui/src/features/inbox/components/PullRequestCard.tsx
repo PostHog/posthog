@@ -129,10 +129,7 @@ export function PullRequestCardView({
       {renderBody(body, inboxCardBodyClassName)}
 
       <InboxCardActions>
-        <SuggestedReviewerAvatarStack
-          reportId={report.id}
-          artefacts={artefacts}
-        />
+        <SuggestedReviewerAvatarStack report={report} artefacts={artefacts} />
         <UiButton
           type="button"
           variant="soft"
