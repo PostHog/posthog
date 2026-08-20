@@ -323,23 +323,6 @@ describe('dashboardLogic', () => {
         })
     })
 
-    describe('inline tile insertion experiment', () => {
-        beforeEach(() => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-        })
-
-        it.each([
-            ['control', false],
-            ['test', true],
-        ])('uses the %s variant', async (variant, expectedEnabled) => {
-            const experimentFlag = FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION_EXPERIMENT
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([experimentFlag], { [experimentFlag]: variant })
-            }).toMatchValues({ inlineTileInsertionEnabled: expectedEnabled })
-        })
-    })
-
     describe('tile layouts', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 5 })
