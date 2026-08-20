@@ -112,6 +112,10 @@ export const NEW_WORKFLOW: HogFlow = {
 // data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
 
+// Trigger types whose runs have no person attached. Keep in sync with the backend's
+// ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
+export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'slack-message'])
+
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
         try {
@@ -168,6 +172,18 @@ const WORKFLOW_CONTENT_FIELDS = [
     'abort_action',
     'variables',
 ] as const
+
+// The fields the editor writes through the form. Edits that land while a save is in flight are
+// re-applied from these after the response rebaselines the form, so the round-trip can't drop them.
+const WORKFLOW_EDITABLE_FIELDS = [...WORKFLOW_CONTENT_FIELDS, 'name', 'description'] as const
+
+function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
+    const result: Record<string, unknown> = {}
+    for (const field of WORKFLOW_EDITABLE_FIELDS) {
+        result[field] = workflow[field]
+    }
+    return result as Partial<HogFlow>
+}
 
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
@@ -227,6 +243,7 @@ export interface workflowLogicValues {
     workflow: HogFlow
     workflowAllErrors: Record<string, any>
     workflowChanged: boolean
+    workflowEditVersion: number
     workflowErrors: DeepPartialMap<HogFlow, ValidationErrorType>
     workflowHasActionErrors: boolean
     workflowHasErrors: boolean
@@ -731,6 +748,12 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
@@ -978,6 +1001,12 @@ export interface workflowLogicActions {
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'slack-message'
                         }
                       | {
                             filters: {
@@ -1525,6 +1554,12 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
@@ -1777,6 +1812,12 @@ export interface workflowLogicActions {
                             filters: {
                                 properties?: any[] | undefined
                             }
+                            type: 'slack-message'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
@@ -1939,6 +1980,12 @@ export interface workflowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   condition: {
@@ -2285,6 +2332,12 @@ export interface workflowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   condition: {
@@ -2644,6 +2697,12 @@ export interface workflowLogicMeta {
                                     properties?: any[] | undefined
                                 }
                                 type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                type: 'slack-message'
                             }
                           | {
                                 filters: {
@@ -3066,6 +3125,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 setAutoSaveEnabled: (_, { enabled }) => enabled,
             },
         ],
+        // Bumped on every form write. A save records the version it captured, so its response can
+        // tell whether the user kept editing while the request was in flight.
+        workflowEditVersion: [
+            0,
+            {
+                setWorkflowValue: (state) => state + 1,
+                setWorkflowValues: (state) => state + 1,
+            },
+        ],
         // Gates when per-field step messages become visible: the action ids that were present at
         // the last save/enable attempt. Every step is validated the whole time (so the node badge
         // and enable-gate work), but a step only shows its messages once the user has tried to
@@ -3233,11 +3301,12 @@ export const workflowLogic = kea<workflowLogicType>([
                 scheduleStartsAt: string | null,
                 saveAttemptedActionIds: string[] | null
             ): Record<string, HogFlowActionValidationResult | null> => {
-                // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
-                // step types make no sense without a person, so we block them at save time.
+                // Warehouse- and Slack-triggered workflows are person-less ("row-scoped").
+                // Person-dependent step types make no sense without a person, so we block them at
+                // save time.
                 const triggerAction = workflow.actions.find((a) => a.type === 'trigger')
                 const isRowScopedTrigger =
-                    triggerAction?.type === 'trigger' && triggerAction.config?.type === 'data-warehouse-table'
+                    triggerAction?.type === 'trigger' && ROW_SCOPED_TRIGGER_TYPES.has(triggerAction.config?.type)
 
                 return workflow.actions.reduce(
                     (acc, action) => {
@@ -3286,7 +3355,8 @@ export const workflowLogic = kea<workflowLogicType>([
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
                                 from: !emailValue?.from?.integrationId
                                     ? 'Choose an email sender, or connect a new one'
-                                    : undefined,
+                                    : (getTemplatingError(emailValue?.from?.email, emailTemplating) ??
+                                      getTemplatingError(emailValue?.from?.name, emailTemplating)),
                                 to: !emailValue?.to?.email
                                     ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
@@ -3425,7 +3495,8 @@ export const workflowLogic = kea<workflowLogicType>([
         // for the authoritative enforcement).
         isRowScopedTrigger: [
             (s) => [s.triggerAction],
-            (triggerAction: TriggerAction | null): boolean => triggerAction?.config?.type === 'data-warehouse-table',
+            (triggerAction: TriggerAction | null): boolean =>
+                ROW_SCOPED_TRIGGER_TYPES.has(triggerAction?.config?.type as string),
         ],
 
         workflowSanitized: [
@@ -3440,7 +3511,7 @@ export const workflowLogic = kea<workflowLogicType>([
             (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.draft,
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
             if (!pickerDate) {
                 actions.setScheduleStartsAt(null)
@@ -3634,6 +3705,9 @@ export const workflowLogic = kea<workflowLogicType>([
         loadWorkflowFailure: () => {
             actions.replayDeferredResourceEdited()
         },
+        saveWorkflow: () => {
+            cache.saveEditVersion = values.workflowEditVersion
+        },
         saveWorkflowFailure: () => {
             actions.replayDeferredResourceEdited()
         },
@@ -3744,8 +3818,18 @@ export const workflowLogic = kea<workflowLogicType>([
 
             // A staged save's response carries the live config plus the new draft blob: rebaseline the
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
+            const editedDuringSave =
+                cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion
+            const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.markAutoSave(false)
+            if (editsDuringSave) {
+                // The response only reflects the payload that was sent. Anything typed while it was
+                // in flight (the live email editor writes on every pause) must survive the reset and
+                // stay dirty, or it vanishes from the form and the canvas reloads the stale version.
+                actions.setWorkflowValues(editsDuringSave)
+                actions.autoSaveWorkflow()
+            }
             actions.replayDeferredResourceEdited()
         },
         discardChanges: () => {

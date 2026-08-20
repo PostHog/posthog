@@ -26,7 +26,6 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.api import (
@@ -862,8 +861,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsAlertConfiguration.objects.all().order_by("-created_at")
     serializer_class = LogsAlertConfigurationSerializer
     lookup_field = "id"
-    posthog_feature_flag = "logs-alerting"
-    permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
@@ -976,6 +973,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request.user,
             "logs alert destination created",
             {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(EVENT_KINDS)},
+            request=request,
         )
         response = LogsAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
         return Response(response.data, status=201)
@@ -1004,6 +1002,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request.user,
             "logs alert destination deleted",
             {"alert_id": str(alert.id), "count": len(hog_function_ids)},
+            request=request,
         )
         return Response(status=204)
 
@@ -1091,7 +1090,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     ],
                 ),
             )
-        report_user_action(request.user, "logs alert reset", {"alert_id": str(alert.id)})
+        report_user_action(request.user, "logs alert reset", {"alert_id": str(alert.id)}, request=request)
         return Response(self.get_serializer(alert).data)
 
     @extend_schema(

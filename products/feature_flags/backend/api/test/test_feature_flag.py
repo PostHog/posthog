@@ -54,7 +54,12 @@ from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_e
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
+from products.feature_flags.backend.api.feature_flag import (
+    FLAG_FILTERS_VIOLATION_COUNTER,
+    FLAG_FILTERS_WRITE_COUNTER,
+    FeatureFlagSerializer,
+    parse_created_by_ids,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     flag_payload_codec,
@@ -64,7 +69,7 @@ from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
@@ -253,8 +258,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 response.json(),
                 {
                     "type": "validation_error",
-                    "code": "invalid_value",
-                    "detail": f"Invalid value for operator {operator}: ['@posthog.com']",
+                    "code": "cross_field.operator_requires_string_value",
+                    "detail": f"groups[0].properties[0].value: Operator {operator} requires a string value.",
                     "attr": "filters",
                 },
             )
@@ -323,8 +328,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_operator",
-                "detail": f"The '{operator}' operator is only valid for cohort properties, not 'person' properties.",
+                "code": "cross_field.in_not_in_requires_cohort",
+                "detail": f"groups[0].properties[0].operator: Operator {operator} is only supported on cohort properties.",
                 "attr": "filters",
             },
         )
@@ -366,8 +371,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_operator",
-                "detail": f"Invalid operator: {operator}",
+                "code": "structural.groups[].properties[].operator.invalid_choice",
+                "detail": f'groups[0].properties[0].operator: "{operator}" is not a valid choice.',
                 "attr": "filters",
             },
         )
@@ -691,13 +696,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("false", False, "bool"),
-            ("true", True, "bool"),
-            ("string", "not_an_int", "str"),
-            ("float", 1.5, "float"),
+            ("false", False),
+            ("true", True),
+            ("string", "not_an_int"),
+            ("float", 1.5),
         ]
     )
-    def test_non_integer_aggregation_group_type_index_rejected(self, _name, bad_value, expected_type):
+    def test_non_integer_aggregation_group_type_index_rejected(self, _name, bad_value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -711,16 +716,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_type, response.json()["detail"])
+        self.assertEqual(response.json()["detail"], "aggregation_group_type_index: A valid integer is required.")
 
     @parameterized.expand(
         [
-            ("false", False, "bool"),
-            ("true", True, "bool"),
-            ("int", 42, "int"),
+            ("false", False),
+            ("true", True),
+            ("int", 42),
         ]
     )
-    def test_non_string_group_variant_rejected(self, _name, bad_value, expected_type):
+    def test_non_string_group_variant_rejected(self, _name, bad_value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -733,7 +738,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_type, response.json()["detail"])
+        self.assertEqual(response.json()["detail"], "groups[0].variant: Not a valid string.")
 
     def test_string_group_variant_preserved(self):
         response = self.client.post(
@@ -847,13 +852,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("int", 1, "int"),
-            ("string_true", "true", "str"),
-            ("string_false", "false", "str"),
-            ("float", 1.5, "float"),
+            ("int", 1),
+            ("string_true", "true"),
+            ("string_false", "false"),
+            ("float", 1.5),
         ]
     )
-    def test_non_boolean_early_exit_rejected(self, _name, bad_value, expected_type):
+    def test_non_boolean_early_exit_rejected(self, _name, bad_value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -867,8 +872,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("early_exit must be a boolean", response.json()["detail"])
-        self.assertIn(expected_type, response.json()["detail"])
+        self.assertIn("early_exit: Must be a valid boolean", response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -917,7 +921,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("between 0 and 100", response.json()["detail"])
+        self.assertIn("groups[0].rollout_percentage: Ensure this value is", response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -974,13 +978,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("false", False, "bool"),
-            ("true", True, "bool"),
-            ("string", "not_an_int", "str"),
-            ("float", 1.5, "float"),
+            ("false", False),
+            ("true", True),
+            ("string", "not_an_int"),
+            ("float", 1.5),
         ]
     )
-    def test_non_integer_property_group_type_index_rejected(self, _name, bad_value, expected_type):
+    def test_non_integer_property_group_type_index_rejected(self, _name, bad_value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -1000,7 +1004,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_type, response.json()["detail"])
+        self.assertEqual(
+            response.json()["detail"], "groups[0].properties[0].group_type_index: A valid integer is required."
+        )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
@@ -1521,7 +1527,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            "Invalid variant definitions: Variant rollout percentages must sum to 100.",
+            f"multivariate.variants: Variant rollout percentages must sum to 100, got {75 + third_variant_rollout}.",
         )
 
     def test_cant_update_multivariate_feature_flag_with_variant_rollout_not_100(self):
@@ -1568,7 +1574,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            "Invalid variant definitions: Variant rollout percentages must sum to 100.",
+            "multivariate.variants: Variant rollout percentages must sum to 100, got 90.",
         )
 
         # Verify flag wasn't updated
@@ -1638,7 +1644,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            "Filters are not valid (variant override does not exist)",
+            "groups[0].variant: Variant override 'unknown-variant' does not match any variant key.",
         )
 
     def test_cant_update_multivariate_feature_flag_with_invalid_variant_overrides(self):
@@ -1720,7 +1726,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            "Filters are not valid (variant override does not exist)",
+            "groups[0].variant: Variant override 'unknown-variant' does not match any variant key.",
         )
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
@@ -4055,6 +4061,120 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flag.deleted is True
         assert flag.key == f"{_name}-exp-flag:deleted:{flag.id}"
 
+    EXPERIMENT_FLAG_FILTERS = {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": {
+            "variants": [
+                {"key": "control", "rollout_percentage": 50},
+                {"key": "test", "rollout_percentage": 50},
+            ]
+        },
+    }
+
+    def test_remove_variants_blocked_with_running_experiment(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exp-variants-flag", filters=self.EXPERIMENT_FLAG_FILTERS
+        )
+        exp = Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        )
+        # The flag editor serializes a boolean flag as "multivariate": null.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {**self.EXPERIMENT_FLAG_FILTERS, "multivariate": None}},
+        )
+        assert response.status_code == 400
+        assert (
+            response.json()["detail"]
+            == f"Cannot remove variant(s) 'control', 'test' from a feature flag that is linked to running experiment(s): \"My experiment\" (ID: {exp.id}). Please stop the experiment(s) before removing variants."
+        )
+        flag.refresh_from_db()
+        assert flag.filters["multivariate"] == self.EXPERIMENT_FLAG_FILTERS["multivariate"]
+
+    def test_rename_variant_blocked_with_running_experiment(self):
+        # A rename is a drop plus an add of a variant key, so it must be blocked too.
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exp-rename-flag", filters=self.EXPERIMENT_FLAG_FILTERS
+        )
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        )
+        renamed = {
+            **self.EXPERIMENT_FLAG_FILTERS,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "treatment", "rollout_percentage": 50},
+                ]
+            },
+        }
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": renamed})
+        assert response.status_code == 400
+        assert "Cannot remove variant(s) 'test'" in response.json()["detail"]
+
+    def test_add_variant_and_change_rollout_allowed_with_running_experiment(self):
+        # Shipping a winner rewrites rollouts to 100/0 and keeps every key — additions
+        # and rollout changes must pass.
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exp-rollout-flag", filters=self.EXPERIMENT_FLAG_FILTERS
+        )
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        )
+        reshaped = {
+            **self.EXPERIMENT_FLAG_FILTERS,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 0},
+                    {"key": "test", "rollout_percentage": 100},
+                    {"key": "extra", "rollout_percentage": 0},
+                ]
+            },
+        }
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": reshaped})
+        assert response.status_code == 200, response.content
+
+    @parameterized.expand(
+        [
+            ("draft", None, None),
+            ("stopped", now(), now()),
+        ]
+    )
+    def test_remove_variants_allowed_with_non_running_experiment(self, _name, start_date, end_date):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=f"{_name}-variants-flag",
+            filters=self.EXPERIMENT_FLAG_FILTERS,
+        )
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, start_date=start_date, end_date=end_date
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {**self.EXPERIMENT_FLAG_FILTERS, "multivariate": None}},
+        )
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.filters.get("multivariate") is None
+
+    def test_partial_update_keeps_variants_with_running_experiment(self):
+        # Updates that don't touch multivariate merge the stored variants back in and
+        # must pass — the experiments service flips flags through this serializer.
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exp-partial-flag", filters=self.EXPERIMENT_FLAG_FILTERS
+        )
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": [{"properties": [], "rollout_percentage": 50}]}, "active": True},
+        )
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.filters["multivariate"] == self.EXPERIMENT_FLAG_FILTERS["multivariate"]
+
     def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
         # Set the flag as the session recording linked flag
@@ -5190,8 +5310,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertLessEqual(
             {
                 "type": "validation_error",
-                "code": "invalid_date",
-                "detail": f"Invalid date value: {invalid_date}",
+                "code": "cross_field.date_value_not_parseable",
+                "detail": f"groups[0].properties[0].value: Invalid date value: {invalid_date}.",
                 "attr": "filters",
             }.items(),
             resp.json().items(),
@@ -5210,7 +5330,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             [{"key": "age", "type": "person", "value": "test", "operator": operator}],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(resp.json()["code"], "unsupported_operator")
+        self.assertEqual(resp.json()["code"], "structural.groups[].properties[].operator.invalid_choice")
         self.assertIn(operator, resp.json()["detail"])
 
     @parameterized.expand(
@@ -5237,7 +5357,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(resp.json()["code"], "unsupported_operator")
+        self.assertEqual(resp.json()["code"], "structural.groups[].properties[].operator.invalid_choice")
         self.assertIn(operator, resp.json()["detail"])
 
     @parameterized.expand(
@@ -5295,7 +5415,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             [{"key": "app_version", "type": "person", "value": value, "operator": operator}],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(resp.json()["code"], "invalid_value")
+        self.assertEqual(resp.json()["code"], "cross_field.semver_value_invalid")
 
     @parameterized.expand(
         [
@@ -5330,7 +5450,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             [{"key": "url", "type": "person", "value": value, "operator": operator}],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(resp.json()["code"], "invalid_value")
+        self.assertEqual(resp.json()["code"], "cross_field.operator_requires_list_value")
         self.assertIn("requires a list", resp.json()["detail"])
 
     @parameterized.expand(
@@ -5508,7 +5628,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(invalid_json_payload.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(invalid_json_payload.json()["detail"], "Payload value is not valid JSON")
+        self.assertEqual(invalid_json_payload.json()["detail"], "payloads: Payload for key 'true' is not valid JSON.")
 
         non_string_payload = self._create_flag_with_properties(
             "non-string-json-flag",
@@ -5559,7 +5679,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Payload value is not valid JSON")
+        self.assertEqual(response.json()["detail"], "payloads: Payload for key 'true' is not valid JSON.")
 
     def test_creating_feature_flag_with_behavioral_cohort(self):
         cohort_valid_for_ff = Cohort.objects.create(
@@ -6087,8 +6207,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             illegal_groups_request.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Filters are not valid (group properties must match the condition set's group type)",
+                "code": "cross_field.group_property_type_index_mismatch",
+                "detail": "groups[0].properties[0]: Group properties must match the condition set's group type.",
                 "attr": "filters",
             },
         )
@@ -6110,8 +6230,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             person_request.json(),
             {
                 "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Filters are not valid (group-aggregated conditions can only use group properties)",
+                "code": "cross_field.group_aggregation_property_type",
+                "detail": "groups[0].properties[0]: Group-aggregated conditions can only use group properties.",
                 "attr": "filters",
             },
         )
@@ -8096,6 +8216,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "groups": [
                         {
                             "rollout_percentage": 65,
+                            "aggregation_group_type_index": 0,
                             "properties": [
                                 {
                                     "key": "email",
@@ -8231,7 +8352,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Invalid value for operator regex: 123")
+        self.assertEqual(
+            response.json()["detail"], "groups[0].properties[0].value: Operator regex requires a string value."
+        )
 
     def test_can_create_flag_with_valid_regex(self):
         response = self.client.post(
@@ -8571,6 +8694,193 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["keys"].get(str(flag.id)), "self-created-flag")
+
+
+# Wiring guards for #50084 phase 3 enforcement. The validation rule matrix lives in
+# test_filters_schema.py and test_filters_validation.py; these prove the endpoint is wired
+# to the enforcing serializer and that merged-state PATCH semantics hold end to end.
+class TestFeatureFlagFiltersEnforcement(APIBaseTest):
+    def _create_flag_via_orm(self, key: str, filters: dict) -> FeatureFlag:
+        return FeatureFlag.objects.create(team=self.team, created_by=self.user, key=key, name=key, filters=filters)
+
+    def test_post_with_structurally_invalid_filters_is_rejected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "bad-filters", "filters": {"groups": [{"rollout_percentage": "50"}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["attr"], "filters")
+        self.assertEqual(body["code"], "structural.groups[].rollout_percentage.invalid")
+        self.assertIn("groups[0].rollout_percentage", body["detail"])
+
+    def test_patch_empty_filters_is_a_validated_noop(self):
+        # Deliberately un-normalized: no aggregation_group_type_index at either level. A
+        # fixture already carrying those keys cannot fail this assertion, since the only other
+        # thing normalization does is coerce the rollout to a float, and 50 == 50.0 in Python.
+        original: dict = {
+            "groups": [{"properties": [], "rollout_percentage": 50}],
+            "payloads": {"true": '"yes"'},
+        }
+        flag = self._create_flag_via_orm("noop-flag", original)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": {}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters, original)
+
+    def test_patch_without_filters_leaves_them_untouched(self):
+        # DRF hands DictField an empty dict rather than "absent" for form-encoded input, so a
+        # request that never mentions filters still reaches validate_filters.
+        original: dict = {"groups": [{"properties": [], "rollout_percentage": 50}]}
+        flag = self._create_flag_via_orm("untouched-flag", original)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            data="name=renamed",
+            content_type="application/x-www-form-urlencoded",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertEqual(flag.name, "renamed")
+        self.assertEqual(flag.filters, original)
+
+    def test_patch_partial_filters_merges_with_stored_state(self):
+        flag = self._create_flag_via_orm("merge-flag", {"groups": [{"properties": [], "rollout_percentage": 50}]})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"payloads": {"true": '"hello"'}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["payloads"], {"true": '"hello"'})
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 50)
+
+    def test_patch_groups_absent_preserves_but_empty_list_clears_targeting(self):
+        # Pins the locked #50084 merge asymmetry: absent `groups` must merge as "keep stored
+        # targeting", while an explicit [] is clear-targeting.
+        flag = self._create_flag_via_orm(
+            "clear-targeting-flag", {"groups": [{"properties": [], "rollout_percentage": 50}]}
+        )
+
+        absent = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"payloads": {"true": '"kept"'}}},
+            format="json",
+        )
+        self.assertEqual(absent.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 50)
+
+        cleared = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": []}},
+            format="json",
+        )
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["groups"], [])
+        self.assertEqual(flag.filters["payloads"], {"true": '"kept"'})
+
+    def test_stored_violating_flag_blocks_filters_edits_only(self):
+        stored = {
+            "groups": [
+                {
+                    "properties": [{"key": "email", "type": "person", "operator": "is_contained_within", "value": "x"}],
+                    "rollout_percentage": None,
+                }
+            ]
+        }
+        flag = self._create_flag_via_orm("violating-flag", stored)
+
+        read = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+        self.assertEqual(read.status_code, status.HTTP_200_OK)
+        self.assertEqual(read.json()["filters"], stored)
+
+        rename = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"name": "renamed"}, format="json"
+        )
+        self.assertEqual(rename.status_code, status.HTTP_200_OK)
+
+        filters_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"payloads": {"true": '"x"'}}},
+            format="json",
+        )
+        self.assertEqual(filters_edit.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(filters_edit.json()["attr"], "filters")
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    def test_kill_switch_logs_new_rules_but_still_rejects_serde_unsafe_input(self):
+        # An empty variant key is structurally invalid but still deserializes as a Rust String,
+        # so log-only mode records it without widening the cache-poisoning surface.
+        new_rule_only = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "bypassed-flag",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(new_rule_only.status_code, status.HTTP_201_CREATED, new_rule_only.json())
+        flag = FeatureFlag.objects.get(id=new_rule_only.json()["id"])
+        self.assertEqual(flag.filters["multivariate"]["variants"][0]["key"], "")
+
+        # But the pre-enforcement type/bounds checks stay active: cache-poisoning input is
+        # rejected exactly as before enforcement shipped, switch or no switch.
+        serde_unsafe = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "poison-flag", "filters": {"groups": [{"properties": [], "rollout_percentage": "50"}]}},
+            format="json",
+        )
+        self.assertEqual(serde_unsafe.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            serde_unsafe.json()["detail"], "groups[0].rollout_percentage must be a number or null, got str"
+        )
+
+    def test_display_passthrough_fields_round_trip(self):
+        filters = {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "operator": "icontains",
+                            "value": "@x.com",
+                            "label": "Email",
+                        }
+                    ],
+                    "rollout_percentage": None,
+                    "description": "First rollout cohort",
+                    "sort_key": "g1",
+                }
+            ],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "passthrough-flag", "filters": filters},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        stored = FeatureFlag.objects.get(id=response.json()["id"]).filters
+        group = stored["groups"][0]
+        self.assertEqual(group["description"], "First rollout cohort")
+        self.assertEqual(group["sort_key"], "g1")
+        self.assertEqual(group["properties"][0]["label"], "Email")
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
@@ -13885,6 +14195,164 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertIn("error", response.json())
+
+
+class TestFeatureFlagFiltersMetrics(APIBaseTest):
+    def _write_count(self, operation: str, outcome: str) -> float:
+        return FLAG_FILTERS_WRITE_COUNTER.labels(operation=operation, outcome=outcome, source="ui")._value.get()
+
+    def test_write_outcomes_and_violations_are_counted(self) -> None:
+        accepted_before = self._write_count("create", "accepted")
+        rejected_before = self._write_count("create", "rejected")
+        violation_before = FLAG_FILTERS_VIOLATION_COUNTER.labels(
+            stage="merged_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
+        )._value.get()
+
+        ok = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "metrics-ok", "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+
+        bad = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "metrics-bad", "filters": {"groups": [{"properties": [], "rollout_percentage": 150}]}},
+            format="json",
+        )
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertEqual(self._write_count("create", "accepted"), accepted_before + 1)
+        self.assertEqual(self._write_count("create", "rejected"), rejected_before + 1)
+        self.assertEqual(
+            FLAG_FILTERS_VIOLATION_COUNTER.labels(
+                stage="merged_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
+            )._value.get(),
+            violation_before + 1,
+        )
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    def test_bypassed_write_is_not_also_counted_as_accepted(self) -> None:
+        accepted_before = self._write_count("create", "accepted")
+        bypassed_before = self._write_count("create", "bypassed")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "metrics-bypassed",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(self._write_count("create", "bypassed"), bypassed_before + 1)
+        self.assertEqual(self._write_count("create", "accepted"), accepted_before)
+
+    def _violation_count(self, stage: str, rule: str, operation: str) -> float:
+        return FLAG_FILTERS_VIOLATION_COUNTER.labels(stage=stage, rule=rule, operation=operation)._value.get()
+
+    def _create_flag_via_orm(self, key: str, filters: dict) -> FeatureFlag:
+        return FeatureFlag.objects.create(team=self.team, created_by=self.user, key=key, name=key, filters=filters)
+
+    def test_update_writes_are_counted_under_their_own_operation(self) -> None:
+        # update() increments through a different call site than create(); without this the
+        # operation="update" series could stop reporting and CI would stay green.
+        flag = self._create_flag_via_orm("metrics-update", {"groups": [{"properties": [], "rollout_percentage": 10}]})
+        accepted_before = self._write_count("update", "accepted")
+        rejected_before = self._write_count("update", "rejected")
+
+        ok = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": [{"properties": [], "rollout_percentage": 20}]}},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, status.HTTP_200_OK)
+
+        bad = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": [{"properties": [], "rollout_percentage": 150}]}},
+            format="json",
+        )
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertEqual(self._write_count("update", "accepted"), accepted_before + 1)
+        self.assertEqual(self._write_count("update", "rejected"), rejected_before + 1)
+
+    def test_preexisting_rejections_are_counted_apart_from_enforcement(self) -> None:
+        # A missing cohort rejected long before this rollout, so counting it as `rejected`
+        # would leave that series unreadable as "what enforcement rejects".
+        rejected_before = self._write_count("create", "rejected")
+        preexisting_before = self._write_count("create", "rejected_preexisting")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "metrics-missing-cohort",
+                "filters": {
+                    "groups": [
+                        {"properties": [{"key": "id", "type": "cohort", "value": 9999999}], "rollout_percentage": 100}
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._write_count("create", "rejected_preexisting"), preexisting_before + 1)
+        self.assertEqual(self._write_count("create", "rejected"), rejected_before)
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    def test_cross_field_bypass_is_logged_counted_and_persisted(self) -> None:
+        # The branch production runs while the switch is off: structurally valid input with a
+        # cross-field violation. It marks the write bypassed, counts the rule, and saves anyway.
+        bypassed_before = self._write_count("create", "bypassed")
+        rule_before = self._violation_count("cross_field", "cross_field.variant_rollout_sum_not_100", "create")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "metrics-cross-field-bypass",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 40}]},
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(self._write_count("create", "bypassed"), bypassed_before + 1)
+        self.assertEqual(
+            self._violation_count("cross_field", "cross_field.variant_rollout_sum_not_100", "create"),
+            rule_before + 1,
+        )
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    def test_structural_failure_records_cross_field_as_not_evaluated(self) -> None:
+        # Cross-field checks need structurally valid input, so they never run for these writes.
+        # The dashboard has to see that, or a bare zero reads as "nothing left to fix".
+        not_evaluated_before = self._violation_count("cross_field", "not_evaluated", "create")
+
+        # A blank variant key fails the structural tier but not the serde guard, which rejects
+        # regardless of the switch. A guard-rejected shape would never reach this branch.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "metrics-not-evaluated",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(self._violation_count("cross_field", "not_evaluated", "create"), not_evaluated_before + 1)
 
 
 class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):

@@ -21,13 +21,13 @@ class FakeCrawlHistory implements CrawlHistoryStore {
     public readonly stored = new Map<string, number>()
     public readFailure: Error | null = null
     public writeFailure: Error | null = null
-    /** Keys whose individual write reports a per-command failure, as ioredis does inside a pipeline. */
+    /** Keys whose individual write reports a failure. */
     public partialWriteFailures = new Set<string>()
     /** Keys whose read did not complete, so the store can say nothing about them. */
     public partialReadFailures = new Set<string>()
     public reads = 0
 
-    read(keys: string[]): Promise<CrawlHistoryReadResult> {
+    read(keys: string[], _nowMs: number): Promise<CrawlHistoryReadResult> {
         this.reads++
         if (this.readFailure) {
             return Promise.reject(this.readFailure)
@@ -99,6 +99,7 @@ describe('UrlFetchConsumer', () => {
         new UrlFetchConsumer(crawlHistory, publisher, {
             maxAgeMs: 6 * 60 * 60 * 1000,
             dedupMaxRefs,
+            seenTtlSeconds: 7 * 24 * 60 * 60,
             dryRun: true,
         })
 
@@ -120,8 +121,29 @@ describe('UrlFetchConsumer', () => {
         // The limit arrives from env, where a typo parses to NaN. A NaN limit makes every comparison
         // false, so the lane stops shedding a backlog rather than fails.
         expect(
-            () => new UrlFetchConsumer(crawlHistory, publisher, { maxAgeMs, dedupMaxRefs: 10, dryRun: true })
+            () =>
+                new UrlFetchConsumer(crawlHistory, publisher, {
+                    maxAgeMs,
+                    dedupMaxRefs: 10,
+                    seenTtlSeconds: 604_800,
+                    dryRun: true,
+                })
         ).toThrow('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS')
+    })
+
+    it.each([NaN, 0, -1, 1.5, 7, 3599])('refuses to start with a seen TTL of %p', (seenTtlSeconds) => {
+        // The TTL arrives from env, where a typo parses to NaN and a unit suffix truncates: "7d"
+        // parses to 7, and a 7-second TTL empties the ledger as fast as it fills. A NaN expiry makes
+        // every ledger write fail while the lane looks healthy.
+        expect(
+            () =>
+                new UrlFetchConsumer(crawlHistory, publisher, {
+                    maxAgeMs: 1000,
+                    dedupMaxRefs: 10,
+                    seenTtlSeconds,
+                    dryRun: true,
+                })
+        ).toThrow('SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS')
     })
 
     it('writes one ledger entry per URL it would fetch', async () => {
@@ -300,7 +322,7 @@ describe('UrlFetchConsumer', () => {
     it('commits a batch the store could not answer for, rather than replaying it forever', async () => {
         // A store that answers nothing answers nothing for the next batch too, so a replay stops
         // the lane instead of saving the URL. Nothing is recorded, so the mirror offers it again.
-        crawlHistory.readFailure = new Error('redis down')
+        crawlHistory.readFailure = new Error('store down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
 
@@ -310,7 +332,7 @@ describe('UrlFetchConsumer', () => {
     it('commits a batch whose store write failed, because the URL was fetched', async () => {
         // A missing crawl history entry costs one duplicate fetch later, which requirement 22
         // allows. A replay would cost the same duplicate and stall the partition too.
-        crawlHistory.writeFailure = new Error('redis down')
+        crawlHistory.writeFailure = new Error('store down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
     })
@@ -332,7 +354,7 @@ describe('UrlFetchConsumer', () => {
         const fetching = new UrlFetchConsumer(
             crawlHistory,
             publisher,
-            { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, dryRun: false },
+            { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, seenTtlSeconds: 604_800, dryRun: false },
             runner
         )
 
@@ -343,7 +365,13 @@ describe('UrlFetchConsumer', () => {
 
     it('refuses to leave dry run without a way to send the requests', () => {
         expect(
-            () => new UrlFetchConsumer(crawlHistory, publisher, { maxAgeMs: 1000, dedupMaxRefs: 10, dryRun: false })
+            () =>
+                new UrlFetchConsumer(crawlHistory, publisher, {
+                    maxAgeMs: 1000,
+                    dedupMaxRefs: 10,
+                    seenTtlSeconds: 604_800,
+                    dryRun: false,
+                })
         ).toThrow('fetch runner')
     })
 
@@ -368,7 +396,7 @@ describe('UrlFetchConsumer', () => {
         const fetching = new UrlFetchConsumer(
             crawlHistory,
             publisher,
-            { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, dryRun: false },
+            { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, seenTtlSeconds: 604_800, dryRun: false },
             runner
         )
 

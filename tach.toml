@@ -83,6 +83,7 @@ depends_on = [
     "products.analytics_platform",
     "products.approvals",
     "products.batch_exports",
+    "products.billing_alerts",
     "products.business_knowledge",
     "products.canvas",
     "products.cdp",
@@ -332,6 +333,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
+    "products.data_quality",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
     "products.warehouse_sources_queue",
@@ -495,6 +497,16 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.billing_alerts"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.alerts",
+    "products.cdp",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.managed_migrations"
 depends_on = [
     "posthog",
@@ -616,6 +628,23 @@ depends_on = [
 ]
 layer = "modules"
 
+# product_analytics — external consumers go through the facade: facade.api for data
+# capabilities, facade.queries for the QueryRunner wiring core dispatches on, and
+# facade.models for the watched-models allowance crossings (Insight, InsightVariable,
+# InsightViewed — see MODEL_CROSSINGS and architecture.md § Wiring couplings).
+# presentation.* carries the DRF serializers sharing, dashboards and alerts use to
+# render insights in-process — facades must not import DRF, so presentation exposure
+# is the sanctioned channel (products.metrics precedent).
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.product_analytics",
+]
+
 [[modules]]
 path = "products.product_tours"
 depends_on = [
@@ -691,6 +720,7 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "ee",
+    "products.canvas",
     "products.cohorts",
     "posthog",
     "products.actions",
@@ -818,6 +848,8 @@ depends_on = [
     "posthog",
     # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
     "products.tasks",
+    # The annotations.create action verb (via the annotations facade).
+    "products.annotations",
 ]
 layer = "modules"
 
@@ -826,6 +858,14 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.routes.*",
+]
+from = [
+    "products.canvas",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.report_canvas.*",
 ]
 from = [
     "products.canvas",
@@ -915,6 +955,9 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
+    # Facade-only: the AI task action's endpoint creates tasks through
+    # products.tasks.backend.facade.workflow_tasks.
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -940,6 +983,18 @@ expose = [
 ]
 from = [
     "products.experiments",
+]
+
+# Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
+]
+from = [
+    "products.billing_alerts",
 ]
 
 # Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
@@ -1268,6 +1323,7 @@ path = "products.data_quality"
 depends_on = [
     "posthog",
     "products.data_modeling",
+    "products.notifications",
     "products.warehouse_sources",
 ]
 layer = "modules"
@@ -1284,6 +1340,7 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
+    "backend\\.presentation\\.serializers.*",
     "backend\\.presentation\\.views.*",
 ]
 from = [

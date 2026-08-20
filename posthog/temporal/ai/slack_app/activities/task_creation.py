@@ -19,6 +19,8 @@ from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+
 logger = structlog.get_logger(__name__)
 
 _RESUME_ERROR_MSG = "Sorry, I ran into an internal error restarting the agent. Please try again in a minute."
@@ -193,7 +195,7 @@ def _post_attachment_rejection_notice(
     skipped = "\n".join(f"- {msg}" for msg in skipped_messages)
     text = "I couldn't forward that to the agent — no attachment was accepted:\n" + skipped
     try:
-        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text)
     except Exception:
         logger.warning("slack_attachment_rejection_notice_failed", channel=channel, thread_ts=thread_ts)
 
@@ -468,12 +470,20 @@ def build_thread_context_update_block(
 
 
 def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str:
-    """Construct the dispatch workflow id from webhook inputs."""
+    """Construct the dispatch workflow id from webhook inputs.
+
+    Doubles as the queue workflow's dedupe key, so a confirmed re-dispatch has to
+    read as its own unit of work: the same Slack event already came through once
+    to raise the prompt, and reusing that id would have the queue swallow the
+    confirmation as a redelivery.
+    """
     event = inputs.event
     if inputs.slack_event_id:
         suffix = inputs.slack_event_id
     else:
         suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
+    if inputs.untagged_followup_confirmed:
+        suffix = f"{suffix}:confirmed"
     return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
 
 
@@ -497,7 +507,7 @@ def create_posthog_code_task_for_repo_activity(
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
-    from products.tasks.backend.facade.temporal import execute_task_processing_workflow
+    from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -646,7 +656,8 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts=thread_ts,
         )
         try:
-            slack.client.chat_postMessage(
+            post_slack_thread_reply(
+                slack.client,
                 channel=channel,
                 thread_ts=thread_ts,
                 text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
@@ -735,7 +746,7 @@ def create_posthog_code_task_for_repo_activity(
 
     # 3. Now start the workflow
     if task_run:
-        execute_task_processing_workflow(
+        dispatch_task_processing_workflow(
             task_id=str(created.task_id),
             run_id=str(task_run.id),
             team_id=created.team_id,
@@ -852,16 +863,6 @@ def forward_posthog_code_followup_activity(
             user_text_prefix=followup_user_text_prefix,
         )
 
-    sandbox_url = (task_run.state or {}).get("sandbox_url")
-    if not sandbox_url:
-        logger.info("posthog_code_followup_sandbox_not_ready", channel=channel, thread_ts=thread_ts)
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="The agent is still starting up. Give it a moment and try again.",
-        )
-        return True
-
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         collect_thread_messages,
         decode_slack_event_text,
@@ -957,7 +958,8 @@ def forward_posthog_code_followup_activity(
             signal_result=signal_result,
         )
         _set_followup_done_reaction(slack, channel, user_message_ts, "x")
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text="I couldn't deliver your message to the agent. The sandbox may have stopped. Please try starting a new task.",
@@ -1081,10 +1083,11 @@ def _resume_task_with_new_run(
     user_text_prefix: str | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences  # noqa: PLC0415
     from products.slack_app.backend.services.slack_messages import decode_slack_event_text  # noqa: PLC0415
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
-    from products.tasks.backend.facade.temporal import execute_task_processing_workflow
+    from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
 
     integration = slack.integration
     user_text = decode_slack_event_text(slack, integration, event_text)
@@ -1103,7 +1106,8 @@ def _resume_task_with_new_run(
     created_by = mapping.task.created_by
     run_actor = actor_user or created_by
     if not created_by or not run_actor:
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text="I can't restart the agent — the original task creator is no longer available.",
@@ -1121,6 +1125,18 @@ def _resume_task_with_new_run(
         # have changed since the run this one continues.
         **_artifact_delivery_state_updates(integration),
     }
+
+    # `create_run` builds a fresh state, so a follow-up that says nothing about the model
+    # reaches the sandbox with none and the agent server picks its own — the thread then
+    # can't say what ran. Resolved again rather than carried over, like the keys above: a
+    # follow-up honours whatever the picker says now.
+    run_prefs = resolve_run_preferences(integration, slack_user_id)
+    if run_prefs.model:
+        extra_state["model"] = run_prefs.model
+    if run_prefs.runtime_adapter:
+        extra_state["runtime_adapter"] = run_prefs.runtime_adapter
+    if run_prefs.reasoning_effort:
+        extra_state["reasoning_effort"] = run_prefs.reasoning_effort
 
     previous_state = previous_run.state or {}
     if previous_state.get("slack_thread_url"):
@@ -1162,7 +1178,8 @@ def _resume_task_with_new_run(
             thread_ts=thread_ts,
             task_id=str(mapping.task_id),
         )
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text=_RESUME_ERROR_MSG,
@@ -1205,7 +1222,7 @@ def _resume_task_with_new_run(
     )
 
     try:
-        execute_task_processing_workflow(
+        dispatch_task_processing_workflow(
             task_id=str(mapping.task_id),
             run_id=str(new_run.id),
             team_id=new_run.team_id,
@@ -1222,7 +1239,8 @@ def _resume_task_with_new_run(
             task_id=str(mapping.task_id),
             run_id=str(new_run.id),
         )
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text=_RESUME_ERROR_MSG,

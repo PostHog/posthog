@@ -33,7 +33,7 @@ interface ScoutMcpServersPickerProps {
  */
 export function ScoutMcpServersPicker(props: ScoutMcpServersPickerProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.MCP_SERVERS]) {
+    if (!featureFlags[FEATURE_FLAGS.MCP_GATEWAY]) {
         return null
     }
     return props.compact ? <CompactPicker {...props} /> : <FullPicker {...props} />

@@ -695,6 +695,33 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it("reports the lifecycle of a native goal turn as background generation", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "thr_1" } },
+    });
+    const { client, extNotifications } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/bundle/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+
+    stub.emit("turn/started", { turn: { id: "goal_tick_1" } });
+    stub.emit("turn/completed", {
+      turn: { id: "goal_tick_1", status: "completed" },
+    });
+    await Promise.resolve();
+
+    expect(extNotifications).toContainEqual({
+      method: "_posthog/background_turn_started",
+      params: { sessionId: "thr_1" },
+    });
+    expect(extNotifications).toContainEqual({
+      method: "_posthog/background_turn_complete",
+      params: { sessionId: "thr_1", stopReason: "end_turn" },
+    });
+  });
+
   it("interrupts a native goal turn that started before it was paused", async () => {
     const stub = makeStubRpc({
       "thread/start": { thread: { id: "thr_1" } },
@@ -4390,5 +4417,83 @@ describe("CodexAppServerAgent", () => {
     expect(stub.requests.filter((r) => r.method === "turn/start")).toHaveLength(
       1,
     );
+  });
+
+  it("refresh_session rebinds mcp_servers on the live thread, keeping local tools", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "t" } },
+      "thread/resume": { thread: { id: "t" } },
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({
+      cwd: "/r",
+      mcpServers: [
+        {
+          name: "posthog",
+          url: "https://mcp.posthog.com/mcp",
+          headers: [{ name: "Authorization", value: "Bearer stale" }],
+        },
+      ],
+    } as unknown as NewSessionRequest);
+
+    await expect(
+      agent.extMethod("_posthog/refresh_session", {
+        mcpServers: [
+          {
+            name: "posthog",
+            url: "https://mcp.posthog.com/mcp",
+            headers: [{ name: "Authorization", value: "Bearer fresh" }],
+          },
+        ],
+      }),
+    ).resolves.toEqual({ refreshed: true });
+
+    const mcpServersFor = (method: string) =>
+      (
+        stub.requests.find((r) => r.method === method)?.params as
+          | { config?: { mcp_servers?: Record<string, unknown> } }
+          | undefined
+      )?.config?.mcp_servers ?? {};
+    const resume = stub.requests.find((r) => r.method === "thread/resume");
+    expect(resume?.params).toMatchObject({ threadId: "t" });
+    expect(mcpServersFor("thread/resume").posthog).toMatchObject({
+      http_headers: { Authorization: "Bearer fresh" },
+    });
+    expect(Object.keys(mcpServersFor("thread/resume"))).toEqual(
+      Object.keys(mcpServersFor("thread/start")),
+    );
+  });
+
+  it("refresh_session is refused while a turn is in flight", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "thr_1" } },
+      "turn/start": { turn: { id: "turn_1" } },
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+
+    const promptDone = agent.prompt({
+      sessionId: "thr_1",
+      prompt: [{ type: "text", text: "hello" }],
+    } as unknown as PromptRequest);
+    await waitUntil(() => stub.requests.some((r) => r.method === "turn/start"));
+
+    await expect(
+      agent.extMethod("_posthog/refresh_session", { mcpServers: [] }),
+    ).rejects.toMatchObject({ code: -32002 });
+    expect(stub.requests.some((r) => r.method === "thread/resume")).toBe(false);
+
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "completed" },
+    });
+    await promptDone;
   });
 });

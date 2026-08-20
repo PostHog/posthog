@@ -8,6 +8,8 @@ from types import ModuleType
 
 import unittest
 
+from parameterized import parameterized
+
 SCRIPT_PATH = Path(__file__).with_name("snob_backend_test_selection_shadow.py")
 
 
@@ -261,6 +263,24 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         self.assertEqual([], result.full_run_reasons)
         self.assertEqual({"changed_tests": ["posthog/test/test_version_requirement.py"]}, result.groups)
 
+    # ci-backend's `legacy` paths filter routes these into test selection, but none of
+    # them is Python, so the import graph reaches no test through them. Without a full-run
+    # pattern the selector returns an empty set and the narrowed run gates on nothing.
+    @parameterized.expand(
+        [
+            ("quarantine_lift", ".test_quarantine.json"),
+            ("hogql_parser_sources", "common/hogql_parser/HogQLParser.cpp"),
+            ("hogvm", "common/hogvm/python/execute.py"),
+            ("product_manifest", "products/surveys/manifest.tsx"),
+        ]
+    )
+    def test_non_python_legacy_inputs_signal_full_run(self, _name: str, path: str) -> None:
+        selection = _load_selection_module()
+
+        result = selection.ast_select_tests([path], {})
+
+        self.assertTrue(result.full_run_reasons, f"{path} selected nothing and forced no full run")
+
     def test_segments_for_test_file_mirrors_matrix_partition(self) -> None:
         selection = _load_selection_module()
 
@@ -287,6 +307,33 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         # Only the Core/POE/Temporal universe counts; the huge product test and the ignored
         # path are excluded, so a draft can never be credited with skipping them.
         self.assertEqual(selection.narrowable_baseline_seconds(durations), 380.0)
+
+    def test_selected_seconds_by_segment_splits_the_matrix_legs(self) -> None:
+        selection = _load_selection_module()
+
+        durations = {
+            "posthog/models/test_a.py::t1": 100.0,
+            "posthog/clickhouse/test_b.py::t2": 70.0,
+            "posthog/temporal/tests/test_c.py::t3": 210.0,
+            "posthog/models/test_unselected.py::t4": 5_000.0,
+            "products/warehouse_sources/backend/test_d.py::t5": 100_000.0,
+            "posthog/dags/test_e.py::t6": 42.0,
+        }
+        selected = [
+            "posthog/models/test_a.py",
+            "posthog/clickhouse/test_b.py",
+            "posthog/temporal/tests/test_c.py",
+            "products/warehouse_sources/backend/test_d.py",
+            "posthog/dags/test_e.py",
+        ]
+
+        # The clickhouse file runs in both the Core and the person-on-events leg, so its
+        # seconds count once per leg. Turbo product tests and ignored paths size no Django
+        # shard, and an unselected file never contributes.
+        self.assertEqual(
+            selection.selected_seconds_by_segment(selected, durations),
+            {"core": 170, "poe": 70, "temporal": 210},
+        )
 
 
 if __name__ == "__main__":

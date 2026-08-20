@@ -37,7 +37,7 @@
     "clean": "pnpm -r clean",
     "knip": "knip",
     "skills:pull": "node scripts/pull-skills.mjs",
-    "hosthog:build": "pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/web... && pnpm exec turbo build --filter=@posthog/web && ln -sfn apps/web/dist dist"
+    "hosthog:build": "pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/web... && SKIP_PRODUCT_ENGINEER_SKILLS_DOWNLOAD=1 pnpm exec turbo build --filter=@posthog/web && ln -sfn apps/web/dist dist"
   },
   "keywords": [
     "posthog",

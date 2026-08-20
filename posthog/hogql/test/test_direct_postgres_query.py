@@ -15,13 +15,15 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
-from posthog.hogql.direct_sql.postgres_adapter import (
+from posthog.hogql.direct_sql.pgwire import (
     LenientDirectPostgresDateLoader,
-    direct_postgres_session_setup_sql,
-    get_runtime_direct_postgres_connection_metadata,
     parse_lenient_direct_postgres_date,
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
+)
+from posthog.hogql.direct_sql.postgres_adapter import (
+    direct_postgres_session_setup_sql,
+    get_runtime_direct_postgres_connection_metadata,
 )
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError, QueryError
@@ -1053,11 +1055,8 @@ class TestDirectPostgresQuery(APIBaseTest):
             f"USE {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_executes_raw_query_and_preserves_hogql_when_printable(
-        self, mock_connect, mock_capture_exception
-    ):
+    def test_send_raw_query_executes_raw_query_without_hogql_preparation(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1092,21 +1091,21 @@ class TestDirectPostgresQuery(APIBaseTest):
             send_raw_query=True,
         )
 
-        response = executor.execute()
+        with patch.object(HogQLQueryExecutor, "_prepare_execution") as mock_prepare_execution:
+            response = executor.execute()
 
         self.assertEqual(response.results, [(1,)])
         self.assertEqual(response.clickhouse, "SELECT 1 AS value")
         self.assertEqual(response.columns, ["value"])
-        self.assertIsNotNone(response.hogql)
+        self.assertIsNone(response.hogql)
+        mock_prepare_execution.assert_not_called()
         mocked_connection.execute.assert_called_once_with(
             f"SET search_path TO {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
-        mock_capture_exception.assert_not_called()
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_captures_parse_failures_after_success(self, mock_connect, mock_capture_exception):
+    def test_send_raw_query_unsupported_by_hogql_succeeds_without_hogql(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1148,11 +1147,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.columns, ["value"])
         self.assertIsNone(response.hogql)
         mocked_cursor.execute.assert_called_once_with("SELECT 1 IS TRUE AS value", None)
-        mock_capture_exception.assert_called_once()
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_uses_catalog_for_duckdb_without_schema(self, mock_connect, mock_capture_exception):
+    def test_send_raw_query_uses_catalog_for_duckdb_without_schema(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1193,7 +1190,6 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with("USE ducklake")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
-        mock_capture_exception.assert_not_called()
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_skips_session_setup_when_schema_is_blank(self, mock_connect):

@@ -438,7 +438,7 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .max(visionScannersCreateBodyTagsMax)
             .optional()
             .describe(
-                "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas."
+                "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
@@ -570,7 +570,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .max(visionScannersPartialUpdateBodyTagsMax)
             .optional()
             .describe(
-                "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas."
+                "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
@@ -974,7 +974,7 @@ export const VisionScannersSuggestTagsCreateBody = /* @__PURE__ */ zod
             .array(zod.string().max(visionScannersSuggestTagsCreateBodyTagsItemMax))
             .max(visionScannersSuggestTagsCreateBodyTagsMax)
             .optional()
-            .describe('The current tag vocabulary, so suggestions never duplicate a tag the user already has.'),
+            .describe('The categories already configured, so suggestions never duplicate one the user has.'),
         multi_label: zod
             .boolean()
             .default(visionScannersSuggestTagsCreateBodyMultiLabelDefault)

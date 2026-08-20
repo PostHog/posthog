@@ -1,3 +1,6 @@
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
+
 import { initializePrometheusLabels } from '~/common/api/router'
 import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH,
@@ -11,13 +14,18 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
-import { CrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
+import {
+    CrawlHistory,
+    CrawlHistoryStore,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
+import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
 import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-runner'
 import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
 import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
+import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
@@ -72,6 +80,7 @@ export function buildFetchRunner(
     config: IngestionSessionReplayMlMirrorServerConfig,
     publisher: FrontierPublisher
 ): FetchRunner {
+    const webBotAuthSigner = createWebBotAuthRequestSigner(config.WEB_BOT_AUTH_PRIVATE_KEYS)
     const budget = new HostBudget({
         requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND,
         burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_BURST,
@@ -82,12 +91,15 @@ export function buildFetchRunner(
         maxTrackedDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS,
     })
     return new FetchRunner(
-        new HttpImageFetcher({
-            maxUrlLength: MAX_REDIRECT_URL_LENGTH,
-            // The crate's rule, so a redirect target meets the check the collector already applied
-            // to the first candidate rather than a second answer to the same question.
-            isPublicHost: (host) => getAnonymizer().isPublicHost(host),
-        }),
+        new HttpImageFetcher(
+            {
+                maxUrlLength: MAX_REDIRECT_URL_LENGTH,
+                // The crate's rule, so a redirect target meets the check the collector already applied
+                // to the first candidate rather than a second answer to the same question.
+                isPublicHost: (host) => getAnonymizer().isPublicHost(host),
+            },
+            webBotAuthSigner
+        ),
         budget,
         {
             maxConcurrentPerDomain: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
@@ -122,6 +134,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
     private crawlHistoryPool?: RedisPool
+    private crawlHistoryClient?: DynamoDBClient
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
@@ -154,23 +167,46 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             )
         }
 
-        // The ml-mirror's instance, and deliberately not the cluster that serves the primary replay
-        // lane, because this store holds one key per distinct image URL and its eviction pressure
-        // must not be able to reach the lane that gates replay ingestion.
-        const connection = resolveMlMirrorRedisConnection(this.config)
-        if (!connection) {
-            throw new Error('SESSION_RECORDING_ML_REDIS_HOST must be set for the image-fetch consumer')
+        let crawlHistory: CrawlHistoryStore
+        let crawlHistoryTtlSeconds: number
+        const tableName = this.config.AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE
+        if (tableName) {
+            const dynamoDBTimeoutMs = this.config.AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS
+            if (!Number.isFinite(dynamoDBTimeoutMs) || dynamoDBTimeoutMs <= 0) {
+                throw new Error(
+                    `AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS must be a positive number, got ${dynamoDBTimeoutMs}`
+                )
+            }
+            this.crawlHistoryClient = new DynamoDBClient({
+                region: this.config.SESSION_RECORDING_V2_S3_REGION || 'us-east-1',
+                endpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+                maxAttempts: 5,
+                requestHandler: new NodeHttpHandler(),
+            })
+            const dynamoDBCrawlHistory = new DynamoDBCrawlHistory(
+                this.crawlHistoryClient,
+                tableName,
+                dynamoDBTimeoutMs,
+                STORE_BATCH_BUDGET_MS
+            )
+            await dynamoDBCrawlHistory.validateAccess(Date.now())
+            crawlHistory = dynamoDBCrawlHistory
+            crawlHistoryTtlSeconds = this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS
+        } else {
+            const connection = resolveMlMirrorRedisConnection(this.config)
+            if (!connection) {
+                throw new Error('SESSION_RECORDING_ML_REDIS_HOST must be set for the image-fetch consumer')
+            }
+            const redisTimeoutMs = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS
+            this.crawlHistoryPool = createRedisPoolFromConfig({
+                connection: { ...connection, options: { ...connection.options, commandTimeout: redisTimeoutMs } },
+                poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                acquireTimeoutMillis: redisTimeoutMs,
+            })
+            crawlHistory = new CrawlHistory(this.crawlHistoryPool, redisTimeoutMs, STORE_BATCH_BUDGET_MS)
+            crawlHistoryTtlSeconds = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS
         }
-        const redisTimeoutMs = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS
-        this.crawlHistoryPool = createRedisPoolFromConfig({
-            // The lane's own command timeout rather than the mirror's 200ms, because one round trip
-            // here carries a whole chunk of keys rather than one per-session command.
-            connection: { ...connection, options: { ...connection.options, commandTimeout: redisTimeoutMs } },
-            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
-            acquireTimeoutMillis: redisTimeoutMs,
-        })
-        const crawlHistory = new CrawlHistory(this.crawlHistoryPool, redisTimeoutMs, STORE_BATCH_BUDGET_MS)
 
         // Built even in dry run, so the wiring is exercised by every start rather than only by the
         // one that clears the flag.
@@ -185,6 +221,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             {
                 maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
+                seenTtlSeconds: crawlHistoryTtlSeconds,
                 dryRun,
             },
             dryRun ? undefined : buildFetchRunner(this.config, publisher)
@@ -208,7 +245,10 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         return {
             kafkaProducers: [],
             redisPools: this.crawlHistoryPool ? [this.crawlHistoryPool] : [],
-            additionalCleanup: () => this.producerRegistry?.disconnectAll(),
+            additionalCleanup: async () => {
+                this.crawlHistoryClient?.destroy()
+                await this.producerRegistry?.disconnectAll()
+            },
         }
     }
 }

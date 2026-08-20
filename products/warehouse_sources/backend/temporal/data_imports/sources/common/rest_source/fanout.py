@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
     IncrementalConfig,
+    ParentRowFilter,
     ResponseAction,
 )
 
@@ -45,6 +46,11 @@ class DependentEndpointConfig:
     # usable, and falls back to "api" for the run when it isn't — see
     # `_warehouse_parent_reuse_available` in `import_data_activity_sync`.
     parent_source: Literal["api", "warehouse"] = "api"
+    # Floors a parent_source="warehouse" scan to the API path's effective row set. The snapshot
+    # accumulates every parent row ever synced while the vendor's list endpoint usually windows
+    # what it returns, so an unbounded scan fans out over parents the API path never would.
+    # Leave None only when the parent endpoint genuinely returns the full collection.
+    parent_row_filter: ParentRowFilter | None = None
 
 
 def required_parents_from_endpoint_configs(endpoint_configs: Mapping[str, Any], schema_name: str) -> list[str]:
@@ -151,6 +157,7 @@ def build_dependent_resource(
             parent_name=fanout.parent_name,
             required_columns=parent_columns,
             schema_name=child_endpoint,
+            row_filter=fanout.parent_row_filter,
         )
         if parent_table is None:
             # Drop back to the API parent entirely, including the snapshot-only 404 handling
@@ -162,6 +169,8 @@ def build_dependent_resource(
                 parent_name=fanout.parent_name,
                 columns=parent_columns,
                 page_size=parent_config.page_size,
+                schema_name=child_endpoint,
+                row_filter=fanout.parent_row_filter,
             )
 
     child_path = child_config.path
