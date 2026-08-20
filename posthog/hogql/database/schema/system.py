@@ -41,6 +41,12 @@ from products.customer_analytics.backend.facade.hogql import (
     account_tagged_items,
     accounts,
     custom_property_definitions,
+    feature_request_account_links,
+    feature_request_evidence,
+    feature_request_history,
+    feature_request_product_area_links,
+    feature_request_product_areas,
+    feature_requests,
 )
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 
@@ -2859,6 +2865,18 @@ class SystemTables(TableNode):
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
+        "feature_request_account_links": TableNode(
+            name="feature_request_account_links", table=feature_request_account_links
+        ),
+        "feature_request_evidence": TableNode(name="feature_request_evidence", table=feature_request_evidence),
+        "feature_request_history": TableNode(name="feature_request_history", table=feature_request_history),
+        "feature_request_product_area_links": TableNode(
+            name="feature_request_product_area_links", table=feature_request_product_area_links
+        ),
+        "feature_request_product_areas": TableNode(
+            name="feature_request_product_areas", table=feature_request_product_areas
+        ),
+        "feature_requests": TableNode(name="feature_requests", table=feature_requests),
         "file_system": TableNode(name="file_system", table=file_system),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
