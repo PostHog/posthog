@@ -15,6 +15,7 @@ import {
 import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
 import type { PrCheck } from "@posthog/core/git/router-schemas";
 import { parsePrNumber } from "@posthog/core/git-interaction/prStatus";
+import type { ReportStatusCounts } from "@posthog/core/inbox/reportChannelScope";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import {
@@ -57,6 +58,7 @@ import {
 } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
 import { ReportFeedRow } from "@posthog/ui/features/canvas/components/ReportFeedRow";
 import { ReportFilterControls } from "@posthog/ui/features/canvas/components/ReportFilterControls";
+import { ReportStatusChips } from "@posthog/ui/features/canvas/components/ReportStatusChips";
 import {
   TaskRowContextMenu,
   TaskRowDropdownMenu,
@@ -1351,6 +1353,7 @@ export function ChannelFeedView({
   showKindFilter = true,
   reportFilters,
   onReportFiltersChange,
+  reportStatusCounts,
   isLoading,
   emptyState,
   intro,
@@ -1374,6 +1377,8 @@ export function ChannelFeedView({
    * state and filters the `reports` prop with it. */
   reportFilters?: ChannelReportsFilters;
   onReportFiltersChange?: (filters: ChannelReportsFilters) => void;
+  /** Per-bucket counts for the status chips on the Reports tab. */
+  reportStatusCounts?: ReportStatusCounts;
   isLoading: boolean;
   emptyState?: React.ReactNode;
   /** Rendered pinned above the first entry — the Slack-style channel intro
@@ -1484,12 +1489,22 @@ export function ChannelFeedView({
       {activeKindFilter === "reports" &&
         reportFilters &&
         onReportFiltersChange && (
-          <div className="flex items-center gap-1">
-            <ReportFilterControls
-              filters={reportFilters}
-              onChange={onReportFiltersChange}
-            />
-          </div>
+          <>
+            {reportStatusCounts && (
+              <ReportStatusChips
+                filters={reportFilters}
+                onChange={onReportFiltersChange}
+                counts={reportStatusCounts}
+              />
+            )}
+            <div className="flex items-center gap-1">
+              <ReportFilterControls
+                filters={reportFilters}
+                onChange={onReportFiltersChange}
+                showStatusInMenu={reportStatusCounts === undefined}
+              />
+            </div>
+          </>
         )}
     </div>
   );

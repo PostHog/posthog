@@ -81,39 +81,71 @@ function reportTimestampMs(report: SignalReport): number {
  * the space scope and the active filters, then sorted newest-first. Pure so the
  * ordering the user sees is testable without a render.
  */
+function matchesChannelReportOptions(
+  report: SignalReport,
+  options: ChannelReportListOptions,
+): boolean {
+  if (isExcludedFromInbox(report)) return false;
+  if (!reportMatchesChannelView(report, options.view)) return false;
+  if (options.relevantToMeOnly && report.is_suggested_reviewer !== true) {
+    return false;
+  }
+  if (!matchesReportStatusFilter(report, options.status ?? "all")) {
+    return false;
+  }
+  if (options.priorities && options.priorities.length > 0) {
+    if (!report.priority || !options.priorities.includes(report.priority)) {
+      return false;
+    }
+  }
+  const search = options.search?.trim().toLowerCase();
+  if (search) {
+    const title = report.title?.toLowerCase() ?? "";
+    if (!title.includes(search)) return false;
+  }
+  return true;
+}
+
 export function buildChannelReportList(
   reports: SignalReport[],
   options: ChannelReportListOptions,
 ): SignalReport[] {
-  const search = options.search?.trim().toLowerCase();
-  const priorities =
-    options.priorities && options.priorities.length > 0
-      ? new Set<SignalReportPriority>(options.priorities)
-      : null;
-
   return reports
-    .filter((report) => {
-      if (isExcludedFromInbox(report)) return false;
-      if (!reportMatchesChannelView(report, options.view)) return false;
-      if (options.relevantToMeOnly && report.is_suggested_reviewer !== true) {
-        return false;
-      }
-      if (!matchesReportStatusFilter(report, options.status ?? "all")) {
-        return false;
-      }
-      if (
-        priorities &&
-        (!report.priority || !priorities.has(report.priority))
-      ) {
-        return false;
-      }
-      if (search) {
-        const title = report.title?.toLowerCase() ?? "";
-        if (!title.includes(search)) return false;
-      }
-      return true;
-    })
+    .filter((report) => matchesChannelReportOptions(report, options))
     .sort((a, b) => reportTimestampMs(b) - reportTimestampMs(a));
+}
+
+export type ReportStatusCounts = Record<ReportStatusFilter, number>;
+
+/**
+ * How many reports each status bucket would show under the current view and
+ * filters — the numbers on the status chips. The status filter itself is
+ * ignored, so a chip's count doesn't change when it is selected.
+ */
+export function countChannelReportsByStatus(
+  reports: SignalReport[],
+  options: Omit<ChannelReportListOptions, "status">,
+): ReportStatusCounts {
+  const counts: ReportStatusCounts = {
+    all: 0,
+    "needs-review": 0,
+    ready: 0,
+    running: 0,
+  };
+  for (const report of reports) {
+    if (!matchesChannelReportOptions(report, { ...options, status: "all" })) {
+      continue;
+    }
+    counts.all += 1;
+    if (matchesReportStatusFilter(report, "needs-review")) {
+      counts["needs-review"] += 1;
+    } else if (matchesReportStatusFilter(report, "ready")) {
+      counts.ready += 1;
+    } else {
+      counts.running += 1;
+    }
+  }
+  return counts;
 }
 
 /** Count for the tab badge: reports in this space the user should notice. */

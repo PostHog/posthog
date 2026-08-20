@@ -36,9 +36,12 @@ const STATUS_FILTERS: readonly {
 export function ReportFilterControls({
   filters,
   onChange,
+  showStatusInMenu = true,
 }: {
   filters: ChannelReportsFilters;
   onChange: (filters: ChannelReportsFilters) => void;
+  /** Off where visible status chips carry the choice instead (the feed). */
+  showStatusInMenu?: boolean;
 }) {
   const filtersActive =
     filters.relevantToMeOnly ||
@@ -67,14 +70,14 @@ export function ReportFilterControls({
       <Button
         variant="default"
         size="icon-xs"
-        aria-label="Show only reports relevant to me"
+        aria-label="Show only reports suggested for me"
         aria-pressed={filters.relevantToMeOnly}
         onClick={() =>
           onChange({ ...filters, relevantToMeOnly: !filters.relevantToMeOnly })
         }
-        className={cnHeaderButton(filters.relevantToMeOnly)}
+        className={`${cnHeaderButton(filters.relevantToMeOnly)} w-auto px-1.5`}
       >
-        <span className="font-semibold text-[10px]">Me</span>
+        <span className="font-semibold text-[10px]">For you</span>
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -92,18 +95,24 @@ export function ReportFilterControls({
           }
         />
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Status</DropdownMenuLabel>
-          {STATUS_FILTERS.map(({ value, label }) => (
-            <DropdownMenuCheckboxItem
-              key={value}
-              checked={filters.status === value}
-              closeOnClick={false}
-              onCheckedChange={() => onChange({ ...filters, status: value })}
-            >
-              {label}
-            </DropdownMenuCheckboxItem>
-          ))}
-          <DropdownMenuSeparator />
+          {showStatusInMenu && (
+            <>
+              <DropdownMenuLabel>Status</DropdownMenuLabel>
+              {STATUS_FILTERS.map(({ value, label }) => (
+                <DropdownMenuCheckboxItem
+                  key={value}
+                  checked={filters.status === value}
+                  closeOnClick={false}
+                  onCheckedChange={() =>
+                    onChange({ ...filters, status: value })
+                  }
+                >
+                  {label}
+                </DropdownMenuCheckboxItem>
+              ))}
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuLabel>Priority</DropdownMenuLabel>
           {PRIORITIES.map((priority) => (
             <DropdownMenuCheckboxItem

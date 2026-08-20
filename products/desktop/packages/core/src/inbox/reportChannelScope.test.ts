@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildChannelReportList,
   channelReportView,
+  countChannelReportsByStatus,
   countChannelReportsForMe,
   generalReportView,
 } from "./reportChannelScope";
@@ -127,6 +128,25 @@ describe("reportChannelScope", () => {
       status,
     }).map((r) => r.id);
     expect(ids).toEqual(expected);
+  });
+
+  it("status counts bucket every non-archived report exactly once and ignore the status filter", () => {
+    const reports = [
+      report({ id: "pr", implementation_pr_url: "https://example.com/pr/1" }),
+      report({ id: "ready" }),
+      report({ id: "queued", status: "potential" }),
+      report({ id: "failed", status: "failed" }),
+      report({ id: "archived", status: "suppressed" }),
+    ];
+    const counts = countChannelReportsByStatus(reports, {
+      view: generalReportView(),
+    });
+    expect(counts).toEqual({
+      all: 4,
+      "needs-review": 1,
+      ready: 1,
+      running: 2,
+    });
   });
 
   it("countChannelReportsForMe counts suggested-reviewer reports in scope", () => {

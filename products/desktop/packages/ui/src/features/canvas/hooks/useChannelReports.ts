@@ -1,7 +1,9 @@
 import {
   buildChannelReportList,
+  countChannelReportsByStatus,
   countChannelReportsForMe,
   type ReportChannelView,
+  type ReportStatusCounts,
   type ReportStatusFilter,
 } from "@posthog/core/inbox/reportChannelScope";
 import type { SignalReport, SignalReportPriority } from "@posthog/shared/types";
@@ -37,6 +39,8 @@ export function useChannelReports(
   isLoading: boolean;
   isError: boolean;
   forMeCount: number;
+  /** Per-status-bucket counts under the current filters, for the status chips. */
+  statusCounts: ReportStatusCounts;
   fetchNextPage: () => void;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
@@ -75,8 +79,26 @@ export function useChannelReports(
     [query.allReports, view],
   );
 
+  const statusCounts = useMemo(
+    () =>
+      countChannelReportsByStatus(query.allReports, {
+        view,
+        search: filters.search,
+        relevantToMeOnly: filters.relevantToMeOnly,
+        priorities: filters.priorities,
+      }),
+    [
+      query.allReports,
+      view,
+      filters.search,
+      filters.relevantToMeOnly,
+      filters.priorities,
+    ],
+  );
+
   return {
     reports,
+    statusCounts,
     isLoading: query.isLoading,
     isError: query.isError,
     forMeCount,
