@@ -199,7 +199,7 @@ export function EditListItemAppearanceDialog({
             {/* Not `disabled` rows: that dims them, and the preview has to
                 carry the list's real colours to be worth looking at. Nothing
                 inside answers a pointer instead. */}
-            <div className="pointer-events-none rounded-(--radius-3) border border-border bg-(--gray-2) p-2">
+            <div className="pointer-events-none h-[132px] rounded-(--radius-3) border border-border bg-(--gray-2) p-2">
               {previewTasks.map((task) => (
                 <SidebarItem
                   key={task.id}

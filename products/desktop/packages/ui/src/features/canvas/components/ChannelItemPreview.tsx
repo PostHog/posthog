@@ -338,30 +338,17 @@ export function ChannelItemPreview({
   return (
     <ItemGroup className="gap-0!">
       <Item size="xs" className="flex-nowrap p-2">
-        <ItemContent className="min-w-0">
-          {/* No gutter: the mark is one glyph on one line, and a column for it
-              indents everything under it for the whole height of the card. */}
-          <ItemTitle className="flex items-start gap-2 break-words">
-            {/* One line tall and centred inside it, so the mark sits on the
-                title's first line however many lines the title runs to, rather
-                than hanging off the type's baseline. */}
+        <ItemContent className="min-w-0 gap-2">
+          <ItemTitle className="wrap-break-word flex items-start gap-2">
             <span className="flex h-[1lh] w-4 shrink-0 items-center justify-center">
               {previewGlyph(item, dot)}
             </span>
-            <span className="min-w-0">{item.title}</span>
+            <span className="min-w-0 font-bold">{item.title}</span>
           </ItemTitle>
-          {/* Indented past the mark's column, so everything under the title
-              starts where the title's own text does.
-              Where the work sits, always: the list's appearance settings trade
-              a row's height for this, and the card has the room. */}
           <div className="pl-6">
             <ItemFacts item={item} source={source} status={pullRequest} />
           </div>
         </ItemContent>
-        {/* Who made it rides on the identity row rather than taking a row of
-            its own — the card is a glance, and a line of chrome for a name is
-            a line the agent's own words could have had. Top-aligned: it belongs
-            to the title, not to the block of text under it. */}
         <ItemActions className="self-start">
           <AuthorAvatar item={item} />
         </ItemActions>
@@ -373,9 +360,6 @@ export function ChannelItemPreview({
         )}
         message={message}
       />
-      {/* The row's actions live here now: a row at rest shows its status, and
-          the card is already the surface you're pointing at when you want to do
-          something to it. */}
       <ItemSeparator className="my-0" />
       <div className="p-1">
         <TaskRowMenuList

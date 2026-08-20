@@ -73,15 +73,27 @@ export function CopyButton({
 
   if (confirm === "icon") return button;
   return (
-    <TooltipProvider delay={200}>
-      {/* Held open while it says "Copied!": the confirmation has to survive the
-          pointer leaving the button it fired from. */}
-      <Tooltip disableHoverablePopup open={copied || undefined}>
-        <TooltipTrigger render={button} />
-        <TooltipContent side="top" className="pointer-events-none select-none">
-          {copied ? "Copied!" : label}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <span className="relative inline-flex">
+      {/* The confirmation is its own element rather than the tooltip forced
+          open. Base UI closes a tooltip on click, so it never showed the
+          confirmation; holding it open with state instead left it stuck open on
+          its resting label once the pointer had gone. */}
+      {copied ? (
+        <output className="-translate-x-1/2 pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 select-none whitespace-nowrap rounded-(--radius-2) bg-(--gray-12) px-2 py-1 text-(--gray-1) text-xs shadow-md">
+          Copied!
+        </output>
+      ) : null}
+      <TooltipProvider delay={200}>
+        <Tooltip disableHoverablePopup>
+          <TooltipTrigger render={button} />
+          <TooltipContent
+            side="top"
+            className="pointer-events-none select-none"
+          >
+            {label}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </span>
   );
 }
