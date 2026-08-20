@@ -29,9 +29,10 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            # On push the filter diffs the before/after commits, so a master
+            # merge that leaves oauth-proxy untouched skips Build & Test too.
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
