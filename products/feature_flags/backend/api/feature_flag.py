@@ -2202,7 +2202,7 @@ class FeatureFlagSerializer(
                             code="flag_edit_conflict",
                         )
                         editor = locked_instance.last_modified_by
-                        conflict.extra = {"edited_by": (editor.get_full_name() or editor.email) if editor else None}
+                        conflict.extra = {"edited_by": (editor.get_full_name() or editor.email) if editor else None}  # type: ignore[attr-defined]
                         raise conflict
                     validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
 
