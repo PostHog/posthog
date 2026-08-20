@@ -37,6 +37,39 @@ class TestUrls(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("canvas", "/code/canvas/chan-1/dash-1"),
+            ("channel", "/code/channel/chan-1"),
+            ("channel_thread", "/code/channel/chan-1/tasks/task-1"),
+            ("task", "/code/task/task-1"),
+            # The web app used to inject a project id into the address bar, so links copied
+            # from there are in circulation and a logged-out recipient still needs the bridge.
+            ("prefixed_canvas", "/project/2/code/canvas/chan-1/dash-1"),
+            ("prefixed_channel", "/project/2/code/channel/chan-1"),
+        ]
+    )
+    def test_desktop_share_link_bridge_loads_without_login(self, _name, path):
+        self.client.logout()
+
+        response = self.client.get(path)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("project_scoped_app_route", "/project/2/insights"),
+            ("route_sharing_the_code_prefix", "/code-review"),
+        ]
+    )
+    def test_desktop_share_link_exemption_does_not_widen(self, _name, path):
+        self.client.logout()
+
+        response = self.client.get(path)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertTrue(response.headers["Location"].startswith("/login"))
+
+    @parameterized.expand(
+        [
             ("eu", "https://eu.posthog.com", "https://eu.posthog.com/organization/billing"),
             ("us", "https://us.posthog.com", "https://us.posthog.com/organization/billing"),
         ]

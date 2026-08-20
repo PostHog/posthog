@@ -188,6 +188,23 @@ function decodePathSegments(pathname: string): string[] {
     });
 }
 
+/**
+ * Drop a leading `project/<id>` pair from an otherwise unprefixed share link.
+ *
+ * Share links are built without a project (`canvasShareUrl`), but the web app used to inject
+ * the current project into the address bar, so links copied from there are already circulating
+ * and name the same global rows. A project is addressed by a numeric id or a `phc_` project API
+ * key, as in the web app's own `/^\/project\/(\d+|phc_)/`. Anything else stays a real path
+ * segment, so a canvas filed in a channel named "project" is still parsed as one.
+ */
+function stripProjectPrefix(segments: string[]): string[] {
+  const [first, second] = segments;
+  if (first === "project" && second && /^(\d+$|phc_)/.test(second)) {
+    return segments.slice(2);
+  }
+  return segments;
+}
+
 function matchRoute(
   segments: string[],
   route: ShareLinkRoute,
@@ -214,7 +231,7 @@ export function parseShareLink(href: string): ShareLinkTarget | null {
   }
   if (!POSTHOG_HOSTS.has(url.host)) return null;
 
-  const segments = decodePathSegments(url.pathname);
+  const segments = stripProjectPrefix(decodePathSegments(url.pathname));
   for (const route of SHARE_LINK_ROUTES) {
     const target = matchRoute(segments, route);
     if (target) return target;

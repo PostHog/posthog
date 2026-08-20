@@ -15,6 +15,11 @@ const pathsWithoutProjectId = [
     'oauth',
     'shared',
     'embedded',
+    // The /code/* routes are public bridges for PostHog Desktop share links. Their ids are
+    // global rows rather than project-scoped ones, and the desktop app's link parser only
+    // recognizes the unprefixed form, so injecting a project id here yields an address-bar
+    // URL that the app refuses to open when someone copies and shares it.
+    'code',
     'interview',
     'cli',
     'render_query',
