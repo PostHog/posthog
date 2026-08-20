@@ -1,10 +1,7 @@
-import re
 from typing import Any
-from urllib.parse import urlparse
 
 from django.conf import settings
 
-from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -25,25 +22,6 @@ ADAPTIVE_CARD_CONTENT_TYPE = "application/vnd.microsoft.card.adaptive"
 ADAPTIVE_CARD_SCHEMA = "http://adaptivecards.io/schemas/adaptive-card.json"
 ADAPTIVE_CARD_VERSION = "1.2"
 
-# Host and path pairs a Microsoft Teams webhook URL may use. Deliberately not shared with
-# posthog/cdp/templates/microsoft_teams, whose equivalents live inside a Hog source string and
-# leave the dots unescaped, so hosts like `evilpowerautomate.com` satisfy them. Every dot here is
-# escaped and the host is anchored at both ends, so only a real subdomain of a Microsoft domain
-# matches. Since subscriptions expose no generic webhook target, this set is the only thing
-# deciding where a report can be posted.
-_TEAMS_WEBHOOK_URL_PATTERNS: tuple[tuple[re.Pattern[str], re.Pattern[str]], ...] = (
-    # Azure Logic Apps, which is what the Teams "Workflows" app hands out.
-    (re.compile(r"^(?:[a-z0-9-]+\.)+logic\.azure\.com$"), re.compile(r"^/workflows/")),
-    # Incoming webhook connector added to a channel.
-    (re.compile(r"^(?:[a-z0-9-]+\.)+webhook\.office\.com$"), re.compile(r"^/webhookb2/")),
-    (re.compile(r"^(?:[a-z0-9-]+\.)+powerautomate\.com$"), re.compile(r"^/.")),
-    (re.compile(r"^(?:[a-z0-9-]+\.)+flow\.microsoft\.com$"), re.compile(r"^/.")),
-    (
-        re.compile(r"^(?:[a-z0-9-]+\.)+environment\.api\.powerplatform\.com$"),
-        re.compile(r"^/powerautomate/automations/direct/"),
-    ),
-)
-
 TEAMS_WEBHOOK_URL_ERROR = (
     "This does not look like a Microsoft Teams webhook URL. Create one with the Workflows app in the "
     "channel you want reports in, then paste the URL it gives you."
@@ -58,26 +36,6 @@ TEAMS_REPORT_CHARACTER_BUDGET = 20000
 # Bounds one failed chart's exception text, so a run where several fail cannot push the card
 # past the payload limit on its own.
 _MAX_ASSET_ERROR_LENGTH = 2000
-
-
-def is_teams_webhook_url(url: str) -> bool:
-    """Scheme and host check only, with no name resolution, so it is safe on the save path.
-    The delivery path runs the full SSRF validation, because DNS can change in between."""
-    if has_authority_bypass_chars(url):
-        return False
-    try:
-        parsed = urlparse(url)
-        port = parsed.port
-    except ValueError:
-        return False
-    if parsed.scheme != "https" or port not in (None, 443):
-        return False
-    host = (parsed.hostname or "").lower()
-    path = parsed.path or ""
-    return any(
-        host_pattern.match(host) and path_pattern.match(path)
-        for host_pattern, path_pattern in _TEAMS_WEBHOOK_URL_PATTERNS
-    )
 
 
 def teams_text_block(text: str, *, is_subtle: bool = False) -> dict[str, Any]:

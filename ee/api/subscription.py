@@ -43,6 +43,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import str_to_bool
 
+from products.alerts.backend.destination_configs import is_microsoft_teams_webhook_url
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
@@ -68,7 +69,7 @@ from products.product_analytics.backend.facade.models import Insight
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
-from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, is_teams_webhook_url
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
@@ -513,7 +514,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Scheme and host only. The delivery activity runs the full SSRF validation, because a
             # resolver timeout here would add latency to every save and fail some of them outright.
             target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else "")
-            if not is_teams_webhook_url(target_value):
+            if not is_microsoft_teams_webhook_url(target_value):
                 raise ValidationError({"target_value": [TEAMS_WEBHOOK_URL_ERROR]})
 
         if target_type == Subscription.SubscriptionTarget.SLACK:

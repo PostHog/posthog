@@ -1,58 +1,15 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase
-
-from parameterized import parameterized
-
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.models.insight import Insight
 
-from ee.tasks.subscriptions.teams_subscriptions import build_teams_subscription_card, is_teams_webhook_url
+from ee.tasks.subscriptions.teams_subscriptions import build_teams_subscription_card
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = (
     "https://prod-25.westeurope.logic.azure.com:443/workflows/abc123/triggers/manual/paths/invoke?sig=secret"
 )
-
-
-class TestTeamsWebhookUrlValidation(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("logic_apps", VALID_TEAMS_WEBHOOK_URL),
-            (
-                "incoming_webhook",
-                "https://acme.webhook.office.com/webhookb2/guid@guid/IncomingWebhook/hash/guid",
-            ),
-            ("power_automate", "https://europe.powerautomate.com/manual/paths/invoke"),
-            ("flow", "https://prod-01.flow.microsoft.com/manual/paths/invoke"),
-            (
-                "power_platform_environment",
-                "https://acme.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/abc",
-            ),
-        ]
-    )
-    def test_accepts_microsoft_webhook_url(self, _name: str, url: str) -> None:
-        assert is_teams_webhook_url(url) is True
-
-    @parameterized.expand(
-        [
-            # Both hostnames are registrable by anyone and satisfy the unescaped-dot patterns in the
-            # CDP Teams template. They must not satisfy these.
-            ("lookalike_power_automate", "https://evilpowerautomate.com/x"),
-            ("lookalike_flow", "https://aaaflow-microsoft.com/y"),
-            ("suffix_in_path", "https://evil.example.com/logic.azure.com/workflows/abc"),
-            ("subdomain_prefix", "https://logic.azure.com.evil.example.com/workflows/abc"),
-            ("http_scheme", "http://prod-25.westeurope.logic.azure.com/workflows/abc"),
-            ("unexpected_port", "https://prod-25.westeurope.logic.azure.com:8443/workflows/abc"),
-            ("wrong_path", "https://acme.webhook.office.com/something-else/guid"),
-            ("authority_confusion", "https://prod-25.westeurope.logic.azure.com\\@evil.example.com/workflows/abc"),
-            ("not_a_url", "definitely not a url"),
-            ("empty", ""),
-        ]
-    )
-    def test_rejects_non_teams_url(self, _name: str, url: str) -> None:
-        assert is_teams_webhook_url(url) is False
 
 
 class TestTeamsSubscriptionCard(APIBaseTest):

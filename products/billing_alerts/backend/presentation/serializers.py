@@ -15,6 +15,7 @@ from products.alerts.backend.facade.api import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+    is_microsoft_teams_webhook_url,
     validate_destination_data,
 )
 from products.billing_alerts.backend.facade import api as billing_alerts_api
@@ -34,21 +35,6 @@ def _any_field_changed(
     fields: set[str],
 ) -> bool:
     return any(field in validated_data and validated_data[field] != getattr(instance, field) for field in fields)
-
-
-def _is_microsoft_teams_webhook(webhook_url: str) -> bool:
-    parsed = urlparse(webhook_url)
-    hostname = parsed.hostname or ""
-    path = parsed.path
-    if hostname.endswith(".logic.azure.com"):
-        return parsed.port in (None, 443) and path.startswith("/workflows/") and "/triggers/manual/paths/invoke" in path
-    if hostname.endswith(".webhook.office.com"):
-        return path.startswith("/webhookb2/") and "/IncomingWebhook/" in path
-    if hostname.endswith((".powerautomate.com", ".flow.microsoft.com")):
-        return bool(path.strip("/"))
-    if hostname.endswith(".environment.api.powerplatform.com"):
-        return path.startswith("/powerautomate/automations/direct/") and "/workflows/" in path
-    return False
 
 
 class BillingAlertEventSerializer(serializers.ModelSerializer):
@@ -151,7 +137,7 @@ class BillingAlertDestinationCreateDataSerializer(serializers.Serializer):
             parsed_url = urlparse(webhook_url)
             if parsed_url.scheme != "https" or not parsed_url.netloc:
                 raise ValidationError({"webhook_url": "Webhook URLs must be valid HTTPS URLs."})
-            if data["type"] == DestinationType.TEAMS and not _is_microsoft_teams_webhook(webhook_url):
+            if data["type"] == DestinationType.TEAMS and not is_microsoft_teams_webhook_url(webhook_url):
                 raise ValidationError({"webhook_url": "Enter a supported Microsoft Teams webhook URL."})
         return attrs
 
