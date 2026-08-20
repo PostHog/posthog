@@ -69,6 +69,11 @@
                                             "description": "ID of the Slack integration whose bot posts this scout's findings and reports.",
                                             "minimum": 1,
                                             "type": "number"
+                                        },
+                                        "thread_reports": {
+                                            "default": false,
+                                            "description": "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post.",
+                                            "type": "boolean"
                                         }
                                     },
                                     "required": ["integration_id"],

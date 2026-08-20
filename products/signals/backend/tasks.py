@@ -138,6 +138,7 @@ def deliver_scout_slack_output(
     integration_id: int,
     channel: str,
     edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     context = {
         "team_id": team_id,
@@ -181,6 +182,7 @@ def deliver_scout_slack_output(
                 integration_id=integration_id,
                 channel=channel,
                 edit_note=edit_note,
+                thread_reports=thread_reports,
             )
         else:
             logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
@@ -233,12 +235,17 @@ def enqueue_scout_slack_delivery(
     integration_id: int,
     channel: str,
     edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
     try:
-        # `edit_note` rides as a kwarg only when set, so every delivery without one keeps the
+        # Each optional arg rides as a kwarg only when set, so a delivery without one keeps the
         # payload shape workers running the previous task signature still accept.
-        extra_kwargs: dict[str, str] = {"edit_note": edit_note} if edit_note is not None else {}
+        extra_kwargs: dict[str, str | bool] = {}
+        if edit_note is not None:
+            extra_kwargs["edit_note"] = edit_note
+        if thread_reports:
+            extra_kwargs["thread_reports"] = True
         deliver_scout_slack_output.delay(
             team_id,
             output_type,

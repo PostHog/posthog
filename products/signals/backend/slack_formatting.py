@@ -122,6 +122,60 @@ def truncate_slack_section(text: str) -> str:
     return text[: SLACK_SECTION_TEXT_MAX_LEN - 1].rstrip() + "…"
 
 
+# A top-of-line ATX heading (`# `…`###### `). The scout writes its summary in Markdown, so its own
+# headings are the natural seams to split a long report on for threaded Slack delivery.
+_MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}[ \t]+\S", re.MULTILINE)
+
+
+def split_markdown_by_headings(text: str) -> list[str]:
+    """Split a Markdown summary into the lead and one segment per heading.
+
+    The first element is the text before the first heading (empty when the summary opens with one).
+    Each later element is a heading and the body under it. No content is dropped."""
+    text = text.strip()
+    if not text:
+        return []
+    starts = [match.start() for match in _MARKDOWN_HEADING_RE.finditer(text)]
+    if not starts:
+        return [text]
+    segments = [text[: starts[0]]]
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(text)
+        segments.append(text[start:end])
+    return segments
+
+
+def chunk_slack_mrkdwn(text: str) -> list[str]:
+    """Split converted mrkdwn into chunks that each fit one Slack section, breaking on line ends.
+
+    A line longer than the limit on its own is hard-sliced. Returns no empty chunks, so the tail of
+    a long report reaches the channel instead of being clipped at the section cap."""
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= SLACK_SECTION_TEXT_MAX_LEN:
+        return [text]
+    chunks: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        while len(line) > SLACK_SECTION_TEXT_MAX_LEN:
+            if current:
+                chunks.append(current.rstrip())
+                current = ""
+            chunks.append(line[:SLACK_SECTION_TEXT_MAX_LEN])
+            line = line[SLACK_SECTION_TEXT_MAX_LEN:]
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > SLACK_SECTION_TEXT_MAX_LEN:
+            if current:
+                chunks.append(current.rstrip())
+            current = line
+        else:
+            current = candidate
+    if current.strip():
+        chunks.append(current.rstrip())
+    return chunks
+
+
 def slack_channel_id_from_target(value: str) -> str:
     """Extract the Slack channel ID from the frontend picker's `id|#name` value."""
     return value.split("|", 1)[0].strip()

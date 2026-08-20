@@ -62426,6 +62426,8 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+      /** When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+      thread_reports?: boolean;
     }
 
     export interface SignalScoutOutputDestinations {

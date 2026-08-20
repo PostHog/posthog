@@ -4,7 +4,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.signals.backend.slack_formatting import markdown_to_slack_mrkdwn, strip_chart_references
+from products.signals.backend.slack_formatting import (
+    SLACK_SECTION_TEXT_MAX_LEN,
+    chunk_slack_mrkdwn,
+    markdown_to_slack_mrkdwn,
+    split_markdown_by_headings,
+    strip_chart_references,
+)
 
 
 class TestStripChartReferences(SimpleTestCase):
@@ -85,3 +91,49 @@ class TestStripChartReferences(SimpleTestCase):
         strip_chart_references(summary)
 
         assert time.perf_counter() - started < 0.5
+
+
+class TestSplitMarkdownByHeadings(SimpleTestCase):
+    def test_lead_precedes_one_segment_per_heading(self) -> None:
+        summary = "Intro line.\n\n## First\nbody one\n\n### Second\nbody two"
+        segments = split_markdown_by_headings(summary)
+
+        assert segments[0].strip() == "Intro line."
+        assert segments[1].startswith("## First")
+        assert segments[2].startswith("### Second")
+        assert len(segments) == 3
+
+    def test_leading_heading_yields_empty_lead(self) -> None:
+        segments = split_markdown_by_headings("## Only\nbody")
+
+        assert segments[0] == ""
+        assert segments[1].startswith("## Only")
+
+    def test_summary_without_headings_stays_one_segment(self) -> None:
+        assert split_markdown_by_headings("no headings here") == ["no headings here"]
+
+    def test_empty_summary_yields_no_segments(self) -> None:
+        assert split_markdown_by_headings("   ") == []
+
+
+class TestChunkSlackMrkdwn(SimpleTestCase):
+    def test_short_text_is_one_chunk(self) -> None:
+        assert chunk_slack_mrkdwn("short") == ["short"]
+
+    def test_long_text_splits_within_the_section_limit_without_losing_the_tail(self) -> None:
+        # The bug this guards: a summary past the section cap used to be truncated with an ellipsis,
+        # dropping everything after ~2,900 characters. Chunking must keep every line.
+        lines = [f"line {index}" for index in range(600)]
+        chunks = chunk_slack_mrkdwn("\n".join(lines))
+
+        assert len(chunks) > 1
+        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        recovered = "\n".join(chunks)
+        assert all(line in recovered for line in lines)
+
+    def test_single_over_long_line_is_hard_sliced(self) -> None:
+        line = "x" * (SLACK_SECTION_TEXT_MAX_LEN * 2 + 5)
+        chunks = chunk_slack_mrkdwn(line)
+
+        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert "".join(chunks) == line
