@@ -83,6 +83,7 @@ class TestWorkflowDispatchPayload(SimpleTestCase):
             posthog_mcp_scopes="full",
             slack_thread_context={"channel_id": "C1"},
             prewarmed=True,
+            skip_user_check=True,
             initial_message=PendingFollowup(
                 message="continue",
                 artifact_ids=["artifact-1"],
@@ -273,12 +274,14 @@ class TestWorkflowDispatchPersistence(TestCase):
         increment_missing_intent.assert_called_once()
 
     def test_deferred_start_create_and_run_persists_dispatch_marker(self) -> None:
+        creator_id = self.task_run.task.created_by_id
+        assert creator_id is not None
         created = create_and_run_task(
             team=self.team,
             title="Deferred start",
             description="Created without starting the workflow",
             origin_product=Task.OriginProduct.SLACK,
-            user_id=self.task_run.task.created_by_id,
+            user_id=creator_id,
             create_pr=False,
             mode="interactive",
             start_workflow=False,

@@ -61,6 +61,7 @@ def build_create_payload(options: WorkflowDispatchOptions) -> dict[str, Any]:
         "posthog_mcp_scopes": options.posthog_mcp_scopes,
         "slack_thread_context": options.slack_thread_context,
         "prewarmed": options.prewarmed,
+        "skip_user_check": options.skip_user_check,
         "initial_message": asdict(options.initial_message) if options.initial_message else None,
     }
 
@@ -75,6 +76,7 @@ def parse_create_payload(payload: dict[str, Any]) -> WorkflowDispatchOptions:
         posthog_mcp_scopes=payload["posthog_mcp_scopes"],
         slack_thread_context=payload.get("slack_thread_context"),
         prewarmed=payload.get("prewarmed", False),
+        skip_user_check=payload.get("skip_user_check", False),
         initial_message=PendingFollowup(**initial_message) if initial_message else None,
     )
 
