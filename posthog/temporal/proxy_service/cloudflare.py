@@ -118,7 +118,7 @@ CLOUDFLARE_ERROR_CROSS_USER_BANNED = 1014
 
 # Cloudflare's HTML error page shows the code as "Error 1014". The plain-text
 # body sent to API clients shows "error code: 1014".
-_CF_ERROR_CODE_RE = re.compile(r"error(?:\s+code)?[ :]+(\d{4})", re.IGNORECASE)
+_CF_ERROR_CODE_RE = re.compile(r"error(?:\s+code)?[ :]+(\d{4})(?!\d)", re.IGNORECASE)
 
 
 def parse_cloudflare_error_code(body: t.Any) -> t.Optional[int]:

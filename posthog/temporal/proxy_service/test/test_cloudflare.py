@@ -122,6 +122,7 @@ class TestParseCloudflareErrorCode(SimpleTestCase):
             ("lowercase", "error 1014", 1014),
             ("colon_separator", "Error: 1014", 1014),
             ("other_code", "Error 1000 Access denied", 1000),
+            ("five_digit_code", "error code: 10140", None),
             ("no_code", "403 Forbidden", None),
             ("empty", "", None),
             ("non_string", None, None),
