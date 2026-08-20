@@ -644,6 +644,35 @@ export interface LLMSkillFileApi {
     content_type?: string
 }
 
+export interface LLMSkillPublishToCommunityApi {
+    /**
+     * Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.
+     * @maxLength 64
+     * @pattern ^[^\u0000-\u001f\u007f]*$
+     */
+    display_name?: string
+    /**
+     * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
+     * @items.maxLength 64
+     */
+    tags?: string[]
+    /**
+     * The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account.
+     * @maxLength 39
+     * @pattern ^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$
+     */
+    author_handle?: string
+}
+
+export interface CommunitySkillPublishResultApi {
+    /** URL of the pull request opened in the community-skills repo for maintainer review. */
+    pr_url: string
+    /** Number of the opened pull request. */
+    pr_number: number
+    /** Name of the branch created in the community-skills repo. */
+    branch: string
+}
+
 export interface LLMSkillVersionSummaryApi {
     readonly id: string
     readonly version: number

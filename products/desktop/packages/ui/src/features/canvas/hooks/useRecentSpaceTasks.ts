@@ -23,10 +23,14 @@ import {
 /**
  * Its own key rather than the channel feed's: the tree asks for a short page,
  * and handing that truncated list to the space's own feed through a shared
- * cache would quietly cut it off at the same length.
+ * cache would quietly cut it off at the same length. The root is exported so
+ * task mutations (rename) can write through these pages the way they do the
+ * feed's — a tree row polls too slowly to catch up on its own.
  */
+export const spaceTreeTasksQueryRoot = ["space-tree-tasks"] as const;
+
 const spaceTreeTasksQueryKey = (spaceId: string) =>
-  ["space-tree-tasks", spaceId] as const;
+  [...spaceTreeTasksQueryRoot, spaceId] as const;
 
 /** How many sessions a space shows when expanded in the list. */
 export const RECENT_TASKS_PER_SPACE = 5;
@@ -39,7 +43,7 @@ export const RECENT_TASKS_PER_SPACE = 5;
 const TREE_FETCH_LIMIT = 20;
 
 /** One page of a space's sessions, with the total the page was cut from. */
-interface SpaceTaskPage {
+export interface SpaceTaskPage {
   tasks: Task[];
   count: number;
 }

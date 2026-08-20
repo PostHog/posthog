@@ -42,7 +42,7 @@ from products.exports.backend.models.exported_asset import (
     is_valid_session_recording_id,
 )
 from products.exports.backend.stuck_exports import STUCK_EXPORT_MESSAGE, is_stuck_export
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
 FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
