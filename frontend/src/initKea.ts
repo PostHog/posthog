@@ -189,10 +189,11 @@ export function initKea({
                     }
                     if (errorMessage) {
                         const isServerError = typeof error.status === 'number' && error.status >= 500
-                        if (isServerError) {
-                            // A backend blip can fail many loaders on a rendering page at once. Collapse
-                            // every 5xx into one self-dismissing toast (shared id) instead of stacking a
-                            // sticky toast per request that the user must dismiss one by one.
+                        if (isServerError && isLoadAction) {
+                            // A backend blip can fail many background loaders on a rendering page at once.
+                            // Collapse those 5xx failures into one self-dismissing toast (shared id) instead
+                            // of stacking a sticky toast per request that the user must dismiss one by one.
+                            // Write actions keep their per-action message, since the user triggered them.
                             lemonToast.error('Something went wrong on our end. Please try again in a moment.', {
                                 toastId: 'api-server-error',
                                 autoClose: 6000,
