@@ -8,11 +8,12 @@ import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 
+import { PHAI_LEGACY_NUDGE_DISMISSED_KEY } from '../max-storage-keys'
 import { PhaiViewMode, maxGlobalLogic } from '../maxGlobalLogic'
 import type { ThreadMessage } from '../maxThreadLogic'
 import { maxMocks } from '../testUtils'
 import { PhaiLegacyNudgeLogicProps, phaiLegacyNudgeLogic } from './phaiLegacyNudgeLogic'
-import { PHAI_LEGACY_NUDGE_IMPRESSION_BUDGET, phaiLegacyNudgeStoreLogic } from './phaiLegacyNudgeStoreLogic'
+import { phaiLegacyNudgeStoreLogic } from './phaiLegacyNudgeStoreLogic'
 
 const QUESTION = 'show me weekly signups by source'
 
@@ -52,6 +53,9 @@ describe('phaiLegacyNudgeLogic', () => {
     beforeEach(() => {
         useMocks(maxMocks)
         initKeaTests()
+        // The dismissal is persisted, and jest does not clear localStorage between tests, so kea rehydrates
+        // one test's dismissal into the next one.
+        window.localStorage.removeItem(PHAI_LEGACY_NUDGE_DISMISSED_KEY)
         phaiLegacyNudgeStoreLogic.mount()
     })
 
@@ -81,12 +85,17 @@ describe('phaiLegacyNudgeLogic', () => {
         await expectLogic(logic, () => logic.actions.nudgeDismissed()).toMatchValues({ shouldShow: false })
     })
 
-    it('stops showing the notice once the impression budget is spent', () => {
-        for (let i = 0; i < PHAI_LEGACY_NUDGE_IMPRESSION_BUDGET; i++) {
-            phaiLegacyNudgeStoreLogic.actions.markShown()
-        }
+    // The notice has no impression budget: it stays for as long as someone keeps using the legacy chat, so
+    // remounting it (a panel open, a scene tab change, navigating back to /ai) must not wear it out.
+    it('keeps showing the notice across remounts', () => {
         mount()
-        expect(logic.values.shouldShow).toBe(false)
+        expect(logic.values.shouldShow).toBe(true)
+
+        logic.unmount()
+        logic = phaiLegacyNudgeLogic(baseProps({ panelId: 'another-panel' }))
+        logic.mount()
+
+        expect(logic.values.shouldShow).toBe(true)
     })
 
     it('hands the last question to the new surface when accepted', async () => {

@@ -14,6 +14,3 @@ export const PHAI_SCENE_AUTO_OPEN_DISMISSED_KEY = 'posthog_ai_scene_auto_open_di
 
 /** Whether the user closed the "switch to the new PostHog AI" notice (see phaiLegacyNudgeLogic). */
 export const PHAI_LEGACY_NUDGE_DISMISSED_KEY = 'posthog_ai_legacy_nudge_dismissed'
-
-/** How many times that notice has been shown, so it retires itself instead of nagging. */
-export const PHAI_LEGACY_NUDGE_IMPRESSIONS_KEY = 'posthog_ai_legacy_nudge_impressions'
