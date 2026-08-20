@@ -56,7 +56,9 @@ describe("buildPosthogProvider", () => {
   });
 
   it("forwards attribution headers to the provider and every routed model", () => {
-    const headers = { "x-posthog-property-client": "desktop" };
+    const headers = {
+      "x-posthog-property-task_execution_environment": "local",
+    };
     const config = buildPosthogProvider(models, { headers });
 
     expect(config.headers).toEqual(headers);

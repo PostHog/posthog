@@ -97,10 +97,13 @@ export class Agent {
             task_id: taskId,
             task_run_id: taskRunId,
             task_origin_product: task?.origin_product ?? null,
-            task_repository:
-              task?.repositories?.[0] ?? task?.repository ?? null,
+            task_repositories: task?.repositories?.length
+              ? JSON.stringify(task.repositories)
+              : task?.repository
+                ? JSON.stringify([task.repository])
+                : null,
             task_runtime_adapter: options.adapter ?? "claude",
-            client: "desktop" as const,
+            task_execution_environment: "local" as const,
           };
 
     let codexModels: ModelInfo[] | undefined;

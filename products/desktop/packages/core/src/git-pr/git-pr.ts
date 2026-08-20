@@ -106,7 +106,7 @@ ${truncatedDiff}${contextSection}`;
         model: HELPER_GATEWAY_MODEL,
         posthogProperties: {
           $ai_span_name: "commit_message",
-          client: "desktop",
+          task_execution_environment: "local",
           ...(taskId ? { task_id: taskId } : {}),
         },
       },
@@ -227,7 +227,7 @@ ${truncatedDiff || "(no diff available)"}${contextSection}`;
         model: HELPER_GATEWAY_MODEL,
         posthogProperties: {
           $ai_span_name: "pr_description",
-          client: "desktop",
+          task_execution_environment: "local",
           ...(taskId ? { task_id: taskId } : {}),
         },
       },
@@ -272,7 +272,7 @@ Rules:
         model: HELPER_GATEWAY_MODEL,
         posthogProperties: {
           $ai_span_name: "pr_short_summary",
-          client: "desktop",
+          task_execution_environment: "local",
           ...(taskId ? { task_id: taskId } : {}),
         },
       },

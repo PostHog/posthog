@@ -13,12 +13,12 @@ interface TestableServer {
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
-    repository?: string | null;
+    repositories?: string[];
     runtimeAdapter?: string | null;
     sandboxEnvironmentId?: string | null;
     snapshotKind?: string | null;
     prewarmed?: boolean | null;
-    client?: "desktop" | "cloud_sandbox";
+    executionEnvironment?: "local" | "cloud";
   }): GatewayEnv;
 }
 
@@ -215,7 +215,7 @@ describe("AgentServer.configureEnvironment", () => {
       taskRunId: "run-xyz",
       taskUserId: 42,
       taskTitle: "Fix the bug",
-      repository: "posthog/posthog",
+      repositories: ["posthog/posthog", "posthog/posthog-js"],
       runtimeAdapter: "claude",
       sandboxEnvironmentId: "environment-123",
       snapshotKind: "filesystem",
@@ -231,12 +231,13 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_run_id": "run-xyz",
       "x-posthog-property-task_user_id": "42",
       "x-posthog-property-task_title": "Fix the bug",
-      "x-posthog-property-task_repository": "posthog/posthog",
+      "x-posthog-property-task_repositories":
+        '["posthog/posthog","posthog/posthog-js"]',
       "x-posthog-property-task_runtime_adapter": "claude",
       "x-posthog-property-task_sandbox_environment_id": "environment-123",
       "x-posthog-property-task_snapshot_kind": "filesystem",
       "x-posthog-property-task_prewarmed": "false",
-      "x-posthog-property-client": "cloud_sandbox",
+      "x-posthog-property-task_execution_environment": "cloud",
       "x-posthog-property-team_id": "1",
       "x-posthog-property-$ai_session_id": "task-abc",
       "X-PostHog-Project-Id": "1",
@@ -253,7 +254,7 @@ describe("AgentServer.configureEnvironment", () => {
       taskRunId: "run-xyz",
       taskUserId: 42,
       taskTitle: "Fix the bug",
-      repository: "posthog/posthog",
+      repositories: ["posthog/posthog", "posthog/posthog-js"],
       runtimeAdapter: "claude",
       sandboxEnvironmentId: "environment-123",
       snapshotKind: "filesystem",
@@ -270,12 +271,12 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_run_id: run-xyz",
         "x-posthog-property-task_user_id: 42",
         "x-posthog-property-task_title: Fix the bug",
-        "x-posthog-property-task_repository: posthog/posthog",
+        'x-posthog-property-task_repositories: ["posthog/posthog","posthog/posthog-js"]',
         "x-posthog-property-task_runtime_adapter: claude",
         "x-posthog-property-task_sandbox_environment_id: environment-123",
         "x-posthog-property-task_snapshot_kind: filesystem",
         "x-posthog-property-task_prewarmed: false",
-        "x-posthog-property-client: cloud_sandbox",
+        "x-posthog-property-task_execution_environment: cloud",
         "X-PostHog-Project-Id: 1",
       ].join("\n"),
     );
@@ -319,7 +320,7 @@ describe("AgentServer.configureEnvironment", () => {
 
     expect(env.anthropicCustomHeaders).toBe(
       "x-posthog-property-task_internal: false\n" +
-        "x-posthog-property-client: cloud_sandbox\n" +
+        "x-posthog-property-task_execution_environment: cloud\n" +
         "X-PostHog-Project-Id: 1",
     );
   });

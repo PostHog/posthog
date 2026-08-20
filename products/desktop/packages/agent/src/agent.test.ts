@@ -116,10 +116,10 @@ describe("Agent", () => {
       "x-posthog-property-task_id: task-1",
     );
     expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
-      "x-posthog-property-task_repository: org/repo",
+      'x-posthog-property-task_repositories: ["org/repo"]',
     );
     expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
-      "x-posthog-property-client: desktop",
+      "x-posthog-property-task_execution_environment: local",
     );
   });
 

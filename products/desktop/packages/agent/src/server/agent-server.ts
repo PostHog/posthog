@@ -1694,16 +1694,17 @@ export class AgentServer {
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
       taskTitle: preTask?.title,
-      repository: this.taskRepositories[0] ?? null,
+      repositories: this.taskRepositories,
       runtimeAdapter,
       sandboxEnvironmentId: getTaskRunStateString(
         preTaskRun,
         "sandbox_environment_id",
       ),
-      snapshotKind:
-        getTaskRunStateString(preTaskRun, "snapshot_kind") ?? "absent",
-      prewarmed: this.prewarmedRun,
-      client: "cloud_sandbox",
+      snapshotKind: preTaskRun
+        ? (getTaskRunStateString(preTaskRun, "snapshot_kind") ?? "absent")
+        : null,
+      prewarmed: preTaskRun ? this.prewarmedRun : null,
+      executionEnvironment: "cloud",
     });
 
     if (this.config.repoReadyFile && gatewayEnv.anthropicBaseUrl) {
@@ -4232,12 +4233,12 @@ ${commonInstructions}
     taskRunId,
     taskUserId,
     taskTitle,
-    repository,
+    repositories,
     runtimeAdapter,
     sandboxEnvironmentId,
     snapshotKind,
     prewarmed,
-    client,
+    executionEnvironment,
   }: {
     isInternal?: boolean;
     originProduct?: Task["origin_product"] | null;
@@ -4247,12 +4248,12 @@ ${commonInstructions}
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
-    repository?: string | null;
+    repositories?: string[];
     runtimeAdapter?: string | null;
     sandboxEnvironmentId?: string | null;
     snapshotKind?: string | null;
     prewarmed?: boolean | null;
-    client?: "desktop" | "cloud_sandbox";
+    executionEnvironment?: "local" | "cloud";
   } = {}): GatewayEnv {
     const { apiKey, apiUrl, projectId } = this.config;
     const product = resolveGatewayProduct({ isInternal, originProduct });
@@ -4296,12 +4297,14 @@ ${commonInstructions}
       task_run_id: taskRunId,
       task_user_id: taskUserId,
       task_title: taskTitle,
-      task_repository: repository,
+      task_repositories: repositories?.length
+        ? JSON.stringify(repositories)
+        : null,
       task_runtime_adapter: runtimeAdapter,
       task_sandbox_environment_id: sandboxEnvironmentId,
       task_snapshot_kind: snapshotKind,
       task_prewarmed: prewarmed,
-      client: client ?? "cloud_sandbox",
+      task_execution_environment: executionEnvironment ?? "cloud",
     };
     // The Claude path appends the project scope in buildEnvironment from
     // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below

@@ -544,25 +544,30 @@ export class PiAgentServer {
         }),
     ]);
     const runState = taskRun?.state as Record<string, unknown> | undefined;
-    const taskSnapshotKind =
-      typeof runState?.snapshot_kind === "string"
+    const taskSnapshotKind = taskRun
+      ? typeof runState?.snapshot_kind === "string"
         ? runState.snapshot_kind
-        : "absent";
+        : "absent"
+      : null;
     const attributionHeaders = buildPosthogPropertyHeaderRecord({
       task_id: payload.task_id,
       task_run_id: payload.run_id,
       task_origin_product: task?.origin_product ?? null,
-      task_repository: task?.repositories?.[0] ?? task?.repository ?? null,
+      task_repositories: task?.repositories?.length
+        ? JSON.stringify(task.repositories)
+        : task?.repository
+          ? JSON.stringify([task.repository])
+          : null,
       task_runtime_adapter: "pi",
       task_sandbox_environment_id:
         typeof runState?.sandbox_environment_id === "string"
           ? runState.sandbox_environment_id
           : null,
       task_snapshot_kind: taskSnapshotKind,
-      task_prewarmed: runState?.prewarmed === true,
+      task_prewarmed: taskRun ? runState?.prewarmed === true : null,
       ai_stage:
         typeof runState?.ai_stage === "string" ? runState.ai_stage : null,
-      client: "cloud_sandbox",
+      task_execution_environment: "cloud",
     });
 
     const extensions: PiRuntimeExtension[] = [];
