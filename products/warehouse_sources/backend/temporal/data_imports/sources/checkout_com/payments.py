@@ -376,10 +376,10 @@ def _fetch_customer(
 ) -> Optional[dict[str, Any]]:
     """One customer lookup by ``cus_`` id or email; None when no such customer exists.
 
-    Email identifiers are personal data. This module's own log lines and raised error
-    messages (both can end up in job logs and ``latest_error``) show an ``{email}``
-    placeholder instead. The tracked transport logs the request URL with its path
-    preserved, so the percent-encoded address still reaches job logs from there.
+    Email identifiers are personal data, and both job logs and ``latest_error`` are
+    readable by anyone with project access. This module's own log lines and raised error
+    messages show an ``{email}`` placeholder, and the tracked transport masks the address
+    out of the request URL it records (``url_utils.scrub_url``), so neither carries it.
     """
     is_email = "@" in identifier
     url = f"{api_base}/customers/{quote(identifier, safe='')}"
