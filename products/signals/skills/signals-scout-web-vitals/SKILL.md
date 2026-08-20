@@ -452,6 +452,10 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   far more than one that asks a human to reproduce your analysis. Page-scoped findings
   usually localize this way; keep `requires_human_input` for delivery-shaped ones (CDN,
   TTFB, regional gaps) where the fix isn't in page code.
+  A static code smell is not user impact: a missing label-for association reads as breakage in source while the control works fine in the browser.
+  When the finding claims a broken or dead interaction, the report must require the implementing agent to reproduce the breakage on the rendered page (or the PR's deploy preview) before the PR asserts user impact — and must scope the claim to what the data shows until then.
+  Treat dead-click or rage-click clusters on native form controls (`<select>`, date and file inputs) as suspect corroboration: the OS picker they open is invisible to session replay, so working controls score as dead.
+  A refuted PR costs more reviewer trust than ten handoff reports.
   A `requires_human_input` report must still hand off explicitly, in the summary: why the fix isn't PR-ready (no trusted source names the repository for the host, or the fix is delivery-shaped), the single next diagnostic step and who takes it, and a success criterion — the metric, the target band, and the re-measure window.
   When the blocker is the unnamed repository, say the unlock too: a steering note or business-knowledge entry naming the host's repository turns future findings on that host into PR-ready reports.
   Set `priority` + `priority_explanation`: standing-poor or a band-crossing
