@@ -78,8 +78,7 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const anchorRef = React.useRef(0);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
+  const handleDragStart = () => {
     dragOriginRef.current = open ? "docked" : "overlay";
     dragStartWidthRef.current = width;
     dragEndedClosedRef.current = false;
@@ -91,117 +90,58 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
       : side === "left"
         ? 0
         : window.innerWidth;
-    setIsResizing(true);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
   };
 
-  // If the component unmounts mid-drag (e.g. a route swap while holding the
-  // handle), no mouseup will ever fire — reset the drag's global side effects
-  // or the app is left with a col-resize cursor, text selection disabled, and
-  // a stuck isResizing that makes the next mount resize on bare mousemove.
-  const unmountResetRef = React.useRef({ isResizing, setIsResizing });
-  unmountResetRef.current = { isResizing, setIsResizing };
-  React.useEffect(
-    () => () => {
-      const { isResizing: active, setIsResizing: reset } =
-        unmountResetRef.current;
-      if (active) {
-        reset(false);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      }
-    },
-    [],
-  );
+  const pointerWidth = (e: MouseEvent) =>
+    side === "left"
+      ? e.clientX - anchorRef.current
+      : anchorRef.current - e.clientX;
 
-  React.useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
+  const handleDrag = (e: MouseEvent) => {
+    const pointer = pointerWidth(e);
+    const clamped = Math.max(
+      minWidth,
+      Math.min(window.innerWidth * 0.5, pointer),
+    );
 
-      // Distance from the panel's own anchored edge, regardless of side, which
-      // is the width the pointer is asking for.
-      const pointer =
-        side === "left"
-          ? e.clientX - anchorRef.current
-          : anchorRef.current - e.clientX;
-      const maxWidth = window.innerWidth * 0.5;
-      const clamped = Math.max(minWidth, Math.min(maxWidth, pointer));
-
-      if (open) {
-        if (pointer < DRAG_COLLAPSE_AT && setOpen) {
-          setOpen(false);
-          dragEndedClosedRef.current = true;
-          return;
-        }
-        setWidth(clamped);
+    if (open) {
+      if (pointer < DRAG_COLLAPSE_AT && setOpen) {
+        setOpen(false);
+        dragEndedClosedRef.current = true;
         return;
       }
+      setWidth(clamped);
+      return;
+    }
 
-      if (peek) {
-        if (pointer < DRAG_COLLAPSE_AT) {
-          onPeekDismiss?.();
-          dragEndedClosedRef.current = true;
-          return;
-        }
-        setWidth(clamped);
+    if (peek) {
+      if (pointer < DRAG_COLLAPSE_AT) {
+        onPeekDismiss?.();
+        dragEndedClosedRef.current = true;
         return;
       }
+      setWidth(clamped);
+      return;
+    }
 
-      // Closed mid-drag and still holding: dragging back out pops it open in
-      // whichever mode the drag started from.
-      if (pointer >= DRAG_REOPEN_AT) {
-        if (dragOriginRef.current === "docked" && setOpen) {
-          setOpen(true);
-        } else {
-          onPeekEnter?.();
-        }
-        dragEndedClosedRef.current = false;
-        setWidth(clamped);
-      }
-    };
+    // Closed mid-drag and still holding: dragging back out pops it open in
+    // whichever mode the drag started from.
+    if (pointer >= DRAG_REOPEN_AT) {
+      if (dragOriginRef.current === "docked" && setOpen) setOpen(true);
+      else onPeekEnter?.();
+      dragEndedClosedRef.current = false;
+      setWidth(clamped);
+    }
+  };
 
-    const handleMouseUp = (e: MouseEvent) => {
-      if (!isResizing) return;
-      setIsResizing(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      // Drag ended closed (drag-to-close or peek dismiss): the collapse walk
-      // clamped the store width to min on the way down — restore the pre-drag
-      // width so the next open comes back at the user's chosen size.
-      if (dragEndedClosedRef.current) {
-        setWidth(dragStartWidthRef.current);
-      }
-      if (!open && peek) {
-        const pointer =
-          side === "left"
-            ? e.clientX - anchorRef.current
-            : anchorRef.current - e.clientX;
-        if (pointer > width + PEEK_CLOSE_MARGIN) onPeekLeave?.();
-      }
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [
-    setWidth,
-    isResizing,
-    setIsResizing,
-    side,
-    minWidth,
-    open,
-    peek,
-    width,
-    setOpen,
-    onPeekEnter,
-    onPeekLeave,
-    onPeekDismiss,
-  ]);
+  const handleDragEnd = (e: MouseEvent) => {
+    // The collapse walk clamped the stored width to min on the way down.
+    if (dragEndedClosedRef.current) setWidth(dragStartWidthRef.current);
+    // Released well clear of a floating panel: the peek has been left behind.
+    if (!open && peek && pointerWidth(e) > width + PEEK_CLOSE_MARGIN) {
+      onPeekLeave?.();
+    }
+  };
 
   const isLeft = side === "left";
   // Closed = overlay mode: the box collapses to 0 width but the panel stays
@@ -292,8 +232,11 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
             edge={isLeft ? "right" : "left"}
             tooltip={resizeTooltip}
             isResizing={isResizing}
+            setIsResizing={setIsResizing}
             armed={handleArmed}
-            onMouseDown={handleMouseDown}
+            onDragStart={handleDragStart}
+            onDrag={handleDrag}
+            onDragEnd={handleDragEnd}
           />
         )}
       </div>

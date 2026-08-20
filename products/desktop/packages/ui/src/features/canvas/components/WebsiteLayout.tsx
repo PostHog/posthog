@@ -459,7 +459,11 @@ export function WebsiteLayout() {
           } as CSSProperties
         }
       >
-        <div className="min-w-0 flex-1 overflow-hidden">
+        {/* `isolate`: the pane's own chrome climbs to z-50, and without a
+            stacking context of its own that would outrank the right panel's
+            scrim, which has to sit under the panel and so cannot simply outbid
+            it. */}
+        <div className="isolate min-w-0 flex-1 overflow-hidden">
           <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
             <Outlet />
           </MentionAvailabilityProvider>

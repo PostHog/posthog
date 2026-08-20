@@ -4,7 +4,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useCloudPrUrl } from "@posthog/ui/features/git-interaction/useCloudPrUrl";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
-import { useIsWiderThan } from "@posthog/ui/primitives/hooks/useIsWiderThan";
+import { useIsWiderThan } from "@posthog/ui/primitives/hooks/useObservedWidth";
 import { ResizeHandle } from "@posthog/ui/primitives/ResizeHandle";
 import { Flex, Spinner, Text } from "@radix-ui/themes";
 import {
@@ -58,32 +58,7 @@ function FileBrowser({ task }: { task: Task }) {
   const [width, setWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!isResizing) return;
-    const right = boxRef.current?.getBoundingClientRect().right ?? 0;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      setWidth(
-        Math.min(
-          SIDEBAR_MAX_WIDTH,
-          Math.max(SIDEBAR_MIN_WIDTH, right - e.clientX),
-        ),
-      );
-    };
-    const handleMouseUp = () => {
-      setIsResizing(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isResizing]);
+  const rightRef = useRef(0);
 
   return (
     <Flex
@@ -97,12 +72,18 @@ function FileBrowser({ task }: { task: Task }) {
         edge="left"
         tooltip="Resize"
         isResizing={isResizing}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          setIsResizing(true);
-          document.body.style.cursor = "col-resize";
-          document.body.style.userSelect = "none";
+        setIsResizing={setIsResizing}
+        onDragStart={() => {
+          rightRef.current = boxRef.current?.getBoundingClientRect().right ?? 0;
         }}
+        onDrag={(event) =>
+          setWidth(
+            Math.min(
+              SIDEBAR_MAX_WIDTH,
+              Math.max(SIDEBAR_MIN_WIDTH, rightRef.current - event.clientX),
+            ),
+          )
+        }
       />
     </Flex>
   );
@@ -190,10 +171,8 @@ export function ReviewShell({
     [reviewHost],
   );
 
-  // The file browser answers to the room the review was given, not to the mode
-  // it was opened in: the same review is a column beside a session, a panel
-  // widened over it, and a scene of its own, and only the first of those has no
-  // room for a browser.
+  // The room the review was given, not the mode it was opened in: the same
+  // review is a column, a widened panel, and a scene of its own.
   const showFileBrowser = useIsWiderThan(
     shellRef,
     REVIEW_FILE_BROWSER_MIN_WIDTH,
