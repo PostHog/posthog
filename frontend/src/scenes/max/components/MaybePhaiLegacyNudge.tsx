@@ -21,8 +21,17 @@ export function MaybePhaiLegacyNudge({ panelId }: MaybePhaiLegacyNudgeProps): JS
     const { conversationId } = useValues(maxLogic)
 
     const logic = phaiLegacyNudgeLogic({ panelId, threadGrouped, streamingActive, isSharedThread, conversationId })
-    const { shouldShow, reasonPromptVisible, lastHumanQuestion } = useValues(logic)
-    const { nudgeClicked, nudgeDismissed, submitReason, closeReasonPrompt } = useActions(logic)
+    const { shouldShow, reasonPromptVisible, lastHumanQuestion, otherReasonSelected, otherReasonText } =
+        useValues(logic)
+    const {
+        nudgeClicked,
+        nudgeDismissed,
+        submitReason,
+        closeReasonPrompt,
+        selectOtherReason,
+        setOtherReasonText,
+        submitOtherReason,
+    } = useActions(logic)
 
     if (!shouldShow && !reasonPromptVisible) {
         return null
@@ -32,9 +41,14 @@ export function MaybePhaiLegacyNudge({ panelId }: MaybePhaiLegacyNudgeProps): JS
         <PhaiLegacyNudgeBanner
             mode={reasonPromptVisible ? 'reason' : 'offer'}
             hasQuestion={!!lastHumanQuestion}
+            otherReasonSelected={otherReasonSelected}
+            otherReasonText={otherReasonText}
             onAccept={nudgeClicked}
             onDismiss={reasonPromptVisible ? closeReasonPrompt : nudgeDismissed}
             onSubmitReason={submitReason}
+            onSelectOtherReason={selectOtherReason}
+            onChangeOtherReasonText={setOtherReasonText}
+            onSubmitOtherReason={submitOtherReason}
         />
     )
 }

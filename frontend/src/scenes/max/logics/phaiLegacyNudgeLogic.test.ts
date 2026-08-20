@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -125,5 +126,39 @@ describe('phaiLegacyNudgeLogic', () => {
             reasonPromptVisible: false,
             dismissed: true,
         })
+    })
+
+    it('keeps the prompt open on "Other" so the answer can be typed', async () => {
+        mount()
+        logic.actions.nudgeDismissed()
+
+        await expectLogic(logic, () => logic.actions.selectOtherReason()).toMatchValues({
+            otherReasonSelected: true,
+            reasonPromptVisible: true,
+        })
+    })
+
+    // The typed answer is the only thing the fixed reasons can't carry, so it has to survive trimming and
+    // reach the event. Whitespace alone is not an answer and must not report one.
+    it.each<[string, string | null]>([
+        ['  it forgets what I asked  ', 'it forgets what I asked'],
+        ['   ', null],
+    ])('reports a typed reason of %p', async (typed, reported) => {
+        mount()
+        const capture = jest.spyOn(posthog, 'capture')
+        logic.actions.nudgeDismissed()
+        logic.actions.selectOtherReason()
+        logic.actions.setOtherReasonText(typed)
+
+        await expectLogic(logic, () => logic.actions.submitOtherReason()).toFinishAllListeners()
+
+        if (reported) {
+            expect(capture).toHaveBeenCalledWith(
+                'posthog ai legacy nudge reason',
+                expect.objectContaining({ reason: 'other', reason_text: reported })
+            )
+        } else {
+            expect(capture).not.toHaveBeenCalledWith('posthog ai legacy nudge reason', expect.anything())
+        }
     })
 })

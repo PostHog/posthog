@@ -8,9 +8,14 @@ const meta: Meta<typeof PhaiLegacyNudgeBanner> = {
     args: {
         mode: 'offer',
         hasQuestion: true,
+        otherReasonSelected: false,
+        otherReasonText: '',
         onAccept: () => {},
         onDismiss: () => {},
         onSubmitReason: () => {},
+        onSelectOtherReason: () => {},
+        onChangeOtherReasonText: () => {},
+        onSubmitOtherReason: () => {},
     },
     parameters: {
         // Fullscreen so the centered chat column reads at its real width instead of inside Storybook's inset.
@@ -20,6 +25,15 @@ const meta: Meta<typeof PhaiLegacyNudgeBanner> = {
 export default meta
 
 type Story = StoryObj<typeof PhaiLegacyNudgeBanner>
+
+// The side panel is the tightest host the banner has to survive, and it is where wrapping shows up first.
+const narrowPanel = [
+    (Story: () => JSX.Element) => (
+        <div className="w-[400px] border border-primary rounded">
+            <Story />
+        </div>
+    ),
+]
 
 export const OfferWithQuestion: Story = {}
 
@@ -31,24 +45,20 @@ export const ReasonPrompt: Story = {
     args: { mode: 'reason' },
 }
 
-// The side panel is the tightest host the banner has to survive, and it is where wrapping shows up first.
+export const OtherReasonPrompt: Story = {
+    args: { mode: 'reason', otherReasonSelected: true, otherReasonText: 'It forgets what I asked it' },
+}
+
 export const InNarrowPanel: Story = {
-    decorators: [
-        (Story) => (
-            <div className="w-[400px] border border-primary rounded">
-                <Story />
-            </div>
-        ),
-    ],
+    decorators: narrowPanel,
 }
 
 export const ReasonPromptInNarrowPanel: Story = {
     args: { mode: 'reason' },
-    decorators: [
-        (Story) => (
-            <div className="w-[400px] border border-primary rounded">
-                <Story />
-            </div>
-        ),
-    ],
+    decorators: narrowPanel,
+}
+
+export const OtherReasonPromptInNarrowPanel: Story = {
+    args: { mode: 'reason', otherReasonSelected: true, otherReasonText: 'It forgets what I asked it' },
+    decorators: narrowPanel,
 }

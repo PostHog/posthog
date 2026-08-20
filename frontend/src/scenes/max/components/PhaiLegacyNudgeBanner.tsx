@@ -1,6 +1,6 @@
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { PhaiLegacyNudgeReason } from '../logics/phaiLegacyNudgeLogic'
+import { OTHER_REASON_MAX_LENGTH, PhaiLegacyNudgeReason } from '../logics/phaiLegacyNudgeLogic'
 
 // Matches the chat column on `/ai`, which `Thread` and `SidebarQuestionInput` both set to `max-w-180`
 // centered. In the side panel the max-width never binds, so the banner just fills the panel.
@@ -18,9 +18,15 @@ export interface PhaiLegacyNudgeBannerProps {
     mode: 'offer' | 'reason'
     /** Whether the legacy thread has a question worth carrying across, which changes what the offer promises. */
     hasQuestion: boolean
+    /** Whether the user picked "Other", which replaces the fixed answers with the text field. */
+    otherReasonSelected: boolean
+    otherReasonText: string
     onAccept: () => void
     onDismiss: () => void
     onSubmitReason: (reason: PhaiLegacyNudgeReason) => void
+    onSelectOtherReason: () => void
+    onChangeOtherReasonText: (text: string) => void
+    onSubmitOtherReason: () => void
 }
 
 /**
@@ -32,28 +38,68 @@ export interface PhaiLegacyNudgeBannerProps {
 export function PhaiLegacyNudgeBanner({
     mode,
     hasQuestion,
+    otherReasonSelected,
+    otherReasonText,
     onAccept,
     onDismiss,
     onSubmitReason,
+    onSelectOtherReason,
+    onChangeOtherReasonText,
+    onSubmitOtherReason,
 }: PhaiLegacyNudgeBannerProps): JSX.Element {
     if (mode === 'reason') {
+        const canSendOtherReason = !!otherReasonText.trim()
+
         return (
             <div className={CHAT_COLUMN}>
                 <LemonBanner type="ai" onClose={onDismiss}>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span>Why did you switch back?</span>
-                        {REASON_OPTIONS.map(({ reason, label }) => (
+                    {otherReasonSelected ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <LemonInput
+                                className="grow"
+                                size="xsmall"
+                                autoFocus
+                                value={otherReasonText}
+                                onChange={onChangeOtherReasonText}
+                                onPressEnter={() => canSendOtherReason && onSubmitOtherReason()}
+                                maxLength={OTHER_REASON_MAX_LENGTH}
+                                placeholder="What made you switch back?"
+                                data-attr="phai-legacy-nudge-reason-other-input"
+                            />
                             <LemonButton
-                                key={reason}
                                 size="xsmall"
                                 type="secondary"
-                                onClick={() => onSubmitReason(reason)}
-                                data-attr={`phai-legacy-nudge-reason-${reason}`}
+                                onClick={onSubmitOtherReason}
+                                disabledReason={canSendOtherReason ? undefined : 'Write a few words first'}
+                                data-attr="phai-legacy-nudge-reason-other-send"
                             >
-                                {label}
+                                Send
                             </LemonButton>
-                        ))}
-                    </div>
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span>Why did you switch back?</span>
+                            {REASON_OPTIONS.map(({ reason, label }) => (
+                                <LemonButton
+                                    key={reason}
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => onSubmitReason(reason)}
+                                    data-attr={`phai-legacy-nudge-reason-${reason}`}
+                                >
+                                    {label}
+                                </LemonButton>
+                            ))}
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={onSelectOtherReason}
+                                data-attr="phai-legacy-nudge-reason-other"
+                            >
+                                Other
+                            </LemonButton>
+                        </div>
+                    )}
                 </LemonBanner>
             </div>
         )
