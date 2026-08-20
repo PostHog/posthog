@@ -30,7 +30,7 @@ describe('Google Data Manager template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{\"destinations\":[{\"operatingAccount\":{\"accountType\":\"GOOGLE_ADS\",\"accountId\":\"1231231234\"},\"productDestinationId\":\"123456789\",\"loginAccount\":{\"accountType\":\"GOOGLE_ADS\",\"accountId\":\"5675675678\"}}],\"events\":[{\"eventTimestamp\":\"2025-01-01T00:00:00Z\",\"eventSource\":\"WEB\",\"adIdentifiers\":{\"gclid\":\"google-id\",\"gbraid\":\"gbraid-id\"},\"userData\":{\"userIdentifiers\":[{\"email_address\":\"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3\"}]},\"conversionValue\":100,\"currency\":\"USD\",\"transactionId\":\"order-123\",\"consent\":{\"adUserData\":\"CONSENT_GRANTED\"}}],\"encoding\":\"HEX\"}",
+              "body": "{\"destinations\":[{\"operatingAccount\":{\"accountType\":\"GOOGLE_ADS\",\"accountId\":\"1231231234\"},\"productDestinationId\":\"123456789\",\"loginAccount\":{\"accountType\":\"GOOGLE_ADS\",\"accountId\":\"5675675678\"}}],\"events\":[{\"eventTimestamp\":\"2025-01-01T00:00:00Z\",\"eventSource\":\"WEB\",\"adIdentifiers\":{\"gclid\":\"google-id\",\"gbraid\":\"gbraid-id\"},\"userData\":{\"userIdentifiers\":[{\"emailAddress\":\"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3\"}]},\"conversionValue\":100,\"currency\":\"USD\",\"transactionId\":\"order-123\",\"consent\":{\"adUserData\":\"CONSENT_GRANTED\"}}],\"encoding\":\"HEX\"}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",

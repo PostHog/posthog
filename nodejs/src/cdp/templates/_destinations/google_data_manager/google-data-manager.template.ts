@@ -150,10 +150,10 @@ export const template: HogFunctionTemplate = {
     code: `
 let userIdentifiers := []
 if (not empty(inputs.email)) {
-    userIdentifiers := arrayPushBack(userIdentifiers, {'email_address': sha256Hex(lower(trim(inputs.email)))})
+    userIdentifiers := arrayPushBack(userIdentifiers, {'emailAddress': sha256Hex(lower(trim(inputs.email)))})
 }
 if (not empty(inputs.phone)) {
-    userIdentifiers := arrayPushBack(userIdentifiers, {'phone_number': sha256Hex(trim(inputs.phone))})
+    userIdentifiers := arrayPushBack(userIdentifiers, {'phoneNumber': sha256Hex(trim(inputs.phone))})
 }
 
 if (empty(inputs.gclid) and empty(inputs.gbraid) and empty(inputs.wbraid) and empty(userIdentifiers)) {
