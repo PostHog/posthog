@@ -406,6 +406,32 @@ class TestGrpcReceiveLimit:
 
 
 class TestValidateCredentials:
+    @pytest.mark.parametrize("start_date", ["last tuesday", "2020", "01/02/2020", "9999999999"])
+    def test_an_unreadable_start_date_is_rejected_at_setup(self, start_date: str) -> None:
+        # The sync treats an unreadable value as unset, so without this the source would import a
+        # range nobody asked for and nothing would say why. A partial date is the worse case: it
+        # reads as a year but a lenient parser would resolve it against the day the sync ran.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1, start_date=start_date)
+
+        ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        # Names the field as the form labels it, since this reaches the user as the body of a 400.
+        assert message is not None and message.startswith("Start date")
+
+    def test_a_readable_start_date_passes_validation_through(self) -> None:
+        # Whitespace and a full timestamp are both readable, and neither should stop a connection.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1, start_date=" 2020-01-01 ")
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            side_effect=Integration.DoesNotExist(),
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        # Reaches the connection attempt rather than being turned away on the date.
+        assert ok is False
+        assert "no longer exists" in (message or "")
+
     def test_missing_integration_does_not_exist_returns_reconnect_message(self):
         # `google_ads_client` calls `Integration.objects.get(...)`, which raises the typed
         # `Integration.DoesNotExist` when the OAuth connection row is gone. Surface an
@@ -1582,6 +1608,62 @@ class TestGoogleAdsQueryConstruction:
         assert all("LIMIT 1" not in q for q in queries), "a recorded range needs no request to locate it"
         # Windowed, not the open-ended `.. 2100` scan a first sync used to run.
         assert all("2100-01-01" not in q for q in queries)
+
+    @pytest.mark.parametrize(
+        "requested,earliest_date,expected",
+        [
+            # Within the span that holds rows, the stated date is what the drain reads.
+            ("2022-06-01", "2020-02-08", "2022-06-01"),
+            # Whitespace survives a paste from a spreadsheet.
+            ("  2022-06-01  ", "2020-02-08", "2022-06-01"),
+            # Before the account's first row: the walk would spend a request per empty week to reach
+            # the same rows, and the budget cannot end a run that has not reached data.
+            ("2015-01-01", "2020-02-08", "2020-02-08"),
+            # Past today: `start` would sit beyond the loop's end, so every run imports nothing and
+            # reports that as the answer.
+            ("2030-01-01", "2020-02-08", "2026-07-17"),
+            # An account holding nothing has no span to clamp to.
+            ("2015-01-01", None, "2026-07-17"),
+        ],
+    )
+    def test_a_stated_start_date_is_clamped_to_the_span_that_holds_rows(
+        self, requested: str, earliest_date: str | None, expected: str
+    ) -> None:
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                requested_start=requested,
+                # Recorded, and deliberately different: the stated date has to win over it.
+                history_start=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+                earliest_date=earliest_date,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        drain = [q for q in queries if "LIMIT 1" not in q]
+        assert f"WHERE segments.date >= '{expected}'" in drain[0]
+
+    @pytest.mark.parametrize("requested", ["last tuesday", "2020", "01/02/2020"])
+    def test_an_unreadable_stated_date_falls_back_to_the_recorded_range(self, requested: str) -> None:
+        # Validation rejects these at setup, so reaching the sync means a value stored before that
+        # check existed. Failing the sync over it is worse than importing the range this source
+        # would have had without the field.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                requested_start=requested,
+                history_start=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+                earliest_date="2020-02-08",
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        drain = [q for q in queries if "LIMIT 1" not in q]
+        assert "WHERE segments.date >= '2024-01-01'" in drain[0]
 
     @pytest.mark.parametrize("earliest_date,expected_start", [("2020-02-08", "2020-02-08"), (None, "2026-07-17")])
     def test_no_recorded_range_asks_the_account_where_its_rows_begin(

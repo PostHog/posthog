@@ -26,7 +26,7 @@ import { PrecomputeOverview } from './PrecomputeOverview'
 import { PrecomputationTeam, queryPerformanceLogic, SlowestQuery } from './queryPerformanceLogic'
 
 export const scene: SceneExport = {
-    component: QueryPerformance,
+    component: ExperimentsStaffTools,
     logic: queryPerformanceLogic,
 }
 
@@ -145,7 +145,7 @@ function QueryStats({
     )
 }
 
-export function QueryPerformance(): JSX.Element {
+export function ExperimentsStaffTools(): JSX.Element {
     const { user } = useValues(userLogic)
     const {
         precomputationTeams,
@@ -176,15 +176,15 @@ export function QueryPerformance(): JSX.Element {
         return (
             <>
                 <SceneTitleSection
-                    name="Query performance"
-                    description="Internal tooling for monitoring and managing query performance across all projects."
+                    name="Experiments staff tools"
+                    description="Internal tooling for monitoring and managing experiment query performance across all projects."
                     resourceType={{
                         type: 'query_performance',
                         forceIcon: <IconDatabase />,
                     }}
                 />
                 <p>
-                    Only users with staff access can view query performance tooling. Please contact your instance admin.
+                    Only users with staff access can view experiments staff tools. Please contact your instance admin.
                 </p>
                 <p>
                     If you're an admin and don't have access, set <code>is_staff=true</code> for your user on the
@@ -493,8 +493,8 @@ export function QueryPerformance(): JSX.Element {
     return (
         <SceneContent className="mt-4 pb-8">
             <SceneTitleSection
-                name="Query performance"
-                description="Internal tooling for monitoring and managing query performance across all projects."
+                name="Experiments staff tools"
+                description="Internal tooling for monitoring and managing experiment query performance across all projects."
                 resourceType={{
                     type: 'query_performance',
                     forceIcon: <IconDatabase />,

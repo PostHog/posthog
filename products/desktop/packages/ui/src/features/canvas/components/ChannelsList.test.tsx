@@ -114,7 +114,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import {
-  consumeKeepListForNextRoute,
+  shouldKeepListForRoute,
   showChannelList,
   showChannelPane,
   useChannelPaneStore,
@@ -459,7 +459,7 @@ describe("ChannelsList", () => {
       expect(useChannelPaneStore.getState().pane).toBe("list");
       // The other half of it: the route effect in ChannelsSidebar slides into
       // the space unless the navigation says to stay put.
-      expect(consumeKeepListForNextRoute()).toBe(true);
+      expect(shouldKeepListForRoute(ENG.id)).toBe(true);
       // Still scoped, so whatever asks for the channel pane next opens on the
       // space the session came from.
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);

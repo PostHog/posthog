@@ -143,7 +143,7 @@ describe('UrlFetchConsumer', () => {
                     seenTtlSeconds,
                     dryRun: true,
                 })
-        ).toThrow('SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS')
+        ).toThrow('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS')
     })
 
     it('writes one ledger entry per URL it would fetch', async () => {
