@@ -68,13 +68,15 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
             "401 Client Error: Unauthorized for url": "Gladly authentication failed. Please check your agent email and API token.",
             "403 Client Error: Forbidden for url": "Gladly denied access. Please check that the agent has the API User permission.",
             # Raised by `_report_rows` when a report body is missing the columns the stream is
-            # keyed on. Gladly returns the same body for that window on a retry (for this report it
-            # returns a plain-text error in place of the CSV), so the sync cannot fix it and neither
-            # can the incremental-field picker. Point the operator at Gladly instead.
+            # keyed on: usually Gladly returned an error in place of the CSV, but a renamed keyed
+            # column trips it too. The same window returns the same body on a retry, so neither the
+            # sync nor the incremental-field picker can fix it. The copy names Gladly first and
+            # PostHog support as the fallback for the renamed-column case, where the report exists.
             "Gladly report is missing required columns": (
-                "Gladly did not return the report this table needs, so there was no data to sync. "
-                "This happens when Gladly cannot build the report for your account. Ask Gladly "
-                "support to check that this report is available for your account."
+                "Gladly returned data that doesn't match the report this table needs, so there was "
+                "no data to sync. This usually means Gladly could not build the report for your "
+                "account. Ask Gladly support to check the report is available for your account. If "
+                "Gladly confirms it is, contact PostHog support."
             ),
         }
 
