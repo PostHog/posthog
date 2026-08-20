@@ -23688,7 +23688,7 @@ class QueryResponseAlternative108(BaseModel):
     )
 
 
-class QueryResponseAlternative108(BaseModel):
+class QueryResponseAlternative109(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -28835,6 +28835,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative106
         | QueryResponseAlternative107
         | QueryResponseAlternative108
+        | QueryResponseAlternative109
     ]
 ):
     root: (
@@ -28943,6 +28944,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative106
         | QueryResponseAlternative107
         | QueryResponseAlternative108
+        | QueryResponseAlternative109
     )
 
 
