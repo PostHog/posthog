@@ -8,7 +8,7 @@ from django.db.models import Q
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import STRIPE_POSTHOG_SECRET_NAMES, Integration, StripeIntegration
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, lock_oauth_connection
 
 
 class PartialStripeWrite(Exception):
@@ -36,24 +36,39 @@ class Command(BaseCommand):
             help="Rotate a single team's Stripe integration only, for testing before a full run",
         )
 
-    def _sweep_superseded_tokens(self, team_id: int, stale_token_ids: list[int]) -> None:
+    def _sweep_superseded_tokens(self, team_id: int, created_by_id: int, stale_token_ids: list[int]) -> None:
         """Remove every credential for this team except the replacement just minted.
 
         Queried inside the lock rather than deleted by the ids snapshotted before minting: a
         holder of the legacy refresh token can exchange it while Stripe is being written, and
-        that mints a pair the snapshot never saw. Taking the refresh rows with select_for_update
-        first serializes against DOT's refresh path, which locks the same rows, so a concurrent
-        refresh either lands before the sweep and gets swept, or blocks and then finds its token
-        gone.
+        that mints a pair the snapshot never saw.
+
+        `lock_oauth_connection` is what serializes this against the minting side. Row locks alone
+        are not enough, for the reason its docstring gives: a blocked sweep re-checks the locked
+        row without widening its snapshot, so a token inserted meanwhile survives.
         """
         apps = StripeIntegration._posthog_oauth_apps_for_revocation()
 
         with transaction.atomic():
-            list(
-                OAuthRefreshToken.objects.select_for_update()
-                .filter(application__in=apps, scoped_teams__contains=[team_id])
-                .values_list("id", flat=True)
+            user_ids = (
+                set(
+                    OAuthAccessToken.objects.filter(application__in=apps, scoped_teams__contains=[team_id]).values_list(
+                        "user_id", flat=True
+                    )
+                )
+                | set(
+                    OAuthRefreshToken.objects.filter(
+                        application__in=apps, scoped_teams__contains=[team_id]
+                    ).values_list("user_id", flat=True)
+                )
+                | {created_by_id}
             )
+            # Before any row lock and in a fixed order, matching the minting side, so the two
+            # cannot deadlock against each other.
+            for user_id, application_id in sorted(
+                (user_id, app.id) for user_id in user_ids if user_id is not None for app in apps
+            ):
+                lock_oauth_connection(user_id=user_id, application_id=application_id)
 
             superseded_ids = list(
                 OAuthAccessToken.objects.filter(application__in=apps, scoped_teams__contains=[team_id])
@@ -160,7 +175,7 @@ class Command(BaseCommand):
                 if unwritten:
                     raise RuntimeError(f"Stripe secret store not updated: {', '.join(unwritten)}")
 
-                self._sweep_superseded_tokens(integration.team_id, stale_token_ids)
+                self._sweep_superseded_tokens(integration.team_id, created_by.id, stale_token_ids)
             except Exception as e:
                 # A mint that never reached Stripe leaves a credential nobody holds; drop it so
                 # retrying does not accumulate one per attempt. A partial write is the opposite:

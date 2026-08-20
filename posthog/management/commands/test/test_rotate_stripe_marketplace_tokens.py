@@ -283,6 +283,43 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
         ).exists()
         assert OAuthAccessToken.objects.filter(application=self.new_app, scoped_teams__contains=[self.team.pk]).exists()
 
+    @patch("stripe.StripeClient")
+    @patch("posthog.management.commands.rotate_stripe_marketplace_tokens.lock_oauth_connection")
+    def test_takes_the_connection_lock_before_deleting(self, mock_lock, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        integration, stale_access, _ = self._create_integration_with_token(
+            self.team, "acct_lock", self.old_app, created_by=self.user
+        )
+
+        deleted_while_unlocked: list[bool] = []
+        original_delete = OAuthAccessToken.delete
+
+        with (
+            self.settings(
+                STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+                STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+                STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+                STRIPE_APP_SECRET_KEY="sk_test",
+            ),
+            patch.object(
+                OAuthAccessToken,
+                "delete",
+                lambda instance, *a, **kw: (
+                    deleted_while_unlocked.append(not mock_lock.called),
+                    original_delete(instance, *a, **kw),
+                )[1],
+            ),
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=StringIO())
+
+        # Row locks alone let a mid-sweep refresh survive, so the advisory lock has to come first.
+        locked_pairs = {(call.kwargs["user_id"], call.kwargs["application_id"]) for call in mock_lock.call_args_list}
+        assert (self.user.pk, self.old_app.id) in locked_pairs
+        assert (self.user.pk, self.new_app.id) in locked_pairs
+        assert not any(deleted_while_unlocked)
+
     @parameterized.expand(
         [
             ("client_id_unset", ""),
