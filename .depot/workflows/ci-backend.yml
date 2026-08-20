@@ -327,6 +327,9 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/hints.py'
                         - 'tools/hogli-commands/hogli_commands/product/**'
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
+                        # product:lint --all checks this generated file against the tree,
+                        # so a baseline-only edit must run it too
+                        - products/isolation_baseline.txt
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -1450,9 +1453,20 @@ jobs:
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
             - name: Check CH migrations
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
+                  # Count only migrations this PR adds; a stacked PR's base branch already carries the lower layers'.
+                  DIFF_BASE=upstream/master
+                  if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
+                      if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+                          DIFF_BASE="origin/$BASE_REF"
+                      else
+                          echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
+                      fi
+                  fi
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status upstream/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+                  git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
     check-openapi-types:
         needs: [changes]
         # Not on master push: master only primes the schema cache.

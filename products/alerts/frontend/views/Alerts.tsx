@@ -5,7 +5,6 @@ import { Suspense, useEffect } from 'react'
 import { LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
@@ -54,9 +53,8 @@ function AlertsPanelSkeleton(): JSX.Element {
 export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
-    const showLogAlerts = useFeatureFlag('LOGS_ALERTING')
     const canViewInsightAlerts = hasEffectiveResourceAccess(AccessControlResourceType.Insight)
-    const canViewLogAlerts = showLogAlerts && hasEffectiveResourceAccess(AccessControlResourceType.Logs)
+    const canViewLogAlerts = hasEffectiveResourceAccess(AccessControlResourceType.Logs)
 
     useEffect(() => {
         void loadInsightAlerts()
