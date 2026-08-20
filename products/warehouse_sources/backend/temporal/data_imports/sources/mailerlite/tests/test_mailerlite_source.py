@@ -102,6 +102,16 @@ class TestMailerLiteSourceClass:
         assert set(source.supported_versions) == {MAILERLITE_V1, MAILERLITE_V2}
         assert source.default_version in source.supported_versions
 
+    def test_v1_is_deprecated_without_sunset(self) -> None:
+        # Guards the in-product deprecation banner: v1 must stay flagged, and with no announced
+        # sunset date (a fabricated one would flip the framework into "sunsetting" behaviour and
+        # invite a repin off a version MailerLite still serves).
+        source = MailerLiteSource()
+        deprecation = source.get_version_deprecation(MAILERLITE_V1)
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert source.get_version_deprecation(MAILERLITE_V2) is None
+
     @pytest.mark.parametrize(
         ("pin", "expected_version"),
         [(None, MAILERLITE_V2), (MAILERLITE_V1, MAILERLITE_V1), (MAILERLITE_V2, MAILERLITE_V2)],
