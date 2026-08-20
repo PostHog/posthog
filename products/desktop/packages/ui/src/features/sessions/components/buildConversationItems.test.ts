@@ -835,15 +835,16 @@ describe("buildConversationItems", () => {
         consoleMsg(2, "Agent session initialized"),
       ];
 
-      const result = buildConversationItems(events, null);
-      const consoleItems = result.items.filter(
+      const visibleConsoleItems = buildConversationItems(events, null, {
+        showDebugLogs: true,
+      }).items.filter(
         (item) =>
           item.type === "session_update" &&
           item.update.sessionUpdate === "console",
       );
 
-      expect(consoleItems).toHaveLength(1);
-      expect(consoleItems[0]).toMatchObject({
+      expect(visibleConsoleItems).toHaveLength(1);
+      expect(visibleConsoleItems[0]).toMatchObject({
         update: { message: "Agent session initialized" },
       });
     });
