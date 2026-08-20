@@ -33,6 +33,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    _VOLUME_FLOOR_LOCAL_CACHE,
     OOM_PIN_TTL_SECONDS,
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
@@ -570,23 +571,47 @@ class TestWebEnsurePrecomputed(BaseTest):
 
 
 class TestVolumeFloor(BaseTest):
+    def setUp(self):
+        super().setUp()
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+
     def tearDown(self):
         client = redis.get_client()
         client.delete(VOLUME_FLOOR_TEAMS_KEY, VOLUME_FLOOR_READY_KEY, f"{VOLUME_FLOOR_TEAMS_KEY}:staging")
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
         super().tearDown()
 
     @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
     def test_fail_open_until_published_then_enforces_membership(self):
         assert is_team_above_volume_floor(self.team.pk) is True  # unpublished: fail open
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
 
         publish_volume_floor_teams([self.team.pk + 1])
         assert is_team_above_volume_floor(self.team.pk) is False
         assert is_team_above_volume_floor(self.team.pk + 1) is True
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
 
         # Republish replaces the whole set: the previous member drops out.
         publish_volume_floor_teams([self.team.pk])
         assert is_team_above_volume_floor(self.team.pk) is True
         assert is_team_above_volume_floor(self.team.pk + 1) is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_hysteresis_keeps_existing_members_above_exit_floor(self):
+        member = self.team.pk + 1
+        newcomer = self.team.pk + 2
+        publish_volume_floor_teams([member])
+        # Next pass: member fell under the entry floor but stays above the exit
+        # floor; newcomer is between the floors and was never a member.
+        publish_volume_floor_teams([], above_exit_floor=[member, newcomer])
+        assert is_team_above_volume_floor(member) is True
+        assert is_team_above_volume_floor(newcomer) is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_env_enrolled_teams_bypass_the_floor(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            assert is_team_above_volume_floor(self.team.pk) is True
 
     @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=0)
     def test_zero_floor_disables_the_check(self):

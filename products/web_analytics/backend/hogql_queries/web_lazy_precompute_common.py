@@ -10,6 +10,7 @@ too, bounding how many namespaces the loosened filter gate lets a team mint.
 """
 
 import json
+import time
 import hashlib
 from collections.abc import Callable
 from dataclasses import replace
@@ -72,28 +73,62 @@ VOLUME_FLOOR_READY_KEY = "web_precompute_volume_floor:ready"
 VOLUME_FLOOR_TTL_SECONDS = 48 * 3600
 
 
+# One dashboard load passes the gate once per family, so cache the verdict
+# in-process for a short window. 60s is far below the hourly publish cadence,
+# and the dict is bounded per process by web analytics' active-team working set.
+_VOLUME_FLOOR_LOCAL_CACHE: dict[int, tuple[float, bool]] = {}
+_VOLUME_FLOOR_LOCAL_CACHE_SECONDS = 60.0
+
+
 def is_team_above_volume_floor(team_id: int) -> bool:
     if settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS <= 0:
         return True
+    # Explicit env enrollment beats the volume heuristic: those teams were
+    # opted in deliberately (dogfooding, support escalations) regardless of size.
+    if team_id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
+        return True
+    cached = _VOLUME_FLOOR_LOCAL_CACHE.get(team_id)
+    if cached is not None and time.monotonic() - cached[0] < _VOLUME_FLOOR_LOCAL_CACHE_SECONDS:
+        return cached[1]
     try:
         client = redis.get_client()
-        if not client.exists(VOLUME_FLOOR_READY_KEY):
-            return True
-        return bool(client.sismember(VOLUME_FLOOR_TEAMS_KEY, str(team_id)))
+        # Membership first: above-floor teams (the vast majority of gate
+        # traffic) resolve in one round trip; the sentinel is only consulted
+        # to distinguish "below floor" from "set not published" (fail open).
+        if client.sismember(VOLUME_FLOOR_TEAMS_KEY, str(team_id)):
+            result = True
+        else:
+            result = not client.exists(VOLUME_FLOOR_READY_KEY)
     except Exception:
         logger.exception("web_precompute_volume_floor_check_failed", team_id=team_id)
-        return True
+        result = True
+    _VOLUME_FLOOR_LOCAL_CACHE[team_id] = (time.monotonic(), result)
+    return result
 
 
-def publish_volume_floor_teams(team_ids: list[int]) -> None:
+def publish_volume_floor_teams(above_floor: list[int], above_exit_floor: Optional[list[int]] = None) -> None:
     """Atomically replace the above-floor set. RENAME keeps readers off a
-    half-written set; the TTLs make a dead warmer fail open within 48h."""
+    half-written set; the TTLs make a dead warmer fail open within 48h.
+
+    `above_exit_floor` enables hysteresis: teams in it that are already
+    members stay members even when they fell under the entry floor, so a team
+    oscillating around the threshold does not flap in and out hourly (each
+    exit discards warm buckets that re-entry rebuilds from scratch).
+    """
     client = redis.get_client()
+    members: set[str] = {str(t) for t in above_floor}
+    if above_exit_floor:
+        try:
+            current = {m.decode() if isinstance(m, bytes) else str(m) for m in client.smembers(VOLUME_FLOOR_TEAMS_KEY)}
+        except Exception:
+            current = set()
+        members |= {str(t) for t in above_exit_floor if str(t) in current}
+    member_list = sorted(members)
     tmp_key = f"{VOLUME_FLOOR_TEAMS_KEY}:staging"
     pipe = client.pipeline()
     pipe.delete(tmp_key)
-    for chunk_start in range(0, len(team_ids), 5000):
-        pipe.sadd(tmp_key, *[str(t) for t in team_ids[chunk_start : chunk_start + 5000]])
+    for chunk_start in range(0, len(member_list), 5000):
+        pipe.sadd(tmp_key, *member_list[chunk_start : chunk_start + 5000])
     pipe.rename(tmp_key, VOLUME_FLOOR_TEAMS_KEY)
     pipe.expire(VOLUME_FLOOR_TEAMS_KEY, VOLUME_FLOOR_TTL_SECONDS)
     pipe.set(VOLUME_FLOOR_READY_KEY, "1", ex=VOLUME_FLOOR_TTL_SECONDS)

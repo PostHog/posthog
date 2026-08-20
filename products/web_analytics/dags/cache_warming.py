@@ -637,20 +637,28 @@ def publish_volume_floor_op(context: dagster.OpExecutionContext) -> bool:
         context.log.info("Volume floor disabled (WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS <= 0).")
         return True
     try:
+        # Scan down to the exit floor (half the entry floor) so hysteresis has
+        # the candidates it needs: existing members stay until they fall below
+        # the exit floor instead of flapping around the entry threshold.
+        exit_floor = floor // 2
         rows = sync_execute(
             """
-            SELECT team_id
+            SELECT team_id, count() AS ev7d
             FROM events
             WHERE timestamp > now() - INTERVAL 7 DAY AND timestamp < now()
             GROUP BY team_id
-            HAVING count() >= %(floor)s
+            HAVING ev7d >= %(exit_floor)s
             """,
-            {"floor": floor},
+            {"exit_floor": exit_floor},
             workload=Workload.OFFLINE,
         )
-        team_ids = [int(r[0]) for r in rows]
-        publish_volume_floor_teams(team_ids)
-        context.log.info(f"Published {len(team_ids)} teams at or above the {floor}-events/7d precompute floor.")
+        above_floor = [int(r[0]) for r in rows if int(r[1]) >= floor]
+        above_exit_floor = [int(r[0]) for r in rows]
+        publish_volume_floor_teams(above_floor, above_exit_floor=above_exit_floor)
+        context.log.info(
+            f"Published {len(above_floor)} teams at/above the {floor}-events/7d precompute floor "
+            f"(hysteresis band down to {exit_floor})."
+        )
     except Exception:
         context.log.exception("Volume floor refresh failed; readers keep the previous set (fail-open).")
     return True
