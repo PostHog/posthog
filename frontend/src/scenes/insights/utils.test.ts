@@ -813,14 +813,21 @@ describe('compareTopLevelSections()', () => {
 })
 
 describe('parseDraftQueryFromURL()', () => {
-    it('defaults a series entry with an event but no kind to EventsNode', () => {
+    it('stamps the kind on untagged funnel series entries by their shape', () => {
         // Reproduces the reported funnel bug: series entries reached the URL hash without a `kind`
-        // discriminator, so the backend's union rejected them.
+        // discriminator, so the backend's union rejected them. Legacy entries use three shapes:
+        // `{ event }` and `{}` are events, `{ id }` is an action.
         const query = JSON.stringify({
             kind: NodeKind.InsightVizNode,
             source: {
                 kind: NodeKind.FunnelsQuery,
-                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }, { event: 'signed_up' }, { event: null }],
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                    { event: 'signed_up' },
+                    { event: null },
+                    {},
+                    { id: 7 },
+                ],
             },
         })
 
@@ -830,6 +837,8 @@ describe('parseDraftQueryFromURL()', () => {
             { kind: NodeKind.EventsNode, event: '$pageview' },
             { kind: NodeKind.EventsNode, event: 'signed_up' },
             { kind: NodeKind.EventsNode, event: null },
+            { kind: NodeKind.EventsNode },
+            { kind: NodeKind.ActionsNode, id: 7 },
         ])
     })
 
@@ -841,7 +850,20 @@ describe('parseDraftQueryFromURL()', () => {
         expect(parsed.series).toEqual([{ kind: NodeKind.EventsNode, event: '$pageview' }])
     })
 
-    it('leaves entries without an event untouched', () => {
+    it('stamps a data warehouse entry with the funnel-specific kind', () => {
+        const query = JSON.stringify({
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.FunnelsQuery, series: [{ table_name: 'stripe_charges' }] },
+        })
+
+        const parsed = parseDraftQueryFromURL(query) as any
+
+        expect(parsed.source.series).toEqual([
+            { kind: NodeKind.FunnelsDataWarehouseNode, table_name: 'stripe_charges' },
+        ])
+    })
+
+    it('leaves already-tagged entries untouched', () => {
         const query = JSON.stringify({
             kind: NodeKind.InsightVizNode,
             source: { kind: NodeKind.FunnelsQuery, series: [{ kind: NodeKind.ActionsNode, id: 3 }] },

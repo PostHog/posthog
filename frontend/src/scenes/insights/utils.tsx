@@ -734,18 +734,49 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
     return JSON.stringify({ query, timestamp })
 }
 
+// Data warehouse series nodes use a different kind per insight type. Mirrors
+// SERIES_DATA_WAREHOUSE_KIND in posthog/schema_migrations/0004_entity_node_kind.py.
+const SERIES_DATA_WAREHOUSE_KIND: Record<string, NodeKind> = {
+    [NodeKind.TrendsQuery]: NodeKind.DataWarehouseNode,
+    [NodeKind.StickinessQuery]: NodeKind.DataWarehouseNode,
+    [NodeKind.LifecycleQuery]: NodeKind.LifecycleDataWarehouseNode,
+    [NodeKind.CalendarHeatmapQuery]: NodeKind.DataWarehouseNode,
+    [NodeKind.FunnelsQuery]: NodeKind.FunnelsDataWarehouseNode,
+}
+// Only these series unions include GroupNode.
+const SERIES_WITH_GROUP_NODE = new Set<string>([NodeKind.TrendsQuery, NodeKind.FunnelsQuery])
+
+/** Stamp the missing `kind` on a series entry by its shape, mirroring `_stamp_kind` in
+ * posthog/schema_migrations/0004_entity_node_kind.py. */
+function stampSeriesEntryKind(entry: unknown, dataWarehouseKind: NodeKind | undefined, allowGroup: boolean): unknown {
+    if (!isObject(entry) || 'kind' in entry) {
+        return entry
+    }
+    let kind: NodeKind
+    if (dataWarehouseKind && 'table_name' in entry) {
+        kind = dataWarehouseKind
+    } else if (allowGroup && 'nodes' in entry) {
+        kind = NodeKind.GroupNode
+    } else if ('id' in entry && !('event' in entry)) {
+        kind = NodeKind.ActionsNode
+    } else {
+        kind = NodeKind.EventsNode
+    }
+    return { ...entry, kind }
+}
+
 /** Series entries copied into the `#q=` URL hash sometimes lose their `kind` discriminator.
  * The backend's discriminated union then rejects each untagged entry with an unreadable error,
- * so default `kind` to `EventsNode` for any entry that still carries an `event`, mirroring
- * `legacyEntityToNode`. */
+ * so stamp the `kind` back on from the entry's shape before the query runs. */
 function normalizeSeriesKind(query: Record<string, any>): void {
     const source = isObject(query.source) ? query.source : query
     if (!Array.isArray(source.series)) {
         return
     }
-    source.series = source.series.map((entry: unknown) =>
-        isObject(entry) && !entry.kind && 'event' in entry ? { ...entry, kind: NodeKind.EventsNode } : entry
-    )
+    const queryKind = typeof source.kind === 'string' ? source.kind : ''
+    const dataWarehouseKind = SERIES_DATA_WAREHOUSE_KIND[queryKind]
+    const allowGroup = SERIES_WITH_GROUP_NODE.has(queryKind)
+    source.series = source.series.map((entry: unknown) => stampSeriesEntryKind(entry, dataWarehouseKind, allowGroup))
 }
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
