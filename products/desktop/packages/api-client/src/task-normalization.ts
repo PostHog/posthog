@@ -31,6 +31,7 @@ type TaskResponseDTO = Partial<
   channel?: string | null;
   created_by?: Schemas.UserBasic | null;
   github_user_integration?: string | null;
+  last_activity_at?: string | null;
   json_schema?: unknown | null;
   latest_run?: Record<string, unknown> | null;
   runtime?: unknown;
@@ -201,6 +202,7 @@ export function normalizeTaskResponse(
     description: dto.description ?? "",
     created_at: dto.created_at ?? "",
     updated_at: dto.updated_at ?? "",
+    last_activity_at: dto.last_activity_at ?? dto.updated_at ?? "",
     ...(dto.created_by === undefined ? {} : { created_by: dto.created_by }),
     origin_product: dto.origin_product ?? "",
     ...(dto.repository === undefined ? {} : { repository: dto.repository }),

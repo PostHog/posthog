@@ -31,7 +31,7 @@ Use Visual review as the concrete reference implementation:
 - [products/visual_review/backend/facade/api.py](../../../products/visual_review/backend/facade/api.py)
 - [products/visual_review/backend/presentation/views.py](../../../products/visual_review/backend/presentation/views.py)
 - [products/visual_review/backend/presentation/serializers.py](../../../products/visual_review/backend/presentation/serializers.py)
-- [products/visual_review/backend/logic.py](../../../products/visual_review/backend/logic.py)
+- [products/visual_review/backend/logic/](../../../products/visual_review/backend/logic/)
 - [products/visual_review/backend/tests/test_api.py](../../../products/visual_review/backend/tests/test_api.py)
 - [products/visual_review/backend/tests/test_presentation.py](../../../products/visual_review/backend/tests/test_presentation.py)
 
@@ -74,8 +74,12 @@ source of truth for the rest of the flow:
   slicing by owning team.
 - **Strict-lint preflight** — `product:lint` switches from lenient to strict the moment
   `facade/contracts.py` exists; the scan runs the structural checks in forced-strict
-  mode so those demands (root `tsconfig.json`, `tasks.py` at `tasks/tasks.py`, only
-  canonical `backend/` subdirectories) surface up front instead of mid-migration.
+  mode so those demands (root `tsconfig.json`, `tasks.py` at `tasks/tasks.py`, required
+  root files in place) surface up front instead of mid-migration. Strict lint checks
+  the required root files only. It does not restrict internal directory names: the
+  enforced shape is the import chain — `routes.py` imports only `presentation/`, and
+  `presentation/` imports only `facade/` — so a product may add other internal
+  packages (`services/`, `reviewer/`, …) as long as they stay behind the facade.
 - **Thin/thick signal per view module** — the future `ignore_imports` allowlist size.
 - **Blind spots** — the scan reads `backend.*` imports only. A coupling count of
   zero is necessary, not sufficient: it can't see product-root packages core
@@ -186,7 +190,7 @@ in `facade/api.py` with the viewset deferred.
 
 ## Guardrails
 
-- Keep facades thin; put business rules in `logic.py`.
+- Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
 - Transaction boundaries belong in the facade (or logic), not in views.
 - Never return ORM models across product boundaries.
 - Keep contracts pure (no Django/DRF imports).

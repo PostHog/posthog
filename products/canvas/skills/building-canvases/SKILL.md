@@ -1,12 +1,13 @@
 ---
 name: building-canvases
 description: >
-  Create or edit a PostHog canvas — a sandboxed browser application (data board, document, form,
-  small tool, graphics experiment) stored in PostHog and rendered by the desktop/web app. Use when
-  a task asks to build, generate, update, or fix a canvas, or when a canvas id is given as the
-  publish target. Covers resolving or creating the target canvas, choosing an implementation
-  approach (React + Quill vs plain HTML/browser APIs), the read → edit → validate → publish →
-  build loop, and which companion canvas skills to load for the details.
+  Create or edit a PostHog freeform canvas — a sandboxed browser application (data board, document,
+  form, small tool, graphics experiment) stored in PostHog and rendered by the desktop/web app. Use
+  when a task asks to build, generate, update, or fix a standalone canvas app, or when a freeform
+  canvas id is given as the publish target. For grid/home canvases, widget placements, or reusable
+  components, use composing-grid-canvases instead. Covers resolving or creating the target canvas,
+  choosing an implementation approach (React + Quill vs plain HTML/browser APIs), the read → edit →
+  validate → publish → build loop, and which companion canvas skills to load for the details.
 ---
 
 # Building canvases
@@ -19,6 +20,13 @@ saves it.
 Canvas work can start from any ordinary task. A dedicated canvas mode or pre-created canvas is
 not required. When the user asks for a board, document, form, visualization, or small app that
 should live in PostHog, treat that as a canvas request and follow this skill.
+
+This skill owns `freeform` canvases (standalone apps). Two other canvas kinds exist: `grid`
+canvases (widget grids, including the user's home canvas) and `component` canvases (reusable
+widgets grids place). When the target is a grid or home canvas, a placement, or a reusable
+widget/component, load `composing-grid-canvases` instead — it owns the store search → configure →
+fork → build ladder and the layout patch loop. Authoring a component's source still uses the
+implementation companions below.
 
 ## Resolve the target canvas
 

@@ -1,12 +1,16 @@
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 
+from llm_gateway.auth.authenticators import OAuthAccessTokenAuthenticator
+from llm_gateway.auth.cache import AuthCache, reset_auth_cache
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError
+from llm_gateway.auth.service import AuthService, InvalidProjectScopeError, UnauthorizedProjectScopeError
 from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import (
@@ -19,7 +23,8 @@ from llm_gateway.dependencies import (
     get_request_json,
     resolve_plan_and_quota,
 )
-from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
+from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID, SIGNALS_DEV_APP_ID
+from llm_gateway.rate_limiting.cost_throttles import SandboxTaskCostThrottle
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
 from llm_gateway.services.plan_resolver import PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
@@ -465,7 +470,7 @@ class TestBasetenExclusiveModelGateWiring:
         ("model", "access_flag", "path"),
         [
             (BASETEN_DEEPSEEK_PUBLIC_MODEL, "posthog-code-deepseek-model", "/posthog_code/v1/messages"),
-            (BASETEN_GLM53_PUBLIC_MODEL, "tasks-glm-baseten-inference", "/posthog_code/v1/messages"),
+            (BASETEN_GLM53_PUBLIC_MODEL, "posthog-code-glm-53-model", "/posthog_code/v1/messages"),
         ],
     )
     @pytest.mark.parametrize("flag_result", [False, None])
@@ -507,6 +512,7 @@ class TestBasetenExclusiveModelGateWiring:
 
 
 class TestServerCredentialRequirementWiring:
+    # The signals path only accepts the Signals app now, so the marker wiring is pinned with it
     def _oauth_user(self, scopes: list[str]) -> AuthenticatedUser:
         return AuthenticatedUser(
             user_id=7,
@@ -514,7 +520,7 @@ class TestServerCredentialRequirementWiring:
             auth_method="oauth_access_token",
             distinct_id="test-distinct-id-7",
             scopes=scopes,
-            application_id=POSTHOG_CODE_US_APP_ID,
+            application_id=SIGNALS_DEV_APP_ID,
         )
 
     @pytest.mark.asyncio
@@ -638,3 +644,87 @@ class TestDesktopAccessGate:
             request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
         finally:
             get_settings.cache_clear()
+
+
+class TestSandboxTaskIdPlumbing:
+    """The whole path the per-run spend ceiling rides on: token row -> AuthenticatedUser ->
+    ThrottleContext -> cache key.
+
+    Every other test of that ceiling builds a ThrottleContext by hand, so either propagation hop
+    could be dropped and `SandboxTaskCostThrottle` would quietly stop keying on the run while the
+    suite stayed green.
+    """
+
+    async def _authenticate_oauth_row(
+        self, token: str, sandbox_task_id: object
+    ) -> tuple[AuthenticatedUser | None, AsyncMock]:
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": 1,
+                "user_id": 123,
+                "scope": "llm_gateway:read internal_run:read",
+                "expires": datetime.now(UTC) + timedelta(hours=1),
+                "current_team_id": 456,
+                "application_id": 789,
+                "distinct_id": "test-distinct-id",
+                "is_staff": False,
+                "sandbox_task_id": sandbox_task_id,
+            }
+        )
+        pool = MagicMock()
+        pool.acquire = AsyncMock(return_value=conn)
+        pool.release = AsyncMock()
+        request = MagicMock(spec=Request)
+        request.headers = {"authorization": f"Bearer {token}"}
+        service = AuthService(authenticators=[OAuthAccessTokenAuthenticator()], cache=AuthCache(max_size=10, ttl=60))
+        return await service.authenticate_request(request, pool), conn
+
+    async def _throttle_context_for(self, user: AuthenticatedUser) -> ThrottleContext:
+        captured: ThrottleContext | None = None
+
+        async def capture_check(context: ThrottleContext) -> ThrottleResult:
+            nonlocal captured
+            captured = context
+            return ThrottleResult.allow()
+
+        runner = MagicMock()
+        runner.check = capture_check
+        with patch("llm_gateway.dependencies.ensure_costs_fresh"):
+            await enforce_throttles(
+                request=_make_request({"model": "gpt-4o", "messages": []}), user=user, runner=runner
+            )
+        assert captured is not None
+        return captured
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("token", "row_value", "expect_ceiling"),
+        [
+            # asyncpg returns a UUID object; the ceiling keys on its string form
+            pytest.param("pha_sandbox", UUID("3f1e2d4c-5b6a-7089-9a0b-1c2d3e4f5061"), True, id="sandbox_run_token"),
+            # an ordinary user token bounds no single run, so the ceiling stays inert
+            pytest.param("pha_interactive", None, False, id="non_sandbox_token"),
+        ],
+    )
+    async def test_token_row_sandbox_task_id_reaches_the_per_run_cost_key(
+        self, token: str, row_value: object, expect_ceiling: bool
+    ) -> None:
+        reset_auth_cache()
+        expected_id = str(row_value) if row_value is not None else None
+
+        user, conn = await self._authenticate_oauth_row(token, row_value)
+        assert user is not None
+        # The row is faked, so the column has to be asserted against the query itself; dropping it
+        # from the SELECT is the one way to break this path that a mocked row cannot show.
+        assert "sandbox_task_id" in conn.fetchrow.await_args.args[0]
+        assert user.sandbox_task_id == expected_id
+
+        context = await self._throttle_context_for(user)
+        assert context.sandbox_task_id == expected_id
+
+        # An empty cache key is how the ceiling turns itself off, so this is the hop that matters.
+        cache_key = SandboxTaskCostThrottle(redis=None)._get_cache_key(context)
+        assert bool(cache_key) is expect_ceiling
+        if expect_ceiling:
+            assert cache_key == f"cost:task:{expected_id}"

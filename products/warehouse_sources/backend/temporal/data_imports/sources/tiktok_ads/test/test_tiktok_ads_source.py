@@ -55,7 +55,6 @@ class TestTikTokAdsSource:
         self.mock_integration.team_id = self.team_id
 
     def test_source_type(self):
-        """Test that source type is correctly identified."""
         assert self.source.source_type == ExternalDataSourceType.TIKTOKADS
 
     @parameterized.expand(
@@ -314,7 +313,6 @@ class TestTikTokAdsSource:
                 self.source.get_oauth_accounts(self.integration_id, self.team_id)
 
     def test_get_source_config(self):
-        """Test source configuration generation."""
         config = self.source.get_source_config
 
         assert config.name.value == "TikTokAds"
@@ -346,7 +344,6 @@ class TestTikTokAdsSource:
         ]
     )
     def test_validate_credentials(self, name, advertiser_id, integration_id, expected_valid, expected_error):
-        """Test credential validation scenarios."""
         config = TikTokAdsSourceConfig(advertiser_id=advertiser_id, tiktok_integration_id=integration_id)
 
         with patch.object(self.source, "get_oauth_integration") as mock_get_integration:
@@ -362,7 +359,6 @@ class TestTikTokAdsSource:
                 assert expected_error in str(error)
 
     def test_get_schemas(self):
-        """Test schema retrieval."""
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         expected_schemas = {
@@ -432,7 +428,6 @@ class TestTikTokAdsSource:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source.tiktok_ads_source")
     def test_source_for_pipeline_success(self, mock_tiktok_source):
-        """Test successful pipeline source creation."""
         inputs = SourceInputs(
             schema_name="campaigns",
             schema_id="campaigns_schema",
@@ -470,7 +465,6 @@ class TestTikTokAdsSource:
             )
 
     def test_source_for_pipeline_no_access_token(self):
-        """Test pipeline source creation fails without access token."""
         inputs = SourceInputs(
             schema_name="campaigns",
             schema_id="campaigns_schema",
@@ -495,7 +489,6 @@ class TestTikTokAdsSource:
                 self.source.source_for_pipeline(self.config, MagicMock(), inputs)
 
     def test_validate_credentials_exception_handling(self):
-        """Test credential validation handles exceptions properly."""
         config = TikTokAdsSourceConfig(advertiser_id="123456789", tiktok_integration_id=123)
 
         with patch.object(self.source, "get_oauth_integration") as mock_get_integration:

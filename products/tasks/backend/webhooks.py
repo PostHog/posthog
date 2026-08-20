@@ -153,6 +153,21 @@ def get_github_webhook_secret() -> str | None:
     return secret if secret else None
 
 
+def _pr_state_for_action(action: str | None, pull_request: dict) -> str | None:
+    """The ``output.pr_state`` a webhook action moves a run's PR to, in the
+    same open/draft/merged/closed vocabulary the GitHub snapshot uses. None
+    for actions that don't change the state (comments, labels, pushes)."""
+    if action in ("opened", "reopened"):
+        return "draft" if pull_request.get("draft") else "open"
+    if action == "ready_for_review":
+        return "open"
+    if action == "converted_to_draft":
+        return "draft"
+    if action == "closed":
+        return "merged" if pull_request.get("merged") else "closed"
+    return None
+
+
 def handle_pull_request_event(payload: dict) -> HttpResponse:
     """Process a pre-verified pull_request webhook event.
 
@@ -167,6 +182,8 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         logger.warning("github_pr_webhook_no_pr_url", action=action)
         return HttpResponse(status=200)
 
+    pr_state = _pr_state_for_action(action, pull_request)
+    analytics_event: str | None = None
     if action == "opened":
         event_action = "created"
         analytics_event = "pr_created"
@@ -177,6 +194,11 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         else:
             event_action = "closed"
             analytics_event = "pr_closed"
+    elif pr_state is not None:
+        # A state-only transition (reopened, ready_for_review, converted_to_draft):
+        # worth recording on the matched run so the pr: list filters stay honest,
+        # not worth an analytics event.
+        event_action = action or ""
     else:
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
         return HttpResponse(status=200)
@@ -213,10 +235,29 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     )
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
+        # Fired regardless of whether this webhook was the first to record output.pr_url. The agent
+        # server usually records the URL first, so _record_run_pr_url takes its "already recorded"
+        # early return; a canvas the summary workflow built before the PR existed would otherwise
+        # keep implementation_pr_url null forever. The refresh is idempotent: an unchanged report
+        # fingerprint skips generation.
+        _enqueue_report_canvas_refresh(task_run)
 
-    # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
-    event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
-    _capture_pr_event(payload, task_run, analytics_event, event_uuid)
+    # After the backstop on purpose: a just-backfilled pr_url means the run now
+    # claims this PR. Gated on the run's *primary* PR — output.pr_state describes
+    # the PR the task APIs surface as output.pr_url, so a same-branch webhook for
+    # a secondary or unrelated PR must not restate it.
+    if (
+        task_run is not None
+        and pr_state is not None
+        and isinstance(task_run.output, dict)
+        and task_run.output.get("pr_url") == pr_url
+    ):
+        _record_run_pr_state(task_run, pr_state)
+
+    if analytics_event is not None:
+        # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
+        event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
+        _capture_pr_event(payload, task_run, analytics_event, event_uuid)
 
     if task_run and action == "closed" and merged:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
@@ -287,6 +328,21 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+def _enqueue_report_canvas_refresh(task_run: TaskRun) -> None:
+    """Rebuild the report canvas for this run's task after a PR webhook.
+
+    Best-effort: a Signals import or broker hiccup must never fail the webhook.
+    """
+    try:
+        from products.signals.backend.tasks import (  # noqa: PLC0415 — keeps Signals workers off webhook startup
+            refresh_report_canvases_for_task,
+        )
+
+        refresh_report_canvases_for_task.delay(str(task_run.task_id))
+    except Exception:
+        logger.warning("github_pr_webhook_report_canvas_refresh_failed", task_id=str(task_run.task_id), exc_info=True)
+
+
 def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     """Persist ``output.pr_url`` for a webhook-matched run when it isn't set yet.
 
@@ -344,6 +400,19 @@ def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
     except Exception:
         logger.warning("github_pr_webhook_record_pr_url_failed", run_id=str(task_run.id), exc_info=True)
         return False
+
+
+def _record_run_pr_state(task_run: TaskRun, pr_state: str) -> None:
+    """Persist ``output.pr_state`` on a state-changing PR webhook.
+
+    Overwrites (a PR moves open → draft → merged), unlike the write-once
+    ``_record_run_output_field``. Tolerant: a failure here must not fail the
+    webhook (GitHub retries 5xx, and the event is already handled).
+    """
+    try:
+        task_run.output = TaskRun.update_output_atomic(task_run.id, updates={"pr_state": pr_state})
+    except Exception:
+        logger.warning("github_pr_webhook_record_pr_state_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _record_run_pr_merged(task_run: TaskRun) -> None:

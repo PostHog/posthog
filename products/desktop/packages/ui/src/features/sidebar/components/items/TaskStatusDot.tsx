@@ -43,13 +43,14 @@ const TOOLTIP_DELAY_MS = 200;
  * that can't receive the pointer can't be hovered, can't swallow a click meant
  * for the row underneath, and can't have its text dragged into a selection.
  */
-function RowTooltip({
+export function RowTooltip({
   label,
   side,
   children,
 }: {
   label: string;
-  side: "top" | "right";
+  /** Where the row sits: `bottom` for the window header, which has no room above. */
+  side: "top" | "right" | "bottom";
   children: ReactElement;
 }) {
   return (

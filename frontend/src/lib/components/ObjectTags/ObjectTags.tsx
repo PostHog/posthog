@@ -24,6 +24,12 @@ interface ObjectTagsPropsBase {
     inputPlaceholder?: string
     /** Makes each displayed tag clickable, e.g. to filter by it. */
     onTagClick?: (tag: string) => void
+    /**
+     * Let a long tag wrap and shrink rather than overflow its container. For narrow containers like a
+     * sidebar column — off by default, since it lowers the min-content width and so shifts how much
+     * room surrounding table columns get.
+     */
+    wrap?: boolean
 }
 
 export type ObjectTagsProps =
@@ -65,6 +71,7 @@ export function ObjectTags({
     editLabel = 'Edit tags',
     inputPlaceholder = 'try "official"',
     onTagClick,
+    wrap = false,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
@@ -83,7 +90,7 @@ export function ObjectTags({
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center')}
+            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center', wrap && 'min-w-0 max-w-full')}
             data-attr={dataAttr}
         >
             {editingTags ? (
@@ -115,6 +122,8 @@ export function ObjectTags({
                                           key={index}
                                           type={COLOR_OVERRIDES[tag] || colorForString(tag)}
                                           onClick={onTagClick ? () => onTagClick(tag) : undefined}
+                                          className={wrap ? 'max-w-full' : undefined}
+                                          wrap={wrap}
                                       >
                                           {tag}
                                       </LemonTag>

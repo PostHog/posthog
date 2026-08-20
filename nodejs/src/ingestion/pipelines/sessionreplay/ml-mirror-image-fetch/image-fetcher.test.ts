@@ -1,6 +1,7 @@
 import { ResolutionError, SecureRequestError, StreamedResponse, fetchStreamed } from '~/common/utils/request'
 
 import { HttpImageFetcher, ImageFetchOptions, RedirectPolicy } from './image-fetcher'
+import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 jest.mock('~/common/utils/request', () => ({
     ...jest.requireActual('~/common/utils/request'),
@@ -37,13 +38,33 @@ function image(bytes: Buffer, contentType: string, extraHeaders: Record<string, 
     return respond(200, { 'content-type': contentType, ...extraHeaders }, { bytes, overLimit: false })
 }
 
+const NOOP_SIGNER: WebBotAuthRequestSigner = { headersForGet: () => ({}) }
 /** Everything public by default, so a test that cares about the policy says so. */
-const fetcher = (policy: Partial<RedirectPolicy> = {}): HttpImageFetcher =>
-    new HttpImageFetcher({ maxUrlLength: 2048, isPublicHost: () => true, ...policy })
+const fetcher = (
+    policy: Partial<RedirectPolicy> = {},
+    webBotAuthSigner: WebBotAuthRequestSigner = NOOP_SIGNER
+): HttpImageFetcher =>
+    new HttpImageFetcher({ maxUrlLength: 2048, isPublicHost: () => true, ...policy }, webBotAuthSigner)
 
 describe('HttpImageFetcher', () => {
     beforeEach(() => {
         fetchStreamedMock.mockReset()
+    })
+
+    it('identifies every request as PostHogImageFetcherBot', async () => {
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
+
+        await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(fetchStreamedMock).toHaveBeenCalledWith(
+            'https://cdn.example.com/a.png',
+            expect.objectContaining({
+                headers: expect.objectContaining({
+                    'user-agent':
+                        'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)',
+                }),
+            })
+        )
     })
 
     it('returns the bytes of an image whose payload matches its declared type', async () => {
@@ -127,6 +148,25 @@ describe('HttpImageFetcher', () => {
 
         expect(result).toMatchObject({ outcome: 'ok', redirects: 1 })
         expect(fetchStreamedMock.mock.calls[1][0]).toBe('https://cdn.example.com/moved.png')
+    })
+
+    it('signs each redirect hop for its target URL', async () => {
+        fetchStreamedMock
+            .mockResolvedValueOnce(respond(302, { location: 'https://images.example.net/moved.png' }))
+            .mockResolvedValueOnce(image(PNG, 'image/png'))
+        const headersForGet = jest
+            .fn()
+            .mockReturnValueOnce({ signature: 'first-hop-signature' })
+            .mockReturnValueOnce({ signature: 'second-hop-signature' })
+
+        await fetcher({}, { headersForGet }).fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(headersForGet.mock.calls).toEqual([
+            ['https://cdn.example.com/a.png'],
+            ['https://images.example.net/moved.png'],
+        ])
+        expect(fetchStreamedMock.mock.calls[0][1].headers).toMatchObject({ signature: 'first-hop-signature' })
+        expect(fetchStreamedMock.mock.calls[1][1].headers).toMatchObject({ signature: 'second-hop-signature' })
     })
 
     it.each([

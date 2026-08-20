@@ -7,6 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
+import { linkedReportsLogic } from './linkedReportsLogic'
 
 const makeFingerprints = (fingerprint: string = 'fp-1'): ErrorTrackingFingerprint[] => [
     { fingerprint, issue_id: 'issue-1', created_at: '2026-01-01T00:00:00Z' },
@@ -47,7 +48,10 @@ describe('errorTrackingIssueSceneLogic', () => {
 
     it('leaves linked reports empty and does not fail when the signals lookup errors', async () => {
         // Letting the loader reject would toast an error on every issue page during a signals outage.
-        await expectLogic(logic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({ linkedReports: [] })
+        const reportsLogic = linkedReportsLogic({ issueId: 'issue-1' })
+        await expectLogic(reportsLogic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({
+            linkedReports: [],
+        })
     })
 
     it('changes the events query key when the search query changes', () => {

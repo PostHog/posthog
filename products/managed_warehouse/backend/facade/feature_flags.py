@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+DATA_WAREHOUSE_SCENE_FLAG = "data-warehouse-scene"
 MANAGED_WAREHOUSE_SQL_EDITOR_FLAG = "managed-warehouse-sql-editor"
 MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX = f"{MANAGED_WAREHOUSE_SQL_EDITOR_FLAG}:"
 

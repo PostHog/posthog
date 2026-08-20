@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
-from django.db import DatabaseError, OperationalError
+from django.db import DatabaseError, OperationalError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
@@ -67,6 +67,7 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthRefreshToken,
     TokenEndpointAuthMethod,
+    lock_oauth_connection,
     revoke_oauth_session,
 )
 from posthog.scopes import (
@@ -752,7 +753,9 @@ class OAuthValidator(OAuth2Validator):
 
     def save_bearer_token(self, token, request, *args, **kwargs):
         """
-        Override to use custom token expiry for certain clients.
+        Override to use custom token expiry for certain clients, and to serialize a refresh
+        against a concurrent revoke of the same connection.
+
         Sets token["expires_in"] before calling parent, which uses this value
         when calculating the actual expiry datetime stored in the database.
         """
@@ -775,7 +778,28 @@ class OAuthValidator(OAuth2Validator):
             refresh_token_suppressed=skip_refresh,
             grant_type=getattr(request, "grant_type", "unknown"),
         )
-        return super().save_bearer_token(token, request, *args, **kwargs)
+
+        presented_refresh_token = getattr(request, "refresh_token_instance", None)
+        if not isinstance(presented_refresh_token, OAuthRefreshToken):
+            return super().save_bearer_token(token, request, *args, **kwargs)
+
+        # Take the connection lock before `super()`, which is where DOT opens its transaction and
+        # locks the refresh-token row: acquiring in the other order would deadlock against
+        # `revoke_oauth_session`, which takes this lock and then writes those same rows.
+        with transaction.atomic():
+            lock_oauth_connection(
+                user_id=presented_refresh_token.user_id,
+                application_id=presented_refresh_token.application_id,
+            )
+            # DOT validated this token in autocommit, so a revoke may have deleted the row while
+            # this request waited for the lock. DOT's own re-read is an unguarded `.get()`, which
+            # would surface as a 500; reject the grant instead so the client re-authorizes.
+            if not OAuthRefreshToken.objects.filter(pk=presented_refresh_token.pk).exists():
+                raise InvalidGrantError(
+                    description="This application's access was revoked; re-authorize.",
+                    request=request,
+                )
+            return super().save_bearer_token(token, request, *args, **kwargs)
 
     def _save_bearer_token(self, token, request, *args, **kwargs):
         """

@@ -187,27 +187,4 @@ export type EvaluationReportRunContent = EvaluationReportRunContentApi
 export type EvaluationReportRun = EvaluationReportRunApi
 
 export type SentimentEvaluationRunsFilter = 'negative' | 'positive' | 'neutral' | 'all'
-export type EvaluationSummaryFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter
-
-export interface EvaluationPattern {
-    title: string
-    description: string
-    frequency: string
-    example_generation_ids: string[]
-}
-
-export interface EvaluationSummaryStatistics {
-    total_analyzed: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-}
-
-export interface EvaluationSummary {
-    overall_assessment: string
-    pass_patterns: EvaluationPattern[]
-    fail_patterns: EvaluationPattern[]
-    na_patterns: EvaluationPattern[]
-    recommendations: string[]
-    statistics: EvaluationSummaryStatistics
-}
+export type EvaluationRunsFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter
