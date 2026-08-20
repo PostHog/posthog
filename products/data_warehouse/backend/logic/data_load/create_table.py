@@ -54,6 +54,7 @@ def _get_or_create_table_for_saved_query(
             url_pattern=url_pattern,
             team_id=team_id,
             queryable_folder=queryable_folder,
+            created_via=DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW,
         )
         saved_query.table = table
         saved_query.save(update_fields=["table", "updated_at"])
