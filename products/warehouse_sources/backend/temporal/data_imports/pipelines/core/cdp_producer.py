@@ -145,8 +145,10 @@ class CDPProducer:
             except FileNotFoundError:
                 return []
             except PermissionError as e:
-                # AccessDenied on the staging prefix surfaces here as PermissionError. Translate it
-                # so callers can tell a configuration gap apart from a transient S3 fault.
+                # s3fs maps every S3 auth failure on the staging prefix to PermissionError, so this
+                # catches the worker's missing bucket grant (the real cause here) along with expired
+                # or invalid credentials. Translate it so the caller can recognize an auth failure
+                # and disable the sink quietly, while other S3 faults still reach error tracking.
                 raise CDPStagingAccessDeniedError(str(e)) from e
 
     def _serialize_json(self, record: object, *, sort_keys: bool = False) -> bytes:
