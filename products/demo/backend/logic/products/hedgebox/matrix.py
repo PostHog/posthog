@@ -81,7 +81,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.facade.models import Insight, InsightViewed
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
 
 from .models import HedgeboxAccount, HedgeboxPerson

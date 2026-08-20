@@ -72,6 +72,7 @@ import {
     reconcileVariantKeys,
     replaceExperimentExposureFilter,
 } from './experimentTargeting'
+import { consumeGoalDraftIntent } from './goalDraftIntent'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
@@ -1492,10 +1493,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         !draft && urlTemplateKey && findScannerTemplate(urlTemplateKey) ? urlTemplateKey : null
                     const teamName = teamLogic.findMounted()?.values.currentTeam?.name
                     const experimentParams = parseExperimentScannerParams(router.values.searchParams)
+                    const goalParam =
+                        typeof router.values.searchParams.goal === 'string'
+                            ? router.values.searchParams.goal.trim()
+                            : ''
+                    // Consumed unconditionally on every wizard entry: whichever prefill path wins
+                    // below, a hand-off armed by the nudge must not stay usable for the rest of
+                    // the tab session, where a later ?goal= link would auto-start a draft and
+                    // spend the user's AI allowance without fresh intent.
+                    const handedOffGoal = consumeGoalDraftIntent()?.trim() ?? ''
+                    // Prefill precedence: an experiment deep link, then an explicit ?filters=
+                    // query (both carry fully built state), then a saved draft, then the
+                    // free-text goal. A URL carrying both ?filters= and ?goal= deterministically
+                    // takes the filters and drops the goal.
+                    const hasFiltersPrefill = 'filters' in router.values.searchParams
                     // Strip the params the wizard has now consumed so a reload doesn't re-run the prefill
                     // over the user's edits: an unknown template that fell back to from-scratch (a valid
-                    // template stays), and the experiment deep-link params. One replace covers both and
-                    // preserves the URL hash, which a second back-to-back replace would drop.
+                    // template stays), the experiment deep-link params, and the goal param. One replace
+                    // covers all of them and preserves the URL hash, which a second back-to-back replace
+                    // would drop.
                     const nextParams = { ...router.values.searchParams }
                     if (urlTemplateKey && !templateKey) {
                         delete nextParams.template
@@ -1504,6 +1520,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         delete nextParams.experiment
                         delete nextParams.variants
                         delete nextParams.exposure
+                    }
+                    if (nextParams.goal !== undefined) {
+                        delete nextParams.goal
                     }
                     if (Object.keys(nextParams).length !== Object.keys(router.values.searchParams).length) {
                         router.actions.replace(router.values.location.pathname, nextParams, router.values.hashParams)
@@ -1544,6 +1563,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         }
                     } finally {
                         cache.restoringDraft = false
+                    }
+                    // The goal prefills the AI box; the draft only auto-starts for the in-player
+                    // nudge's sessionStorage hand-off (which carries the goal so the free text
+                    // never enters the URL), and never over a saved draft. A crafted external
+                    // ?goal= link can therefore neither spend the user's AI allowance nor
+                    // overwrite saved work without an explicit click.
+                    const goal = handedOffGoal || goalParam
+                    if (goal && !hasFiltersPrefill) {
+                        actions.setGoalDraftInput(goal)
+                        if (handedOffGoal && !draft) {
+                            actions.draftScannerFromGoal(handedOffGoal)
+                        }
                     }
                     return
                 }
@@ -1640,8 +1671,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     description: goalDraft.description,
                     scanner_type: goalDraft.scanner_type as ScannerType,
                     scanner_config: goalDraft.scanner_config as ScannerConfig,
-                    // The drafted event filter (when the goal mapped to a real event); the triggers step
-                    // shows it for review like any hand-picked filter.
+                    // The drafted session filter (when the goal mapped to real screens or events); the
+                    // triggers step shows it for review like any hand-picked filter.
                     ...(goalDraft.query ? { query: goalDraft.query as RecordingsQuery } : {}),
                 })
                 router.actions.push(urls.replayVisionScannerDetails('new'))

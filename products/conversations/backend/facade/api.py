@@ -59,6 +59,10 @@ class _EmailThreadWithFacadePrefetch(Protocol):
     facade_participants: list[EmailThreadParticipant]
 
 
+class GoogleAccountEmailSyncError(Exception):
+    pass
+
+
 class SupportMessageSendError(Exception):
     """Slack rejected a SupportHog bot message.
 
@@ -70,6 +74,18 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
+
+
+def sync_google_account_email(integration_id: int, team_id: int) -> None:
+    from products.conversations.backend.services.gmail_sync import (  # noqa: PLC0415 -- avoids the Conversations and Customer Analytics facade cycle
+        GmailSyncError,
+        sync_gmail_integration,
+    )
+
+    try:
+        sync_gmail_integration(integration_id, team_id)
+    except GmailSyncError as error:
+        raise GoogleAccountEmailSyncError(str(error)) from error
 
 
 def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> list[SupportChannel]:

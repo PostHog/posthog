@@ -149,10 +149,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         max_length=10,
         help_text=(
             "Ordered list of log attribute keys whose values hold the PostHog session ID. "
-            "Detection checks keys in order; the first key with a value wins. Defaults to "
-            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
-            "auto-attach. Add keys only if your pipeline emits the session ID under "
-            "different attributes."
+            "Detection checks keys in order, then falls back to common session ID attribute "
+            "conventions; the first key with a value wins. Defaults to ['sessionId'] — the "
+            "convention documented at https://posthog.com/docs/logs/link-session-replay and "
+            "the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only "
+            "if your pipeline emits the session ID under different attributes."
         ),
     )
 

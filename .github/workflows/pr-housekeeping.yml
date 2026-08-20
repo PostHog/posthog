@@ -38,6 +38,9 @@ jobs:
         # can sit in draft long enough for the queue to have forgotten it.
         if: contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action)
         uses: ./.github/workflows/trunk-impacted-targets.yml
+        permissions:
+            contents: read
+            pull-requests: write
         secrets:
             TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
 

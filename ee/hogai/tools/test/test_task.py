@@ -137,8 +137,11 @@ class TestTaskTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("Done", result_text)
         self.assertIsNone(artifact)
-        self.assertIn("short_id_123", result_text)
+        self.assertIn("Artifact ID: short_id_123", result_text)
         self.assertIn("Test", result_text)
+        # Labelled as an insight, this handoff had the parent compose `/insights/short_id_123`, which 404s
+        self.assertNotIn("Insight ID:", result_text)
+        self.assertIn("404", result_text)
 
     async def test_arun_impl_dispatches_tool_call_updates(self):
         tool = self._create_tool()

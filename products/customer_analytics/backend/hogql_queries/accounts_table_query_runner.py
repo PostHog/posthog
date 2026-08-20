@@ -233,6 +233,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     filters=filters,
                     metrics=self._metrics(),
                     include_churned=bool(self.query.includeChurned),
+                    include_ignored=bool(self.query.includeIgnored),
                 )
                 return AccountsTableQueryResponse(
                     results=[],
@@ -250,6 +251,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                 offset=offset,
                 limit=limit,
                 include_churned=bool(self.query.includeChurned),
+                include_ignored=bool(self.query.includeIgnored),
             )
         except api.InvalidAccountTableColumn as error:
             raise ValidationError(str(error)) from error

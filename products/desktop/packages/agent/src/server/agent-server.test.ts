@@ -1558,7 +1558,10 @@ describe("AgentServer HTTP Mode", () => {
     function exposeCloudClient(testServer: AgentServer) {
       return testServer as unknown as {
         config: { relayMcpServers?: string[]; mode?: string };
-        session: { hasDesktopConnected?: boolean } | null;
+        session: {
+          hasDesktopConnected?: boolean;
+          permissionMode?: PermissionMode;
+        } | null;
         eventStreamSender: unknown;
         relayPermissionToClient: (params: unknown) => Promise<unknown>;
         pendingPermissions: Map<string, unknown>;
@@ -1696,6 +1699,30 @@ describe("AgentServer HTTP Mode", () => {
       expect(relaySpy).toHaveBeenCalledOnce();
     });
 
+    // Codex registers servers under sanitized keys (its name pattern rejects
+    // e.g. spaces) and suffixes collisions, so the always-ask gate must match
+    // both forms; missing the suffixed one auto-runs a relayed local tool.
+    it.each([["My_Slack"], ["My_Slack_2"]])(
+      "relays a codex tool call for a relayed server reported as %j",
+      async (reportedKey) => {
+        const testServer = exposeCloudClient(createServer());
+        testServer.config.relayMcpServers = ["My Slack"];
+        testServer.session = { hasDesktopConnected: true };
+        const relaySpy = vi
+          .spyOn(testServer, "relayPermissionToClient")
+          .mockResolvedValue({
+            outcome: { outcome: "selected", optionId: "allow_once" },
+          });
+
+        const { requestPermission } = testServer.createCloudClient(basePayload);
+        await requestPermission(
+          codexPermissionRequestFor(reportedKey, "send_message"),
+        );
+
+        expect(relaySpy).toHaveBeenCalledOnce();
+      },
+    );
+
     it("denies a relayed-server tool call instead of auto-approving when no client is reachable", async () => {
       const testServer = exposeCloudClient(createServer());
       testServer.config.relayMcpServers = ["slack"];
@@ -1782,6 +1809,37 @@ describe("AgentServer HTTP Mode", () => {
       expect(relaySpy).not.toHaveBeenCalled();
       expect(result.outcome).toEqual({ outcome: "cancelled" });
     });
+
+    it.each([
+      { runtimeAdapter: "codex" as Adapter, relayed: false },
+      { runtimeAdapter: "claude" as Adapter, relayed: true },
+    ])(
+      "auto mode relays an edit approval on $runtimeAdapter: $relayed",
+      async ({ runtimeAdapter, relayed }) => {
+        const testServer = exposeCloudClient(createServer({ runtimeAdapter }));
+        testServer.session = {
+          hasDesktopConnected: true,
+          permissionMode: "auto",
+        };
+        const relaySpy = vi
+          .spyOn(testServer, "relayPermissionToClient")
+          .mockResolvedValue({
+            outcome: { outcome: "selected", optionId: "allow_once" },
+          });
+
+        const { requestPermission } = testServer.createCloudClient(basePayload);
+        const result = await requestPermission({
+          options: [{ optionId: "allow_once", kind: "allow_once" }],
+          toolCall: { kind: "edit", toolCallId: "tc-1" },
+        });
+
+        expect(relaySpy).toHaveBeenCalledTimes(relayed ? 1 : 0);
+        expect(result.outcome).toEqual({
+          outcome: "selected",
+          optionId: "allow_once",
+        });
+      },
+    );
 
     it.each([
       {

@@ -695,13 +695,46 @@ class BatchConsumer:
             return
         try:
             await self._adapter.unlock(group_conn, batches=batches, owner_token=self._owner_token)
+            return
+        except psycopg.OperationalError as e:
+            if not self._adapter.per_group_connections:
+                # Advisory-lock adapters release on the session that acquired the lock;
+                # a fresh connection wouldn't hold it, so there's nothing to retry with.
+                self._log_unlock_failure(e, team_id=team_id, schema_id=schema_id)
+                return
         except Exception as e:
-            logger.exception(
-                self._event("unlock_for_batches_failed"),
-                team_id=team_id,
-                external_data_schema_id=schema_id,
-            )
-            capture_exception(e)
+            self._log_unlock_failure(e, team_id=team_id, schema_id=schema_id)
+            return
+
+        # The batch heartbeat shares this per-group connection with the batch loop and
+        # can be cancelled mid-query when the group task itself is cancelled (e.g. shutdown
+        # draining a batch stuck deep in the sink write) — a psycopg command cancelled
+        # mid-flight leaves the connection unable to accept another ("another command is
+        # already in progress"), the same class of issue _drop_conn guards against for the
+        # poll/recovery connections. The lease release isn't session-scoped, so retrying once
+        # on a fresh connection is safe, and cheap since this runs once per group, not per batch.
+        try:
+            retry_conn = await self._connect()
+        except Exception as e:
+            self._log_unlock_failure(e, team_id=team_id, schema_id=schema_id)
+            return
+        try:
+            await self._adapter.unlock(retry_conn, batches=batches, owner_token=self._owner_token)
+        except Exception as e:
+            self._log_unlock_failure(e, team_id=team_id, schema_id=schema_id)
+        finally:
+            try:
+                await retry_conn.close()
+            except Exception:
+                pass
+
+    def _log_unlock_failure(self, error: Exception, *, team_id: int, schema_id: str) -> None:
+        logger.exception(
+            self._event("unlock_for_batches_failed"),
+            team_id=team_id,
+            external_data_schema_id=schema_id,
+        )
+        capture_exception(error)
 
     async def _get_status_conn(self, lock_conn: psycopg.AsyncConnection[Any] | None) -> psycopg.AsyncConnection[Any]:
         """Return the connection to use for status writes, preferring the lock session."""

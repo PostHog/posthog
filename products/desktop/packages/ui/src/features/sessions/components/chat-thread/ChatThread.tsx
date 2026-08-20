@@ -3,6 +3,7 @@ import {
   Check,
   Copy,
   FileText,
+  Robot,
   Scroll,
   ThumbsDown,
   ThumbsUp,
@@ -60,10 +61,7 @@ import {
 } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { ChatThreadFooter } from "@posthog/ui/features/sessions/components/chat-thread/ChatThreadFooter";
 import { ChatThreadChromeProvider } from "@posthog/ui/features/sessions/components/chat-thread/chatThreadChrome";
-import {
-  PROMPT_RECALL_HINT_KEY,
-  type PromptRecallHandler,
-} from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-thread/MessageMinimap";
 import { ToolGroup } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
@@ -105,6 +103,7 @@ import {
   MentionChip,
   parseFileMentions,
 } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
+import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
@@ -132,6 +131,7 @@ import {
   useSessionTaskId,
 } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
@@ -498,13 +498,22 @@ function UserBubble({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const channelContext = useMemo(
-    () => extractChannelContext(content),
+  // A message relayed from another agent run renders as an incoming agent
+  // message (start-aligned, outlined, provenance chip) instead of masquerading
+  // as something this run's user typed. The envelope boilerplate never renders;
+  // only the sender-authored body flows into the normal pipeline below.
+  const peerAgentMessage = useMemo(
+    () => extractPeerAgentMessage(content),
     [content],
+  );
+  const baseContent = peerAgentMessage ? peerAgentMessage.body : content;
+  const channelContext = useMemo(
+    () => extractChannelContext(baseContent),
+    [baseContent],
   );
   const afterChannelContext = channelContext
     ? channelContext.stripped
-    : content;
+    : baseContent;
   const canvasInstructions = useMemo(
     () => extractCanvasInstructions(afterChannelContext),
     [afterChannelContext],
@@ -521,7 +530,9 @@ function UserBubble({
   );
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
-  const showHeaderChips = showChannelContextTag || showCanvasInstructionsTag;
+  // Provenance is never flag-gated: a peer message must not read as the user's.
+  const showHeaderChips =
+    !!peerAgentMessage || showChannelContextTag || showCanvasInstructionsTag;
   const taskId = useSessionTaskId();
   const openChannelContextInSplit = usePanelLayoutStore(
     (s) => s.openChannelContextInSplit,
@@ -553,10 +564,16 @@ function UserBubble({
 
   return (
     <MessageContextMenu value={displayContent}>
-      <ChatMessage align="end" className="group">
+      <ChatMessage align={peerAgentMessage ? "start" : "end"} className="group">
         <ChatMessageContent className="gap-1">
           {showHeaderChips && (
             <ChatMessageHeader className="flex-wrap gap-1">
+              {peerAgentMessage && (
+                <MentionChip
+                  icon={<Robot size={12} />}
+                  label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
+                />
+              )}
               {showChannelContextTag && channelContext && (
                 <MentionChip
                   icon={<FileText size={12} />}
@@ -593,8 +610,8 @@ function UserBubble({
             </ChatMessageHeader>
           )}
           <ChatBubble
-            align="end"
-            variant="default"
+            align={peerAgentMessage ? "start" : "end"}
+            variant={peerAgentMessage ? "outline" : "default"}
             className={cn(
               "rounded-lg ring-(--gray-11) ring-0 ring-inset transition-shadow",
               keyboardFocused && "ring-[3px]",
@@ -1018,7 +1035,7 @@ function ThreadKeyboardNav({
       const nextId = userMessageIds[nextIndex];
       if (!nextId) return;
 
-      useSettingsStore.getState().markHintLearned(PROMPT_RECALL_HINT_KEY);
+      useSettingsStore.getState().markHintLearned(TIP_KEYS.recallMessageNav);
       setKeyboardFocusedMessageId(nextId);
       jump(nextId);
     },
@@ -1246,6 +1263,13 @@ interface SharedChatThreadProps {
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
+  /**
+   * Chain index of the oldest loaded entry; 0 means the whole transcript is loaded. Above 0 the
+   * thread renders windowed regardless of length, because only that body survives a prepend.
+   */
+  olderHistoryCursor?: number;
+  isLoadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
 }
 
 export interface ChatThreadProps extends SharedChatThreadProps {
@@ -1344,6 +1368,9 @@ function ChatThreadRenderer({
   footerState,
   hasPendingPermission,
   promptRecallRef,
+  olderHistoryCursor = 0,
+  isLoadingOlderHistory,
+  onLoadOlderHistory,
 }: ChatThreadRendererProps) {
   const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
   const diffsPoolOptions = useMemo(
@@ -1372,11 +1399,15 @@ function ChatThreadRenderer({
   // stays there for the life of this mount (see CHAT_THREAD_VIRTUALIZATION_THRESHOLD). Long
   // sessions start virtualized from the first render; a live session flips once mid-stream,
   // resuming from the scroll state the non-virtualized body recorded.
+  //
+  // A pageable transcript is windowed however short it is: prepending older history shifts the
+  // non-virtualized body's ordinal keys, which rebinds mounted rows to older content and loses the
+  // reader's place (see {@link keyTurnRows}).
   const flatCount = useMemo(() => countFlatRows(rows), [rows]);
-  const [virtualized, setVirtualized] = useState(
-    () => flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
-  );
-  if (!virtualized && flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD) {
+  const needsWindowing =
+    flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD || olderHistoryCursor > 0;
+  const [virtualized, setVirtualized] = useState(() => needsWindowing);
+  if (!virtualized && needsWindowing) {
     setVirtualized(true);
   }
   const flatRows = useMemo(
@@ -1540,6 +1571,9 @@ function ChatThreadRenderer({
                 footer={footer}
                 renderNav={renderNav}
                 resumeRef={threadResumeRef}
+                olderHistoryCursor={olderHistoryCursor}
+                isLoadingOlderHistory={isLoadingOlderHistory}
+                onLoadOlderHistory={onLoadOlderHistory}
               />
             ) : (
               <>

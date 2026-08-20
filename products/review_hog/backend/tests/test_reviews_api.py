@@ -14,7 +14,9 @@ from products.review_hog.backend.api.reviews import IN_PROGRESS_STALE_AFTER
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     FindingOutcomeArtefact,
+    ResolutionRunArtefact,
     ReviewIssueFinding,
+    ThreadVerdictArtefact,
     ValidationVerdict,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
@@ -30,7 +32,9 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_perspective_selection,
     persist_pr_snapshot,
 )
+from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import NoteArtefact
 
 
 def _pr_metadata(head_sha: str, title: str) -> PRMetadata:
@@ -493,6 +497,114 @@ class TestRecentReviewsAPI(APIBaseTest):
             "total": 2,
         }
 
+    def _resolution_run(self, report: ReviewReport, thread_ids: list[str], *, skipped: int = 0) -> None:
+        ReviewReportArtefact.append_resolution_run(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ResolutionRunArtefact(total=len(thread_ids), thread_ids=thread_ids, skipped=skipped),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    def _thread_verdict(self, report: ReviewReport, thread_id: str, outcome: str, *, delivered: bool = True) -> None:
+        ReviewReportArtefact.append_thread_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ThreadVerdictArtefact(
+                thread_id=thread_id, outcome=outcome, reasoning="r", reply="reply", reply_posted=delivered
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    def _closing_run_note(self, report: ReviewReport) -> None:
+        ReviewReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=NoteArtefact(note="Resolution run on PR #5: done", author=RESOLUTION_RUN_NOTE_AUTHOR),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    def test_resolving_report_shows_resolution_progress_not_a_review_stage(self) -> None:
+        # The prod mislabel this feature fixes: a chained resolution kept the report ACTIVE with
+        # fresh artefacts, so the row inferred a review stage from the COMPLETED turn's working
+        # state and rendered "Re-reviewing · Merging overlapping findings". A resolving report must
+        # carry resolution progress instead, counting only this run's queued threads — not a
+        # redelivered foreign verdict, not a previous run's verdict for a re-queued thread, and not
+        # a judged thread whose GitHub writes haven't landed.
+        report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
+        with freeze_time(timezone.now() - timedelta(hours=1)):
+            # A previous run already judged PRRT_3; a new comment re-queued it, so only a verdict
+            # written during THIS run may count toward its progress.
+            self._thread_verdict(report, "PRRT_3", "fixed")
+        self._resolution_run(report, ["PRRT_1", "PRRT_2", "PRRT_3"])
+        self._thread_verdict(report, "PRRT_1", "fixed")
+        self._thread_verdict(report, "PRRT_2", "escalate")
+        # A prior run's redelivery (thread not queued this run) also appends a row mid-run.
+        self._thread_verdict(report, "PRRT_X", "fixed")
+        # Judged but its GitHub reply failed — no reply on the thread yet, so it must not count.
+        self._thread_verdict(report, "PRRT_3", "fixed", delivered=False)
+
+        row = self.client.get(self.url).json()["results"][0]
+
+        assert row["in_progress"] is True
+        assert row["progress"] is None
+        assert row["resolution"] == {
+            "resolution_status": "resolving",
+            "done": 2,
+            "total": 3,
+            "fixed": 1,
+            "needs_attention": 1,
+        }
+
+    @parameterized.expand(
+        [
+            ("completed_run_via_closing_note",),
+            ("superseded_by_newer_review_turn",),
+        ]
+    )
+    def test_finished_or_superseded_resolution_carries_no_state(self, scenario: str) -> None:
+        # A completed run must not render as crashed once it ages past the staleness window (the
+        # closing note is the completion marker), and a crashed run must yield the row to a newer
+        # review turn's own progress instead of pinning a stale "didn't finish" on it.
+        report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.ACTIVE, head_sha="sha1")
+        with freeze_time(timezone.now() - timedelta(hours=2)):
+            self._resolution_run(report, ["PRRT_1"])
+            self._thread_verdict(report, "PRRT_1", "fixed")
+            if scenario == "completed_run_via_closing_note":
+                self._closing_run_note(report)
+        if scenario == "superseded_by_newer_review_turn":
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                head_sha="sha1",
+                pr_metadata=_pr_metadata("sha1", "next turn"),
+                pr_comments=[],
+                pr_files=[],
+            )
+
+        row = self.client.get(self.url).json()["results"][0]
+
+        assert row["resolution"] is None
+
+    def test_dead_resolution_run_shows_where_it_stopped(self) -> None:
+        # The silent-death mode: a resolution that dies partway used to leave no trace anywhere.
+        # With the run anchor present, no closing note, and activity past the staleness window, the
+        # row must say where it stopped instead of nothing.
+        with freeze_time(timezone.now() - timedelta(hours=2)):
+            report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.IDLE)
+            self._resolution_run(report, ["PRRT_1", "PRRT_2", "PRRT_3"])
+            self._thread_verdict(report, "PRRT_1", "fixed")
+
+        row = self.client.get(self.url).json()["results"][0]
+
+        assert row["in_progress"] is False
+        assert row["resolution"] == {
+            "resolution_status": "stopped",
+            "done": 1,
+            "total": 3,
+            "fixed": 1,
+            "needs_attention": 0,
+        }
+
     def test_publish_window_stays_in_progress_and_reads_finalizing(self) -> None:
         # On publishing runs finalize bumps run_count but defers the idle write to the publish
         # stage, so the report is briefly ACTIVE with no in-flight findings. The row must keep
@@ -513,7 +625,8 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert row["progress"] == {"review_stage": "finalizing", "done": None, "total": None}
 
         # A resolution run holds the same ACTIVE-at-completed-head shape but with the head already
-        # published — that window keeps its pre-existing label (relabeling it is a separate change).
+        # published — that window keeps its pre-existing label until the run's `resolution_run`
+        # artefact lands, at which point the row carries `resolution` instead.
         ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(published_head_sha="sha1")
         row = self.client.get(self.url).json()["results"][0]
         assert row["in_progress"] is True

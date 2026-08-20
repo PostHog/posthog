@@ -20,6 +20,21 @@ export { getGatewayUsageUrl, getLlmGatewayUrl };
 
 const DEFAULT_USER_AGENT = `posthog/agent.hog.dev; version: ${packageJson.version}`;
 
+// Deadlines for artifact transfers. Control-plane JSON gets the client's flat 30s
+// convention (downloadTaskSession, syncTaskSession); byte-carrying payloads scale
+// with size at a 256 KB/s throughput floor, so a slow-but-working link can finish
+// a 30MB upload while a stall still aborts long before undici's ~5-minute
+// internal defaults.
+export const API_TRANSFER_TIMEOUT_MS = 30_000;
+const MIN_TRANSFER_BYTES_PER_MS = 256;
+
+export function transferTimeoutMs(byteLength: number): number {
+  return Math.max(
+    API_TRANSFER_TIMEOUT_MS,
+    Math.ceil(byteLength / MIN_TRANSFER_BYTES_PER_MS),
+  );
+}
+
 export interface TaskArtifactUploadPayload {
   name: string;
   type: ArtifactType;
@@ -63,6 +78,32 @@ export interface TaskArtifactFinalizeUploadPayload {
   source?: ArtifactSource;
   storage_path: string;
   content_type?: string;
+}
+
+/** One peer agent run visible to a sender run (agent peer messaging discovery). */
+export interface TaskRunPeer {
+  run_id: string;
+  task_id: string;
+  task_title: string;
+  created_by_email: string | null;
+  runtime: string;
+  model: string | null;
+  repository: string | null;
+  stage: string | null;
+  status: string;
+  /** Whether the peer accepts messages right now; never infer this from `status`. */
+  sendable: boolean;
+  updated_at: string | null;
+}
+
+export interface PeerMessageSendResult {
+  /**
+   * "accepted" (queued for delivery — not a delivery confirmation),
+   * "target_finished" (the peer's workflow is gone), or "rejected".
+   */
+  result: string;
+  detail: string;
+  message_id?: string | null;
 }
 
 export type TaskRunUpdate = Partial<
@@ -424,11 +465,15 @@ export class PostHogAPIClient {
     }
 
     const teamId = this.getTeamId();
+    const body = JSON.stringify({ artifacts });
     const response = await this.apiRequest<{ artifacts: TaskRunArtifact[] }>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/artifacts/`,
       {
         method: "POST",
-        body: JSON.stringify({ artifacts }),
+        body,
+        // Carries the (base64-inflated) artifact bytes, so the deadline scales
+        // with the payload like the direct-to-storage POST does.
+        signal: AbortSignal.timeout(transferTimeoutMs(body.length)),
       },
     );
 
@@ -461,6 +506,7 @@ export class PostHogAPIClient {
       {
         method: "POST",
         body: JSON.stringify({ artifacts }),
+        signal: AbortSignal.timeout(API_TRANSFER_TIMEOUT_MS),
       },
     );
     return response.artifacts ?? [];
@@ -482,6 +528,7 @@ export class PostHogAPIClient {
       {
         method: "POST",
         body: JSON.stringify({ artifacts }),
+        signal: AbortSignal.timeout(API_TRANSFER_TIMEOUT_MS),
       },
     );
 
@@ -494,6 +541,42 @@ export class PostHogAPIClient {
     return artifacts
       .map((artifact) => byStoragePath.get(artifact.storage_path))
       .filter((artifact): artifact is TaskRunArtifact => !!artifact);
+  }
+
+  /** Peer agent runs this run may message (agent peer messaging discovery). */
+  async listTaskRunPeers(
+    taskId: string,
+    runId: string,
+  ): Promise<TaskRunPeer[]> {
+    const teamId = this.getTeamId();
+    const response = await this.apiRequest<{ peers: TaskRunPeer[] }>(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/peers/`,
+    );
+    return response.peers ?? [];
+  }
+
+  /**
+   * Relay a message from this run to a peer agent run. The synchronous result
+   * means `accepted` (queued), never delivered — the sandbox handoff happens
+   * later inside the target's workflow.
+   */
+  async sendTaskRunPeerMessage(
+    taskId: string,
+    runId: string,
+    targetRunId: string,
+    payload: { content: string; artifactIds?: string[] },
+  ): Promise<PeerMessageSendResult> {
+    const teamId = this.getTeamId();
+    return this.apiRequest<PeerMessageSendResult>(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/peers/${encodeURIComponent(targetRunId)}/message/`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content: payload.content,
+          artifact_ids: payload.artifactIds ?? [],
+        }),
+      },
+    );
   }
 
   /** Signal reports the given task is associated with (via report task associations). */
