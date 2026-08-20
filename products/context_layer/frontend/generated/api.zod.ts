@@ -11,6 +11,29 @@ import * as zod from 'zod'
 
 /**
  * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
+ * @summary Land agent commits from a git bundle
+ */
+export const contextLayerCommitsCreateBodyBranchMax = 64
+
+export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod
+    .object({
+        bundle: zod
+            .url()
+            .describe(
+                "A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
+            ),
+        branch: zod
+            .string()
+            .max(contextLayerCommitsCreateBodyBranchMax)
+            .nullish()
+            .describe(
+                'Land a dated dreaming branch (`dream\/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.'
+            ),
+    })
+    .describe('Request body for landing agent commits posted back as a git bundle.')
+
+/**
+ * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
  * @summary Create or replace a wiki page
  */
 export const contextLayerPagesUpdateBodyPathMax = 512
@@ -47,9 +70,9 @@ export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod
  * organization it may act for, and is not a scope on the wiki itself.
  * @summary Land agent commits from a git bundle
  */
-export const contextLayerCommitsCreateBodyBranchMax = 64
+export const contextLayerAgentCommitsCreateBodyBranchMax = 64
 
-export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod
+export const ContextLayerAgentCommitsCreateBody = /* @__PURE__ */ zod
     .object({
         bundle: zod
             .url()
@@ -58,7 +81,7 @@ export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod
             ),
         branch: zod
             .string()
-            .max(contextLayerCommitsCreateBodyBranchMax)
+            .max(contextLayerAgentCommitsCreateBodyBranchMax)
             .nullish()
             .describe(
                 'Land a dated dreaming branch (`dream\/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.'

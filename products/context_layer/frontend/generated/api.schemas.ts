@@ -8,11 +8,35 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * Request body for landing agent commits posted back as a git bundle.
+ */
+export interface CommitBundleApi {
+    /** A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin/main..main`). */
+    bundle: string
+    /**
+     * Land a dated dreaming branch (`dream/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.
+     * @maxLength 64
+     * @nullable
+     */
+    branch?: string | null
+}
+
+/**
  * Response shape for the wiki's current state.
  */
 export interface ContextLayerStatusApi {
     /** Commit sha of the wiki's current head. */
     head_sha: string
+}
+
+/**
+ * 400 body when a write violates the wiki's structure rules.
+ */
+export interface LintErrorApi {
+    /** What was rejected. */
+    detail: string
+    /** One entry per structure violation found by the linter. */
+    errors: string[]
 }
 
 /**
@@ -59,16 +83,6 @@ export interface WikiPageWriteApi {
 }
 
 /**
- * 400 body when a write violates the wiki's structure rules.
- */
-export interface LintErrorApi {
-    /** What was rejected. */
-    detail: string
-    /** One entry per structure violation found by the linter. */
-    errors: string[]
-}
-
-/**
  * 409 body when a guarded write was based on a stale head.
  */
 export interface HeadConflictApi {
@@ -86,20 +100,6 @@ export interface WikiTreeApi {
     head_sha: string
     /** Repo-relative path of every Markdown page at the current head. */
     paths: string[]
-}
-
-/**
- * Request body for landing agent commits posted back as a git bundle.
- */
-export interface CommitBundleApi {
-    /** A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin/main..main`). */
-    bundle: string
-    /**
-     * Land a dated dreaming branch (`dream/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.
-     * @maxLength 64
-     * @nullable
-     */
-    branch?: string | null
 }
 
 export type ContextLayerPagesRetrieveParams = {

@@ -18,6 +18,32 @@ import type {
     WikiTreeApi,
 } from './api.schemas'
 
+export const getContextLayerCommitsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/context_layer/commits/`
+}
+
+/**
+ * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
+ * @summary Land agent commits from a git bundle
+ */
+export const contextLayerCommitsCreate = async (
+    organizationId: string,
+    commitBundleApi: CommitBundleApi,
+    options?: RequestInit
+): Promise<ContextLayerStatusApi> => {
+    const formData = new FormData()
+    formData.append(`bundle`, commitBundleApi.bundle)
+    if (commitBundleApi.branch !== undefined && commitBundleApi.branch !== null) {
+        formData.append(`branch`, commitBundleApi.branch)
+    }
+
+    return apiMutator<ContextLayerStatusApi>(getContextLayerCommitsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
 export const getContextLayerEnableCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/context_layer/enable/`
 }
@@ -139,8 +165,8 @@ export const contextLayerTreeRetrieve = async (organizationId: string, options?:
     })
 }
 
-export const getContextLayerCommitsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/context_layer/commits/`
+export const getContextLayerAgentCommitsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/context_layer/agent/commits/`
 }
 
 /**
@@ -154,7 +180,7 @@ export const getContextLayerCommitsCreateUrl = (projectId: string) => {
  * organization it may act for, and is not a scope on the wiki itself.
  * @summary Land agent commits from a git bundle
  */
-export const contextLayerCommitsCreate = async (
+export const contextLayerAgentCommitsCreate = async (
     projectId: string,
     commitBundleApi: CommitBundleApi,
     options?: RequestInit
@@ -165,7 +191,7 @@ export const contextLayerCommitsCreate = async (
         formData.append(`branch`, commitBundleApi.branch)
     }
 
-    return apiMutator<ContextLayerStatusApi>(getContextLayerCommitsCreateUrl(projectId), {
+    return apiMutator<ContextLayerStatusApi>(getContextLayerAgentCommitsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         body: formData,
