@@ -9275,6 +9275,26 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
             },
         )
 
+    def test_handoff_rejects_nonterminal_runs(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Finish or cancel active runs before handing off this task.",
+                "attr": "user",
+            },
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
     def test_handoff_rejects_task_bound_sandbox_agent_from_another_task(self):
         recipient = self.create_organization_user("recipient")
         bound_task = self.create_task(created_by=self.user)
