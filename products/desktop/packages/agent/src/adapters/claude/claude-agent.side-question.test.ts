@@ -230,6 +230,24 @@ describe("ClaudeAcpAgent.extMethod side_question", () => {
     ).resolves.toEqual({ answer: "third" });
   });
 
+  it("clears the in-flight guard after a failed side question", async () => {
+    const agent = makeAgent();
+    installFakeSession(agent, "s-8");
+
+    nextQueryMessages = [{ type: "result", subtype: "error_max_turns" }];
+    await expect(
+      agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, { question: "first?" }),
+    ).rejects.toBeInstanceOf(RequestError);
+
+    nextQueryMessages = [
+      assistantText("second"),
+      { type: "result", subtype: "success" },
+    ];
+    await expect(
+      agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, { question: "second?" }),
+    ).resolves.toEqual({ answer: "second" });
+  });
+
   it("wraps SDK failures (e.g. nothing to resume) in a clear RequestError", async () => {
     const agent = makeAgent();
     installFakeSession(agent, "s-7");

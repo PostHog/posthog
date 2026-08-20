@@ -22,7 +22,10 @@ export function SideQuestionCard({ taskId }: SideQuestionCardProps) {
     <Box className="mb-2 rounded-lg border border-gray-5 bg-card px-3 py-2">
       <Flex align="center" gap="2">
         <ChatCircleDots size={14} className="shrink-0 text-gray-9" />
-        <Text className="min-w-0 flex-1 truncate font-medium text-[13px] text-gray-11">
+        <Text
+          title={entry.question}
+          className="min-w-0 flex-1 truncate font-medium text-[13px] text-gray-11"
+        >
           {entry.question}
         </Text>
         <Tooltip content="Dismiss">
@@ -37,7 +40,7 @@ export function SideQuestionCard({ taskId }: SideQuestionCardProps) {
           </IconButton>
         </Tooltip>
       </Flex>
-      <Box className="mt-1 pl-6">
+      <Box className="mt-1 pl-6" role="status" aria-live="polite">
         {entry.status === "pending" && (
           <Flex align="center" gap="2">
             <Spinner size={14} className="animate-spin text-gray-9" />

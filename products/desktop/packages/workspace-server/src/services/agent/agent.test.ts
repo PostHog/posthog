@@ -110,6 +110,10 @@ vi.mock("@agentclientprotocol/sdk", () => ({
 
 vi.mock("@posthog/agent", () => ({
   isMcpToolReadOnly: vi.fn(() => false),
+  POSTHOG_METHODS: {
+    SIDE_QUESTION: "_posthog/side_question",
+    REFRESH_SESSION: "_posthog/refresh_session",
+  },
 }));
 
 vi.mock("@posthog/agent/posthog-api", () => ({
@@ -1008,6 +1012,82 @@ describe("AgentService", () => {
         "session-idle-killed",
         expect.anything(),
       );
+    });
+  });
+
+  describe("sideQuestion", () => {
+    function injectSession(
+      svc: AgentService,
+      taskRunId: string,
+      overrides: Record<string, unknown> = {},
+    ) {
+      const sessions = (svc as unknown as { sessions: Map<string, unknown> })
+        .sessions;
+      sessions.set(taskRunId, {
+        taskRunId,
+        taskId: `task-for-${taskRunId}`,
+        repoPath: "/mock/repo",
+        agent: { cleanup: vi.fn().mockResolvedValue(undefined) },
+        clientSideConnection: { extMethod: vi.fn() },
+        channel: `ch-${taskRunId}`,
+        createdAt: Date.now(),
+        lastActivityAt: 0,
+        config: { sessionId: "agent-session-1" },
+        promptPending: false,
+        inFlightMcpToolCalls: new Map(),
+        mcpToolApprovals: {},
+        toolInstallations: {},
+        ...overrides,
+      });
+    }
+
+    it("throws when no session exists for the given id", async () => {
+      await expect(service.sideQuestion("unknown-run", "why?")).rejects.toThrow(
+        "Session not found: unknown-run",
+      );
+    });
+
+    it("forwards the question to the adapter and returns the parsed answer", async () => {
+      const extMethod = vi.fn().mockResolvedValue({ answer: "42" });
+      injectSession(service, "run-1", {
+        clientSideConnection: { extMethod },
+      });
+
+      const result = await service.sideQuestion("run-1", "why?");
+
+      expect(result).toEqual({ answer: "42" });
+      expect(extMethod).toHaveBeenCalledWith("_posthog/side_question", {
+        sessionId: "agent-session-1",
+        question: "why?",
+      });
+    });
+
+    it("records activity on the session", async () => {
+      const extMethod = vi.fn().mockResolvedValue({ answer: "42" });
+      injectSession(service, "run-1", {
+        clientSideConnection: { extMethod },
+        lastActivityAt: 0,
+      });
+      const recordActivitySpy = vi.spyOn(service, "recordActivity");
+
+      await service.sideQuestion("run-1", "why?");
+
+      expect(recordActivitySpy).toHaveBeenCalledWith("run-1");
+      const sessions = (
+        service as unknown as {
+          sessions: Map<string, { lastActivityAt: number }>;
+        }
+      ).sessions;
+      expect(sessions.get("run-1")?.lastActivityAt).toBeGreaterThan(0);
+    });
+
+    it("throws when the adapter returns a malformed result", async () => {
+      const extMethod = vi.fn().mockResolvedValue({ notAnAnswer: true });
+      injectSession(service, "run-1", {
+        clientSideConnection: { extMethod },
+      });
+
+      await expect(service.sideQuestion("run-1", "why?")).rejects.toThrow();
     });
   });
 

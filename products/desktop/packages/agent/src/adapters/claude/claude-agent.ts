@@ -1990,7 +1990,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // Drop `sessionId` (identity comes from `resume`) and `hooks` (they
       // close over live-session caches and task state).
       const {
-        sessionId: _drop,
+        sessionId: _sessionId,
         hooks: _hooks,
         ...rest
       } = this.session.queryOptions;
