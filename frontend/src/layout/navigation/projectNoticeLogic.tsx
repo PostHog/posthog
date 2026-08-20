@@ -674,7 +674,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         }
                         return {
                             message:
-                                'Person profile processing is turned off for some events in this project. Those events still arrive and stay queryable. Only person profile creation is skipped.',
+                                'Person profile processing is turned off for some events in this project. Those events still arrive and stay queryable, but they do not create or update person profiles.',
                             type: 'info',
                             action: {
                                 to: 'https://posthog.com/docs/data/persons#capturing-person-profiles',
