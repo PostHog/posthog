@@ -12,6 +12,15 @@ interface DashboardsFiltersBarProps {
     extraActions?: JSX.Element | JSX.Element[]
 }
 
+// LemonSelect only renders its clear (×) affordance for truthy values, but the project-root folder
+// filter is the empty string, so map it to a non-empty sentinel here to keep that filter clearable.
+const PROJECT_ROOT_FOLDER_VALUE = '__project_root__'
+
+const folderToSelectValue = (folder: string | null | undefined): string | null =>
+    folder == null ? null : folder === '' ? PROJECT_ROOT_FOLDER_VALUE : folder
+
+const selectValueToFolder = (value: string | null): string | null => (value === PROJECT_ROOT_FOLDER_VALUE ? '' : value)
+
 export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
     const { filters, currentTab, filteredTags, tagSearch, showTagPopover, folderOptions } = useValues(dashboardsLogic)
     const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
@@ -151,9 +160,11 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                             size="small"
                             placeholder="Folder"
                             allowClear
-                            value={filters.folder ?? null}
-                            onChange={(folder) => setFilters({ folder: folder ?? null })}
-                            options={folderOptions}
+                            value={folderToSelectValue(filters.folder)}
+                            onChange={(value) => setFilters({ folder: selectValueToFolder(value) })}
+                            options={folderOptions.map((option) =>
+                                option.value === '' ? { ...option, value: PROJECT_ROOT_FOLDER_VALUE } : option
+                            )}
                             dropdownMatchSelectWidth={false}
                         />
                     )}
