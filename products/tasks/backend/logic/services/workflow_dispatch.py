@@ -357,3 +357,31 @@ async def aenqueue_or_start_workflow(task_run: TaskRun, *, options: WorkflowDisp
     from asgiref.sync import sync_to_async
 
     await sync_to_async(enqueue_or_start_workflow)(task_run, options=options)
+
+
+def dispatch_task_processing_workflow(
+    task_id: str,
+    run_id: str,
+    team_id: int,
+    user_id: int | None = None,
+    create_pr: bool = True,
+    slack_thread_context: Any | None = None,
+    skip_user_check: bool = False,
+    posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+) -> None:
+    """Outbox-aware drop-in for ``execute_task_processing_workflow`` when the caller did not create the run itself."""
+    from products.tasks.backend.temporal.client import _normalize_slack_context
+
+    task_run = TaskRun.objects.select_related("task", "task__team", "task__created_by").get(
+        id=run_id, task_id=task_id, team_id=team_id
+    )
+    enqueue_or_start_workflow(
+        task_run,
+        options=WorkflowDispatchOptions(
+            user_id=user_id,
+            create_pr=create_pr,
+            slack_thread_context=_normalize_slack_context(slack_thread_context),
+            posthog_mcp_scopes=posthog_mcp_scopes,
+            skip_user_check=skip_user_check,
+        ),
+    )
