@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import urlparse
 
 from unittest import mock
@@ -160,7 +161,7 @@ class TestProfoundSource:
         manager.can_resume.return_value = False
 
         response = ProfoundSource().source_for_pipeline(_Config(), manager, inputs)  # type: ignore[arg-type]
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
 
         assert paths and paths[0] == "/v2/reports/visibility"
 
@@ -174,7 +175,7 @@ class TestProfoundSource:
         manager.can_resume.return_value = False
 
         response = ProfoundSource().source_for_pipeline(_Config(), manager, inputs)  # type: ignore[arg-type]
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
 
         assert paths and paths[0] == "/v1/org/categories"
 
