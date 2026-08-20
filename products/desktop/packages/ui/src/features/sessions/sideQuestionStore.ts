@@ -19,7 +19,8 @@ export type SideQuestionEntry = {
 interface SideQuestionState {
   /** Latest side question per task. Ephemeral: never persisted, never part of session history. */
   byTaskId: Record<string, SideQuestionEntry>;
-  ask: (taskId: string, taskRunId: string, question: string) => string;
+  /** Returns null when one is already pending — the card holds a single question. */
+  ask: (taskId: string, taskRunId: string, question: string) => string | null;
   resolve: (
     taskId: string,
     taskRunId: string,
@@ -59,9 +60,13 @@ function settle(
   };
 }
 
-export const useSideQuestionStore = create<SideQuestionState>()((set) => ({
+export const useSideQuestionStore = create<SideQuestionState>()((set, get) => ({
   byTaskId: {},
   ask: (taskId, taskRunId, question) => {
+    const pending = get().byTaskId[taskId];
+    if (pending?.status === "pending" && pending.taskRunId === taskRunId) {
+      return null;
+    }
     const id = crypto.randomUUID();
     set((state) => ({
       byTaskId: {
@@ -91,15 +96,19 @@ export const useSideQuestionStore = create<SideQuestionState>()((set) => ({
  * and settle the entry with the answer or error. Fire-and-forget so the
  * composer clears immediately; the side question runs beside the
  * conversation, mid-turn or idle.
+ *
+ * Returns false when one is already pending, so the caller can say so rather
+ * than replace a question whose answer is still on its way.
  */
 export function fireSideQuestion(
   sessionService: Pick<SessionService, "askSideQuestion">,
   taskId: string,
   taskRunId: string,
   question: string,
-): void {
+): boolean {
   const { ask, resolve, fail } = useSideQuestionStore.getState();
   const id = ask(taskId, taskRunId, question);
+  if (!id) return false;
   sessionService
     .askSideQuestion(taskId, question)
     .then((answer) => resolve(taskId, taskRunId, id, answer))
@@ -112,4 +121,5 @@ export function fireSideQuestion(
       );
       log.error("Side question failed", error);
     });
+  return true;
 }

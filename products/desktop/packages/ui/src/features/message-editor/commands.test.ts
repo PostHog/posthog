@@ -56,13 +56,28 @@ describe("/btw command", () => {
   };
 
   it("routes the question to askSideQuestion and reports handled", async () => {
-    const askSideQuestion = vi.fn();
+    toastError.mockClear();
+    const askSideQuestion = vi.fn().mockReturnValue(true);
     const handled = await tryExecuteCodeCommand("/btw what changed here?", {
       ...baseContext,
       askSideQuestion,
     });
     expect(handled).toBe(true);
     expect(askSideQuestion).toHaveBeenCalledWith("what changed here?");
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("toasts when a side question is already pending", async () => {
+    toastError.mockClear();
+    const askSideQuestion = vi.fn().mockReturnValue(false);
+    const handled = await tryExecuteCodeCommand("/btw and another thing?", {
+      ...baseContext,
+      askSideQuestion,
+    });
+    expect(handled).toBe(true);
+    expect(toastError).toHaveBeenCalledWith(
+      "Wait for your last side question to finish first",
+    );
   });
 
   it("toasts on an empty question without calling askSideQuestion", async () => {

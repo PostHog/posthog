@@ -196,7 +196,7 @@ describe("ClaudeAcpAgent.extMethod side_question", () => {
     ).rejects.toThrow(/no answer/);
   });
 
-  it("allows only one side question at a time", async () => {
+  it("answers a newer side question and aborts the one it supersedes", async () => {
     const agent = makeAgent();
     installFakeSession(agent, "s-6");
 
@@ -212,33 +212,13 @@ describe("ClaudeAcpAgent.extMethod side_question", () => {
     const first = agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, {
       question: "first?",
     });
-    await expect(
-      agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, { question: "second?" }),
-    ).rejects.toThrow(/already in progress/);
+    await vi.waitFor(() =>
+      expect(lastQueryCall.options?.abortController).toBeDefined(),
+    );
+    const firstAbort = lastQueryCall.options
+      ?.abortController as AbortController;
 
-    release();
-    await expect(first).resolves.toEqual({ answer: "first" });
-
-    // The guard clears once the first completes.
     nextQueryGate = null;
-    nextQueryMessages = [
-      assistantText("third"),
-      { type: "result", subtype: "success" },
-    ];
-    await expect(
-      agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, { question: "third?" }),
-    ).resolves.toEqual({ answer: "third" });
-  });
-
-  it("clears the in-flight guard after a failed side question", async () => {
-    const agent = makeAgent();
-    installFakeSession(agent, "s-8");
-
-    nextQueryMessages = [{ type: "result", subtype: "error_max_turns" }];
-    await expect(
-      agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, { question: "first?" }),
-    ).rejects.toBeInstanceOf(RequestError);
-
     nextQueryMessages = [
       assistantText("second"),
       { type: "result", subtype: "success" },
@@ -246,6 +226,11 @@ describe("ClaudeAcpAgent.extMethod side_question", () => {
     await expect(
       agent.extMethod(POSTHOG_METHODS.SIDE_QUESTION, { question: "second?" }),
     ).resolves.toEqual({ answer: "second" });
+
+    expect(firstAbort.signal.aborted).toBe(true);
+
+    release();
+    await first.catch(() => {});
   });
 
   it("wraps SDK failures (e.g. nothing to resume) in a clear RequestError", async () => {

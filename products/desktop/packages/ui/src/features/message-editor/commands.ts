@@ -27,7 +27,8 @@ interface CommandContext {
   } | null;
   taskRun: { id?: string; log_url?: string } | null;
   /** Fires a "/btw" side question. Absent when the session doesn't support them. */
-  askSideQuestion?: (question: string) => void;
+  /** Returns false when a side question is already pending for this run. */
+  askSideQuestion?: (question: string) => boolean;
 }
 
 export interface CodeCommandInsertContext {
@@ -121,7 +122,9 @@ const btwCommand: CodeCommand = {
       toast.error("Side questions aren't supported for this session yet.");
       return;
     }
-    ctx.askSideQuestion(question);
+    if (!ctx.askSideQuestion(question)) {
+      toast.error("Wait for your last side question to finish first");
+    }
   },
 };
 

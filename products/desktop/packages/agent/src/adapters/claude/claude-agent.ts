@@ -356,8 +356,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private options?: ClaudeAcpAgentOptions;
   private enrichment?: Enrichment;
   private enrichedReadCache: EnrichedReadCache = new Map();
-  /** One side question at a time; bounds concurrent forks off the transcript. */
-  private sideQuestionInFlight = false;
+  /**
+   * The in-flight side question's controller, so a newer question can abort it.
+   * Bounds concurrent forks off the transcript to one.
+   */
+  private sideQuestionAbort: AbortController | null = null;
 
   constructor(client: AgentSideConnection, options?: ClaudeAcpAgentOptions) {
     super(client);
@@ -1976,16 +1979,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
    * the fork gets its own SDK session id and AbortController, and nothing on
    * `this.session` is touched, so the main conversation (including an
    * in-flight turn) never sees the exchange.
+   *
+   * A newer question supersedes an in-flight one: the card shows only the
+   * latest, so answering a question it has already replaced burns tokens on
+   * a result the stale-answer guard would discard anyway.
    */
   private async answerSideQuestion(
     question: string,
   ): Promise<{ answer: string }> {
-    if (this.sideQuestionInFlight) {
-      throw new RequestError(-32002, "A side question is already in progress");
-    }
-    this.sideQuestionInFlight = true;
+    this.sideQuestionAbort?.abort();
 
     const abortController = new AbortController();
+    this.sideQuestionAbort = abortController;
     try {
       // Drop `sessionId` (identity comes from `resume`) and `hooks` (they
       // close over live-session caches and task state).
@@ -2049,7 +2054,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       );
     } finally {
       abortController.abort();
-      this.sideQuestionInFlight = false;
+      if (this.sideQuestionAbort === abortController) {
+        this.sideQuestionAbort = null;
+      }
     }
   }
 
