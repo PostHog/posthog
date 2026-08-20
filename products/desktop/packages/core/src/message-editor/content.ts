@@ -1,5 +1,37 @@
-import { escapeXmlAttr, type UploadableSkillSource } from "@posthog/shared";
+import {
+  escapeXmlAttr,
+  type UploadableSkillSource,
+  unescapeXmlAttr,
+} from "@posthog/shared";
 import { isUploadableSkillSource, parseXmlAttrs } from "./skillTags";
+
+export const POSTHOG_OBJECT_KINDS = [
+  "insight",
+  "hogql",
+  "dashboard",
+  "error",
+  "replay",
+  "flag",
+  "experiment",
+  "survey",
+  "ticket",
+  "trace",
+  "eval",
+  "event",
+  "cohort",
+  "action",
+  "person",
+] as const;
+
+export type PostHogObjectKind = (typeof POSTHOG_OBJECT_KINDS)[number];
+
+const POSTHOG_OBJECT_KIND_SET: ReadonlySet<string> = new Set(
+  POSTHOG_OBJECT_KINDS,
+);
+
+export function isPostHogObjectKind(value: string): value is PostHogObjectKind {
+  return POSTHOG_OBJECT_KIND_SET.has(value);
+}
 
 export interface MentionChip {
   type:
@@ -10,10 +42,12 @@ export interface MentionChip {
     | "experiment"
     | "insight"
     | "feature_flag"
+    | "posthog_object"
     | "github_issue"
     | "github_pr";
   id: string;
   label: string;
+  objectKind?: PostHogObjectKind;
   pastedText?: boolean;
   chipId?: string;
   skillPath?: string;
@@ -41,6 +75,7 @@ export function contentToPlainText(content: EditorContent): string {
       if (chip.type === "file" || chip.type === "folder")
         return `@${chip.label}`;
       if (chip.type === "command") return `/${chip.label}`;
+      if (chip.type === "posthog_object") return chip.label;
       return `@${chip.label}`;
     })
     .join("");
@@ -48,6 +83,13 @@ export function contentToPlainText(content: EditorContent): string {
 
 function isAbsolutePathLike(p: string): boolean {
   return p.startsWith("/") || p.startsWith("~") || /^[A-Za-z]:[\\/]/.test(p);
+}
+
+function escapeXmlText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export function contentToXml(content: EditorContent): string {
@@ -79,6 +121,11 @@ export function contentToXml(content: EditorContent): string {
         return `<insight id="${escapedId}" />`;
       case "feature_flag":
         return `<feature_flag id="${escapedId}" />`;
+      case "posthog_object":
+        if (!chip.objectKind) return chip.label;
+        return chip.objectKind === "hogql"
+          ? `<hogql>${escapeXmlText(chip.id)}</hogql>`
+          : `<${chip.objectKind} id="${escapedId}" />`;
       case "github_issue":
       case "github_pr": {
         const labelMatch = chip.label.match(/^#(\d+)(?:\s*-\s*(.*))?$/);
@@ -103,8 +150,11 @@ export function contentToXml(content: EditorContent): string {
   return parts.join("");
 }
 
+// Self-closing chip tags, plus the paired `<hogql>...</hogql>` form whose SQL
+// rides in the tag body. contentToXml XML-escapes that body, so the body is
+// captured here and decoded on the way into a chip.
 const CHIP_TAG_REGEX =
-  /<(file|folder|skill|error|experiment|insight|feature_flag|github_issue|github_pr)\b([^>]*?)\s*\/>/g;
+  /<(file|folder|skill|error|experiment|insight|feature_flag|dashboard|replay|flag|survey|ticket|trace|eval|event|cohort|action|person|github_issue|github_pr)\b([^>]*?)\s*\/>|<hogql\b[^>]*>([\s\S]*?)<\/hogql>/g;
 
 export function deriveFileLabel(filePath: string): string {
   const segments = filePath.split("/").filter(Boolean);
@@ -150,6 +200,26 @@ function chipFromTag(tag: string, rawAttrs: string): MentionChip | null {
       if (!id) return null;
       return { type: tag, id, label: id };
     }
+    case "dashboard":
+    case "replay":
+    case "flag":
+    case "survey":
+    case "ticket":
+    case "trace":
+    case "eval":
+    case "event":
+    case "cohort":
+    case "action":
+    case "person": {
+      const id = attrs.id;
+      if (!id) return null;
+      return {
+        type: "posthog_object",
+        objectKind: tag,
+        id,
+        label: id,
+      };
+    }
     case "github_issue":
     case "github_pr": {
       const number = attrs.number ?? "";
@@ -164,13 +234,30 @@ function chipFromTag(tag: string, rawAttrs: string): MentionChip | null {
   }
 }
 
+// A `<hogql>` reference carries the SQL as its tag body, XML-escaped by
+// contentToXml. Decode it back to the raw query so editing a serialized message
+// (e.g. a queued one) restores the chip instead of leaking `<hogql>...&lt;...`
+// markup and a corrupted query.
+function hogqlChipFromBody(body: string): MentionChip | null {
+  const query = unescapeXmlAttr(body).trim();
+  if (!query) return null;
+  return {
+    type: "posthog_object",
+    objectKind: "hogql",
+    id: query,
+    label: query,
+  };
+}
+
 export function xmlToContent(xml: string): EditorContent {
   const segments: EditorContent["segments"] = [];
   let lastIndex = 0;
 
   for (const match of xml.matchAll(CHIP_TAG_REGEX)) {
     const matchIndex = match.index ?? 0;
-    const chip = chipFromTag(match[1], match[2] ?? "");
+    const chip = match[1]
+      ? chipFromTag(match[1], match[2] ?? "")
+      : hogqlChipFromBody(match[3] ?? "");
     if (!chip) continue;
 
     if (matchIndex > lastIndex) {
