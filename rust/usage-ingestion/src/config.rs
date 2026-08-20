@@ -22,6 +22,9 @@ pub struct Config {
     pub kafka_tls: bool,
     #[envconfig(from = "USAGE_INGESTION_MAX_BATCH_SIZE", default = "500")]
     pub max_batch_size: usize,
+    // Overridable so a test environment can use the suffixed topic its Kafka engine table reads.
+    #[envconfig(from = "USAGE_INGESTION_TOPIC", default = "clickhouse_usage_records")]
+    pub topic: String,
 }
 
 impl Config {

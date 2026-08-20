@@ -81,7 +81,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
     let producer = create_kafka_producer(&kafka_config, ProcessLiveness).await?;
-    let service = UsageIngestionService::new(producer, resolver, config.max_batch_size);
+    let service = UsageIngestionService::new(
+        producer,
+        resolver,
+        config.max_batch_size,
+        config.topic.clone(),
+    );
 
     let metrics_handle = PrometheusBuilder::new().install_recorder()?;
     let metrics_address = config.metrics_address.clone();

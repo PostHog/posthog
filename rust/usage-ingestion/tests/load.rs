@@ -1,16 +1,7 @@
-//! Load check for the gRPC service: thousands of concurrent single-record
-//! requests across varied teams, organizations, usage keys and modes, a tenth of
-//! them retries of an earlier record.
+//! Load check: thousands of concurrent requests over varied data, a tenth of them retries.
 //!
-//! It asserts three things. Every request succeeds, so nothing is lost to a full
-//! producer queue or an exhausted connection. Concurrent throughput far exceeds
-//! the sequential baseline measured on the same machine, so no lock or single
-//! worker is serializing the request path. And ClickHouse ends up with exactly
-//! one row per distinct record, each retry having won on event timestamp.
-//!
-//! The reported percentiles are the point of the test as much as the assertions
-//! are: run it with `--nocapture` and raise the request count to find where this
-//! machine's throughput stops scaling.
+//! The printed percentiles matter as much as the assertions. Raise the request count with
+//! `--nocapture` to find where a machine stops scaling. See the crate README.
 
 mod common;
 
@@ -19,24 +10,22 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common::{clickhouse, clickhouse_url, env_usize, Service, TABLE};
+use common::{clickhouse, clickhouse_url, env_usize, table, Service};
 use tokio::sync::Semaphore;
 use usage_ingestion_proto::usage_ingestion::v1::{
     IngestUsageRecordsRequest, UsageMode, UsageRecord,
 };
 use uuid::Uuid;
 
-/// Same fixed month as the deduplication test, so every row lands in one
-/// partition. Originals spread over the first minute; retries sit an hour later,
-/// which makes "the retry won" a single countable predicate.
+/// One partition for every row. Originals span the first minute, retries sit an hour
+/// later, so "the retry won" is one countable predicate.
 const BASE_EVENT_TIMESTAMP_MS: i64 = 1_718_409_600_000; // 2024-06-15T00:00:00Z
 const RETRY_OFFSET_MS: i64 = 3_600_000;
 const RETRY_BOUNDARY: &str = "2024-06-15 01:00:00";
 
 const BASELINE_REQUESTS: usize = 32;
-/// Sequential latency is dominated by the producer's 20ms linger, so concurrency
-/// has a lot of headroom to reclaim. Anything serializing the request path lands
-/// far below this.
+/// Sequential latency is dominated by the producer's 20ms linger, so there is a lot of
+/// headroom for concurrency to reclaim. Real runs clear 100x; serialization lands under 2x.
 const MIN_THROUGHPUT_SPEEDUP: f64 = 5.0;
 
 const USAGE_KEYS: [(&str, &str); 4] = [
@@ -46,10 +35,8 @@ const USAGE_KEYS: [(&str, &str); 4] = [
     ("queries_executed", "query"),
 ];
 
-/// Builds one request's record. `index` identifies the record; `retry` re-sends
-/// the same identity with a later event timestamp, so it must leave every field
-/// in the table's sorting key — team_id, producer_id, record_id, version —
-/// untouched.
+/// A `retry` must leave every field of the table's sorting key — team_id, producer_id,
+/// record_id, version — identical to the original, or it becomes a separate row.
 fn record(run: &str, organizations: &[Uuid], index: usize, retry: bool) -> UsageRecord {
     let (usage_key, unit) = USAGE_KEYS[index % USAGE_KEYS.len()];
     let event_offset_ms = (index % 60_000) as i64;
@@ -98,11 +85,10 @@ async fn sustains_thousands_of_concurrent_requests() {
     let organizations: Vec<Uuid> = (0..4).map(|_| Uuid::new_v4()).collect();
 
     let clickhouse_url = clickhouse_url();
+    let table = table();
     let service = Service::start(500).await;
 
-    // Sequential baseline on this machine, so the throughput assertion below is
-    // not a hardware guess. Its records use the run prefix too, keeping the
-    // ClickHouse assertions to a single filter.
+    // Measured here, not hardcoded, so the throughput assertion is not a hardware guess.
     let mut baseline_client = service.client().await;
     let mut baseline_latencies = Vec::with_capacity(BASELINE_REQUESTS);
     let baseline_started = Instant::now();
@@ -123,8 +109,7 @@ async fn sustains_thousands_of_concurrent_requests() {
         .map(|index| record(&run, &organizations, index, false))
         .chain((0..retries).map(|index| record(&run, &organizations, index, true)))
         .collect();
-    // Mix retries among originals so arrival order does not match event order:
-    // a retry that lands before its original must still win deduplication.
+    // Arrival order must not match event order: a retry landing first still has to win.
     plan.sort_by_key(|record| {
         let mut hasher = DefaultHasher::new();
         (&record.record_id, record.event_timestamp_ms).hash(&mut hasher);
@@ -202,7 +187,7 @@ async fn sustains_thousands_of_concurrent_requests() {
     let http = reqwest::Client::new();
     let expected_rows = unique + BASELINE_REQUESTS;
     let arrival_query =
-        format!("SELECT uniqExact(record_id) FROM {TABLE} WHERE startsWith(record_id, '{run}:')");
+        format!("SELECT uniqExact(record_id) FROM {table} WHERE startsWith(record_id, '{run}:')");
     let deadline = Instant::now() + Duration::from_secs(300);
     loop {
         let arrived = clickhouse(&http, &clickhouse_url, &arrival_query)
@@ -222,7 +207,7 @@ async fn sustains_thousands_of_concurrent_requests() {
     clickhouse(
         &http,
         &clickhouse_url,
-        &format!("OPTIMIZE TABLE {TABLE} FINAL"),
+        &format!("OPTIMIZE TABLE {table} FINAL"),
     )
     .await;
     // No FINAL: after OPTIMIZE the stored rows themselves must be collapsed.
@@ -230,7 +215,7 @@ async fn sustains_thousands_of_concurrent_requests() {
         &http,
         &clickhouse_url,
         &format!(
-            "SELECT count(), countIf(event_timestamp >= toDateTime64('{RETRY_BOUNDARY}', 6, 'UTC')) FROM {TABLE} WHERE startsWith(record_id, '{run}:') FORMAT TSV"
+            "SELECT count(), countIf(event_timestamp >= toDateTime64('{RETRY_BOUNDARY}', 6, 'UTC')) FROM {table} WHERE startsWith(record_id, '{run}:') FORMAT TSV"
         ),
     )
     .await;

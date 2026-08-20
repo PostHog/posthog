@@ -21,9 +21,19 @@ for cold or stale mappings.
 Both tests run the service in-process and need the local dev stack for Kafka and
 ClickHouse (with migration `0301_usage_records` applied), so both are
 `#[ignore]`d by default.
-Override the endpoints with `USAGE_INGESTION_E2E_KAFKA_HOSTS` (default
-`localhost:9092`) and `USAGE_INGESTION_E2E_CLICKHOUSE_URL` (default
-`http://localhost:8123`).
+`ci-rust.yml` runs them with `--run-ignored only` against the Django test
+schema, so they gate PRs that touch this crate.
+
+| Env var | Default |
+| --- | --- |
+| `USAGE_INGESTION_E2E_KAFKA_HOSTS` | `localhost:9092` |
+| `USAGE_INGESTION_E2E_CLICKHOUSE_URL` | `http://localhost:8123` |
+| `USAGE_INGESTION_E2E_CLICKHOUSE_DATABASE` | `posthog` (CI: `posthog_test`) |
+| `USAGE_INGESTION_E2E_TOPIC` | `clickhouse_usage_records` (CI: `clickhouse_usage_records_test`) |
+
+A Django test environment suffixes both the ClickHouse database and the Kafka
+topic, which is why the last two exist.
+The service reads the same topic from `USAGE_INGESTION_TOPIC`.
 
 ```sh
 flox activate -- bash -c 'cd rust && cargo test -p usage-ingestion -- --ignored --nocapture'

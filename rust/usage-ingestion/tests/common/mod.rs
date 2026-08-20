@@ -1,8 +1,6 @@
-//! Shared harness for the opt-in end-to-end tests: an in-process gRPC service
-//! backed by a real Kafka producer, plus a thin ClickHouse HTTP client.
+//! Shared harness for the opt-in end-to-end tests.
 
-// Each test binary compiles this module separately, so helpers only one of them
-// uses would otherwise read as dead code.
+// Each test binary compiles this module separately, so helpers only one uses look dead.
 #![allow(dead_code)]
 
 use std::net::SocketAddr;
@@ -23,7 +21,17 @@ use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_client::UsageIng
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIngestionServer;
 use uuid::Uuid;
 
-pub const TABLE: &str = "posthog.sharded_usage_records";
+/// A Django test environment suffixes both the database and the topic, so CI overrides both.
+pub fn table() -> String {
+    format!(
+        "{}.sharded_usage_records",
+        env_or("USAGE_INGESTION_E2E_CLICKHOUSE_DATABASE", "posthog")
+    )
+}
+
+pub fn topic() -> String {
+    env_or("USAGE_INGESTION_E2E_TOPIC", "clickhouse_usage_records")
+}
 
 #[derive(Clone)]
 struct TestLiveness;
@@ -34,8 +42,6 @@ impl SyncLivenessReporter for TestLiveness {
     fn report_unhealthy(&self) {}
 }
 
-/// Every test supplies `organization_id` explicitly, so resolution should never
-/// be reached. Failing loudly keeps an accidental omission from passing quietly.
 struct UnusedResolver;
 
 #[async_trait]
@@ -104,7 +110,7 @@ impl Service {
         .await
         .expect("failed to create the Kafka producer");
         let service =
-            UsageIngestionService::new(producer, Arc::new(UnusedResolver), max_batch_size);
+            UsageIngestionService::new(producer, Arc::new(UnusedResolver), max_batch_size, topic());
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();

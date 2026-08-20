@@ -21,6 +21,7 @@ pub struct UsageIngestionService {
     producer: FutureProducer<KafkaContext>,
     resolver: Arc<dyn OrganizationResolver>,
     max_batch_size: usize,
+    topic: String,
 }
 
 impl UsageIngestionService {
@@ -28,11 +29,13 @@ impl UsageIngestionService {
         producer: FutureProducer<KafkaContext>,
         resolver: Arc<dyn OrganizationResolver>,
         max_batch_size: usize,
+        topic: String,
     ) -> Self {
         Self {
             producer,
             resolver,
             max_batch_size,
+            topic,
         }
     }
 
@@ -97,7 +100,7 @@ impl UsageIngestion for UsageIngestionService {
         let payloads = payloads.collect::<Result<Vec<_>, _>>()?;
         let results = send_keyed_payloads_to_kafka_with_encoding(
             &self.producer,
-            USAGE_RECORDS_TOPIC,
+            &self.topic,
             EnvelopeEncoding::None,
             payloads,
         )
