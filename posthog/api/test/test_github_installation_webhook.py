@@ -95,13 +95,13 @@ class TestGitHubInstallationReferenceHelpers(TestCase):
     def test_uninstall_app_installation_false_when_not_configured(self):
         self.assertFalse(GitHubIntegration.uninstall_app_installation("12345"))
 
-    @patch("posthog.models.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.models.integration.github.GitHubIntegration.uninstall_app_installation")
     def test_uninstall_if_last_reference_skips_when_references_remain(self, mock_uninstall):
         self._team_integration()
         self.assertFalse(GitHubIntegration.uninstall_if_last_reference("12345"))
         mock_uninstall.assert_not_called()
 
-    @patch("posthog.models.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.models.integration.github.GitHubIntegration.uninstall_app_installation")
     def test_uninstall_if_last_reference_uninstalls_when_none_remain(self, mock_uninstall):
         mock_uninstall.return_value = True
         self.assertTrue(GitHubIntegration.uninstall_if_last_reference("12345"))

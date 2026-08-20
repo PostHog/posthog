@@ -49,7 +49,7 @@ export type CrawlHistoryRedisPool = Pick<Pool<CrawlHistoryRedis>, 'acquire' | 'r
 
 /** What the consumer needs of the store, so its tests exercise the real contract rather than a cast. */
 export interface CrawlHistoryStore {
-    read(keys: string[]): Promise<CrawlHistoryReadResult>
+    read(keys: string[], nowMs: number): Promise<CrawlHistoryReadResult>
     record(keys: string[], nowMs: number, ttlSeconds: number): Promise<{ failed: Set<number> }>
 }
 
@@ -70,7 +70,7 @@ export class CrawlHistory implements CrawlHistoryStore {
         private readonly batchBudgetMs: number
     ) {}
 
-    public async read(keys: string[]): Promise<CrawlHistoryReadResult> {
+    public async read(keys: string[], _nowMs: number): Promise<CrawlHistoryReadResult> {
         const known = new Set<number>()
         const failed = new Set<number>()
         await this.forEachChunk(keys, {
