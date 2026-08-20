@@ -534,6 +534,11 @@ export class IngestionApiServer implements NodeServer {
                 {
                     port: this.config.INGESTION_API_GRPC_PORT,
                     maxConcurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+                    maxStreams: this.config.INGESTION_API_GRPC_MAX_STREAMS,
+                    maxSessions: this.config.INGESTION_API_GRPC_MAX_SESSIONS,
+                    maxStreamsPerSession: this.config.INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION,
+                    sessionMemoryMb: this.config.INGESTION_API_GRPC_SESSION_MEMORY_MB,
+                    sessionIdleTimeoutMs: this.config.INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS,
                 },
                 {
                     driver: this.createStreamIngestDriver(),

@@ -421,4 +421,30 @@ describe('WorkerIngestServer', () => {
         await until(() => driver.feeds.length === 3)
         expect(await outOfOrderCount()).toBe(before + 1)
     })
+
+    it('refuses a stream past the total concurrency ceiling with ResourceExhausted', async () => {
+        // The ceiling bounds total open streams so a peer that ignores the
+        // per-session SETTINGS limit cannot make the server accumulate streams
+        // without bound. It must refuse cleanly, not crash or hang.
+        const capped = new WorkerIngestServer(
+            { port: 0, maxConcurrentBatches: 4, capacityRetryMs: 1, pumpIdleMs: 1, maxStreams: 1 },
+            { driver, feedOrderSentinel: sentinel, onFatal }
+        )
+        await capped.start()
+        try {
+            const held = new FrameSource()
+            const first = collect(capped, held)
+            await until(() => capped.streamCount === 1)
+
+            const rejected = collect(capped, new FrameSource())
+            await rejected.ended
+            expect(rejected.error?.code).toBe(Code.ResourceExhausted)
+            expect(capped.streamCount).toBe(1)
+
+            held.end()
+            await first.ended
+        } finally {
+            await capped.stop()
+        }
+    })
 })

@@ -51,6 +51,12 @@ const grpcCapacityRetries = new Counter({
     help: 'Feeds rejected at_capacity despite holding an admission slot (capacity accounting drift)',
 })
 
+const grpcConnectionsRejected = new Counter({
+    name: 'ingestion_api_grpc_connections_rejected_total',
+    help: 'Sessions or streams refused because a concurrency cap was hit',
+    labelNames: ['reason'],
+})
+
 /** A batch the pipeline finished processing. */
 export interface CompletedSubBatch {
     streamId: number
@@ -89,6 +95,21 @@ export interface WorkerIngestServerOptions {
     capacityRetryMs?: number
     /** Delay before re-pumping when the pipeline reports drained but sub-batches are still in flight. */
     pumpIdleMs?: number
+    /**
+     * Total concurrent streams the server will hold open across all sessions.
+     * The topology is roughly one stream per connected consumer, so this is a
+     * generous ceiling that only trips on misbehaviour — a stream past it is
+     * refused with ResourceExhausted rather than accumulating unbounded.
+     */
+    maxStreams?: number
+    /** Total concurrent HTTP/2 sessions; a session past this is destroyed on open. */
+    maxSessions?: number
+    /** Per-session stream limit, advertised via HTTP/2 SETTINGS and enforced by Node. */
+    maxStreamsPerSession?: number
+    /** Per-session memory budget in MB (HTTP/2 `maxSessionMemory`). */
+    sessionMemoryMb?: number
+    /** Idle time before a session with no activity is closed, reaping dead peers. */
+    sessionIdleTimeoutMs?: number
 }
 
 /**
@@ -250,6 +271,12 @@ export class WorkerIngestServer {
     private wakePump: (() => void) | null = null
     private readonly capacityRetryMs: number
     private readonly pumpIdleMs: number
+    private readonly maxStreams: number
+    private readonly maxSessions: number
+    private readonly maxStreamsPerSession: number
+    private readonly sessionMemoryMb: number
+    private readonly sessionIdleTimeoutMs: number
+    private sessionCount = 0
     private readonly slots: FifoSlots
 
     constructor(
@@ -258,12 +285,25 @@ export class WorkerIngestServer {
     ) {
         this.capacityRetryMs = options.capacityRetryMs ?? 20
         this.pumpIdleMs = options.pumpIdleMs ?? 20
+        this.maxStreams = options.maxStreams ?? 256
+        this.maxSessions = options.maxSessions ?? 256
+        this.maxStreamsPerSession = options.maxStreamsPerSession ?? 8
+        this.sessionMemoryMb = options.sessionMemoryMb ?? 64
+        this.sessionIdleTimeoutMs = options.sessionIdleTimeoutMs ?? 300_000
         this.slots = new FifoSlots(options.maxConcurrentBatches)
     }
 
     async start(): Promise<void> {
         this.pumpTask = this.runPump()
         this.server = http2.createServer(
+            {
+                // Cap per-session streams (advertised via SETTINGS, enforced by
+                // Node) and per-session buffered memory, so one peer cannot fan
+                // out or buffer without bound. Total sessions and streams are
+                // bounded separately below and in ingestStream.
+                settings: { maxConcurrentStreams: this.maxStreamsPerSession },
+                maxSessionMemory: this.sessionMemoryMb,
+            },
             connectNodeAdapter({
                 routes: (router: ConnectRouter) => {
                     router.service(WorkerIngest, {
@@ -272,6 +312,7 @@ export class WorkerIngestServer {
                 },
             })
         )
+        this.server.on('session', (session) => this.onSession(session))
         await new Promise<void>((resolve, reject) => {
             this.server!.once('error', reject)
             this.server!.listen(this.options.port, () => {
@@ -279,6 +320,27 @@ export class WorkerIngestServer {
                 logger.info('🛜', `WorkerIngest gRPC server listening on port ${this.options.port}`)
                 resolve()
             })
+        })
+    }
+
+    /**
+     * Bounds concurrent sessions and reaps idle ones. A session past the cap is
+     * destroyed on open; an idle session is closed so a dead or slow peer cannot
+     * hold resources indefinitely. The `error` listener keeps a session-level
+     * error from crashing the process (an EventEmitter error with no listener
+     * throws).
+     */
+    private onSession(session: http2.ServerHttp2Session): void {
+        if (this.sessionCount >= this.maxSessions) {
+            grpcConnectionsRejected.inc({ reason: 'max_sessions' })
+            session.destroy()
+            return
+        }
+        this.sessionCount++
+        session.setTimeout(this.sessionIdleTimeoutMs, () => session.close())
+        session.on('error', (error) => logger.warn('🛜', 'WorkerIngest session error', { error }))
+        session.once('close', () => {
+            this.sessionCount--
         })
     }
 
@@ -412,6 +474,12 @@ export class WorkerIngestServer {
     async *ingestStream(requests: AsyncIterable<IngestStreamRequest>): AsyncIterable<IngestStreamResponse> {
         if (this.fatalError) {
             throw new ConnectError('ingest pipeline is poisoned', Code.Unavailable)
+        }
+        // Total stream ceiling across every session: the per-session SETTINGS cap
+        // bounds one peer, this bounds the whole server if a peer ignores it.
+        if (this.streams.size >= this.maxStreams) {
+            grpcConnectionsRejected.inc({ reason: 'max_streams' })
+            throw new ConnectError('too many concurrent streams', Code.ResourceExhausted)
         }
         const stream: StreamState = {
             id: this.nextStreamId++,
