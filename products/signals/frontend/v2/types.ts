@@ -80,7 +80,8 @@ export interface DemoScreenshot {
     kind: DemoScreenshotKind
     /** Address-bar hint in the frame, e.g. "us.posthog.com/dashboard/214" */
     urlHint: string
-    caption: string
+    /** Where the frame was captured from, e.g. "session replay 018f-d3a2" */
+    source: string
 }
 
 export interface ReportEvidenceCard {

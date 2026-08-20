@@ -82,7 +82,7 @@ const MOCK_BY_KIND: Record<DemoScreenshotKind, () => JSX.Element> = {
     'ai-error-card': AiErrorCardMock,
 }
 
-/** Framed mock screenshot of the error UI: a browser chrome bar, a micro-mock, and a caption. */
+/** Framed mock screenshot of the error UI: a browser chrome bar, a micro-mock, and its source. */
 export function EvidenceScreenshot({ screenshot }: { screenshot: DemoScreenshot }): JSX.Element {
     const Mock = MOCK_BY_KIND[screenshot.kind]
     return (
@@ -100,7 +100,7 @@ export function EvidenceScreenshot({ screenshot }: { screenshot: DemoScreenshot 
                     <Mock />
                 </div>
             </div>
-            <figcaption className="text-[11px] leading-normal text-secondary">{screenshot.caption}</figcaption>
+            <figcaption className="font-mono text-[11px] text-secondary">screenshot · {screenshot.source}</figcaption>
         </figure>
     )
 }

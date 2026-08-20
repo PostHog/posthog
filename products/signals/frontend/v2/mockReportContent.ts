@@ -244,8 +244,7 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
         screenshot: {
             kind: 'usage-banner',
             urlHint: 'us.posthog.com/organization/billing',
-            caption:
-                'The banner a non-admin sees. The sentence about upgrading is plain text, so people click the words.',
+            source: 'from session replay 0190-77c4',
         },
         evidence: [
             {
@@ -338,8 +337,7 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
         screenshot: {
             kind: 'ai-error-card',
             urlHint: 'us.posthog.com/max',
-            caption:
-                'The answer replaces its chart with a dead-end error card. There is no retry, so people rephrase the question instead.',
+            source: 'from session replay 018e-b511',
         },
         evidence: [
             {
@@ -516,8 +514,7 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
         screenshot: {
             kind: 'dashboard-tile',
             urlHint: 'us.posthog.com/dashboard/214',
-            caption:
-                'What a viewer sees on a failed tile: no error code, no query id, and a Try again that cannot help.',
+            source: 'from session replay 018f-d3a2',
         },
         evidence: [
             {
