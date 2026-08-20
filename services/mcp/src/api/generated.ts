@@ -21560,6 +21560,8 @@ export namespace Schemas {
       readonly latest_error: string | null;
       /** @nullable */
       readonly is_materialized: boolean | null;
+      /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
+      readonly is_incremental: boolean;
       /** Where this SavedQuery is created.
        *
        * * `data_warehouse` - Data Warehouse
@@ -30986,6 +30988,37 @@ export namespace Schemas {
       skip_on_conflict?: boolean;
     }
 
+    /**
+     * Form fields to include in the multipart POST, before the file part.
+     */
+    export type ErrorTrackingSymbolSetPresignedPostFields = {[key: string]: string};
+
+    export interface ErrorTrackingSymbolSetPresignedPost {
+      /** S3 endpoint URL to send the multipart POST to. */
+      url: string;
+      /** Form fields to include in the multipart POST, before the file part. */
+      fields: ErrorTrackingSymbolSetPresignedPostFields;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkStartUploadEntry {
+      /** ID of the symbol set the upload belongs to. */
+      symbol_set_id: string;
+      /** Presigned POST for the upload. Uses the S3 transfer-acceleration endpoint when configured. */
+      presigned_url: ErrorTrackingSymbolSetPresignedPost;
+      /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
+      fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPost;
+    }
+
+    /**
+     * Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted.
+     */
+    export type ErrorTrackingSymbolSetBulkStartUploadResponseIdMap = {[key: string]: ErrorTrackingSymbolSetBulkStartUploadEntry};
+
+    export interface ErrorTrackingSymbolSetBulkStartUploadResponse {
+      /** Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted. */
+      id_map: ErrorTrackingSymbolSetBulkStartUploadResponseIdMap;
+    }
+
     export interface ErrorTrackingSymbolSetFinishUpload {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;
@@ -39904,6 +39937,7 @@ export namespace Schemas {
      * * `events` - events
      * * `person-updates` - person-updates
      * * `data-warehouse-table` - data-warehouse-table
+     * * `data-warehouse-view` - data-warehouse-view
      */
     export type HogFunctionFiltersSourceEnum = typeof HogFunctionFiltersSourceEnum[keyof typeof HogFunctionFiltersSourceEnum];
 
@@ -39912,6 +39946,7 @@ export namespace Schemas {
       Events: 'events',
       PersonUpdates: 'person-updates',
       DataWarehouseTable: 'data-warehouse-table',
+      DataWarehouseView: 'data-warehouse-view',
     } as const;
 
     export type HogFunctionFiltersActionsItem = { [key: string]: unknown };
@@ -54602,6 +54637,30 @@ export namespace Schemas {
       DeltaS3Wrapper: 'DeltaS3Wrapper',
     } as const;
 
+    /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     * * `source` - source
+     * * `materialized_view` - materialized_view
+     * * `demo` - demo
+     */
+    export type TableCreatedViaEnum = typeof TableCreatedViaEnum[keyof typeof TableCreatedViaEnum];
+
+
+    export const TableCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+      Wizard: 'wizard',
+      SelfDriving: 'self_driving',
+      Source: 'source',
+      MaterializedView: 'materialized_view',
+      Demo: 'demo',
+    } as const;
+
     export interface SimpleExternalDataSourceSerializers {
       readonly id: string;
       readonly created_at: string;
@@ -54634,6 +54693,17 @@ export namespace Schemas {
       format: TableFormatEnum;
       readonly created_by: UserBasic;
       readonly created_at: string;
+      /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving
+       * * `source` - source
+       * * `materialized_view` - materialized_view
+       * * `demo` - demo */
+      readonly created_via: TableCreatedViaEnum | null;
       /** @maxLength 500 */
       url_pattern: string;
       credential: Credential;
@@ -63641,6 +63711,17 @@ export namespace Schemas {
       format?: TableFormatEnum;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
+      /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving
+       * * `source` - source
+       * * `materialized_view` - materialized_view
+       * * `demo` - demo */
+      readonly created_via?: TableCreatedViaEnum | null;
       /** @maxLength 500 */
       url_pattern?: string;
       credential?: Credential;

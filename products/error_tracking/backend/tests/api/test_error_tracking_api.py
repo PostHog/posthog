@@ -917,7 +917,25 @@ class TestErrorTracking(APIBaseTest):
 
         assert str(symbol_set.id) == symbol_set_upload_response["symbol_set_id"]
         assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
+        assert "fallback_presigned_url" not in symbol_set_upload_response
         assert symbol_set.last_used is None
+
+    def test_bulk_start_upload_includes_fallback_presigned_url_when_accelerated(self) -> None:
+        chunk_id = str(uuid7())
+        with (
+            self.settings(OBJECT_STORAGE_TRANSFER_ACCELERATION=True),
+            patch("posthog.storage.object_storage._accelerated_presigned_client", None),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={"chunk_ids": [chunk_id]},
+            )
+
+        entry = response.json()["id_map"][chunk_id]
+        symbol_set = ErrorTrackingSymbolSet.objects.get(ref=chunk_id)
+        assert "s3-accelerate" in entry["presigned_url"]["url"]
+        assert "s3-accelerate" not in entry["fallback_presigned_url"]["url"]
+        assert entry["fallback_presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
 
     @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
     def test_bulk_start_upload_skips_uploaded_symbol_sets(self, patched_capture: Mock) -> None:
