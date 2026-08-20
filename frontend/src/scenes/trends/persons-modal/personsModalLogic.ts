@@ -670,10 +670,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 if (!actorsQuery) {
                     return null
                 }
-                const { select: _select, ...source } = actorsQuery
+                // Keep `select` so the new insight opens with the same columns as the modal,
+                // instead of falling back to the generic default person columns.
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
-                    source,
+                    source: actorsQuery,
                     full: true,
                 }
                 return urls.insightNew({ query })

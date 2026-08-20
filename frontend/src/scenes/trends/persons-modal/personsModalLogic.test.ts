@@ -644,6 +644,30 @@ describe('personsModalLogic', () => {
         })
     })
 
+    describe('exploreUrl', () => {
+        it('carries the modal select columns into the new insight query', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.FunnelsActorsQuery,
+                    source: { kind: NodeKind.FunnelsQuery, series: [] },
+                    funnelStep: 1,
+                } as FunnelsActorsQuery,
+                additionalSelect: { matched_recordings: 'matched_recordings' },
+                url: null,
+            })
+            logic.mount()
+
+            const url = logic.values.exploreUrl
+            expect(url).not.toBeNull()
+
+            // Without `select` the new insight falls back to the generic default person columns.
+            const { hashParams } = combineUrl(url as string)
+            const query = JSON.parse(hashParams.q)
+            expect(query.kind).toEqual(NodeKind.DataTableNode)
+            expect(query.source?.select).toEqual(['actor', 'matched_recordings'])
+        })
+    })
+
     describe('insightEventsQueryUrl', () => {
         it('routes "View events" to the events explorer with the events query in the #q= hash', () => {
             logic = personsModalLogic({

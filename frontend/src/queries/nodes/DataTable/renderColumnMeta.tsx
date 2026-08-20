@@ -3,7 +3,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
-import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractDisplayLabel, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -45,7 +45,9 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
         const Component = queryContextColumn.renderTitle
         title = Component ? <Component columnName={queryContextColumnName} query={query} /> : queryContextColumn.title
     } else if (isHogQLQuery(query.source)) {
-        title = key
+        // Prefer an `AS alias` or `-- comment` label over the raw select expression, so the header
+        // reads as a label rather than internal query text while the response is absent or errored.
+        title = extractDisplayLabel(key)
         if (title.startsWith('`') && title.endsWith('`')) {
             title = title.substring(1, title.length - 1)
         }
@@ -93,7 +95,7 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
     } else if (queryContextColumnName) {
         title = queryContextColumnName.replace('_', ' ')
     } else {
-        title = queryFeatures.has(QueryFeature.selectAndOrderByColumns) ? extractExpressionComment(key) : key
+        title = queryFeatures.has(QueryFeature.selectAndOrderByColumns) ? extractDisplayLabel(key) : key
     }
 
     if (queryContextColumn?.align) {
