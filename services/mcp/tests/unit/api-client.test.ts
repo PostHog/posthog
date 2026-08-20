@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
+import { PostHogApiError } from '@/lib/errors'
 
 describe('ApiClient', () => {
     it('should create ApiClient with required config', () => {
@@ -297,6 +298,25 @@ describe('ApiClient', () => {
             const [url] = mockFetch.mock.calls[0]!
             expect(url).toContain('/api/projects/1/insights/?short_id=abc12345')
             expect(result.success).toBe(true)
+
+            vi.unstubAllGlobals()
+        })
+
+        it('returns a typed 404 PostHogApiError when the short_id list comes back empty', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+
+            const result = await client.insights({ projectId: '1' }).get({ insightId: 'zzzz9999' })
+
+            // A plain Error here defeats handleToolError's 4xx short-circuit, so a
+            // mistyped short_id gets filed as an engineering exception.
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected the empty short_id lookup to fail')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(404)
+            expect(result.error.message).toContain('No insight found with short_id: zzzz9999')
 
             vi.unstubAllGlobals()
         })

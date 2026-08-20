@@ -1070,9 +1070,24 @@ export class ApiClient {
                     const insight = insights[0]
 
                     if (insights.length === 0 || !insight) {
+                        // The list endpoint returns HTTP 200 with an empty
+                        // `results` array for an unknown short_id, so fetchJson
+                        // never mints a typed error. Synthesize a 404
+                        // PostHogApiError so handleToolError classifies a
+                        // mistyped id as recoverable agent input (returned for
+                        // self-correction) instead of capturing it as an
+                        // engineering exception.
+                        const message = `No insight found with short_id: ${insightId}`
                         return {
                             success: false,
-                            error: new Error(`No insight found with short_id: ${insightId}`),
+                            error: new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: message,
+                                url,
+                                method: 'GET',
+                                message,
+                            }),
                         }
                     }
 
