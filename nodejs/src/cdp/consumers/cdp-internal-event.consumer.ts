@@ -8,7 +8,6 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { isManagedAlertInternalEvent } from '../managed-alert-events'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
@@ -110,32 +109,8 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
         const [hogInvocations, hogflowInvocations] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
-                filterFn: (fn) => {
-                    if (fn.filters?.source === 'internal-events') {
-                        return getInternalEventFilterEventIds(fn.filters) !== null
-                    }
-                    return (fn.filters?.source ?? 'events') === 'events'
-                },
-                invocationFilterFn: (fn, globals) => {
-                    if (fn.filters?.source === 'internal-events') {
-                        return hasMatchingInternalEventFilter(fn.filters, globals.event.event)
-                    }
-                    if (!isManagedAlertInternalEvent(globals.event.event)) {
-                        return true
-                    }
-                    const alertId = globals.event.properties?.alert_id
-                    return Boolean(
-                        typeof alertId === 'string' &&
-                            fn.filters?.events?.some((event) => event.id === globals.event.event) &&
-                            fn.filters?.properties?.some(
-                                (property) =>
-                                    property.type === 'event' &&
-                                    property.key === 'alert_id' &&
-                                    property.operator === 'exact' &&
-                                    property.value === alertId
-                            )
-                    )
-                },
+                filterFn: (fn) => getInternalEventFilterEventIds(fn.filters) !== null,
+                invocationFilterFn: (fn, globals) => hasMatchingInternalEventFilter(fn.filters, globals.event.event),
             }),
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
                 eligibilityFn: (flow, globals) =>
