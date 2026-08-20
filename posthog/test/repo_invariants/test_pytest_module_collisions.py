@@ -3,16 +3,24 @@
 Under pytest's default ``prepend`` import mode a test module is named by walking up
 from its file while ``__init__.py`` exists, so two files whose walk-up lands on the
 same dotted name are the same module as far as ``sys.modules`` is concerned. pytest
-refuses the second one with ``import file mismatch`` and drops it from the run.
+rejects the second one with ``import file mismatch``.
+
+That is a collection error, not a skip. The session stops on it and exits 2, so
+*nothing* in that run executes, not just the colliding file. The upstream rule is
+explicit: without packages "each test file needs to have a unique name compared to
+the other test files, otherwise pytest will raise an error".
+https://docs.pytest.org/en/stable/explanation/pythonpath.html
 
 The walk-up is ``_pytest.pathlib.resolve_package_path``: "the last directory upwards
 which still contains an __init__.py". This repo overrides neither ``--import-mode``
 (default ``prepend``) nor ``consider_namespace_packages`` (default false), so that
-naming is what a session here actually does.
+naming is what a session here actually does. ``--import-mode=importlib`` drops the
+uniqueness requirement altogether, but that is a repo-wide import-semantics change
+and not one to make from inside a guard.
 
-Nothing in CI notices: the Core backend lane collects ``posthog``/``ee`` while
-``products/*`` run under separate turbo lanes, so no single session spans both trees
-and each lane looks green while silently missing files.
+CI never hits the error, because the Core backend lane collects ``posthog``/``ee``
+while ``products/*`` run under separate turbo lanes. No lane spans both trees, so
+the breakage waits for whoever runs them together.
 
 Regenerate the baseline (only to ratchet DOWN, after fixing a collision):
 
@@ -75,8 +83,8 @@ def test_no_new_pytest_module_name_collisions() -> None:
 
     new = sorted(current - baseline)
     assert not new, (
-        "These test files resolve to the same pytest module name, so only the one collected "
-        "first runs and the rest are dropped with `import file mismatch`:\n\n  "
+        "These test files resolve to the same pytest module name. Any run that collects more "
+        "than one of them stops with `import file mismatch` and executes nothing:\n\n  "
         + "\n  ".join(new)
         + "\n\nUsually the directory is a test subpackage missing its `__init__.py` while its "
         "parent has one. Adding the marker fixes every basename in that directory at once; "
@@ -93,8 +101,8 @@ def test_no_new_pytest_module_name_collisions() -> None:
 
 BASELINE_HEADER = (
     "# pytest module-name collisions that predate the invariant guarding them.\n"
-    "# Each line is a set of test files that resolve to one module name, so only the file\n"
-    "# collected first runs. Shrink this list; never grow it.\n"
+    "# Each line is a set of test files that resolve to one module name. A run that collects\n"
+    "# more than one of them dies at collection. Shrink this list; never grow it.\n"
     "# Maintained by test_no_new_pytest_module_name_collisions — regenerate with:\n"
     "#   python posthog/test/repo_invariants/test_pytest_module_collisions.py\n"
 )

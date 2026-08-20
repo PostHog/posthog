@@ -1,6 +1,6 @@
 # pytest module-name collisions that predate the invariant guarding them.
-# Each line is a set of test files that resolve to one module name, so only the file
-# collected first runs. Shrink this list; never grow it.
+# Each line is a set of test files that resolve to one module name. A run that collects
+# more than one of them dies at collection. Shrink this list; never grow it.
 # Maintained by test_no_new_pytest_module_name_collisions — regenerate with:
 #   python posthog/test/repo_invariants/test_pytest_module_collisions.py
 test_activities: posthog/temporal/ai_observability/eval_reports/test/test_activities.py, products/conversations/backend/temporal/zendesk_import/tests/test_activities.py
