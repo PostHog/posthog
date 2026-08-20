@@ -76,12 +76,16 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("served_from_cache", True, False),
-            ("fresh_failure", False, True),
+            # A fresh user query error is the user's to fix by narrowing the query, so the API
+            # boundary must not file it in error tracking - even without the breaker-cache marker.
+            ("fresh_user_timeout", ClickHouseQueryTimeOut("query exceeded the time limit"), False, False),
+            # A breaker replay was already captured when the original failure happened.
+            ("served_from_cache", ClickHouseQueryTimeOut("failed the same way 3 times in a row"), True, False),
+            # A genuine backend fault must still reach error tracking.
+            ("backend_error", ValueError("boom"), False, True),
         ]
     )
-    def test_served_from_query_failure_cache_is_not_recaptured(self, _name, served_from_cache, expect_capture):
-        error = ClickHouseQueryTimeOut("failed the same way 3 times in a row")
+    def test_user_query_errors_are_not_captured_at_api_boundary(self, _name, error, served_from_cache, expect_capture):
         if served_from_cache:
             error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
         with (
@@ -92,7 +96,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"/api/environments/{self.team.id}/query/",
                 {"query": HogQLQuery(query="select 1").model_dump()},
             )
-        self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
+        self.assertGreaterEqual(response.status_code, 400)
         self.assertEqual(mock_capture.called, expect_capture)
 
     @snapshot_clickhouse_queries

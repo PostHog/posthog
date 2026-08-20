@@ -56,6 +56,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_failure_handling import is_expected_user_query_error
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -374,8 +375,10 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             # Expected while an org is over quota - a 402 the caller can act on, not error noise.
             raise
         except Exception as e:
-            # Breaker replays were already captured when the original failure happened.
-            if not getattr(e, "served_from_query_failure_cache", False):
+            # A user query error (too big, too slow, or replayed from the breaker cache) is the
+            # user's to fix by narrowing the query, not a backend defect, so keep it out of error
+            # tracking - the same reasoning the query runner applies at its own capture boundary.
+            if not is_expected_user_query_error(e, self.team.pk):
                 capture_exception(e)
             raise
 
@@ -502,8 +505,10 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             # Expected while an org is over quota - a 402 the caller can act on, not error noise.
             raise
         except Exception as e:
-            # Breaker replays were already captured when the original failure happened.
-            if not getattr(e, "served_from_query_failure_cache", False):
+            # A user query error (too big, too slow, or replayed from the breaker cache) is the
+            # user's to fix by narrowing the query, not a backend defect, so keep it out of error
+            # tracking - the same reasoning the query runner applies at its own capture boundary.
+            if not is_expected_user_query_error(e, self.team.pk):
                 capture_exception(e)
             raise
 
