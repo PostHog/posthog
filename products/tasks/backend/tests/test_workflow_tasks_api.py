@@ -14,7 +14,9 @@ from rest_framework import status
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.api.workflow_tasks import WorkflowTaskCreateSerializer
@@ -317,6 +319,146 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
+    def test_includes_the_triggering_event_in_the_agent_prompt(self) -> None:
+        response = self._post(
+            {"event": {"event": "$slack_message_received", "properties": {"text": "Database latency alert fired"}}}
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        message = run.state["initial_prompt_override"]
+        assert "<triggering_event>" in message
+        assert "Database latency alert fired" in message
+        assert Task.objects.get(id=response.json()["id"]).description == "look into the alert"
+
+    def test_drops_the_raw_slack_payload_from_an_oversize_event(self) -> None:
+        response = self._post(
+            {
+                "event": {
+                    "event": "$slack_message_received",
+                    "properties": {"text": "short alert", "slack_event": {"blocks": "x" * 30_000}},
+                }
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        message = TaskRun.objects.get(id=response.json()["run_id"]).state["initial_prompt_override"]
+        assert "short alert" in message
+        assert "slack_event" not in message
+
+    def test_truncates_an_event_that_is_oversize_without_the_slack_payload(self) -> None:
+        response = self._post({"event": {"event": "big", "properties": {"text": "y" * 30_000}}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        message = TaskRun.objects.get(id=response.json()["run_id"]).state["initial_prompt_override"]
+        assert "[truncated]" in message
+        assert "y" * 30_000 not in message
+
+    def _slack_integration(self, workspace: str = "T123") -> Integration:
+        return Integration.objects.create(team=self.team, kind="slack", integration_id=workspace, config={})
+
+    def _slack_context(self, integration: Integration, **overrides: Any) -> dict:
+        return {
+            "integration_id": integration.id,
+            "channel": "C0ALERTS",
+            "thread_ts": "1700000000.000100",
+            "slack_user_id": "U123",
+            "slack_team_id": "T123",
+            **overrides,
+        }
+
+    def test_binds_the_task_run_to_the_slack_thread(self) -> None:
+        integration = self._slack_integration()
+
+        response = self._post({"slack_context": self._slack_context(integration)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        mapping = SlackThreadTaskMapping.objects.get(
+            integration=integration, channel="C0ALERTS", thread_ts="1700000000.000100"
+        )
+        assert mapping.team_id == self.team.id
+        assert mapping.slack_workspace_id == "T123"
+        assert str(mapping.task_id) == response.json()["id"]
+        assert mapping.task_run_id == run.id
+        assert mapping.mentioning_slack_user_id == "U123"
+        assert mapping.last_forwarded_ts == "1700000000.000100"
+        # The run must keep executing as the workflow owner, not switch to Slack-actor
+        # resolution, and its dispatch must carry the thread so status updates post there.
+        assert run.state["interaction_origin"] == "workflow"
+        assert run.state["pending_dispatch"]["slack_thread_context"] == {
+            "integration_id": integration.id,
+            "channel": "C0ALERTS",
+            "thread_ts": "1700000000.000100",
+            "mentioning_slack_user_id": "U123",
+        }
+
+    def test_resolves_the_integration_by_workspace_when_the_stamped_id_is_stale(self) -> None:
+        integration = self._slack_integration()
+
+        response = self._post({"slack_context": self._slack_context(integration, integration_id=999_999)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert SlackThreadTaskMapping.objects.filter(integration=integration).exists()
+
+    def test_ignores_slack_context_it_cannot_resolve_to_a_team_integration(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = Integration.objects.create(team=other_team, kind="slack", integration_id="TOTHER", config={})
+
+        response = self._post({"slack_context": self._slack_context(foreign, slack_team_id="TOTHER")})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert not SlackThreadTaskMapping.objects.exists()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "interaction_origin" not in run.state
+        assert run.state["pending_dispatch"]["slack_thread_context"] is None
+
+    def test_a_replayed_request_leaves_the_thread_binding_alone(self) -> None:
+        integration = self._slack_integration()
+        body = {"slack_context": self._slack_context(integration), "idempotency_key": "fire-1"}
+
+        first = self._post(body)
+        replay = self._post(body)
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert replay.status_code == status.HTTP_200_OK
+        mapping = SlackThreadTaskMapping.objects.get()
+        assert str(mapping.task_run_id) == first.json()["run_id"]
+
+    def _seed_thread_mapping(self, integration: Integration, run_status: str) -> SlackThreadTaskMapping:
+        task = self._seed_workflow_task(run_status)
+        return SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C0ALERTS",
+            thread_ts="1700000000.000100",
+            task=task,
+            task_run=TaskRun.objects.get(task=task),
+            mentioning_slack_user_id="U999",
+        )
+
+    def test_does_not_steal_a_thread_bound_to_a_live_run(self) -> None:
+        integration = self._slack_integration()
+        existing = self._seed_thread_mapping(integration, TaskRun.Status.IN_PROGRESS)
+
+        response = self._post({"slack_context": self._slack_context(integration)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        mapping = SlackThreadTaskMapping.objects.get()
+        assert mapping.task_run_id == existing.task_run_id
+
+    def test_rebinds_a_thread_whose_run_has_finished(self) -> None:
+        integration = self._slack_integration()
+        self._seed_thread_mapping(integration, TaskRun.Status.COMPLETED)
+
+        response = self._post({"slack_context": self._slack_context(integration)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        mapping = SlackThreadTaskMapping.objects.get()
+        assert str(mapping.task_run_id) == response.json()["run_id"]
+        assert mapping.mentioning_slack_user_id == "U123"
+
 
 class TestWorkflowOriginIsReserved(SimpleTestCase):
     def test_the_public_tasks_api_rejects_the_workflow_origin(self) -> None:
@@ -337,6 +479,20 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
             ("too_many_parallel_tasks", {"prompt": "p", "max_parallel_tasks": 101}, "max_parallel_tasks"),
             ("unknown_mcp_scopes", {"prompt": "p", "posthog_mcp_scopes": "admin"}, "posthog_mcp_scopes"),
             ("connectors_not_a_list", {"prompt": "p", "connectors": "inst-1"}, "connectors"),
+            ("event_not_a_dict", {"prompt": "p", "event": "boom"}, "event"),
+            (
+                "slack_context_missing_channel",
+                {"prompt": "p", "slack_context": {"integration_id": 1, "thread_ts": "1.0"}},
+                "slack_context",
+            ),
+            (
+                "slack_context_bad_integration_id",
+                {
+                    "prompt": "p",
+                    "slack_context": {"integration_id": "not-a-pk", "channel": "C1", "thread_ts": "1.0"},
+                },
+                "slack_context",
+            ),
         ]
     )
     def test_rejects_invalid_input(self, _name: str, body: dict, field: str) -> None:

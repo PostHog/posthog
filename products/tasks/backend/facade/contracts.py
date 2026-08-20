@@ -636,6 +636,23 @@ class WorkflowTaskDTO:
     created: bool
 
 
+@dataclass(frozen=True, kw_only=True)
+class WorkflowTaskSlackContext:
+    """The Slack thread whose message triggered the workflow run, so the task reports back there.
+
+    ``integration_id`` is the PostHog integration pk stamped on the trigger event;
+    ``slack_team_id`` is the Slack workspace id, kept as a fallback for re-resolving the
+    integration when the stamped pk is stale. ``slack_user_id`` is empty when a bot
+    posted the triggering message.
+    """
+
+    integration_id: int
+    channel: str
+    thread_ts: str
+    slack_user_id: str = ""
+    slack_team_id: str = ""
+
+
 @dataclass(frozen=True)
 class CodeInviteRedeemResult:
     """Outcome of attempting to redeem a PostHog Desktop invite.
