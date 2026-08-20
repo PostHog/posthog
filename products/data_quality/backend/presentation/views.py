@@ -424,7 +424,7 @@ class DataQualityCheckOverviewViewSet(
     scope_object = "warehouse_objects"
     serializer_class = DataQualityOverviewCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
-    _subject_locations: dict[tuple[str, str], api.SubjectLocation] = {}
+    _subject_locations: dict[api.SubjectKey, api.SubjectLocation] = {}
 
     def safely_get_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
         # Orphans are excluded: their subject is gone, so there is no page to link to, nothing to

@@ -22,7 +22,7 @@ from ..logic.config import get_gate_config, set_gate_materialization_on_checks
 from ..logic.contracts import CompiledCheck, SubjectRef
 from ..logic.errors import CheckConfigError, CheckEditConflict, SubjectUnresolvableError
 from ..logic.health import CheckStatusRow, roll_up_health
-from ..logic.navigation import SubjectLocation, subject_locations
+from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
@@ -37,6 +37,7 @@ __all__ = [
     "CheckStatusRow",
     "CheckTypeInfo",
     "CompiledCheck",
+    "SubjectKey",
     "SubjectLocation",
     "SubjectRef",
     "SubjectUnresolvableError",

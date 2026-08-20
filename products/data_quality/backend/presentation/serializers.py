@@ -214,8 +214,9 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
         ]
 
     def _location(self, obj: DataQualityCheck) -> api.SubjectLocation:
-        locations: dict[tuple[str, str], api.SubjectLocation] = self.context.get("subject_locations") or {}
-        return locations.get((obj.subject_type, str(obj.subject_uuid))) or api.SubjectLocation()
+        locations: dict[api.SubjectKey, api.SubjectLocation] = self.context.get("subject_locations") or {}
+        key = api.SubjectKey(subject_type=SubjectType(obj.subject_type), subject_uuid=str(obj.subject_uuid))
+        return locations.get(key) or api.SubjectLocation()
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_subject_node_id(self, obj: DataQualityCheck) -> str | None:
