@@ -1156,7 +1156,7 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
             {
                 label: 'Dispute',
                 title: 'The step tracks one enterprise org',
-                detail: 'S. Alvarez: the slow samples concentrate in a single org with an unusually large config payload.',
+                detail: 'J. Doe: the slow samples concentrate in a single org with an unusually large config payload.',
             },
         ],
         timeline: [
@@ -1171,7 +1171,7 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
         ],
         verdictHeadline: 'Disputed: the slow settings loads track one org, not the rework',
         problem: [
-            'The original report attributed the settings load-time step to the settings rework that shipped the same week. S. Alvarez disputed it: the slow samples concentrate in a single enterprise org whose config payload is far larger than typical, and the rework is not in the slow path.',
+            'The original report attributed the settings load-time step to the settings rework that shipped the same week. J. Doe disputed it: the slow samples concentrate in a single enterprise org whose config payload is far larger than typical, and the rework is not in the slow path.',
             'The engine is re-running the analysis with the org excluded to confirm the corrected attribution. If the step disappears, the finding becomes a payload-size issue for that org rather than a frontend regression.',
         ],
         impactTiles: [
@@ -1223,7 +1223,7 @@ export const REPORT_CONTENT: Record<string, DemoReportContent> = {
         verdictHeadline: 'Dismissed: cosmetic, and a general fix risks hiding real controls',
         problem: [
             'Replays of pages with custom video players show Chrome default controls stacked on the site controls, so the recording does not exactly match the live page. Playback works; the mismatch is visual.',
-            'M. Chen dismissed it: suppressing native controls across the player iframe could hide controls that recorded sites genuinely use, which is a worse failure than the cosmetic one. Kept for audit and revisit if volume grows.',
+            'A. Roe dismissed it: suppressing native controls across the player iframe could hide controls that recorded sites genuinely use, which is a worse failure than the cosmetic one. Kept for audit and revisit if volume grows.',
         ],
         impactTiles: [
             { value: '~7', label: 'affected replays viewed per day', note: 'flat' },

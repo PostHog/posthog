@@ -347,7 +347,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         created: 'Aug 16, 10:12',
         status: 'Disputed',
         verdict:
-            'Marked disputed by S. Alvarez: the p75 step tracks one enterprise org with an unusually large config payload, not the settings rework. The engine is re-running the analysis with that correction.',
+            'Marked disputed by J. Doe: the p75 step tracks one enterprise org with an unusually large config payload, not the settings rework. The engine is re-running the analysis with that correction.',
         proof: 'dispute registered · re-analysis queued',
         sparkline: [20, 20, 20, 80, 20, 20, 22],
         sources: ['Web vitals'],
@@ -364,7 +364,7 @@ export const DEMO_REPORTS: DemoReport[] = [
         created: 'Aug 13, 04:33',
         status: 'Dismissed',
         verdict:
-            'Dismissed by M. Chen: the doubled controls are cosmetic, playback is unaffected, and a general fix risks hiding controls recorded sites genuinely use. Kept for audit.',
+            'Dismissed by A. Roe: the doubled controls are cosmetic, playback is unaffected, and a general fix risks hiding controls recorded sites genuinely use. Kept for audit.',
         proof: 'dismissed with reason · ~7 affected replays/day',
         sparkline: [50, 50, 52, 48, 50, 51, 50],
         sources: ['Session replay'],
