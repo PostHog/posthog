@@ -286,6 +286,9 @@ export class EmailTrackingService {
 
         const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
         if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
+            const workflowActionName = actionId
+                ? hogFlow?.actions.find((action) => action.id === actionId)?.name
+                : undefined
             await this.capturedEventsService.queueEvent({
                 team_id: teamId,
                 event: eventName,
@@ -293,7 +296,9 @@ export class EmailTrackingService {
                 timestamp,
                 properties: {
                     $workflow_id: appSourceId,
+                    ...(hogFlow?.name ? { $workflow_name: hogFlow.name } : {}),
                     $workflow_action_id: actionId,
+                    ...(workflowActionName ? { $workflow_action_name: workflowActionName } : {}),
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },
