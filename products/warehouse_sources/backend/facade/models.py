@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     auto_enable_new_schemas,
+    clear_sync_failure_backoff,
     get_all_schemas_for_source_id,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -80,6 +81,7 @@ __all__ = [
     "acreate_datawarehousetable",
     "asave_datawarehousetable",
     "auto_enable_new_schemas",
+    "clear_sync_failure_backoff",
     "get_all_schemas_for_source_id",
     "get_direct_external_data_source_for_connection",
     "is_managed_warehouse_connection_ready",
