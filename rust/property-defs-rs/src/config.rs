@@ -16,6 +16,22 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
+    // Upper bound on how long a pooled connection is kept. sqlx defaults this to 30 minutes,
+    // which is also how long a connection stranded on a demoted Aurora reader would keep
+    // refusing writes if the writer guard somehow missed it. Kept low as a backstop; the
+    // guard in `app_context` is what actually detects a failover. A per-process jitter is
+    // applied on top, because sqlx compares against this value exactly (no jitter of its
+    // own), so connections opened together would otherwise all expire together.
+    #[envconfig(default = "300")]
+    pub pg_max_lifetime_secs: u64,
+
+    // How long the writer guard waits between `SHOW transaction_read_only` probes while it
+    // has no reason to suspect a reader. Each probe checks only the connection being
+    // acquired, so the worst case for spotting one poisoned connection in a full pool is
+    // roughly this times max_pg_connections. Lower costs more probe round trips.
+    #[envconfig(default = "5")]
+    pub pg_writer_probe_interval_secs: u64,
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 

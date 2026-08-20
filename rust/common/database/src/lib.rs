@@ -13,6 +13,13 @@ use sqlx::{
 };
 use thiserror::Error;
 
+pub mod writer_guard;
+
+pub use writer_guard::{
+    error_class, install_writer_guard, is_read_only_error, WriterGuard, WriterGuardConfig,
+    DB_WRITER_GUARD_CAPPED_COUNTER, DB_WRITER_PROBE_COUNTER,
+};
+
 #[derive(Error, Debug)]
 pub enum CustomDatabaseError {
     #[error("Pg error: {0}")]

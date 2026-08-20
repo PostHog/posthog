@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
+use common_database::error_class;
 use futures::stream::{FuturesUnordered, StreamExt};
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
@@ -470,10 +471,20 @@ pub async fn process_batch(
         match result {
             Ok(batch_result) => match batch_result {
                 Ok(_) => continue,
-                // fanned-out write attempts are instrumented locally w/more
-                // detail, so we only publish global error metric here
-                Err(_) => {
-                    metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
+                // fanned-out write attempts are instrumented locally w/more detail, so we
+                // only publish the global error metric here.
+                //
+                // `class` says which kind of failure it was, which is what separates a
+                // failover (`read_only`) from the deadlocks and timeouts this service sees
+                // routinely. It is a coarse class rather than the raw SQLSTATE to keep the
+                // label bounded. `reason` is left as-is: hand-managed Grafana panels select
+                // on `reason="failed"`, and they are not in this repo to update in lockstep.
+                Err(e) => {
+                    metrics::counter!(
+                        ISSUE_FAILED,
+                        &[("reason", "failed"), ("class", error_class(&e))]
+                    )
+                    .increment(1);
                 }
             },
             Err(join_err) => {
