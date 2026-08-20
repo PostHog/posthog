@@ -187,6 +187,23 @@ def get_insight_type(insight: Insight) -> str:
     return str(insight.filters.get("insight", "TRENDS")).lower()
 
 
+def _parse_json_list_param(raw_value: str, param_name: str, *, allow_bare_int: bool = False) -> list:
+    """Parse a query param that must be a JSON array, raising a 400 on malformed input.
+
+    When allow_bare_int is set, a single integer is coerced to a one-element list, so
+    filtering by one ID works without wrapping it in an array.
+    """
+    try:
+        parsed = json.loads(raw_value)
+    except ValueError:
+        raise ValidationError({param_name: "Must be a JSON array, for example [1, 2, 3]."})
+    if allow_bare_int and isinstance(parsed, int) and not isinstance(parsed, bool):
+        return [parsed]
+    if not isinstance(parsed, list):
+        raise ValidationError({param_name: "Must be a JSON array, for example [1, 2, 3]."})
+    return parsed
+
+
 def log_and_report_insight_activity(
     *,
     activity: str,
@@ -2172,7 +2189,7 @@ class InsightViewSet(
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
-                    dashboards_ids = json.loads(dashboards_filter)
+                    dashboards_ids = _parse_json_list_param(dashboards_filter, "dashboards", allow_bare_int=True)
                     for dashboard_id in dashboards_ids:
                         # filter by dashboards one at a time so the filter is AND not OR
                         queryset = queryset.filter(
@@ -2183,13 +2200,13 @@ class InsightViewSet(
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:
-                    tags_list = json.loads(tags_filter)
+                    tags_list = _parse_json_list_param(tags_filter, "tags")
                     if tags_list:
                         queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:
-                    created_by_ids = json.loads(created_by_filter)
+                    created_by_ids = _parse_json_list_param(created_by_filter, "created_by")
                     if created_by_ids:
                         queryset = queryset.filter(created_by__id__in=created_by_ids)
             elif key == "created_date_from":

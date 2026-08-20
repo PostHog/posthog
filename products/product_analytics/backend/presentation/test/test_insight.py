@@ -1268,6 +1268,30 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
         assert sorted(matched_insights) == [insight_one_id]
 
+    def test_list_insights_by_single_dashboard_id_without_json_array(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"name": "insight 1", "filters": {"events": [{"id": "$pageview"}]}}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard 1"})
+        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?dashboards={dashboard_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert [insight["id"] for insight in response.json()["results"]] == [insight_id]
+
+    @parameterized.expand(
+        [
+            ("dashboards", "dashboards=not-json"),
+            ("dashboards", 'dashboards={"a": 1}'),
+            ("tags", "tags=not-json"),
+            ("created_by", "created_by=42"),
+        ]
+    )
+    def test_list_insights_with_malformed_filter_param_returns_400(self, param_name: str, query: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?{query}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert response.json()["attr"] == param_name
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self) -> None:
         response = self.client.post(
