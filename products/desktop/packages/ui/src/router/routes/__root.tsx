@@ -8,8 +8,6 @@ import { Button, ButtonGroup } from "@posthog/quill";
 import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
-import { DeepLinkApprovalModal } from "@posthog/ui/features/agent-applications/components/DeepLinkApprovalModal";
-import { useApprovalDeepLink } from "@posthog/ui/features/agent-applications/hooks/useApprovalDeepLink";
 import { AnnouncementBanner } from "@posthog/ui/features/announcements/AnnouncementBanner";
 import { AnnouncementsHost } from "@posthog/ui/features/announcements/AnnouncementsHost";
 import { useServerArchiveSync } from "@posthog/ui/features/archive/useServerArchiveSync";
@@ -233,7 +231,6 @@ function RootLayout() {
   useChannelDeepLink();
   useLoopDeepLink();
   useShareLinkInterceptor();
-  const approvalDeepLink = useApprovalDeepLink();
   useSetupDiscovery();
   useNewTaskDeepLink();
   useServerArchiveSync();
@@ -526,12 +523,6 @@ function RootLayout() {
           mode={feedbackMode}
           onFinished={handleFeedbackFinished}
         />
-        {approvalDeepLink.pending ? (
-          <DeepLinkApprovalModal
-            pending={approvalDeepLink.pending}
-            onClose={approvalDeepLink.clear}
-          />
-        ) : null}
         <ExistingWorktreeDialog />
         <HedgehogMode />
       </Flex>
