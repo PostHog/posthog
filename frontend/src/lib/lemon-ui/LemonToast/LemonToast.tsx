@@ -1,7 +1,8 @@
 import posthog from 'posthog-js'
+import { useRef } from 'react'
 import { toast, type ToastOptions, type UpdateOptions } from 'react-toastify'
 
-import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconCopy, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
 import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatus'
 import { isChristmas } from 'lib/holidays'
@@ -86,10 +87,49 @@ export function ToastActionButton({
     )
 }
 
+/**
+ * `lib/utils/copyToClipboard` reports its result through `lemonToast`, so importing it here would make
+ * this module and that one require each other. Jest then hands the two halves different copies of the
+ * util, which silently breaks any test that mocks it.
+ */
+async function copyMessage(text: string): Promise<void> {
+    try {
+        await navigator.clipboard.writeText(text)
+        lemonToast.info('Copied message to clipboard', { icon: <IconCopy /> })
+    } catch {
+        lemonToast.warning('Could not reach the clipboard. Select the message and copy it manually.')
+    }
+}
+
+export function ToastCopyButton({ getMessageText }: { getMessageText: () => string }): JSX.Element {
+    return (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            noPadding
+            // `.Toastify__toast-body button` sets a 0.75rem side margin sized for the action button,
+            // which costs the message a line of wrapping at the toast's fixed 26rem width.
+            className="shrink-0 !mx-2"
+            icon={<IconCopy />}
+            tooltip="Copy message"
+            onClick={() => void copyMessage(getMessageText())}
+            data-attr="toast-copy-button"
+        />
+    )
+}
+
 export function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Element {
+    const messageRef = useRef<HTMLSpanElement>(null)
+
     return (
         <div className="flex items-center" data-attr={`${type}-toast`}>
-            <span className="grow overflow-hidden text-ellipsis">{message}</span>
+            <span ref={messageRef} className="grow min-w-0 overflow-hidden text-ellipsis">
+                {message}
+            </span>
+            {/* Only on the types whose text people take elsewhere, so confirmations keep their full width. */}
+            {(type === 'error' || type === 'warning') && (
+                <ToastCopyButton getMessageText={() => messageRef.current?.textContent ?? ''} />
+            )}
             {button && <ToastActionButton button={button} toastId={id} />}
         </div>
     )
