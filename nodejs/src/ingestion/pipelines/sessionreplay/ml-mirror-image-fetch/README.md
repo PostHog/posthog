@@ -29,7 +29,7 @@ The [upstream Kafka consumer](/nodejs/src/ingestion/pipelines/sessionreplay/ml-m
 
 **7.1** All image data must be sent to the image scrubber lane (via writing to it's Kafka topic) rather than written to S3 directly
 
-**7.3** We must never fetch URLs that meet any of these criteria:
+**7.2** We must never fetch URLs that meet any of these criteria:
 - an IP address host or localhost
 - a host that is not public
 - a scheme that is not HTTPS
@@ -59,27 +59,27 @@ Path segments:
 |-----------------------|---------------|------------|
 | `/s--<token>--/`      |               | Cloudinary |
 
-**7.4** It's preferable if upstream systems run the subset of these checks that they are easily able to, to reduce load on the system
+**7.3** It's preferable if upstream systems run the subset of these checks that they are easily able to, to reduce load on the system
 
-**7.5** All checks must be re-run if the URL is redirected
+**7.4** All checks must be re-run if the URL is redirected
 
 
 
-### 9. Opt-out signals
+### 10. Opt-out signals
 
-**9.1** Sites can refuse fetching by signalling this via these files:
+**10.1** Sites can refuse fetching by signalling this via these files:
 * `/robots.txt`
 * `/.well-known/tdmrep.json`
 
-**9.2** These files apply their rules per origin, not registrable domain
+**10.2** These files apply their rules per origin, not registrable domain
 
-**9.3** Sites can refuse fetching by signalling this via headers in the HTTP response
+**10.3** Sites can refuse fetching by signalling this via headers in the HTTP response
 
-**9.4** Headers in an HTTP response apply their rules only to that URL
+**10.4** Headers in an HTTP response apply their rules only to that URL
 
-**9.5** Any one refusal from any source is enough to stop us fetching that URL
+**10.5** Any one refusal from any source is enough to stop us fetching that URL
 
-**9.6** This is the complete list of opt-out signals used by this lane:
+**10.6** This is the complete list of opt-out signals used by this lane:
 
 | Signal            | Where it arrives                                | It refuses when                  |
 |-------------------|-------------------------------------------------|----------------------------------|
@@ -88,53 +88,53 @@ Path segments:
 | `Content-Signal`  | A rule in robots.txt                            | It sets `ai-train=no`            |
 | `tdm-reservation` | Response header, and `/.well-known/tdmrep.json` | It is `1`                        |
 
-**9.7** It does not happen in this lane, as we do not parse the bytes in fetched images, but the PLUS Data Mining property in
+**10.7** It does not happen in this lane, as we do not parse the bytes in fetched images, but the PLUS Data Mining property in
 XMP can be `DMI-PROHIBITED-AIMLTRAINING`, `DMI-PROHIBITED-GENAIMLTRAINING`, and `DMI-PROHIBITED`, which is treated as an opt-out for that image.
 
-**9.7** The refusal should be written to the crawl cache, to prevent attempting to fetch that URL in the future
+**10.8** The refusal should be written to the crawl cache, to prevent attempting to fetch that URL in the future
 
-**9.8** The lane ignores `X-Robots-Tag: noindex` as this is about indexing for search
+**10.9** The lane ignores `X-Robots-Tag: noindex` as this is about indexing for search
 
-**9.9** Opt-out signals are applied at fetch time. For the avoidance of doubt, if a signal changes in the future (e.g. a robots.txt change) we do not delete fetched images
+**10.10** Opt-out signals are applied at fetch time. For the avoidance of doubt, if a signal changes in the future (e.g. a robots.txt change) we do not delete fetched images
 
 
-### 10. robots.txt and tdmrep.json
+### 11. robots.txt and tdmrep.json
 
-**8.1** The lane must fetch the robots.txt and tdmprep.json for an origin before fetching any image URLS on that origin
+**11.1** The lane must fetch the robots.txt and tdmprep.json for an origin before fetching any image URLS on that origin
 
-**8.2** The robots.txt and tdmprep.json must be cached for 24 hours (the maximum allowed by RFC 9309)
+**11.2** The robots.txt and tdmprep.json must be cached for 24 hours (the maximum allowed by RFC 9309)
 
-**8.16** To avoid interruptions, we start requesting robots.txt and tdmprep.json again for an origin when the cached version is 23 hours old
+**11.3** To avoid interruptions, we start requesting robots.txt and tdmprep.json again for an origin when the cached version is 23 hours old
 
-**8.3** The lane follows up to 5 redirects when requesting robots.txt and tdmprep.json, including to a different authority. This happens without needing to push any messages to Kafka.
+**11.4** The lane follows up to 5 redirects when requesting robots.txt and tdmprep.json, including to a different authority. This happens without needing to push any messages to Kafka.
 
-**8.4** A redirect chain longer than 5 counts as unreachable.
+**11.5** A redirect chain longer than 5 counts as unreachable.
 
-**8.5** A robots.txt or tdmprep.json fetched after following redirects applies to the original origin.
+**11.6** A robots.txt or tdmprep.json fetched after following redirects applies to the original origin.
 
-**8.6** The lane tries to parse every line of the robots.txt file, and ignores lines it cannot parse
+**11.7** The lane tries to parse every line of the robots.txt file, and ignores lines it cannot parse
 
-**8.7** The lane must use an established robots.txt parsing library rather than creating its own
+**11.8** The lane must use an established robots.txt parsing library rather than creating its own
 
-**8.8** If the response to fetching robots.txt is an HTML file instead of a text file (e.g. in the case of a misconfigured server), we still treat it as a text file and try to parse every line
+**11.9** If the response to fetching robots.txt is an HTML file instead of a text file (e.g. in the case of a misconfigured server), we still treat it as a text file and try to parse every line
 
-**8.9** We parse the first 500KiB of robots.txt and discard the rest, as per RFC 9309 which sets this as a lower bound
+**11.10** We parse the first 500KiB of robots.txt and discard the rest, as per RFC 9309 which sets this as a lower bound
 
-**8.9** TODO does tdmrep have a maximum size
+**11.11** TODO does tdmrep have a maximum size
 
-**10.9** A rule in that tdmrep.json refuses the URL when its location covers the URL and it sets `tdm-reservation` to 1.
+**11.12** A rule in that tdmrep.json refuses the URL when its location covers the URL and it sets `tdm-reservation` to 1.
 
-**8.10** A 404 or a 410 while fetching robots.txt or tdmrep.json means the origin does not have that file
+**11.13** A 404 or a 410 while fetching robots.txt or tdmrep.json means the origin does not have that file
 
-**8.11** No robots.txt or tdmrep.json means that no restrictions on fetching are applied by that file (there might be signals from other sources)
+**11.14** No robots.txt or tdmrep.json means that no restrictions on fetching are applied by that file (there might be signals from other sources)
 
-**8.12** Any other 4xx other than 404 or 410 means a refusal, and is treated as a disallow for the whole origin.
+**11.15** Any other 4xx other than 404 or 410 means a refusal, and is treated as a disallow for the whole origin.
 
-**8.13** A 429 is treated as unreachable (same behaviour as Google)
+**11.16** A 429 is treated as unreachable (same behaviour as Google)
 
-**8.14** A 5xx, a timeout, or a connection error means the origin is unreachable
+**11.17** A 5xx, a timeout, or a connection error means the origin is unreachable
 
-**8.15** If the robots.txt or tdmrep.json for an origin was unreachable, we must use a previous cached version of the file, if it exists. Otherwise, we must treat this as a refusal, but only cache it for 1 hour instead of 24.
+**11.18** If the robots.txt or tdmrep.json for an origin was unreachable, we must use a previous cached version of the file, if it exists. Otherwise, we must treat this as a refusal, but only cache it for 1 hour instead of 24.
 
 
 ### 9. Web Bot Auth
@@ -153,14 +153,14 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **9.5** The lane does not publish a list of egress IP addresses.
 
-**9.9** The page at https://posthog.com/docs/ai-research/image-fetcher-bot (from the User Agent) should link to this README hosted on github
+**9.6** The page at https://posthog.com/docs/ai-research/image-fetcher-bot (from the User Agent) should link to this README hosted on github
 
-**9.10** The signature covers `@authority` and `signature-agent`.
+**9.7** The signature covers `@authority` and `signature-agent`.
 
-**9.11** `Signature-Input` carries `tag="web-bot-auth"`, a `keyid` holding the JWK thumbprint of the
+**9.8** `Signature-Input` carries `tag="web-bot-auth"`, a `keyid` holding the JWK thumbprint of the
 signing key, `created`, and `expires`.
 
-**9.12** `Signature-Agent` is a structured string inside double quotes. It is not a dictionary.
+**9.9** `Signature-Agent` is a structured string inside double quotes. It is not a dictionary.
 
 
 ### 1. Limits
@@ -217,21 +217,21 @@ signing key, `created`, and `expires`.
 
 **4.3** Repeated network failures cause an exponential back-off per registrable domain
 
-**11.2** Per-origin delays / back-off state is stored in memory on the pod
+**4.4** Per-origin delays / back-off state is stored in memory on the pod
 
-**4.4** We respect `Crawl-delay` in robots.txt, which sets a minimum interval between two requests to a domain.
+**4.5** We respect `Crawl-delay` in robots.txt, which sets a minimum interval between two requests to a domain.
 
-**4.4** We use the `Crawl-delay` from the robots.txt from the same origin (not just registrable domain) as the URL.
+**4.6** We use the `Crawl-delay` from the robots.txt from the same origin (not just registrable domain) as the URL.
 
-**11.2** The lane uses the longer of its own interval and the `Crawl-delay`.
+**4.7** The lane uses the longer of its own interval and the `Crawl-delay`.
 
-**3.5** A delayed retry must not block processing. A delayed retry goes to the back of the queue for its current batch, and if the delay durations has not passed by the time it reaches the front of the queue, it must instead republish to a delay Kafka topic.
+**4.8** A delayed retry must not block processing. A delayed retry goes to the back of the queue for its current batch, and if the delay durations has not passed by the time it reaches the front of the queue, it must instead republish to a delay Kafka topic.
 
-**11.4** A `Crawl-delay` longer than the pass deadline immediately sends the URL to a delay topic
+**4.9** A `Crawl-delay` longer than the pass deadline immediately sends the URL to a delay topic
 
-**11.7** A `Crawl-delay` longer than the longest delay topic is a refusal rather than a delay
+**4.10** A `Crawl-delay` longer than the longest delay topic is a refusal rather than a delay
 
-**3.6** When republishing to a delay topic, URLs are published to the delay Kafka topic with the smallest delay that is greater than the required delay.
+**4.11** When republishing to a delay topic, URLs are published to the delay Kafka topic with the smallest delay that is greater than the required delay.
 
 
 ### 3. Hop budget
@@ -244,9 +244,9 @@ signing key, `created`, and `expires`.
 
 **3.4** Explicit refusals (such a denial by `robots.txt` or an HTTP 403/404) are not retried regardless of remaining hop budget.
 
-**3.6** Retries cannot happen before the allowed time, but they may happen some time after. They should be published to the delay Kafka topic with the smallest delay that is greater than the required delay.
+**3.5** Retries cannot happen before the allowed time, but they may happen some time after. They should be published to the delay Kafka topic with the smallest delay that is greater than the required delay.
 
-**3.7** Retries cannot delay for longer than the longest delay topic. A delay that is longer than the longest delay topic is treated as an explicit refusal.
+**3.6** Retries cannot delay for longer than the longest delay topic. A delay that is longer than the longest delay topic is treated as an explicit refusal.
 
 
 ### 2. Redirects
@@ -307,11 +307,11 @@ TODO this section needs something about Cache-Control and Expires headers
 
 **12.3** If there is a stored `ETag` The lane sends `If-None-Match` with the stored `ETag` when it fetches that URL again.
 
-**12.3** If there is a stored `Last-Modified` but no `ETag`, the lane sends `If-Modified-Since` with the stored `Last-Modified`
+**12.4** If there is a stored `Last-Modified` but no `ETag`, the lane sends `If-Modified-Since` with the stored `Last-Modified`
 
-**12.4** A `304` answer means the image did not change
+**12.5** A `304` answer means the image did not change
 
-**12.5** A response can name a freshness lifetime, and `immutable` names one that does not change.
+**12.6** A response can name a freshness lifetime, and `immutable` names one that does not change.
 The lane sends no request for that URL while that lifetime lasts.
 
 ### 13. URL key
@@ -325,27 +325,27 @@ does not depend on the team.
 
 ### 14. HTTP request/response
 
-**14.2** The lane accepts a compressed response. It specifies the encodings it can read in
+**14.1** The lane accepts a compressed response. It specifies the encodings it can read in
 `Accept-Encoding`.
 
-**14.3** The lane never sends cookies, and ignores cookies that are set by the response
+**14.2** The lane never sends cookies, and ignores cookies that are set by the response
 
-**14.4** The lane never sends a credential. That covers an `Authorization` header, a proxy credential,
+**14.3** The lane never sends a credential. That covers an `Authorization` header, a proxy credential,
  the userinfo of a URL, cookies, and known credential query parameters
 
-**14.5** The lane never sends a `Referer`
+**14.4** The lane never sends a `Referer`
 
 **15.1** The lane refuses a response where `Content-Length` is over the byte limit
 
-**15.1** The lane refuses a response where the total number of bytes sent is over the bytes limit, as soon as the byte limit is exceeded.
+**15.2** The lane refuses a response where the total number of bytes sent is over the bytes limit, as soon as the byte limit is exceeded.
 
-**15.2** The byte limits refers to bytes over the wire, which means it can refer to the compressed bytes.
+**15.3** The byte limits refers to bytes over the wire, which means it can refer to the compressed bytes.
 
-**15.2** A compressed response should be submitted to the kafka topic still compressed, this lane never decompresses whole responses.
+**15.4** A compressed response should be submitted to the kafka topic still compressed, this lane never decompresses whole responses.
 
-**15.2** This lane is not responsible for checking any limit on uncompressed size, that happens in the image scrubber
+**15.5** This lane is not responsible for checking any limit on uncompressed size, that happens in the image scrubber
 
-**15.3** The lane accepts these media types and refuses every other one:
+**15.6** The lane accepts these media types and refuses every other one:
 
 | `Content-Type` | Format |
 |----------------|--------|
@@ -356,23 +356,23 @@ does not depend on the team.
 | `image/bmp`    | BMP    |
 | `image/avif`   | AVIF   |
 
-**15.4** This lane does not check that the downloaded bytes match the expected media type. It is expected that the image scrubber will do this.
+**15.7** This lane does not check that the downloaded bytes match the expected media type. It is expected that the image scrubber will do this.
 
 ### 16. Crawl history store
 
 **16.1** The crawl history store uses Dynamo DB
 
-**16.1** It stores items with a TTL of 30 days
+**16.2** It stores items with a TTL of 30 days
 
-**16.1** It stores one item per URL
+**16.3** It stores one item per URL
 
-**16.1** It is eventually consistent, and so we do tolerate some duplicates.
+**16.4** It is eventually consistent, and so we do tolerate some duplicates.
 
-**16.1** It does not immediately delete items after the TTL expires, so we must manually check it
+**16.5** It does not immediately delete items after the TTL expires, so we must manually check it
 
-**16.1** We should do reads and writes to the store in bulk, one bulk read at the start of handling a batch, and after doing all of the updates in memory while processing that batch, we should do one bulk write at the end to persist the changes and write new entries.
+**16.6** We should do reads and writes to the store in bulk, one bulk read at the start of handling a batch, and after doing all of the updates in memory while processing that batch, we should do one bulk write at the end to persist the changes and write new entries.
 
-**16.2** An error communicating with the store is fatal and causes us to stop all processing
+**16.7** An error communicating with the store is fatal and causes us to stop all processing
 
 ## 17. Delay topics
 
@@ -386,36 +386,36 @@ ai_research_session_replay_image_fetch_retry_10m
 ai_research_session_replay_image_fetch_retry_1h
 ```
 
-**17.4** The delay topic must read the publishing time of all URLs in the batch, and sleep until `max(publishing_times) + delay_period`
+**17.3** The delay topic must read the publishing time of all URLs in the batch, and sleep until `max(publishing_times) + delay_period`
 
 
-**17.3** A delay topic consumer needs to report itself healthy despite sleeping for long periods, e.g. using `KafkaConsumer.reportDeliberateWait()`
+**17.4** A delay topic consumer needs to report itself healthy despite sleeping for long periods, e.g. using `KafkaConsumer.reportDeliberateWait()`
 
-**17.3** A delay topic consumer may cause a URL to wait for longer than the delay period of that topic
+**17.5** A delay topic consumer may cause a URL to wait for longer than the delay period of that topic
 
-**17.4** We do not alert on lag on a delay topic
+**17.6** We do not alert on lag on a delay topic
 
 
 ## External specifications 
 
 | Specification                                                                                                            | What it governs here                                                                                                                                                 |
 |--------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html), Robots Exclusion Protocol                                       | Section 8. The response classes, the 24 hour cache, the redirect count, the 500 KiB parse limit, a line that does not parse, and how a product token matches a group |
-| [TDMRep](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240202/), W3C Community Group Final Report        | Requirement 10.2, and requirements 10.8 to 10.11. A Community Group report, which is not a W3C Standard                                                              |
-| [IPTC Photo Metadata](https://www.iptc.org/std/photometadata/documentation/userguide/), Data Mining                      | Requirement 10.14. The PLUS Data Mining property, and the values that refuse AI training                                                                             |
+| [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html), Robots Exclusion Protocol                                       | Section 11. The response classes, the 24 hour cache, the redirect count, the 500 KiB parse limit, a line that does not parse, and how a product token matches a group |
+| [TDMRep](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240202/), W3C Community Group Final Report        | Requirement 10.6, and requirements 11.1 to 11.12. A Community Group report, which is not a W3C Standard                                                              |
+| [IPTC Photo Metadata](https://www.iptc.org/std/photometadata/documentation/userguide/), Data Mining                      | Requirement 10.7. The PLUS Data Mining property, and the values that refuse AI training                                                                             |
 | [Directive (EU) 2019/790](https://eur-lex.europa.eu/eli/dir/2019/790/oj), Article 4                                      | Why a TDMRep reservation matters. It removes a permission rather than adds a prohibition                                                                             |
-| [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), HTTP Message Signatures                                         | Requirements 9.3 to 9.6 and 9.10 to 9.13. The signature, the components and parameters it covers, and the directory's own signature                                  |
-| [Cloudflare Web Bot Auth](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/)               | Requirements 9.5, 9.6, and 9.10 to 9.13. What one verifier refuses, which is stricter than RFC 9421                                                                  |
-| [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/) | Requirements 9.3 and 9.4. Web Bot Auth. An individual submission, not yet adopted by the working group                                                               |
-| [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.html), JSON Web Key                                                    | Requirement 9.4. The key directory, and the rule that a reader ignores a member it does not understand                                                               |
-| [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638.html), JWK Thumbprint                                                  | Requirement 9.4. The `kid`, computed over the required members only                                                                                                  |
-| [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html), Structured Field Values                                         | Requirement 10.2. The `Content-Usage` dictionary                                                                                                                     |
-| [draft-ietf-aipref-attach](https://datatracker.ietf.org/doc/draft-ietf-aipref-attach/)                                   | Requirement 10.2. `Content-Usage`. A working group draft, and it expired in 2026                                                                                     |
+| [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), HTTP Message Signatures                                         | Requirements 9.2 to 9.3 and 9.7 to 9.9. The signature, the components and parameters it covers, and the directory's own signature                                  |
+| [Cloudflare Web Bot Auth](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/)               | Requirements 9.2, 9.4, and 9.7 to 9.9. What one verifier refuses, which is stricter than RFC 9421                                                                  |
+| [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/) | Requirements 9.2 and 9.3. Web Bot Auth. An individual submission, not yet adopted by the working group                                                               |
+| [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.html), JSON Web Key                                                    | Requirement 9.3. The key directory, and the rule that a reader ignores a member it does not understand                                                               |
+| [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638.html), JWK Thumbprint                                                  | Requirement 9.8. The `kid`, computed over the required members only                                                                                                  |
+| [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html), Structured Field Values                                         | Requirement 10.6. The `Content-Usage` dictionary                                                                                                                     |
+| [draft-ietf-aipref-attach](https://datatracker.ietf.org/doc/draft-ietf-aipref-attach/)                                   | Requirement 10.6. `Content-Usage`. A working group draft, and it expired in 2026                                                                                     |
 | [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html), HTTP Semantics                                                  | Requirement 4.2, `Retry-After`. Also how a reader joins repeated field lines                                                                                         |
-| [RFC 1918](https://www.rfc-editor.org/rfc/rfc1918.html)                                                                  | Requirement 7.1. One of the ranges that is not globally routable                                                                                                     |
+| [RFC 1918](https://www.rfc-editor.org/rfc/rfc1918.html)                                                                  | Requirement 8.1. One of the ranges that is not globally routable                                                                                                     |
 | [Public Suffix List](https://publicsuffix.org/)                                                                          | The registrable domain, which is the key of the frontier and of the host budget                                                                                      |
 
-`noai` and `noimageai` in requirement 10.2 have no specification. They are a convention that art hosting
+`noai` and `noimageai` in requirement 10.6 have no specification. They are a convention that art hosting
 platforms adopted, and `X-Robots-Tag` is the transport.
 
 Two of these are unstable. The Web Bot Auth draft is an individual submission, so its header names
