@@ -464,7 +464,7 @@ class HyperCache:
         Pass ``data`` to write an already-built value and skip ``load_fn``; when None the
         value is loaded via ``load_fn``.
         """
-        logger.info(f"Syncing {self.namespace} cache for team {key}")
+        logger.info("Syncing cache for team", namespace=self.namespace, team_id=getattr(key, "pk", key))
 
         start_time = time.time()
         success = False
