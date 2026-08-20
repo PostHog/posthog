@@ -79398,6 +79398,17 @@ export namespace Schemas {
       runtime?: RuntimeEnum;
     }
 
+    /**
+     * Request body for handing a task off to a colleague: they become its owner.
+     */
+    export interface TaskHandoffRequest {
+      /**
+         * ID of the user taking over the task. Must have access to this project and not be the task's current owner.
+         * @minimum 1
+         */
+      user: number;
+    }
+
     export interface TaskPinRequest {
       /** Whether the task should be pinned for the requester. */
       pinned: boolean;
