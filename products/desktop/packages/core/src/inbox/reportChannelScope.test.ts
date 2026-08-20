@@ -109,6 +109,26 @@ describe("reportChannelScope", () => {
     expect(ids).toEqual(["p0"]);
   });
 
+  it.each([
+    ["needs-review", ["pr"]],
+    ["ready", ["ready"]],
+    ["running", ["queued", "live", "failed"]],
+    ["all", ["pr", "ready", "queued", "live", "failed"]],
+  ] as const)("status filter %s keeps %j", (status, expected) => {
+    const reports = [
+      report({ id: "pr", implementation_pr_url: "https://example.com/pr/1" }),
+      report({ id: "ready" }),
+      report({ id: "queued", status: "potential" }),
+      report({ id: "live", status: "in_progress" }),
+      report({ id: "failed", status: "failed" }),
+    ];
+    const ids = buildChannelReportList(reports, {
+      view: generalReportView(),
+      status,
+    }).map((r) => r.id);
+    expect(ids).toEqual(expected);
+  });
+
   it("countChannelReportsForMe counts suggested-reviewer reports in scope", () => {
     const reports = [
       report({ id: "a", channel_id: "s1", is_suggested_reviewer: true }),

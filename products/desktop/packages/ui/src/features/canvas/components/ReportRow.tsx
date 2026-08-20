@@ -1,6 +1,6 @@
 import { GitPullRequestIcon } from "@phosphor-icons/react";
 import type { SignalReport } from "@posthog/shared/types";
-import { PriorityMonogram } from "@posthog/ui/features/inbox/components/PriorityMonogram";
+import { ReportStateMonogram } from "@posthog/ui/features/inbox/components/ReportStateMonogram";
 import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
@@ -22,7 +22,7 @@ export function ReportRow({
     <>
       <SidebarItem
         depth={0}
-        icon={<PriorityMonogram priority={report.priority} />}
+        icon={<ReportStateMonogram report={report} />}
         label={<span className="truncate">{title}</span>}
         isActive={isActive}
         onClick={() => onOpen(report.id)}

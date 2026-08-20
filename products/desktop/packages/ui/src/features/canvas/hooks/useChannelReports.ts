@@ -2,6 +2,7 @@ import {
   buildChannelReportList,
   countChannelReportsForMe,
   type ReportChannelView,
+  type ReportStatusFilter,
 } from "@posthog/core/inbox/reportChannelScope";
 import type { SignalReport, SignalReportPriority } from "@posthog/shared/types";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
@@ -11,12 +12,14 @@ export interface ChannelReportsFilters {
   search: string;
   relevantToMeOnly: boolean;
   priorities: SignalReportPriority[];
+  status: ReportStatusFilter;
 }
 
 export const EMPTY_CHANNEL_REPORTS_FILTERS: ChannelReportsFilters = {
   search: "",
   relevantToMeOnly: false,
   priorities: [],
+  status: "all",
 };
 
 /**
@@ -55,6 +58,7 @@ export function useChannelReports(
         search: filters.search,
         relevantToMeOnly: filters.relevantToMeOnly,
         priorities: filters.priorities,
+        status: filters.status,
       }),
     [
       query.allReports,
@@ -62,6 +66,7 @@ export function useChannelReports(
       filters.search,
       filters.relevantToMeOnly,
       filters.priorities,
+      filters.status,
     ],
   );
 

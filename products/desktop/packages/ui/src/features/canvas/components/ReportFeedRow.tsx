@@ -3,7 +3,10 @@ import { deriveHeadline } from "@posthog/core/inbox/reportPresentation";
 import { Card, CardContent } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
-import { PriorityMonogram } from "@posthog/ui/features/inbox/components/PriorityMonogram";
+import {
+  ReportStateMonogram,
+  reportRunState,
+} from "@posthog/ui/features/inbox/components/ReportStateMonogram";
 import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
 import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
 import { useMemo } from "react";
@@ -25,6 +28,7 @@ export function ReportFeedRow({
     () => deriveHeadline(report.summary),
     [report.summary],
   );
+  const runState = reportRunState(report);
 
   return (
     <Card
@@ -34,7 +38,7 @@ export function ReportFeedRow({
     >
       <CardContent className="flex flex-col gap-1 px-4 pt-3 pb-2.5">
         <div className="flex items-start gap-3">
-          <PriorityMonogram priority={report.priority} />
+          <ReportStateMonogram report={report} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="min-w-0 truncate font-semibold text-sm leading-snug">
@@ -61,6 +65,11 @@ export function ReportFeedRow({
             <FileTextIcon size={11} className="shrink-0" />
             Report
           </InboxBadge>
+          {runState && (
+            <InboxBadge variant={runState.badgeTone}>
+              {runState.label}
+            </InboxBadge>
+          )}
           <span>· {formatRelativeTimeShort(report.created_at)}</span>
         </div>
       </CardContent>

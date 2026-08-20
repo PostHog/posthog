@@ -1,6 +1,11 @@
 import type { SignalReport, SignalReportPriority } from "@posthog/shared/types";
 
-import { isExcludedFromInbox, matchesInboxScope } from "./reportMembership";
+import {
+  isExcludedFromInbox,
+  isLiveRunReport,
+  isQueuedRunReport,
+  matchesInboxScope,
+} from "./reportMembership";
 
 /**
  * How the sidebar Reports list is scoped to a space. The general space is the
@@ -27,6 +32,30 @@ function reportMatchesChannelView(
   return report.channel_id === view.channelId;
 }
 
+/**
+ * The old inbox tabs reborn as a filter. Every non-archived report falls in
+ * exactly one bucket: an implementation PR puts it in needs-review; ready
+ * without a PR is ready; everything still moving (queued, live) plus failed
+ * runs is running — the same population the inbox's Runs tab held.
+ */
+export type ReportStatusFilter = "all" | "needs-review" | "ready" | "running";
+
+export function matchesReportStatusFilter(
+  report: SignalReport,
+  filter: ReportStatusFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "needs-review") return !!report.implementation_pr_url;
+  if (filter === "ready") {
+    return report.status === "ready" && !report.implementation_pr_url;
+  }
+  return (
+    isQueuedRunReport(report) ||
+    isLiveRunReport(report) ||
+    report.status === "failed"
+  );
+}
+
 export interface ChannelReportListOptions {
   view: ReportChannelView;
   /** When true, keep only reports the current user is a suggested reviewer for. */
@@ -35,6 +64,8 @@ export interface ChannelReportListOptions {
   search?: string;
   /** Keep only reports at one of these priorities; empty means no priority filter. */
   priorities?: SignalReportPriority[];
+  /** Keep only reports in this lifecycle bucket; "all" (the default) keeps every one. */
+  status?: ReportStatusFilter;
 }
 
 function reportTimestampMs(report: SignalReport): number {
@@ -65,6 +96,9 @@ export function buildChannelReportList(
       if (isExcludedFromInbox(report)) return false;
       if (!reportMatchesChannelView(report, options.view)) return false;
       if (options.relevantToMeOnly && report.is_suggested_reviewer !== true) {
+        return false;
+      }
+      if (!matchesReportStatusFilter(report, options.status ?? "all")) {
         return false;
       }
       if (

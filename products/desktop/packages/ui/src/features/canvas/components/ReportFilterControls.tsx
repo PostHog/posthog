@@ -1,4 +1,5 @@
 import { FunnelSimple as FunnelSimpleIcon } from "@phosphor-icons/react";
+import type { ReportStatusFilter } from "@posthog/core/inbox/reportChannelScope";
 import {
   Button,
   DropdownMenu,
@@ -16,6 +17,17 @@ import type { ChannelReportsFilters } from "@posthog/ui/features/canvas/hooks/us
 
 const PRIORITIES: SignalReportPriority[] = ["P0", "P1", "P2", "P3", "P4"];
 
+// The old inbox tabs as filter choices — see matchesReportStatusFilter.
+const STATUS_FILTERS: readonly {
+  value: ReportStatusFilter;
+  label: string;
+}[] = [
+  { value: "all", label: "All" },
+  { value: "needs-review", label: "Needs review" },
+  { value: "ready", label: "Ready" },
+  { value: "running", label: "Running" },
+];
+
 /**
  * The report filter row shared by the sidebar Reports tab and the space feed:
  * title search, a "Me" (suggested-reviewer) toggle, and a priority menu. State
@@ -29,7 +41,9 @@ export function ReportFilterControls({
   onChange: (filters: ChannelReportsFilters) => void;
 }) {
   const filtersActive =
-    filters.relevantToMeOnly || filters.priorities.length > 0;
+    filters.relevantToMeOnly ||
+    filters.priorities.length > 0 ||
+    filters.status !== "all";
 
   const togglePriority = (priority: SignalReportPriority) =>
     onChange({
@@ -68,14 +82,28 @@ export function ReportFilterControls({
             <Button
               variant="default"
               size="icon-xs"
-              aria-label="Filter reports by priority"
-              className={cnHeaderButton(filters.priorities.length > 0)}
+              aria-label="Filter reports by status and priority"
+              className={cnHeaderButton(
+                filters.priorities.length > 0 || filters.status !== "all",
+              )}
             >
               <FunnelSimpleIcon size={12} />
             </Button>
           }
         />
         <DropdownMenuContent align="end">
+          <DropdownMenuLabel>Status</DropdownMenuLabel>
+          {STATUS_FILTERS.map(({ value, label }) => (
+            <DropdownMenuCheckboxItem
+              key={value}
+              checked={filters.status === value}
+              closeOnClick={false}
+              onCheckedChange={() => onChange({ ...filters, status: value })}
+            >
+              {label}
+            </DropdownMenuCheckboxItem>
+          ))}
+          <DropdownMenuSeparator />
           <DropdownMenuLabel>Priority</DropdownMenuLabel>
           {PRIORITIES.map((priority) => (
             <DropdownMenuCheckboxItem
@@ -96,6 +124,7 @@ export function ReportFilterControls({
                     ...filters,
                     priorities: [],
                     relevantToMeOnly: false,
+                    status: "all",
                   })
                 }
               >
