@@ -1622,8 +1622,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       }
       // Drop the late completion of an already-interrupted turn (else it cancels the follow-up).
       if (this.turns.shouldDropCompletion(turn?.id)) return;
-      if (turn?.status === "failed" && turn.id) {
-        this.deferFailedTurnFinalization(turn.id);
+      if (turn?.status === "failed") {
+        this.deferFailedTurnFinalization(turn?.id);
         return;
       }
       void this.finalizeTurn(mapTurnStopReason(turn?.status));
@@ -1645,15 +1645,23 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
     if (method === APP_SERVER_NOTIFICATIONS.ERROR) {
       // A non-retried fatal error: resolve the turn so prompt() returns rather than hangs.
-      const { willRetry, error } = (params ?? {}) as {
+      const { willRetry, turnId, error } = (params ?? {}) as {
         willRetry?: boolean;
-        error?: { message?: string; codexErrorInfo?: string };
+        turnId?: string;
+        error?: { message?: unknown; codexErrorInfo?: unknown };
       };
       if (willRetry === false) {
+        if (turnId && turnId !== this.turns.activeTurnId) {
+          return;
+        }
         this.logger.warn("codex app-server fatal error notification", {
           params,
         });
-        const message = error?.message ?? "";
+        const message = typeof error?.message === "string" ? error.message : "";
+        const codexErrorInfo =
+          typeof error?.codexErrorInfo === "string"
+            ? error.codexErrorInfo
+            : undefined;
         // A gateway billing denial rejects the prompt so the host classifies
         // it and shows the upgrade gate. It must be a RequestError: a plain
         // Error serializes to a bare "Internal error" at the ACP boundary,
@@ -1675,7 +1683,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           return;
         }
         let policyErrorMessage: string | null = null;
-        if (error?.codexErrorInfo === "cyberPolicy") {
+        if (codexErrorInfo === "cyberPolicy") {
           policyErrorMessage = CYBER_POLICY_ERROR_MESSAGE;
         } else if (message.toLowerCase().includes("usage policy")) {
           policyErrorMessage = POLICY_ERROR_MESSAGE;
@@ -2020,19 +2028,26 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     void this.emitUsageBreakdown(this.usage.contextTokens());
   }
 
-  private deferFailedTurnFinalization(turnId: string): void {
+  private deferFailedTurnFinalization(turnId: string | undefined): void {
     setTimeout(() => {
-      if (this.turns.activeTurnId === turnId) {
-        void this.finalizeTurn("refusal");
+      if (
+        turnId &&
+        this.turns.activeTurnId &&
+        this.turns.activeTurnId !== turnId
+      ) {
+        return;
       }
+      if (!this.turns.isPending) return;
+      this.refuseTurnWithMessage(GENERIC_FATAL_ERROR_MESSAGE);
     }, 250);
   }
 
   private refuseTurnWithMessage(message: string): void {
-    this.broadcastAgentText(message);
+    if (this.session.cancelled) return;
     this.turns.markInterrupted();
     const pending = this.turns.claim();
     if (!pending) return;
+    this.broadcastAgentText(message);
     if (this.compactionActive) {
       this.compactionActive = false;
       this.emitCompactionBoundary();

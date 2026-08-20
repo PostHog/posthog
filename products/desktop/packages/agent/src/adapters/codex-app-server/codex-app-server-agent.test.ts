@@ -2228,7 +2228,7 @@ describe("CodexAppServerAgent", () => {
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
     stub.emit("turn/completed", {
-      turn: { id: "turn_1", status: "failed" },
+      turn: { status: "failed" },
     });
     stub.emit("error", {
       willRetry: false,
@@ -2251,6 +2251,103 @@ describe("CodexAppServerAgent", () => {
       });
     });
     await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+  });
+
+  it("ignores a policy error from a failed previous turn", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "t" } },
+      "turn/start": { turn: { id: "turn_1", status: "inProgress" } },
+    });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const first = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "first" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(first).resolves.toMatchObject({ stopReason: "refusal" });
+
+    const second = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "second" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_2" } });
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: false,
+      error: {
+        message: "This content was flagged for possible cybersecurity risk.",
+        codexErrorInfo: "cyberPolicy",
+      },
+    });
+
+    expect(sessionUpdates).not.toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "This request was blocked because it may pose a cybersecurity risk. Revise the request and try again.",
+        },
+      },
+    });
+    stub.emit("turn/completed", {
+      turn: { id: "turn_2", status: "completed" },
+    });
+    await expect(second).resolves.toMatchObject({ stopReason: "end_turn" });
+    vi.useRealTimers();
+  });
+
+  it("settles a failed completion when Codex omits turn/started", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    vi.useRealTimers();
+  });
+
+  it("rejects a malformed fatal error payload", async () => {
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("error", { willRetry: false, error: { message: {} } });
+
+    await expect(done).rejects.toThrow(
+      "The agent stopped before completing this request. Please try again.",
+    );
   });
 
   it("rejects the prompt when the fatal error is a gateway billing denial", async () => {
