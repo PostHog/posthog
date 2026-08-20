@@ -24,7 +24,15 @@ describe('renderColumnMeta', () => {
         expect(renderColumnMeta(key, hogQLQuery).title).toEqual(expected)
     })
 
-    it('extracts an AS alias for a non-HogQL select expression', () => {
-        expect(renderColumnMeta('toString(properties.x) AS renamed', eventsQuery).title).toEqual('renamed')
+    // A non-HogQL select expression with an `AS alias` resolves to the alias name once the response
+    // lands. The header must show that alias during load too — including `properties.`/`person.properties.`
+    // columns, which hit the property branches and used to render the raw `… AS …` expression.
+    it.each([
+        ['toString(properties.x) AS renamed', 'renamed'],
+        ['properties.$browser AS Browser', 'Browser'],
+        ['properties.plan_tier AS "Plan tier"', 'Plan tier'],
+        ['person.properties.email AS Email', 'Email'],
+    ])('non-HogQL select key %p renders alias %p', (key, expected) => {
+        expect(renderColumnMeta(key, eventsQuery).title).toEqual(expected)
     })
 })

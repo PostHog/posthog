@@ -3,7 +3,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
-import { extractDisplayLabel, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractAsAlias, extractDisplayLabel, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -40,6 +40,10 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
         (queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined) ?? context?.columns?.[key]
 
     const propertyName = key.startsWith('properties.') ? trimQuotes(key.substring(11)) : undefined
+    // For select-expression queries (events, actors, groups…) an `AS alias` resolves to the alias
+    // name once the response arrives, so show it during load and on error too instead of the raw
+    // `properties.… AS …` expression the property branches below would otherwise render.
+    const selectColumnAlias = queryFeatures.has(QueryFeature.selectAndOrderByColumns) ? extractAsAlias(key) : null
 
     if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
         const Component = queryContextColumn.renderTitle
@@ -56,6 +60,8 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
             title =
                 tagName === '__hx_obj' ? 'Object' : tagName === 'RecordingButton' ? 'Recording' : '<' + tagName + ' />'
         }
+    } else if (selectColumnAlias) {
+        title = selectColumnAlias
     } else if (propertyName && isGroupsQuery(query.source)) {
         const splitPropertyName = propertyName.split('--')
         title = splitPropertyName.length > 1 ? splitPropertyName[1].trim() : propertyName
