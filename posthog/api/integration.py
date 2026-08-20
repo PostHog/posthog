@@ -18,7 +18,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -105,7 +105,7 @@ from posthog.permissions import (
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_integration_access_request
-from posthog.utils import is_relative_url
+from posthog.utils import is_relative_url, render_template
 
 from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
@@ -1075,7 +1075,32 @@ class IntegrationViewSet(
         # map them to 429 + Retry-After once here instead of per action.
         if isinstance(exc, GitHubRateLimitError):
             return github_rate_limited_response(exc)
+        # authorize is a full-page browser redirect, so a JSON denial dead-ends the user with raw
+        # text and no way back. Render an HTML page that names the project instead.
+        if self.action == "authorize" and isinstance(exc, PermissionDenied | NotAuthenticated):
+            # render_template returns a plain HttpResponse; DRF's finalize_response passes it through.
+            return cast(Response, self._render_authorize_denied())
         return super().handle_exception(exc)
+
+    def _render_authorize_denied(self) -> HttpResponse:
+        try:
+            project_name = self.team.name
+        except NotFound:
+            project_name = "this project"
+        return render_template(
+            "toolbar_oauth_error.html",
+            self.request,
+            context={
+                "error_title": "You don't have access to this project",
+                "error_message": f"Your account can't connect integrations for {project_name}.",
+                "error_detail": (
+                    "Ask a project admin to add you, then go back and start the setup again. "
+                    "If you manage more than one project, check that you picked the right one."
+                ),
+                "error_code": "403",
+            },
+            status_code=403,
+        )
 
     def dangerously_get_permissions(self):
         base_permissions = [

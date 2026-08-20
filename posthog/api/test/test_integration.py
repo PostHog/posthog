@@ -2259,6 +2259,22 @@ class TestGitHubIntegrationStateValidation:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "next must be a relative path" in response.json()["detail"]
 
+    def test_authorize_permission_denied_renders_html_page(self, client: HttpClient):
+        # authorize is a full-page browser redirect, so a denial must render an HTML page that names
+        # the project, not a raw JSON body the setup wizard can't recover from.
+        other_org = Organization.objects.create(name="Other Org")
+        outsider = User.objects.create_and_join(other_org, "outsider@posthog.com", "pw")
+        client.force_login(outsider)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/authorize/",
+            {"kind": "github"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response["Content-Type"].startswith("text/html")
+        assert self.team.name in response.content.decode()
+
     @override_settings(TIKTOK_ADS_CLIENT_ID="tiktok-app-id", TIKTOK_ADS_CLIENT_SECRET="tiktok-secret")
     @patch("posthog.api.integration.report_user_action")
     def test_oauth_authorize_captures_handoff(self, mock_report, client: HttpClient):

@@ -78,6 +78,17 @@ ALL_SUPPORTED_MODELS = OPENAI_SUPPORTED_MODELS | GEMINI_SUPPORTED_MODELS
 MODEL_SEED = 7678464
 
 
+def _has_authorize_access(user: User, project: Project) -> bool:
+    """Whether the user may connect integrations on the project's passthrough team.
+
+    The wizard hands the user to integrations/authorize on this team, gated by
+    TeamMemberAccessPermission. Check the same team so the wizard never offers a project the
+    authorize endpoint will refuse.
+    """
+    passthrough_team = project.passthrough_team
+    return UserPermissions(user).team(passthrough_team).effective_membership_level is not None
+
+
 class SetupWizardSerializer(serializers.Serializer):
     hash = serializers.CharField()
 
@@ -411,15 +422,14 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check after lookup)
             project = Project.objects.get(id=project_id)
 
-            # Verify user has access to this project
-            visible_project_ids = UserPermissions(request.user).project_ids_visible_for_user
-            if project.id not in visible_project_ids:
+            if not _has_authorize_access(request.user, project):
                 raise serializers.ValidationError(
                     {"projectId": ["You don't have access to this project."]}, code="permission_denied"
                 )
 
-            project_api_token = project.passthrough_team.api_token
-            team_id = project.passthrough_team.id
+            passthrough_team = project.passthrough_team
+            project_api_token = passthrough_team.api_token
+            team_id = passthrough_team.id
         except Project.DoesNotExist as e:
             capture_exception(
                 e,
@@ -515,13 +525,12 @@ class SetupWizardViewSet(viewsets.ViewSet):
         repository = serializer.validated_data["repository"]
         branch = serializer.validated_data.get("branch") or None
 
-        visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
             project = Project.objects.get(id=project_id)
         except Project.DoesNotExist:
             raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
-        if project.id not in visible_project_ids:
+        if not _has_authorize_access(cast(User, request.user), project):
             raise exceptions.PermissionDenied("You don't have access to this project.")
 
         self._reserve_cloud_run_attempt(cast(User, request.user).id)
