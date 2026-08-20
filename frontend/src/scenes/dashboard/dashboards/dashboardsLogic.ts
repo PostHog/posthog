@@ -81,8 +81,11 @@ export interface dashboardsLogicValues {
     dashboardsById: Record<string, DashboardBasicType>
     filedDashboardIds: Set<number>
     filteredTags: string[]
-    folderOptions: { label: string; value: string }[]
     filters: DashboardsFilters
+    folderOptions: {
+        label: string
+        value: string
+    }[]
     isFiltering: boolean
     searchedDashboards: DashboardBasicType[] | null
     searchedDashboardsLoading: boolean
@@ -174,7 +177,19 @@ export interface dashboardsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isFiltering: (filters: DashboardsFilters) => boolean
         filteredTags: (tags: string[], tagSearch: string) => string[]
-        folderOptions: (nameSortedDashboards: DashboardBasicType[]) => { label: string; value: string }[]
+        folderOptions: (
+            nameSortedDashboards: (
+                | DashboardBasicType
+                | import('~/types').DashboardType<
+                      import('~/types').QueryBasedInsightModel<
+                          import('~/queries/schema/schema-general').Node<Record<string, any>>
+                      >
+                  >
+            )[]
+        ) => {
+            label: string
+            value: string
+        }[]
         dashboards: (
             nameSortedDashboards: (
                 | DashboardBasicType
