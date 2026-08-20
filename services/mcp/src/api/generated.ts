@@ -17523,6 +17523,16 @@ export namespace Schemas {
       readonly last_error_message: string | null;
       /** @nullable */
       readonly count: number | null;
+      /**
+         * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+         * @nullable
+         */
+      readonly last_import_total_count: number | null;
+      /**
+         * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+         * @nullable
+         */
+      readonly last_import_unmatched_count: number | null;
       is_static?: boolean;
       /** Type of cohort based on filter complexity
        *
@@ -50249,7 +50259,7 @@ export namespace Schemas {
       readonly id: string;
       /** @maxLength 255 */
       name?: string;
-      /** @maxLength 100 */
+      /** @maxLength 2048 */
       client_id?: string;
       readonly redirect_uris_list: readonly string[];
       /** True if this application has been verified by PostHog */
@@ -57339,6 +57349,16 @@ export namespace Schemas {
       readonly last_error_message?: string | null;
       /** @nullable */
       readonly count?: number | null;
+      /**
+         * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+         * @nullable
+         */
+      readonly last_import_total_count?: number | null;
+      /**
+         * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+         * @nullable
+         */
+      readonly last_import_unmatched_count?: number | null;
       is_static?: boolean;
       /** Type of cohort based on filter complexity
        *

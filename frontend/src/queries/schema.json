@@ -37941,6 +37941,7 @@
                 "experiment analyzed",
                 "experiment view recordings",
                 "experiment replay vision scanner created",
+                "experiment create scanner",
                 "feature flag created",
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
