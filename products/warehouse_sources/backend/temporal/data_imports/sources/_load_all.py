@@ -34,6 +34,7 @@ from .airbyte.source import AirbyteSource
 from .aircall.source import AircallSource
 from .airops.source import AirOpsSource
 from .airtable.source import AirtableSource
+from .airwallex.source import AirwallexSource
 from .aiven.source import AivenSource
 from .akamai_reporting.source import AkamaiReportingSource
 from .akeneo.source import AkeneoSource

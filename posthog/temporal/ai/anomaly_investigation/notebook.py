@@ -14,7 +14,7 @@ from products.notebooks.backend.facade.content import (
     create_heading_with_text,
     create_paragraph_with_text,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 VERDICT_LABEL = {
     "true_positive": "True positive",

@@ -36,7 +36,7 @@ from products.customer_analytics.backend.models.account import AccountProperties
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestCustomerAnalyticsFacade(BaseTest):

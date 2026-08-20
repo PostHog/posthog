@@ -96,6 +96,15 @@ pub struct Config {
     #[envconfig(default = "102400")]
     pub kafka_consumer_queued_max_messages_kbytes: u32,
 
+    /// How often librdkafka emits its internal statistics snapshot to the
+    /// consumer's `stats` callback (milliseconds), which exports the
+    /// `kafka_consumer_*` gauges. `0` disables the callback entirely. The
+    /// callback runs on a librdkafka thread and only walks the assigned
+    /// partitions and connected brokers, so 15s is cheap; lower it only when
+    /// actively debugging queue growth.
+    #[envconfig(default = "15000")]
+    pub kafka_consumer_statistics_interval_ms: u32,
+
     /// Pod hostname from K8s, used as client.id and group.instance.id
     /// for sticky partition assignment (same as Node.js hostname())
     #[envconfig(from = "HOSTNAME")]
@@ -439,6 +448,12 @@ impl Config {
         .set(
             "fetch.message.max.bytes",
             &self.kafka_consumer_fetch_message_max_bytes.to_string(),
+        )
+        // Set before the env-override loop below so
+        // KAFKA_CONSUMER_STATISTICS_INTERVAL_MS stays authoritative.
+        .set(
+            "statistics.interval.ms",
+            &self.kafka_consumer_statistics_interval_ms.to_string(),
         );
 
         if !self.kafka_client_rack.is_empty() {
