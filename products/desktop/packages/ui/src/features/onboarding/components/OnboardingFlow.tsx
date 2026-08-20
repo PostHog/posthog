@@ -1,4 +1,5 @@
 import { ArrowRight, SignOut } from "@phosphor-icons/react";
+import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { integrationKeys } from "@posthog/core/integrations/repositoryKeys";
 import {
   classifyIntegrations,
@@ -19,6 +20,7 @@ import type { TaskChannel } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
@@ -86,6 +88,7 @@ export function OnboardingFlow() {
   );
   const apiClient = useOptionalAuthenticatedClient();
   const { localWorkspaces } = useHostCapabilities();
+  const startupIdentity = useAuthStateValue(getAuthIdentity);
 
   // Best-effort. The response also seeds the channel cache that the first-run
   // landing reads moments later.
@@ -96,8 +99,16 @@ export function OnboardingFlow() {
     // flags. This runs synchronously before completeOnboarding mounts the main
     // app, which is what wins the race against startup's own provisioning.
     const provisionPromise = apiClient.provisionDefaultTaskChannels();
-    primeStartupProvision(provisionPromise);
+    if (startupIdentity)
+      primeStartupProvision(startupIdentity, provisionPromise);
     const provisioned = await provisionPromise;
+    // Set before the entry exists: setQueryData builds the query from the defaults in
+    // place at that moment, and an unmarked entry survives clearAuthScopedQueries and
+    // hands the next account these channels. Every mounted read of this key is already
+    // auth-scoped via useAuthenticatedQuery; this covers the one write that precedes them.
+    queryClient.setQueryDefaults(TASK_CHANNELS_QUERY_KEY, {
+      meta: AUTH_SCOPED_QUERY_META,
+    });
     queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, provisioned.channels);
     // Cloud-only hosts keep the picked GitHub repo in selectedDirectory (they
     // never set selectedCloudRepo). On local-workspace hosts selectedDirectory
@@ -113,6 +124,7 @@ export function OnboardingFlow() {
       queryKey: integrationKeys.list(),
       queryFn: () => apiClient.getIntegrations() as Promise<Integration[]>,
       staleTime: 60_000,
+      meta: AUTH_SCOPED_QUERY_META,
     });
     const integrationId = resolveRepoIntegrationId(
       cloudRepo,

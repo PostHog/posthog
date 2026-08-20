@@ -19,7 +19,10 @@ interface StartupLocation {
   firstRun: { generalChannelId: string } | null;
 }
 
-let primedProvision: Promise<ProvisionedTaskChannels> | null = null;
+let primedProvision: {
+  identity: string;
+  result: Promise<ProvisionedTaskChannels>;
+} | null = null;
 
 /**
  * Whoever provisions first consumes the created flags, so a flow that provisions
@@ -29,19 +32,24 @@ let primedProvision: Promise<ProvisionedTaskChannels> | null = null;
  * the caller mounts the app, even while the network call is still pending.
  */
 export function primeStartupProvision(
+  identity: string,
   result: Promise<ProvisionedTaskChannels>,
 ): void {
-  primedProvision = result;
+  primedProvision = { identity, result };
 }
 
 async function consumePrimedProvision(
+  identity: string,
   client: StartupLocationClient,
 ): Promise<ProvisionedTaskChannels> {
   const primed = primedProvision;
   primedProvision = null;
-  if (primed) {
+  // Keyed by identity because a logout or account switch between priming and
+  // consuming would otherwise hand the next account the previous project's
+  // channels. Everything else in this module is already keyed the same way.
+  if (primed && primed.identity === identity) {
     try {
-      return await primed;
+      return await primed.result;
     } catch {
       // A failed hand-off must not cost the user their provisioning, so fall
       // back to provisioning here as if nothing had been primed.
@@ -68,7 +76,7 @@ export async function resolveStartupLocation(
     return { href: legacy, firstRun: null };
   }
 
-  const provisioned = await consumePrimedProvision(client);
+  const provisioned = await consumePrimedProvision(identity, client);
   const general = provisioned.channels.find((channel) =>
     isGeneralChannel(channel),
   );
