@@ -815,7 +815,8 @@ class TestRepartitionActivity:
         repartition_table._refund_attempt(schema, 0, logger)
 
         schema.refresh_from_db()
-        assert schema.repartition_pending["attempts"] == 2
+        pending = schema.repartition_pending
+        assert pending is not None and pending["attempts"] == 2
 
     def test_a_staged_swap_is_never_abandoned_by_the_attempt_cap(self, team):
         # An interrupted swap may already have deleted live, leaving temp the only intact copy. Giving
