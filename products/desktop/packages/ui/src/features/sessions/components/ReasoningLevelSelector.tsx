@@ -408,9 +408,12 @@ export function ReasoningLevelSelector({
     }
     selectAndClose(() => {
       if (useLadder) {
-        const [model, effort] = middleStop?.key.split(STOP_SEPARATOR) ?? [];
-        if (model && model !== currentModel) changeModel(model);
-        if (effort && effort !== currentEffort) onChange?.(effort);
+        // Route through the same handler a notch drag uses so the pair is
+        // delivered atomically via onNotchSelect when the caller wants it —
+        // the split changeModel/onChange path here would let the effort land
+        // on the previously-shown model, the exact hazard onNotchSelect exists
+        // to avoid.
+        if (middleStop) handleStopSelect(middleStop.key);
       } else if (
         defaultEffortOption &&
         defaultEffortOption.value !== currentEffort
