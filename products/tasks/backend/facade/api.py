@@ -58,8 +58,10 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.utils import absolute_uri
 
+from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
@@ -89,6 +91,8 @@ from products.tasks.backend.logic.services.network_policy import (
 )
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
+    MCP_CREDENTIAL_OWNER_STATE_KEY,
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
@@ -106,6 +110,7 @@ from products.tasks.backend.models import (
     TaskArtifact,
     TaskClientProvenance,
     TaskCommentActivity,
+    TaskOwnershipChangedError,
     TaskPin,
     TaskRun,
     TaskSearchDocument,
@@ -275,6 +280,7 @@ __all__ = [
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
+    "task_run_matches_current_ownership",
     "task_runtime",
     "task_visible",
     "visible_tasks_q",
@@ -886,8 +892,9 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
-def task_ids_with_pr_url_subquery(team_id: int) -> QuerySet[TaskRun, Any]:
-    """A ``values('task_id')`` queryset of ``team_id``'s tasks that produced a non-empty ``output.pr_url``.
+def task_ids_with_pr_url_subquery(team_id: int, *conditions: Q) -> QuerySet[TaskRun, Any]:
+    """A ``values('task_id')`` queryset of ``team_id``'s tasks that produced a non-empty ``output.pr_url``,
+    narrowed by any extra ``Q`` ``conditions`` on the run.
 
     For embedding in a caller's ``task_id__in=...`` lookup so the report→PR correlation can be
     *decorrelated*: instead of a per-report ``Exists`` over runs, the caller drives off this small,
@@ -898,7 +905,7 @@ def task_ids_with_pr_url_subquery(team_id: int) -> QuerySet[TaskRun, Any]:
     team's PR-bearing runs — associated runs are always same-team, so this drops no valid matches.
     """
     return (
-        TaskRun.objects.filter(team_id=team_id, output__pr_url__isnull=False)
+        TaskRun.objects.filter(*conditions, team_id=team_id, output__pr_url__isnull=False)
         .exclude(output__pr_url="")
         .values("task_id")
     )
@@ -2121,6 +2128,7 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "github_credential_source",
+        TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
         "verified_pr_urls",
@@ -2260,6 +2268,14 @@ def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bo
         return TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id).exists()
     except (ValueError, TypeError, DjangoValidationError):
         return False
+
+
+def task_run_matches_current_ownership(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
+    try:
+        run = _task_run_queryset().filter(pk=run_id, team_id=team_id, task_id=task_id).first()
+    except (ValueError, TypeError, DjangoValidationError):
+        return False
+    return run is not None and run.matches_task_ownership()
 
 
 def task_accessible_for_run_view(
@@ -4123,7 +4139,6 @@ def bootstrap_task_run(
     task = _get_task_for_run_control(task_id, team_id, user_id)
     if task is None:
         return None
-
     mode = validated_data.get("mode", "background")
     environment = validated_data.get("environment", TaskRun.Environment.LOCAL)
     branch = validated_data.get("branch")
@@ -4238,7 +4253,10 @@ def bootstrap_task_run(
     logger.info(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
-    run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+    try:
+        run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+    except TaskOwnershipChangedError:
+        return None
 
     if imported_mcp_servers or relayed_mcp_servers:
         update_fields = ["updated_at"]
@@ -4363,12 +4381,14 @@ def start_task_run(
     previous_state = dict(run.state or {})
     try:
         with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
             run = (
                 TaskRun.objects.select_for_update(of=("self",))
                 .select_related("task", "task__team", "task__created_by")
-                .get(id=run.id)
+                .get(id=run.id, task_id=task.id, team_id=team_id)
             )
-            task = run.task
+            if not run.matches_task_ownership(task):
+                return "ownership_changed", None
             if state_updates:
                 TaskRun.update_state_atomic(run.id, updates=state_updates)
                 run.refresh_from_db()
@@ -4401,8 +4421,9 @@ def resume_task_run_in_cloud(
     """Resume a run in a cloud sandbox, terminating any prior workflow.
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
-    ``"already_active"`` (400), ``"auth_error:<detail>"`` (400, github auth), ``"workflow_failed"``
-    (502), or ``"resumed"`` (run_dto set). Mirrors ``TaskRunViewSet.resume_in_cloud``.
+    ``"already_active"`` (400), ``"ownership_changed"`` (400), ``"auth_error:<detail>"``
+    (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
+    Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
     from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415
     from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
@@ -4445,11 +4466,14 @@ def resume_task_run_in_cloud(
     )
 
     with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
         run = (
             TaskRun.objects.select_for_update(of=("self",))
             .select_related("task", "task__created_by", "task__github_integration", "task__github_user_integration")
-            .get(pk=run.pk)
+            .get(pk=run.pk, task_id=task.id, team_id=team_id)
         )
+        if not run.matches_task_ownership(task):
+            return "ownership_changed", None, None
 
         is_cloud_active = run.environment == TaskRun.Environment.CLOUD and run.status in (
             TaskRun.Status.QUEUED,
@@ -4726,6 +4750,10 @@ def _list_tasks_queryset(
     origin_product = filters.get("origin_product")
     if origin_product:
         qs = qs.filter(origin_product=origin_product)
+
+    exclude_origin_product = filters.get("exclude_origin_product")
+    if exclude_origin_product:
+        qs = qs.exclude(origin_product=exclude_origin_product)
 
     stage = filters.get("stage")
     if stage:
@@ -5295,52 +5323,209 @@ def update_task(
     task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
 ) -> contracts.TaskDetailDTO | None:
     """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/controllable."""
-    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
-        return None
-
     validated_data = dict(validated_data)
     # origin_product controls visibility and signal_report is set once.
     validated_data.pop("signal_report", None)
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
     validated_data.pop("branch", None)
-    # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
-    if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
-        validated_data.pop("repository", None)
-        validated_data.pop("repositories", None)
-        validated_data.pop("github_integration", None)
-        validated_data.pop("github_user_integration", None)
-    if "repositories" in validated_data:
-        repositories = validated_data["repositories"]
-        validated_data["repository"] = repositories[0] if repositories else None
-    elif "repository" in validated_data:
-        if len(task.repositories) <= 1:
-            validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
-        else:
-            validated_data.pop("repository")
-    if "title" in validated_data and "title_manually_set" not in validated_data:
-        validated_data["title_manually_set"] = True
-    if "archived" in validated_data and validated_data["archived"] != task.archived:
-        validated_data["archived_at"] = django_timezone.now() if validated_data["archived"] else None
 
-    logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
-    for key, value in validated_data.items():
-        setattr(task, key, value)
-    task.save()
-    logger.info("Task %s updated successfully", task.id)
+    with transaction.atomic():
+        task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
+        if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
+            return None
+
+        # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
+        if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+            validated_data.pop("repository", None)
+            validated_data.pop("repositories", None)
+            validated_data.pop("github_integration", None)
+            validated_data.pop("github_user_integration", None)
+        if "repositories" in validated_data:
+            repositories = validated_data["repositories"]
+            validated_data["repository"] = repositories[0] if repositories else None
+        elif "repository" in validated_data:
+            if len(task.repositories) <= 1:
+                validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
+            else:
+                validated_data.pop("repository")
+        if "title" in validated_data and "title_manually_set" not in validated_data:
+            validated_data["title_manually_set"] = True
+        if "archived" in validated_data and validated_data["archived"] != task.archived:
+            validated_data["archived_at"] = django_timezone.now() if validated_data["archived"] else None
+
+        logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
+        for key, value in validated_data.items():
+            setattr(task, key, value)
+        task.save()
+        logger.info("Task %s updated successfully", task.id)
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
 
 def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
     """Soft-delete a task. Returns whether a task was found/controllable and deleted."""
+    with transaction.atomic():
+        task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
+        if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
+            return False
+        logger.info("Soft deleting task %s", task.id)
+        task.soft_delete()
+    return True
+
+
+# --- Task handoff (transfer ownership to a colleague) ---
+
+
+class TaskHandoffError(Exception):
+    """A handoff request that reads as a client error rather than a missing task."""
+
+
+def handoff_task(
+    task_id: str | UUID, team_id: int, user_id: int | None, *, target_user_id: int
+) -> contracts.TaskDetailDTO | None:
+    """Hand ``task_id`` off to ``target_user_id``: they become the task's owner.
+
+    Ownership is what `task_control_q` keys on, so the recipient drives the task
+    afterwards (steer, archive, forward thread messages), and future runs resolve
+    GitHub authorship and notification recipients from them. Membership in the
+    project's organization is required — anything weaker would hand control of a
+    task to someone who can't see the project.
+
+    Visibility follows the recipient when the task lives in a private space: a
+    task in the actor's ``#me`` (or a legacy channel-less task) moves into the
+    recipient's ``#me`` so they can open what's now theirs. Public channels stay
+    put; both sides keep the shared view.
+
+    Only the owner can hand a task off: ``task_control_q`` also grants control
+    over team-owned origin products, and giving a task away is stricter than
+    driving it. The recipient must be an org member with access to this project
+    (``all_users_with_access`` honors private-project access control), otherwise
+    they'd end up owning a task they can't open.
+
+    Returns the updated task detail, or ``None`` when the actor can't control the
+    task or no longer owns it. Raises ``TaskHandoffError`` for invalid targets
+    (not a member with project access, or the current owner).
+
+    All task runs must be terminal and every sandbox session must be closed
+    before a handoff. The transfer rotates a server-owned ownership version and
+    revokes task-bound sandbox OAuth tokens, so old runs cannot execute or refresh
+    credentials under the recipient's identity.
+    """
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
-        return False
-    logger.info("Soft deleting task %s", task.id)
-    task.soft_delete()
-    return True
+        return None
+    if user_id is None or task.created_by_id != user_id:
+        return None
+    if task.created_by_id == target_user_id:
+        raise TaskHandoffError("That person already owns this task.")
+    target = task.team.all_users_with_access().filter(id=target_user_id).first()
+    if target is None:
+        raise TaskHandoffError("Tasks can only be handed off to someone with access to this project.")
+
+    previous_owner_id = task.created_by_id
+    actor = User.objects.filter(id=user_id).only("first_name", "email", "distinct_id").first() if user_id else None
+    actor_name = ((actor.first_name.strip() or actor.email) if actor else None) or "Someone"
+    target_name = target.first_name.strip() or target.email
+    with transaction.atomic():
+        locked = Task.objects.select_for_update().get(pk=task.pk)
+        # Under the lock: two concurrent handoffs settle last-writer-loses
+        # instead of double-announcing and rerouting mid-flight.
+        if locked.deleted:
+            return None
+        if locked.created_by_id != previous_owner_id:
+            raise TaskHandoffError("Someone else has already handed this task off. Refresh and try again.")
+        if (
+            TaskRun.objects.filter(task_id=locked.id, team_id=team_id)
+            .exclude(status__in=[TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+            .exists()
+        ):
+            raise TaskHandoffError("Finish or cancel active runs before handing off this task.")
+        if (
+            SandboxSession.objects.for_team(team_id)
+            .filter(
+                task_run__task_id=locked.id,
+                ended_at__isnull=True,
+                ttl_expires_at__gt=django_timezone.now(),
+            )
+            .exists()
+        ):
+            raise TaskHandoffError("Wait for active sandboxes to shut down before handing off this task.")
+
+        bound_tokens = OAuthAccessToken.objects.filter(sandbox_task_id=locked.id)
+        OAuthRefreshToken.objects.filter(access_token__in=bound_tokens).delete()
+        bound_tokens.delete()
+
+        detach_conversations_for_task_handoff(locked.id, target.id)
+
+        channel = locked.channel
+        if channel is None or channel.channel_type == Channel.ChannelType.PERSONAL:
+            # Never widen: a task in one private space moves to the other private
+            # space rather than becoming visible to the whole project, and a legacy
+            # channel-less task joins the recipient's #me where they'll find it.
+            locked.channel = _ensure_personal_channel(team_id, target.id)[0]
+        locked.created_by = target
+        # The stored GitHub-user preference names the old owner's installation; the
+        # recipient picks their own on their next run. Carrying it across would
+        # defer to user-scoped resolution anyway (it keys on created_by), so clear it.
+        if locked.github_user_integration_id is not None:
+            locked.github_user_integration = None
+        # A stamped built-in agent task may borrow its credential owner's MCP Store
+        # grants. Handing ownership off while keeping that borrow would hand the old
+        # owner's connected accounts to whoever drives the run now, so drop the borrow.
+        locked.state = {
+            key: value for key, value in (locked.state or {}).items() if key != MCP_CREDENTIAL_OWNER_STATE_KEY
+        }
+        locked.state[TASK_OWNERSHIP_VERSION_STATE_KEY] = str(uuid4())
+        locked.save()
+        message = TaskThreadMessage.objects.for_team(team_id).create(
+            team_id=team_id,
+            task_id=locked.id,
+            author_id=user_id,
+            author_kind=TaskThreadMessage.AuthorKind.SYSTEM,
+            event="task_handed_off",
+            payload={
+                "from_user_id": previous_owner_id,
+                "to_user_id": target.id,
+                # Clients render names straight from the payload (ids alone would need a
+                # member lookup); both are same-org members, so carrying names is safe.
+                "from_display_name": actor_name if user_id is not None else None,
+                "to_display_name": target_name,
+            },
+            content=f"{actor_name} handed this task off to {target_name}",
+        )
+
+    try:
+        project_thread_message_activity(message)
+    except Exception:
+        logger.exception("Failed to project handoff thread activity", extra={"task_id": str(task_id)})
+    from products.tasks.backend.push_dispatcher import (
+        notify_task_handoff,  # noqa: PLC0415 — optional push dep stays off the import path
+    )
+
+    notify_task_handoff(locked, recipient=target, actor=actor, message_id=message.id)
+    # Task.capture_event would attribute to the new owner (it keys on created_by);
+    # the actor initiated the handoff, so capture under their identity instead.
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(actor.distinct_id) if actor is not None and actor.distinct_id else str(locked.team.uuid),
+            event="task_handed_off",
+            properties={
+                "task_id": str(locked.id),
+                "team_id": locked.team_id,
+                "title": locked.title,
+                "origin_product": locked.origin_product,
+                "repository": locked.repository,
+                "from_user_id": previous_owner_id,
+                "to_user_id": target.id,
+            },
+            groups=groups(team=locked.team),
+            send_feature_flags=True,
+        )
+    except Exception as e:
+        logger.warning("task_handed_off capture_event failed for task %s: %s", locked.id, e)
+
+    return _task_detail_to_dto(_task_detail_queryset().get(pk=locked.pk))
 
 
 # --- Task staged artifacts (S3 + cache, attached to the next run) ---
@@ -5982,6 +6167,13 @@ def run_task(
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
             )
+        if not previous_run.matches_task_ownership(task):
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail",
+                    detail="This run belongs to a previous task owner. Start a new run instead.",
+                )
+            )
 
         prev_state = parse_run_state(previous_run.state)
         extra_state = extra_state or {}
@@ -6163,18 +6355,15 @@ def run_task(
             )
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
-    with transaction.atomic():
-        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
-        if report_id_for_slot_check is not None:
-            # A live run is what marks the report's implementation slot taken, so the slot is only
-            # really claimed once this row exists. Inserting first and locking the report second
-            # keeps the row lock off `create_run`, which evaluates a feature flag, and still
-            # serializes against a concurrent create: that create either takes the report lock
-            # first, so this check sees the task it added and rolls the run back, or takes it
-            # second, by which point this run is committed and its own count check refuses.
-            enforce_report_implementation_rerun_cap(
-                team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
-            )
+    try:
+        with transaction.atomic():
+            task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+            if report_id_for_slot_check is not None:
+                enforce_report_implementation_rerun_cap(
+                    team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+                )
+    except TaskOwnershipChangedError:
+        return None
     if is_pi_task and resume_from_run_id:
         task_run.active_task_session = previous_run.active_task_session
         task_run.save(update_fields=["active_task_session", "updated_at"])

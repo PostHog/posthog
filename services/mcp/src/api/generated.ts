@@ -6323,6 +6323,16 @@ export namespace Schemas {
       uuid: string;
     }
 
+    export type ErrorTrackingQueryIssueSeverity = typeof ErrorTrackingQueryIssueSeverity[keyof typeof ErrorTrackingQueryIssueSeverity];
+
+
+    export const ErrorTrackingQueryIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export type ErrorTrackingIssueStatus = typeof ErrorTrackingIssueStatus[keyof typeof ErrorTrackingIssueStatus];
 
 
@@ -6348,6 +6358,7 @@ export namespace Schemas {
       last_seen: string;
       library?: string | null;
       name?: string | null;
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       source?: string | null;
       status: ErrorTrackingIssueStatus;
     }
@@ -6398,6 +6409,7 @@ export namespace Schemas {
       name?: string | null;
       odds_ratio: number;
       population: Population;
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       status: ErrorTrackingIssueStatus;
     }
 
@@ -7669,6 +7681,7 @@ export namespace Schemas {
       issue_description?: string | null;
       issue_id: string;
       issue_name?: string | null;
+      issue_severity?: ErrorTrackingQueryIssueSeverity | null;
       issue_status: string;
       /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
       version: number;
@@ -30323,6 +30336,22 @@ export namespace Schemas {
       cohort: ErrorTrackingIssueCohortRead | null;
     }
 
+    /**
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical
+     */
+    export type ErrorTrackingIssueSeverityRuleEnum = typeof ErrorTrackingIssueSeverityRuleEnum[keyof typeof ErrorTrackingIssueSeverityRuleEnum];
+
+
+    export const ErrorTrackingIssueSeverityRuleEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export interface ErrorTrackingIssueSplitFingerprint {
       /** Fingerprint to split into a new issue. */
       fingerprint: string;
@@ -30669,6 +30698,72 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+    }
+
+    /**
+     * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+     * @nullable
+     */
+    export type ErrorTrackingSeverityRuleDisabledData = {
+      message?: string;
+      issue?: { [key: string]: unknown };
+      properties?: { [key: string]: unknown };
+    } | null;
+
+    export interface ErrorTrackingSeverityRule {
+      /** Unique identifier of the severity rule. */
+      readonly id: string;
+      /** Property-group filters evaluated against the event that creates an issue. */
+      filters: PropertyGroupFilterValue;
+      /** Severity assigned to a newly created issue when this rule is the first match.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Evaluation priority. Lower values run first, and the first matching rule wins. */
+      order_key: number;
+      /**
+         * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+         * @nullable
+         */
+      disabled_data: ErrorTrackingSeverityRuleDisabledData;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingSeverityRuleCreateRequest {
+      /** Property-group filters evaluated against the event that creates an issue. */
+      filters: PropertyGroupFilterValue;
+      /** Severity assigned when this rule is the first match.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Evaluation priority. Lower values run first. Defaults to 0. */
+      order_key?: number;
+    }
+
+    export interface ErrorTrackingSeverityRuleListResponse {
+      /** Severity rules in ascending evaluation order. */
+      results: ErrorTrackingSeverityRule[];
+    }
+
+    export interface ErrorTrackingSeverityRuleUpdateRequest {
+      /** Replacement property-group filters. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /** Replacement severity. Omit to preserve the existing severity.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity?: ErrorTrackingIssueSeverityRuleEnum;
     }
 
     export interface ErrorTrackingSignalExtra {
@@ -40503,6 +40598,9 @@ export namespace Schemas {
      * * `non_failure_status_codes` - non_failure_status_codes
      * * `customer_analytics_account_properties` - customer_analytics_account_properties
      * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
+     * * `task_model` - task_model
+     * * `task_repository` - task_repository
+     * * `task_mcp_installations` - task_mcp_installations
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -40525,6 +40623,9 @@ export namespace Schemas {
       NonFailureStatusCodes: 'non_failure_status_codes',
       CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
       CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
+      TaskModel: 'task_model',
+      TaskRepository: 'task_repository',
+      TaskMcpInstallations: 'task_mcp_installations',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -58313,6 +58414,28 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
     }
 
+    /**
+     * Mapping from severity rule UUID to its new evaluation order.
+     */
+    export type PatchedErrorTrackingSeverityRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingSeverityRuleReorderRequest {
+      /** Mapping from severity rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingSeverityRuleReorderRequestOrders;
+    }
+
+    export interface PatchedErrorTrackingSeverityRuleUpdateRequest {
+      /** Replacement property-group filters. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /** Replacement severity. Omit to preserve the existing severity.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity?: ErrorTrackingIssueSeverityRuleEnum;
+    }
+
     export interface PatchedErrorTrackingSpikeDetectionConfig {
       /**
          * Time to wait before alerting again for the same issue after a spike is detected.
@@ -73223,13 +73346,14 @@ export namespace Schemas {
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunDetailMetadata = {
       harness_prompt_version?: string;
       report_channel?: string;
       skill_origin?: string;
       github_guidance?: boolean;
+      business_knowledge_maintained?: boolean;
       model?: string;
       runtime_adapter?: string;
       reasoning_effort?: string;
@@ -73303,7 +73427,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunDetailMetadata;
     }
 
@@ -73317,13 +73441,14 @@ export namespace Schemas {
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunSummaryMetadata = {
       harness_prompt_version?: string;
       report_channel?: string;
       skill_origin?: string;
       github_guidance?: boolean;
+      business_knowledge_maintained?: boolean;
       model?: string;
       runtime_adapter?: string;
       reasoning_effort?: string;
@@ -73397,7 +73522,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
     }
 
@@ -79396,6 +79521,17 @@ export namespace Schemas {
        * * `acp` - ACP
        * * `pi` - Pi */
       runtime?: RuntimeEnum;
+    }
+
+    /**
+     * Request body for handing a task off to a colleague: they become its owner.
+     */
+    export interface TaskHandoffRequest {
+      /**
+         * ID of the user taking over the task. Must have access to this project and not be the task's current owner.
+         * @minimum 1
+         */
+      user: number;
     }
 
     export interface TaskPinRequest {
@@ -93234,6 +93370,31 @@ export namespace Schemas {
      */
     created_by?: number;
     /**
+     * Exclude tasks with this origin product from the results
+     *
+     * * `onboarding` - Onboarding
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
+     * * `signal_report` - Signal Report
+     * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow
+     * @minLength 1
+     */
+    exclude_origin_product?: TasksListExcludeOriginProduct;
+    /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *
      * * `true` - true
@@ -93334,6 +93495,31 @@ export namespace Schemas {
       Failing: 'failing',
       Pending: 'pending',
       None: 'none',
+    } as const;
+
+    export type TasksListExcludeOriginProduct = typeof TasksListExcludeOriginProduct[keyof typeof TasksListExcludeOriginProduct];
+
+
+    export const TasksListExcludeOriginProduct = {
+      Onboarding: 'onboarding',
+      ErrorTracking: 'error_tracking',
+      EvalClusters: 'eval_clusters',
+      UserCreated: 'user_created',
+      Slack: 'slack',
+      SupportQueue: 'support_queue',
+      SessionSummaries: 'session_summaries',
+      PosthogAi: 'posthog_ai',
+      Experiments: 'experiments',
+      SignalReport: 'signal_report',
+      SignalsScout: 'signals_scout',
+      SupportReply: 'support_reply',
+      Hogdesk: 'hogdesk',
+      ReviewHog: 'review_hog',
+      ImageBuilder: 'image_builder',
+      Loop: 'loop',
+      McpAnalytics: 'mcp_analytics',
+      SignalsChat: 'signals_chat',
+      Workflow: 'workflow',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
