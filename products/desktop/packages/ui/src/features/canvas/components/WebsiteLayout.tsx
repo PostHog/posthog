@@ -383,7 +383,15 @@ export function WebsiteLayout() {
       ? "Space"
       : "Channel";
 
-  const isDashboardDetail = Boolean(channelId && dashboardId);
+  // Same query the canvas view branches on, so the toolbar disappears alongside a canvas the
+  // project doesn't have. Otherwise the not-found screen renders under its breadcrumb and a
+  // live Edit / Pin / Delete row acting on a record that was never fetched.
+  const { dashboard: toolbarCanvas, isLoading: toolbarCanvasLoading } =
+    useDashboard(dashboardId);
+  const canvasMissing =
+    Boolean(dashboardId) && !toolbarCanvasLoading && !toolbarCanvas;
+
+  const isDashboardDetail = Boolean(channelId && dashboardId) && !canvasMissing;
   // The canvases grid (its own sub-route now that the channel index is the
   // static homepage, which carries its own header content).
   const isDashboardsGrid =

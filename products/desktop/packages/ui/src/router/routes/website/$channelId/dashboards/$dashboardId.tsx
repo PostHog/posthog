@@ -13,6 +13,6 @@ export const Route = createFileRoute(
 });
 
 function DashboardRoute() {
-  const { dashboardId } = Route.useParams();
-  return <WebsiteDashboard dashboardId={dashboardId} />;
+  const { channelId, dashboardId } = Route.useParams();
+  return <WebsiteDashboard dashboardId={dashboardId} channelId={channelId} />;
 }
