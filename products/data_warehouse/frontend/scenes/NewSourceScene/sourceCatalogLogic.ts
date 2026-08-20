@@ -1057,6 +1057,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Podium'
                       | 'Polar'
                       | 'Polygon'
+                      | 'Polymarket'
                       | 'Poplar'
                       | 'Postgres'
                       | 'Postmark'

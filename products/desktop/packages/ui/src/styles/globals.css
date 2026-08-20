@@ -1429,6 +1429,18 @@ body.ph-window-blurred .app-fade-in {
 }
 
 /*
+ * @posthog/quill toast — the pinned version sets `user-select: none` on the whole card, so an
+ * error message cannot be selected and copied out of the app at all. Quill carries the same rule
+ * now, plus `data-base-ui-swipe-ignore` on the message so a drag there selects instead of swiping
+ * the toast away, which CSS alone cannot do. Drop this block once the catalog version ships it.
+ */
+.quill-toast-card__title,
+.quill-toast-card__description {
+  cursor: text;
+  user-select: text;
+}
+
+/*
  * @posthog/quill Dialog — make the backdrop visible against this app's
  * dark theme (Quill defaults to opacity-20/dark:opacity-70 which barely
  * shows), and center the popup vertically (Quill anchors to ~10vh).

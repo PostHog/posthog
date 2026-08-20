@@ -52,9 +52,8 @@ from products.dashboards.backend.api.dashboard import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
-from products.product_analytics.backend.api.insight import InsightSerializer
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.product_analytics.backend.presentation.insight import InsightSerializer
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -708,7 +707,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["attr"], "grid_spacing")
 
-    @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
+    @patch("products.product_analytics.backend.presentation.insight.record_dashboard_cache_outcome")
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_update_dashboard_does_not_record_cache_outcomes(
         self,

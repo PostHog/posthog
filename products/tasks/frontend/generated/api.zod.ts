@@ -2680,6 +2680,32 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
     .describe('JSON-RPC request to send a command to the agent server in the sandbox.')
 
 /**
+ * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
+ * @summary Send a message to a peer agent run
+ */
+export const tasksRunsPeersMessageCreateBodyContentMax = 16000
+
+export const tasksRunsPeersMessageCreateBodyArtifactIdsItemMax = 128
+
+export const tasksRunsPeersMessageCreateBodyArtifactIdsMax = 10
+
+export const TasksRunsPeersMessageCreateBody = /* @__PURE__ */ zod.object({
+    content: zod
+        .string()
+        .max(tasksRunsPeersMessageCreateBodyContentMax)
+        .describe(
+            'Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.'
+        ),
+    artifact_ids: zod
+        .array(zod.string().max(tasksRunsPeersMessageCreateBodyArtifactIdsItemMax))
+        .max(tasksRunsPeersMessageCreateBodyArtifactIdsMax)
+        .optional()
+        .describe(
+            "Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot."
+        ),
+})
+
+/**
  * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
  * @summary Relay run message to Slack
  */
