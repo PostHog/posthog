@@ -17,10 +17,12 @@ from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from openpyxl import load_workbook
+from parameterized import parameterized
 from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
+from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.utils import UUIDT
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.settings import (
@@ -120,6 +122,7 @@ class TestCSVExporter(APIBaseTest):
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
             export_context={"path": "/api/literally/anything", **extra_context},
+            source_authentication=ExportedAsset.SourceAuthentication.TRUSTED_SYSTEM,
         )
         asset.save()
         return asset
@@ -345,6 +348,38 @@ class TestCSVExporter(APIBaseTest):
 
             with pytest.raises(Exception, match="HTTP 403 Forbidden"):
                 csv_exporter.export_tabular(exported_asset)
+
+    @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
+    def test_legacy_api_export_delegates_source_personal_api_key(self, patched_api_call: MagicMock) -> None:
+        exported_asset = self._create_asset()
+        exported_asset.source_authentication = ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
+        exported_asset.source_personal_api_key_id = "source-key-id"
+        response = Mock()
+        response.json.return_value = {"next": None, "results": []}
+        patched_api_call.return_value = response
+
+        csv_exporter.export_tabular(exported_asset)
+
+        access_token = patched_api_call.call_args.args[0]
+        claims = decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
+        assert claims["personal_api_key_id"] == "source-key-id"
+
+    def test_legacy_api_export_rejects_missing_authentication_source(self) -> None:
+        exported_asset = self._create_asset()
+        exported_asset.source_authentication = None
+
+        with pytest.raises(ValueError, match="no trusted authentication source"):
+            csv_exporter.export_tabular(exported_asset)
+
+    @parameterized.expand(
+        [
+            ("method", {"method": "POST"}),
+            ("body", {"body": {"value": "payload"}}),
+        ]
+    )
+    def test_legacy_api_export_rejects_mutating_requests(self, _name: str, extra_context: dict[str, Any]) -> None:
+        with pytest.raises(ValueError, match="only support GET requests without a body"):
+            csv_exporter.export_tabular(self._create_asset(extra_context))
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:
@@ -1621,6 +1656,7 @@ class TestCSVExporter(APIBaseTest):
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.XLSX,
                 export_context={"path": "/api/test/endpoint"},
+                source_authentication=ExportedAsset.SourceAuthentication.TRUSTED_SYSTEM,
             )
             exported_asset.save()
             mocked_uuidt.return_value = "a-guid"

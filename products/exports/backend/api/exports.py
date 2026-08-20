@@ -18,6 +18,7 @@ from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttri
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.event_usage import EventSource, get_event_source, groups
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -118,6 +119,10 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         export_context = data.get("export_context") or {}
+        if export_context.get("path") and (
+            str(export_context.get("method", "GET")).upper() != "GET" or export_context.get("body") is not None
+        ):
+            raise ValidationError({"export_context": ["API path exports only support GET requests without a body."]})
         # Truthiness, not `is not None`: an absent or empty id is a no-op everywhere downstream,
         # and rejecting it here would 400 exports that never touch a recording.
         session_recording_id = export_context.get("session_recording_id")
@@ -195,6 +200,17 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
+        authenticator = request.successful_authenticator
+        if isinstance(authenticator, PersonalAPIKeyAuthentication):
+            validated_data["source_authentication"] = ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
+            validated_data["source_personal_api_key_id"] = authenticator.personal_api_key.id
+        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+            validated_data["source_authentication"] = ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
+            validated_data["source_oauth_access_token_id"] = str(authenticator.access_token.id)
+        elif isinstance(authenticator, SessionAuthentication):
+            validated_data["source_authentication"] = ExportedAsset.SourceAuthentication.SESSION
+        elif (validated_data.get("export_context") or {}).get("path"):
+            raise ValidationError({"export_context": ["API path exports do not support this authentication method."]})
         self._assert_may_export_session_recording(validated_data)
         return self._create_asset(validated_data, user=request.user, reason=None)
 

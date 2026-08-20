@@ -718,6 +718,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     "filename": filename,
                 },
                 created_by=request.user,
+                source_authentication=ExportedAsset.SourceAuthentication.TRUSTED_SYSTEM,
             )
 
             exporter.export_asset.delay(exported_asset.id)

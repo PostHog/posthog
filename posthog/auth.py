@@ -483,9 +483,12 @@ class JwtAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    personal_api_key: PersonalAPIKey | None = None
+    oauth_access_token: OAuthAccessToken | None = None
 
-    @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        self.personal_api_key = None
+        self.oauth_access_token = None
         with tracer.start_as_current_span("posthog.auth.jwt"):
             if "authorization" in request.headers:
                 authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
@@ -494,7 +497,38 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
+                        personal_api_key_id = info.get("personal_api_key_id")
+                        if personal_api_key_id:
+                            try:
+                                self.personal_api_key = PersonalAPIKey.objects.get(
+                                    id=personal_api_key_id,
+                                    user_id=user.id,
+                                    user__is_active=True,
+                                )
+                            except PersonalAPIKey.DoesNotExist as error:
+                                raise AuthenticationFailed(
+                                    detail="Source personal API key is no longer valid."
+                                ) from error
+                        oauth_access_token_id = info.get("oauth_access_token_id")
+                        if oauth_access_token_id:
+                            try:
+                                self.oauth_access_token = OAuthAccessToken.objects.select_related(
+                                    "user", "application"
+                                ).get(
+                                    id=oauth_access_token_id,
+                                    user_id=user.id,
+                                    user__is_active=True,
+                                    application__isnull=False,
+                                    expires__gt=timezone.now(),
+                                )
+                            except OAuthAccessToken.DoesNotExist as error:
+                                raise AuthenticationFailed(
+                                    detail="Source OAuth access token is no longer valid."
+                                ) from error
+                            OAuthAccessTokenAuthentication()._enforce_toolbar_access(self.oauth_access_token)
                         return (user, None)
+                    except AuthenticationFailed:
+                        raise
                     except jwt.DecodeError:
                         # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
                         return None

@@ -403,9 +403,27 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
     path: str = resource["path"]
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)
+    if method.upper() != "GET" or body is not None:
+        raise ValueError("API path exports only support GET requests without a body.")
+    if exported_asset.source_authentication is None:
+        raise ValueError("API path export has no trusted authentication source.")
     next_url = None
+    token_payload: dict[str, Any] = {"id": exported_asset.created_by_id}
+    if exported_asset.source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
+        if not exported_asset.source_personal_api_key_id:
+            raise ValueError("API path export is missing its source personal API key.")
+        token_payload["personal_api_key_id"] = exported_asset.source_personal_api_key_id
+    elif exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN:
+        if not exported_asset.source_oauth_access_token_id:
+            raise ValueError("API path export is missing its source OAuth access token.")
+        token_payload["oauth_access_token_id"] = exported_asset.source_oauth_access_token_id
+    elif exported_asset.source_authentication not in {
+        ExportedAsset.SourceAuthentication.SESSION,
+        ExportedAsset.SourceAuthentication.TRUSTED_SYSTEM,
+    }:
+        raise ValueError("API path export has an unsupported authentication source.")
     access_token = encode_jwt(
-        {"id": exported_asset.created_by_id},
+        token_payload,
         datetime.timedelta(minutes=15),
         PosthogJwtAudience.IMPERSONATED_USER,
     )

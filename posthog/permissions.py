@@ -17,6 +17,7 @@ from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
+    JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -618,6 +619,10 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     did, one path could grant access while the other skipped its check."""
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return list(authenticator.personal_api_key.scopes or [])
+    if isinstance(authenticator, JwtAuthentication) and authenticator.personal_api_key is not None:
+        return list(authenticator.personal_api_key.scopes or [])
+    if isinstance(authenticator, JwtAuthentication) and authenticator.oauth_access_token is not None:
+        return str(authenticator.oauth_access_token.scope or "").split()
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         # OAuth tokens store scopes as a space-separated string.
         return str(authenticator.access_token.scope or "").split()
@@ -637,6 +642,10 @@ def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None
     """
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return list(authenticator.personal_api_key.scoped_organizations or []) or None
+    if isinstance(authenticator, JwtAuthentication) and authenticator.personal_api_key is not None:
+        return list(authenticator.personal_api_key.scoped_organizations or []) or None
+    if isinstance(authenticator, JwtAuthentication) and authenticator.oauth_access_token is not None:
+        return list(authenticator.oauth_access_token.scoped_organizations or []) or None
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         return list(authenticator.access_token.scoped_organizations or []) or None
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
@@ -658,6 +667,10 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     """
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return list(authenticator.personal_api_key.scoped_teams or []) or None
+    if isinstance(authenticator, JwtAuthentication) and authenticator.personal_api_key is not None:
+        return list(authenticator.personal_api_key.scoped_teams or []) or None
+    if isinstance(authenticator, JwtAuthentication) and authenticator.oauth_access_token is not None:
+        return list(authenticator.oauth_access_token.scoped_teams or []) or None
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         return list(authenticator.access_token.scoped_teams or []) or None
     return None
@@ -782,7 +795,10 @@ class APIScopePermission(ScopeBasePermission):
         authenticator = request.successful_authenticator
         if not isinstance(
             authenticator,
-            OAuthAccessTokenAuthentication | PersonalAPIKeyAuthentication | IDJagAccessTokenAuthentication,
+            OAuthAccessTokenAuthentication
+            | PersonalAPIKeyAuthentication
+            | JwtAuthentication
+            | IDJagAccessTokenAuthentication,
         ):
             raise ValueError("Unexpected authentication type")
 
@@ -821,7 +837,11 @@ class APIScopePermission(ScopeBasePermission):
         Admins can always use personal API keys regardless of the organization setting.
         """
         # Only applies to personal API keys — OAuth tokens are exempt.
-        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+        authenticator = request.successful_authenticator
+        is_personal_api_key = isinstance(authenticator, PersonalAPIKeyAuthentication) or (
+            isinstance(authenticator, JwtAuthentication) and authenticator.personal_api_key is not None
+        )
+        if not is_personal_api_key:
             return
 
         try:

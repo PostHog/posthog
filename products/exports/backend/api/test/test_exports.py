@@ -20,10 +20,14 @@ from rest_framework import status
 from posthog.hogql.errors import QueryError
 
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.filters.filter import Filter
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings import (
     HOGQL_INCREASED_MAX_EXECUTION_TIME,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -96,6 +100,181 @@ class TestExports(APIBaseTest):
         cls.exported_asset = ExportedAsset.objects.create(
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png", created_by=cls.user
         )
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_personal_api_key_export_keeps_source_authorization(self, mock_exporter_task) -> None:
+        token = generate_random_token_personal()
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="restricted export key",
+            secure_value=hash_key_value(token),
+            scopes=["export:write"],
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports/",
+            {
+                "export_format": "text/csv",
+                "export_context": {"path": f"/api/projects/{self.team.id}/persons/"},
+            },
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
+        assert exported_asset.source_personal_api_key_id == personal_api_key.id
+        mock_exporter_task.assert_called_once()
+
+    def test_export_worker_jwt_cannot_exceed_source_personal_api_key_scope(self) -> None:
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="restricted export key",
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["export:write"],
+            scoped_teams=[self.team.id],
+        )
+        worker_token = encode_jwt(
+            {"id": self.user.id, "personal_api_key_id": personal_api_key.id},
+            timedelta(minutes=15),
+            PosthogJwtAudience.IMPERSONATED_USER,
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {"target_email": "security-test@example.com", "level": 8, "send_email": False},
+            HTTP_AUTHORIZATION=f"Bearer {worker_token}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_oauth_export_keeps_source_authorization(self, mock_exporter_task) -> None:
+        application = OAuthApplication.objects.create(
+            name="Export test",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_export_test_token",
+            expires=now() + timedelta(hours=1),
+            scope="export:write",
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports/",
+            {
+                "export_format": "text/csv",
+                "export_context": {"path": f"/api/projects/{self.team.id}/persons/"},
+            },
+            HTTP_AUTHORIZATION=f"Bearer {access_token.token}",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
+        assert exported_asset.source_oauth_access_token_id == str(access_token.id)
+        mock_exporter_task.assert_called_once()
+
+    def test_export_worker_jwt_cannot_exceed_source_oauth_scope(self) -> None:
+        application = OAuthApplication.objects.create(
+            name="Export test",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_export_worker_test_token",
+            expires=now() + timedelta(hours=1),
+            scope="export:write",
+            scoped_teams=[self.team.id],
+        )
+        worker_token = encode_jwt(
+            {"id": self.user.id, "oauth_access_token_id": str(access_token.id)},
+            timedelta(minutes=15),
+            PosthogJwtAudience.IMPERSONATED_USER,
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {"target_email": "security-test@example.com", "level": 8, "send_email": False},
+            HTTP_AUTHORIZATION=f"Bearer {worker_token}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_api_path_export_rejects_mutating_requests(self, mock_exporter_task) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports/",
+            {
+                "export_format": "text/csv",
+                "export_context": {
+                    "path": f"/api/organizations/{self.organization.id}/invites/",
+                    "method": "POST",
+                    "body": {"target_email": "security-test@example.com", "level": 8},
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_exporter_task.assert_not_called()
+
+    def test_export_worker_jwt_fails_after_source_personal_api_key_is_revoked(self) -> None:
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="revoked export key",
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["export:write"],
+        )
+        worker_token = encode_jwt(
+            {"id": self.user.id, "personal_api_key_id": personal_api_key.id},
+            timedelta(minutes=15),
+            PosthogJwtAudience.IMPERSONATED_USER,
+        )
+        personal_api_key.delete()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/exports/",
+            HTTP_AUTHORIZATION=f"Bearer {worker_token}",
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_export_worker_jwt_cannot_exceed_source_personal_api_key_project_restriction(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="project-restricted export key",
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
+            scoped_teams=[self.team.id],
+        )
+        worker_token = encode_jwt(
+            {"id": self.user.id, "personal_api_key_id": personal_api_key.id},
+            timedelta(minutes=15),
+            PosthogJwtAudience.IMPERSONATED_USER,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/exports/",
+            HTTP_AUTHORIZATION=f"Bearer {worker_token}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
