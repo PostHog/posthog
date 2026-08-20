@@ -36,7 +36,7 @@ export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
     target_type: zod
         .enum(['email', 'slack', 'teams'])
         .optional()
-        .describe('Filter by delivery channel (email or Slack).'),
+        .describe('Filter by delivery channel: email, Slack, or Microsoft Teams.'),
 })
 
 export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({

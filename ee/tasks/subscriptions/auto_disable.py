@@ -26,7 +26,8 @@ class DisableReason(NamedTuple):
     key: str
     # Shown in the disabled-subscription email body and the activity's recipient_results.
     description: str
-    # Re-enable rejection message surfaced by the API serializer; `{target_type}` is interpolated.
+    # Re-enable rejection message surfaced by the API serializer; `{target_type}` is interpolated
+    # with the channel's display label, so it reads "Microsoft Teams" rather than "teams".
     user_message: str
 
 
@@ -47,8 +48,8 @@ SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
 )
 WEBHOOK_REJECTED_DISABLE_REASON = DisableReason(
     key="webhook_rejected",
-    description="The destination stopped accepting messages",
-    user_message="Cannot re-enable {target_type} subscription: the destination stopped accepting messages. Create a new webhook URL in your channel, update this subscription with it, then try again.",
+    description="Microsoft Teams stopped accepting messages",
+    user_message="Cannot re-enable {target_type} subscription: Microsoft Teams stopped accepting messages. Create a new webhook URL in your Teams channel with the Workflows app, update this subscription with it, then try again.",
 )
 AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
     key="ai_prompt_invalid",
@@ -75,12 +76,22 @@ def get_subscription_disable_reason(target_type: str | None, integration_id: int
     return None
 
 
+def target_type_label(target_type: str | None) -> str:
+    if not target_type:
+        return ""
+    try:
+        return Subscription.SubscriptionTarget(target_type).label
+    except ValueError:
+        # A legacy or removed target still has to render something in the rejection message.
+        return target_type
+
+
 def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
     """API-serializer wrapper — returns the user-facing rejection message, or None if re-enable is OK."""
     reason = get_subscription_disable_reason(target_type, integration_id)
     if reason is None:
         return None
-    return reason.user_message.format(target_type=target_type)
+    return reason.user_message.format(target_type=target_type_label(target_type))
 
 
 def _get_notification_creator(subscription: Subscription) -> User | None:
@@ -165,7 +176,7 @@ def create_subscription_auto_disabled_notification(subscription: Subscription, r
             title=f"{title[:75]} was automatically disabled",
             body=(
                 f"PostHog automatically disabled this subscription because {reason.description.lower()}. "
-                f"{reason.user_message.format(target_type=subscription.target_type)}"
+                f"{reason.user_message.format(target_type=target_type_label(subscription.target_type))}"
             ),
             target_type=TargetType.USER,
             target_id=str(creator.id),
@@ -202,7 +213,7 @@ def send_notifications_for_disabled_subscription(
             "subscription_url": subscription.url,
             "subscription_title": display_name,
             "reason": reason.description,
-            "action_message": reason.user_message.format(target_type=subscription.target_type),
+            "action_message": reason.user_message.format(target_type=target_type_label(subscription.target_type)),
         },
     )
     for target in targets:

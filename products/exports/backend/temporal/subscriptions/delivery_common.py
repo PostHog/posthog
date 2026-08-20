@@ -45,9 +45,7 @@ _MAX_ERROR_DETAIL_RESULTS = 50
 _WEBHOOK_TIMEOUT_SECONDS = (5.0, 30.0)
 # What a deleted or revoked Power Automate flow answers with. Retrying cannot recover any of them.
 _PERMANENT_WEBHOOK_STATUSES = frozenset({403, 404, 410})
-_WEBHOOK_UNREACHABLE_MESSAGE = (
-    "We couldn't reach the destination URL. PostHog will try again on the next scheduled run."
-)
+_WEBHOOK_UNREACHABLE_MESSAGE = "We couldn't reach your Teams channel. PostHog will try again on the next scheduled run."
 # Webhook sends get their own small pool rather than the event loop's default executor, which also
 # serves every database_sync_to_async call and every async log line in this worker. `requests`
 # applies its read timeout per socket read, so a destination that trickles bytes holds its thread
@@ -227,7 +225,7 @@ async def deliver_webhook(
         recipient=recipient,
         message=f"Webhook destination returned HTTP {status}",
         error_type="webhook_http_error",
-        human_readable_error=f"The destination returned an error (HTTP {status}).",
+        human_readable_error=f"Microsoft Teams returned an error (HTTP {status}).",
         non_retryable=not (status == 429 or status >= 500),
     )
 

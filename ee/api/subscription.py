@@ -979,7 +979,7 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 enum=[m.value for m in Subscription.SubscriptionTarget],
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by delivery channel (email or Slack).",
+                description="Filter by delivery channel: email, Slack, or Microsoft Teams.",
             ),
             OpenApiParameter(
                 name="insight",
@@ -1356,8 +1356,13 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "idempotency_key": {"help_text": "Dedupes activity retries for the same logical run."},
             "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, subscription update)."},
             "scheduled_at": {"help_text": "Planned send time when applicable."},
-            "target_type": {"help_text": "Channel snapshot at send time (email or slack)."},
-            "target_value": {"help_text": "Destination snapshot at send time (emails, channel id, URL)."},
+            "target_type": {"help_text": "Channel snapshot at send time: email, slack, or teams."},
+            "target_value": {
+                "help_text": (
+                    "Destination snapshot at send time: the email list, the Slack channel id, or the "
+                    "host of the Microsoft Teams webhook. The webhook URL itself is never returned."
+                )
+            },
             "exported_asset_ids": {"help_text": "ExportedAsset ids generated for this send."},
             "content_snapshot": {
                 "help_text": (

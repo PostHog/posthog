@@ -489,9 +489,9 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly scheduled_at: string | null
-    /** Channel snapshot at send time (email or slack). */
+    /** Channel snapshot at send time: email, slack, or teams. */
     readonly target_type: string
-    /** Destination snapshot at send time (emails, channel id, URL). */
+    /** Destination snapshot at send time: the email list, the Slack channel id, or the host of the Microsoft Teams webhook. The webhook URL itself is never returned. */
     readonly target_value: string
     /**
      * ExportedAsset ids generated for this send.
@@ -593,7 +593,7 @@ export type SubscriptionsListParams = {
      */
     search?: string
     /**
-     * Filter by delivery channel (email or Slack).
+     * Filter by delivery channel: email, Slack, or Microsoft Teams.
      */
     target_type?: SubscriptionsListTargetType
 }
