@@ -25,6 +25,10 @@ describe('taskAgentDefaultsLogic', () => {
                     posted.push(await request.json())
                     return [200, { ai_run_preferences: null, resolved_ai_run_defaults: null }]
                 },
+                '/api/projects/:team_id/tasks/config/': async ({ request }) => {
+                    const body = await request.json()
+                    return [200, { ai_run_preferences: body }]
+                },
             },
         })
     }
@@ -47,9 +51,12 @@ describe('taskAgentDefaultsLogic', () => {
     it('clears the stored preference and drops back to the project default', async () => {
         useConfigMocks({ runtime_adapter: 'claude', model: 'claude-opus-5', reasoning_effort: 'high' })
         mount()
-        await expectLogic(logic).toDispatchActions(['loadMyConfigSuccess']).toMatchValues({
-            canResetMyPreference: true,
-        })
+        await expectLogic(logic)
+            .toDispatchActions(['loadMyConfigSuccess'])
+            .toMatchValues({
+                canResetMyPreference: true,
+                myDraft: { model: 'claude-opus-5', reasoning_effort: 'high' },
+            })
 
         logic.actions.resetMyPreference()
 
@@ -77,5 +84,28 @@ describe('taskAgentDefaultsLogic', () => {
         // An unsaved pick is resettable too: reset discards it as well as anything stored.
         logic.actions.setMyDraft({ model: 'claude-opus-5' })
         await expectLogic(logic).toMatchValues({ canResetMyPreference: true, myDraftDirty: true })
+    })
+
+    // Saving the project default refetches the personal config; that load result used to
+    // overwrite whatever the person was editing in the other card, and the Save button then
+    // read "No changes to save" over the silently discarded pick.
+    it('keeps an in-progress personal edit across the refetch a project save triggers', async () => {
+        useConfigMocks(null)
+        mount()
+        await expectLogic(logic).toDispatchActions(['loadMyConfigSuccess'])
+
+        logic.actions.setMyDraft({ model: 'claude-opus-5' })
+        logic.actions.setTeamDraft({ model: 'claude-fable-5' })
+        logic.actions.submitTeamDraft()
+
+        // Anchor on submitTeamDraft so the matched loadMyConfigSuccess is the refetch,
+        // not the mount-time load already in the action history.
+        await expectLogic(logic)
+            .toDispatchActions(['submitTeamDraft', 'saveTeamPreferencesSuccess', 'loadMyConfigSuccess'])
+            .toFinishAllListeners()
+            .toMatchValues({
+                myDraft: { model: 'claude-opus-5', reasoning_effort: null },
+                myDraftDirty: true,
+            })
     })
 })
