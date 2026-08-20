@@ -427,8 +427,9 @@ def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
 
 
 def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
-    """Determine field type from BSON types."""
-    # If multiple types exist, prioritize based on hierarchy
+    # A field sampled across documents can hold several BSON types. This returns one type by walking
+    # the fixed precedence list below and taking the first present, not a type that fits every
+    # observed value: a field mixing int and string resolves to integer, because int outranks string.
     type_priority = {
         "objectId": "string",
         "string": "string",

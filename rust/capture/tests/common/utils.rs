@@ -47,6 +47,18 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     global_rate_limit_token_distinctid_threshold: 10_000,
     global_rate_limit_token_distinctid_overrides_csv: None,
     global_rate_limit_token_distinctid_local_cache_max_entries: 300_000,
+    // Integration tests assert on exact limiter behavior at a threshold of
+    // 10_000, so every key syncs and every tick drains fully.
+    global_rate_limit_min_sync_floor: 0,
+    global_rate_limit_max_sync_keys_per_tick: 20_000,
+    global_rate_limit_max_keys_per_command: 2_000,
+    global_rate_limit_max_concurrent_commands: 4,
+    global_rate_limit_max_write_batch_entries: 200_000,
+    global_rate_limit_max_pending_sync_entries: 200_000,
+    global_rate_limit_local_cache_ttl_secs: 600,
+    global_rate_limit_local_cache_idle_timeout_secs: 300,
+    global_rate_limit_read_timeout_ms: 250,
+    global_rate_limit_write_timeout_ms: 250,
     global_rate_limit_token_threshold: 300_000,
     global_rate_limit_token_overrides_csv: None,
     global_rate_limit_token_local_cache_max_entries: 300_000,
@@ -152,12 +164,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
-    continuous_profiling: ContinuousProfilingConfig {
-        continuous_profiling_enabled: false,
-        pyroscope_server_address: String::new(),
-        pyroscope_application_name: String::new(),
-        pyroscope_sample_rate: 100,
-    },
+    continuous_profiling: ContinuousProfilingConfig::default(),
     capture_v1_sinks: String::new(),
     capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
     capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,

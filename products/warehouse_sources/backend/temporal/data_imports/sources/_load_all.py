@@ -34,6 +34,7 @@ from .airbyte.source import AirbyteSource
 from .aircall.source import AircallSource
 from .airops.source import AirOpsSource
 from .airtable.source import AirtableSource
+from .airwallex.source import AirwallexSource
 from .aiven.source import AivenSource
 from .akamai_reporting.source import AkamaiReportingSource
 from .akeneo.source import AkeneoSource
@@ -911,6 +912,7 @@ from .podbean.source import PodbeanSource
 from .podium.source import PodiumSource
 from .polar.source import PolarSource
 from .polygon.source import PolygonSource
+from .polymarket.source import PolymarketSource
 from .poplar.source import PoplarSource
 from .postgres.source import PostgresSource
 from .postmark.source import PostmarkSource
@@ -928,6 +930,7 @@ from .procore.source import ProcoreSource
 from .productboard.source import ProductboardSource
 from .productiv.source import ProductivSource
 from .productive.source import ProductiveSource
+from .profound.source import ProfoundSource
 from .prompting_company.source import PromptingCompanySource
 from .promptwatch.source import PromptWatchSource
 from .proofpoint_tap.source import ProofpointTapSource
