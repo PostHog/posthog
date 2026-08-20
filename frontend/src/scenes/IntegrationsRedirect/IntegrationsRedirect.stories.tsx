@@ -17,8 +17,6 @@ export default meta
 
 type Story = StoryObj<typeof IntegrationsRedirect>
 
-export const Connecting: Story = {}
-
 // The callback stalled: the scene stops spinning and offers a way back to integration settings.
 export const TimedOut: Story = {
     decorators: [
