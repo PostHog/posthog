@@ -18,6 +18,7 @@ import {
   ProhibitIcon,
   QuestionIcon,
   SquaresFourIcon,
+  UserSwitchIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import type { CommentScope } from "@posthog/api-client/posthog-client";
@@ -253,6 +254,7 @@ const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
   pr_merged: "violet",
   pr_closed: "red",
   message_forwarded: "neutral",
+  task_handed_off: "blue",
 };
 
 /** No glyph here is itself a circle: a ring inside a ring reads as a mistake at this size,
@@ -271,6 +273,7 @@ const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
   pr_merged: <GitMergeIcon size={11} />,
   pr_closed: <ProhibitIcon size={11} />,
   message_forwarded: <PaperPlaneTiltIcon size={9} weight="fill" />,
+  task_handed_off: <UserSwitchIcon size={11} />,
 };
 
 function eventLabel(
@@ -355,6 +358,17 @@ function eventLabel(
         : "Comment thread reopened";
     case "message_forwarded":
       return "Message sent to the agent";
+    case "task_handed_off": {
+      const { fromDisplayName, toDisplayName } = event.payload;
+      return (
+        <>
+          {fromDisplayName
+            ? `${fromDisplayName} handed the task off to `
+            : "Task handed off to "}
+          <span className="font-medium">{toDisplayName}</span>
+        </>
+      );
+    }
   }
 }
 

@@ -152,6 +152,24 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     );
   });
 
+  it("offers Hand off only to callers that mark it available", async () => {
+    // Ownership transfer is irreversible from the actor's side, so the item
+    // must never appear for a viewer who could only ever 404 it.
+    const owner = new FakeContextMenu();
+    const handedOff = makeService(owner).showTaskContextMenu({
+      ...baseTask,
+      canHandoff: true,
+    });
+    await owner.shown;
+    findItem(owner.lastItems, "Hand off…").click();
+    expect(await handedOff).toEqual({ action: { type: "handoff" } });
+
+    const viewer = new FakeContextMenu();
+    makeService(viewer).showTaskContextMenu(baseTask);
+    await viewer.shown;
+    expect(labels(viewer.lastItems)).not.toContain("Hand off…");
+  });
+
   it("can hide Archive prior tasks for task lists without that action", async () => {
     const menu = new FakeContextMenu();
     makeService(menu).showTaskContextMenu({

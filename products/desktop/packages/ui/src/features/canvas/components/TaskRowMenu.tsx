@@ -9,6 +9,7 @@ import {
   SquaresFourIcon,
   StopCircle,
   TrashIcon,
+  UserSwitchIcon,
 } from "@phosphor-icons/react";
 import { sessionsLabel } from "@posthog/core/sidebar/selection";
 import {
@@ -64,6 +65,8 @@ export interface TaskRowMenuProps {
   /** Tasks are archived; canvases are deleted (with an undo window). */
   onArchive?: () => void;
   onDelete?: () => void;
+  /** Owner-only: handing a task to a colleague needs a confirm dialog. */
+  onHandoff?: () => void;
 }
 
 // The two menus differ only in which primitives draw them, so the item list is
@@ -170,6 +173,12 @@ function TaskRowMenuItems({
             />
           </MenuSubFlyout>
         </Sub>
+      )}
+      {isTask && menu.onHandoff && (
+        <Item onClick={menu.onHandoff}>
+          <UserSwitchIcon size={14} />
+          Hand off…
+        </Item>
       )}
       {menu.onArchive && (
         <Item onClick={menu.onArchive}>
