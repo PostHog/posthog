@@ -5352,9 +5352,15 @@ def handoff_task(
     recipient's ``#me`` so they can actually open what's now theirs. Public
     channels stay put — both sides keep the shared view.
 
+    Only the owner can hand a task off: ``task_control_q`` also grants control
+    over team-owned origin products, and giving a task away is stricter than
+    driving it. The recipient must be an org member WITH access to this project
+    (``all_users_with_access`` honors private-project access control), otherwise
+    they'd end up owning a task they can't even open.
+
     Returns the updated task detail, or ``None`` when the actor can't control the
-    task (same contract as ``update_task``). Raises ``TaskHandoffError`` for
-    invalid targets (not an org member, or the current owner).
+    task or no longer owns it. Raises ``TaskHandoffError`` for invalid targets
+    (not a member with project access, or the current owner).
 
     All task runs must be terminal before a handoff. This prevents work started
     by the previous owner from later resolving credentials for the recipient.
@@ -5362,10 +5368,11 @@ def handoff_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    if user_id is None or task.created_by_id != user_id:
+        return None
     if task.created_by_id == target_user_id:
         raise TaskHandoffError("That person already owns this task.")
-    # Organization.members sets related_query_name="organization" (singular) for User filters.
-    target = User.objects.filter(id=target_user_id, organization__team__id=team_id).first()
+    target = task.team.all_users_with_access().filter(id=target_user_id).first()
     if target is None:
         raise TaskHandoffError("Tasks can only be handed off to a member of this project.")
 
@@ -5375,6 +5382,10 @@ def handoff_task(
     target_name = target.first_name.strip() or target.email
     with transaction.atomic():
         locked = Task.objects.select_for_update().get(pk=task.pk)
+        # Under the lock: two concurrent handoffs settle last-writer-loses
+        # instead of double-announcing and rerouting mid-flight.
+        if locked.created_by_id != previous_owner_id:
+            raise TaskHandoffError("Someone else has already handed this task off. Refresh and try again.")
         if (
             TaskRun.objects.filter(task_id=locked.id, team_id=team_id)
             .exclude(status__in=[TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
@@ -5422,7 +5433,9 @@ def handoff_task(
         project_thread_message_activity(message)
     except Exception:
         logger.exception("Failed to project handoff thread activity", extra={"task_id": str(task_id)})
-    from products.tasks.backend.push_dispatcher import notify_task_handoff  # noqa: PLC0415
+    from products.tasks.backend.push_dispatcher import (
+        notify_task_handoff,  # noqa: PLC0415 — optional push dep stays off the import path
+    )
 
     notify_task_handoff(locked, recipient=target, actor=actor)
     # Task.capture_event would attribute to the new owner (it keys on created_by);

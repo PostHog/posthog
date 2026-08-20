@@ -9343,6 +9343,38 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertEqual(task.created_by_id, self.user.id)
 
+    def test_handoff_by_non_owner_of_team_origin_task_returns_404(self):
+        # task_control_q lets any project user DRIVE team-owned system tasks (origin
+        # product fallbacks); handing off is stricter: only the owner can give a task
+        # away, and a task with no owner has nobody who may hand it off.
+        system_task = Task.objects.create(
+            team=self.team,
+            title="Signal brief",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+            created_by=None,
+        )
+        colleague = self.create_organization_user("colleague")
+
+        response = self.client.post(self._handoff_url(system_task), {"user": colleague.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        system_task.refresh_from_db()
+        self.assertIsNone(system_task.created_by_id)
+
+    def test_handoff_rejects_recipient_without_project_access(self):
+        # Org membership alone isn't project access (private projects under access
+        # control): the recipient must pass the same check that decides what they can
+        # open, otherwise they'd end up owning a task they can't see.
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+
+        with patch.object(Team, "all_users_with_access", return_value=User.objects.none()):
+            response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
     def test_handoff_strips_borrowed_mcp_credential_owner(self):
         recipient = self.create_organization_user("recipient")
         task = self.create_task(created_by=self.user)
