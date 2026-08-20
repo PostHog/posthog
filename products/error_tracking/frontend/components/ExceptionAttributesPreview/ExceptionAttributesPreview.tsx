@@ -4,8 +4,6 @@ import { IconBug, IconCheckCircle, IconSparkles, IconWarning } from '@posthog/ic
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { ExceptionAttributes } from 'lib/components/Errors/types'
-import { concatValues } from 'lib/components/Errors/utils'
-import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 
 export interface ExceptionAttributesPreviewProps {
     attributes: ExceptionAttributes | null
@@ -46,18 +44,6 @@ export function ExceptionAttributesPreview({
                                     <LemonTag className="gap-1.5 bg-fill-primary">
                                         <IconSparkles />
                                         Synthetic
-                                    </LemonTag>
-                                ) : null}
-                                {attributes.browser ? (
-                                    <LemonTag className="gap-1.5 bg-fill-primary">
-                                        <PropertyIcon property="$browser" value={attributes.browser} />
-                                        <span>{concatValues(attributes, 'browser', 'browserVersion')}</span>
-                                    </LemonTag>
-                                ) : null}
-                                {attributes.os ? (
-                                    <LemonTag className="gap-1.5 bg-fill-primary">
-                                        <PropertyIcon property="$os" value={attributes.os} />
-                                        <span>{concatValues(attributes, 'os', 'osVersion')}</span>
                                     </LemonTag>
                                 ) : null}
                             </>
