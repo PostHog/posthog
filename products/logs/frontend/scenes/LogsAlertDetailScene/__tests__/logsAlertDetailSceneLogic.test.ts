@@ -75,6 +75,7 @@ jest.mock('products/logs/frontend/generated/api', () => ({
     logsAlertsSimulateCreate: jest.fn(),
     logsAlertsDestinationsCreate: jest.fn(),
     logsAlertsDestinationsDeleteCreate: jest.fn(),
+    logsAlertsDestinationsList: jest.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
 }))
 
 jest.mock('@posthog/lemon-ui', () => ({

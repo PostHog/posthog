@@ -48,7 +48,7 @@ function LogsAlertEditModalContent({
         logsAlertFormLogic(formLogicProps)
     )
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
-    const { destinationGroups } = useValues(logsAlertNotificationLogic(notificationLogicProps))
+    const { existingDestinations } = useValues(logsAlertNotificationLogic(notificationLogicProps))
     const { snoozingAlertIds } = useValues(logsAlertingLogic)
     const { deleteAlert, snoozeAlertUntil, toggleAlertEnabled, unsnoozeAlert } = useActions(logsAlertingLogic)
     const nameError = alertFormErrors.name as string | undefined
@@ -66,8 +66,8 @@ function LogsAlertEditModalContent({
     const summary: AlertSummaryParts = {
         fires: `count ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in the last ${alertForm.windowMinutes} minutes`,
         cadence: '',
-        notifies: destinationGroups.length
-            ? `${destinationGroups.length} ${destinationGroups.length === 1 ? 'destination' : 'destinations'}`
+        notifies: existingDestinations.length
+            ? `${existingDestinations.length} ${existingDestinations.length === 1 ? 'destination' : 'destinations'}`
             : '',
         filters: filterParts.join(' '),
     }

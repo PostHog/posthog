@@ -16,7 +16,8 @@ import {
     SlackChannelType,
 } from '~/types'
 
-import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
+import { logsAlertsDestinationsList } from 'products/logs/frontend/generated/api'
+import { LogsAlertConfigurationApi, LogsAlertDestinationConfigApi } from 'products/logs/frontend/generated/api.schemas'
 
 export type LogsAlertEventKind = 'firing' | 'resolved' | 'broken' | 'errored'
 
@@ -169,71 +170,44 @@ export function buildLogsAlertFilterConfig(alertId: string): CyclotronJobFilters
     }
 }
 
-export type LogsAlertDestinationGroup = {
-    key: string
-    type: LogsAlertNotificationType
-    label: string
-    hogFunctions: HogFunctionType[]
-    enabled: boolean
+// Slack channels the integrations API returned, plus the workspace they belong to. A
+// destination in another workspace must not be labelled from this list, because two
+// workspaces can use the same channel id for different channels.
+export type SlackChannelLookup = {
+    workspaceId: number | undefined
+    channels: SlackChannelType[]
 }
 
-export function slackChannelLabel(channelValue: string, slackChannels: SlackChannelType[]): string {
-    const channelId = channelValue.split('|')[0]
-    const name = slackChannels.find((c) => c.id === channelId)?.name
-    return name ? `Slack #${name}` : 'Slack'
+// The API returns a Slack channel id, never the channel name — creating a destination puts
+// the name in the HogFunction name and stores nothing else. Names come from integrations.
+export function destinationLabel(destination: LogsAlertDestinationConfigApi, slack: SlackChannelLookup): string {
+    if (destination.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
+        const channelName =
+            destination.slack_workspace_id === slack.workspaceId
+                ? slack.channels.find((channel) => channel.id === destination.slack_channel_id)?.name
+                : undefined
+        return channelName ? `Slack #${channelName}` : 'Slack'
+    }
+    if (destination.type === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS) {
+        return destination.webhook_url ? `Microsoft Teams ${destination.webhook_url}` : 'Microsoft Teams'
+    }
+    return destination.webhook_url ? `Webhook ${destination.webhook_url}` : 'Webhook'
 }
 
-export function resolveGroupLabel(group: LogsAlertDestinationGroup, slackChannels: SlackChannelType[]): string {
-    if (group.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
-        const hf = group.hogFunctions[0]
-        const channelValue = hf?.inputs?.channel?.value
-        if (typeof channelValue === 'string') {
-            return slackChannelLabel(channelValue, slackChannels)
+const DESTINATIONS_PAGE_SIZE = 100
+
+// Walks every page. Alerts rarely hold more than a page of destinations, but a truncated
+// list would hide destinations and let the user add one that already exists.
+export async function fetchLogsAlertDestinations(
+    projectId: string,
+    alertId: string
+): Promise<LogsAlertDestinationConfigApi[]> {
+    const destinations: LogsAlertDestinationConfigApi[] = []
+    for (let offset = 0; ; offset += DESTINATIONS_PAGE_SIZE) {
+        const page = await logsAlertsDestinationsList(projectId, alertId, { limit: DESTINATIONS_PAGE_SIZE, offset })
+        destinations.push(...page.results)
+        if (page.results.length === 0 || destinations.length >= page.count) {
+            return destinations
         }
     }
-    return group.label
-}
-
-export function groupLogsAlertDestinations(
-    hogFunctions: HogFunctionType[],
-    resolveSlackLabel: (channelValue: string) => string | null
-): LogsAlertDestinationGroup[] {
-    const groups = new Map<string, LogsAlertDestinationGroup>()
-    for (const hf of hogFunctions) {
-        const templateId = hf.template_id ?? hf.template?.id
-        const slackChannelValue = hf.inputs?.channel?.value as string | undefined
-        const destinationWebhookUrl = hf.inputs?.webhookUrl?.value as string | undefined
-        const webhookUrl = hf.inputs?.url?.value as string | undefined
-        let key: string
-        let type: LogsAlertNotificationType
-        let label: string
-
-        if (templateId === 'template-slack') {
-            type = LOGS_ALERT_NOTIFICATION_TYPE_SLACK
-            key = `slack:${slackChannelValue ?? hf.id}`
-            const channelName = slackChannelValue ? resolveSlackLabel(slackChannelValue) : null
-            label = channelName ? `Slack #${channelName}` : 'Slack'
-        } else if (templateId === 'template-microsoft-teams') {
-            type = LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
-            key = `teams:${destinationWebhookUrl ?? hf.id}`
-            label = destinationWebhookUrl ? `Microsoft Teams ${destinationWebhookUrl}` : 'Microsoft Teams'
-        } else if (templateId === 'template-webhook') {
-            type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
-            key = `webhook:${webhookUrl ?? hf.id}`
-            label = webhookUrl ? `Webhook ${webhookUrl}` : 'Webhook'
-        } else {
-            type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
-            key = `unknown:${hf.id}`
-            label = hf.name
-        }
-
-        const existing = groups.get(key)
-        if (existing) {
-            existing.hogFunctions.push(hf)
-            existing.enabled = existing.enabled && hf.enabled
-        } else {
-            groups.set(key, { key, type, label, hogFunctions: [hf], enabled: hf.enabled })
-        }
-    }
-    return Array.from(groups.values())
 }

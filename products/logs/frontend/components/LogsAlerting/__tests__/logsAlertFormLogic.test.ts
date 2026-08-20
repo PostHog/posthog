@@ -20,6 +20,8 @@ jest.mock('products/logs/frontend/generated/api', () => ({
     logsAlertsPartialUpdate: jest.fn(),
     logsAlertsList: jest.fn(),
     logsAlertsDestroy: jest.fn(),
+    // The alert form mounts logsAlertNotificationLogic, which lists destinations on mount.
+    logsAlertsDestinationsList: jest.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
 }))
 
 jest.mock('@posthog/lemon-ui', () => ({

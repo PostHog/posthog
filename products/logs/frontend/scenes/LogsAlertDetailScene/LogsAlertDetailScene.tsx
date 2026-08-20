@@ -254,7 +254,7 @@ function AlertHeader(): JSX.Element {
 function AlertStatusBand(): JSX.Element | null {
     const { alert } = useValues(logsAlertDetailSceneLogic)
     const { resetAlert, unsnoozeAlert, enableAlert, setActiveTab } = useActions(logsAlertDetailSceneLogic)
-    const { destinationGroups, existingHogFunctionsLoading } = useValues(logsAlertNotificationLogic)
+    const { existingDestinations, existingDestinationsLoading } = useValues(logsAlertNotificationLogic)
 
     if (!alert) {
         return null
@@ -310,7 +310,7 @@ function AlertStatusBand(): JSX.Element | null {
         )
     }
 
-    if (alert.enabled && !existingHogFunctionsLoading && destinationGroups.length === 0) {
+    if (alert.enabled && !existingDestinationsLoading && existingDestinations.length === 0) {
         banners.push(
             <LemonBanner
                 key="no-destinations"

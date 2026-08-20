@@ -13,11 +13,11 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { HogFunctionType } from '~/types'
 
 import {
+    destinationLabel,
     getHogFunctionEventKind,
     LOGS_ALERT_EVENT_KIND_META,
     LOGS_ALERT_EVENT_KIND_ORDER,
     LogsAlertEventKind,
-    resolveGroupLabel,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 
 import {
@@ -35,17 +35,18 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
     const {
         alert,
         alertLoading,
-        destinationGroup,
-        hogFunctionsLoading,
+        destination,
+        destinationsError,
+        destinationsLoading,
+        hogFunctions,
         hasLoaded,
-        hogFunctionsError,
         isDeleting,
         togglingHogFunctionIds,
         alertId,
         hogFunctionId,
         firstSlackIntegration,
     } = useValues(logsAlertNotificationDetailSceneLogic)
-    const { deleteDestination, loadHogFunctions, setHogFunctionEnabled } = useActions(
+    const { deleteDestination, loadDestinations, setHogFunctionEnabled } = useActions(
         logsAlertNotificationDetailSceneLogic
     )
 
@@ -59,11 +60,13 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
         }
     }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
 
-    const loading = alertLoading || hogFunctionsLoading
-    const displayLabel = destinationGroup ? resolveGroupLabel(destinationGroup, slackChannels) : 'Destination'
+    const loading = alertLoading || destinationsLoading
+    const displayLabel = destination
+        ? destinationLabel(destination, { workspaceId: firstSlackIntegration?.id, channels: slackChannels })
+        : 'Destination'
     const editorReturnTo = encodeURIComponent(urls.logsAlertNotificationDetail(alertId, hogFunctionId))
 
-    if (hogFunctionsError) {
+    if (destinationsError) {
         return (
             <SceneContent>
                 <SceneTitleSection
@@ -74,20 +77,20 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                             <LemonButton type="secondary" to={urls.logsAlertDetail(alertId, 'notifications')}>
                                 Back to alert
                             </LemonButton>
-                            <LemonButton type="primary" onClick={() => loadHogFunctions()}>
+                            <LemonButton type="primary" onClick={() => loadDestinations()}>
                                 Retry
                             </LemonButton>
                         </div>
                     }
                 />
                 <div className="p-8 text-muted text-center">
-                    Failed to load destination details: {hogFunctionsError}
+                    Failed to load destination details: {destinationsError}
                 </div>
             </SceneContent>
         )
     }
 
-    if (hasLoaded && !destinationGroup) {
+    if (hasLoaded && !destination) {
         return (
             <SceneContent>
                 <SceneTitleSection
@@ -107,8 +110,8 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
     }
 
     const kindToFn = new Map<LogsAlertEventKind, HogFunctionType>()
-    for (const hf of destinationGroup?.hogFunctions ?? []) {
-        const kind = getHogFunctionEventKind(hf)
+    for (const hf of hogFunctions) {
+        const kind = destination?.hog_function_ids.includes(hf.id) ? getHogFunctionEventKind(hf) : null
         if (kind) {
             kindToFn.set(kind, hf)
         }
@@ -117,15 +120,15 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={destinationGroup ? displayLabel : 'Destination'}
+                name={destination ? displayLabel : 'Destination'}
                 description={alert ? `Notifications fired for alert "${alert.name}".` : undefined}
                 resourceType={{ type: 'logs' }}
-                isLoading={loading && !destinationGroup}
+                isLoading={loading && !destination}
                 actions={
-                    destinationGroup ? (
+                    destination ? (
                         <div className="flex items-center gap-2">
-                            <LemonTag type={destinationGroup.enabled ? 'success' : 'default'}>
-                                {destinationGroup.enabled ? 'Active' : 'Paused'}
+                            <LemonTag type={destination.enabled ? 'success' : 'default'}>
+                                {destination.enabled ? 'Active' : 'Paused'}
                             </LemonTag>
                             <LemonButton
                                 size="small"
@@ -158,13 +161,14 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
             />
             <div className="flex flex-col gap-4 p-4 max-w-3xl">
                 <p className="text-sm text-muted m-0">
-                    These hog functions only run for this alert. Open one to edit the message body, headers, filters, or
-                    destination details for the matching lifecycle event.
+                    {kindToFn.size > 0
+                        ? 'These hog functions only run for this alert. Open one to edit the message body, headers, filters, or destination details for the matching lifecycle event.'
+                        : 'This destination sends a notification for every alert event: firing, resolved, auto-disabled and errored. Its individual hog functions are not editable here.'}
                 </p>
 
                 {loading ? (
                     <LemonSkeleton className="h-16" repeat={4} />
-                ) : (
+                ) : kindToFn.size === 0 ? null : (
                     <div className="flex flex-col gap-2">
                         {LOGS_ALERT_EVENT_KIND_ORDER.map((kind) => {
                             const fn = kindToFn.get(kind)

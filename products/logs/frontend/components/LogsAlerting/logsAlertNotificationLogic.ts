@@ -1,24 +1,22 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { HogFunctionType, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 import { AlertNotificationUrlInput } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import { logsAlertsDestinationsCreate, logsAlertsDestinationsDeleteCreate } from 'products/logs/frontend/generated/api'
+import { LogsAlertDestinationConfigApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { UserBasicType } from '../../../../../frontend/src/types'
 import {
-    buildLogsAlertFilterConfig,
-    groupLogsAlertDestinations,
+    fetchLogsAlertDestinations,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
-    LogsAlertDestinationGroup,
     LogsAlertNotificationType,
     PendingLogsAlertNotification,
 } from './logsAlertUtils'
@@ -39,9 +37,8 @@ export interface logsAlertNotificationLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentProjectId: number | null // projectLogic
     addDisabledReason: string | undefined
-    destinationGroups: LogsAlertDestinationGroup[]
-    existingHogFunctions: HogFunctionType[]
-    existingHogFunctionsLoading: boolean
+    existingDestinations: LogsAlertDestinationConfigApi[]
+    existingDestinationsLoading: boolean
     firstSlackIntegration: IntegrationType | undefined
     integrationsFailed: boolean
     pendingNotifications: PendingLogsAlertNotification[]
@@ -180,25 +177,29 @@ export interface logsAlertNotificationLogicActions {
     createPendingHogFunctions: (alertId: string) => {
         alertId: string
     }
-    deleteExistingDestination: (group: LogsAlertDestinationGroup) => {
-        group: LogsAlertDestinationGroup
+    deleteExistingDestination: (
+        destination: LogsAlertDestinationConfigApi,
+        label: string
+    ) => {
+        destination: LogsAlertDestinationConfigApi
+        label: string
     }
     destinationsChanged: () => {
         value: true
     }
-    loadExistingHogFunctions: (alertId?: string) => string
-    loadExistingHogFunctionsFailure: (
+    loadExistingDestinations: (alertId?: string) => string
+    loadExistingDestinationsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadExistingHogFunctionsSuccess: (
-        existingHogFunctions: HogFunctionType[],
+    loadExistingDestinationsSuccess: (
+        existingDestinations: LogsAlertDestinationConfigApi[],
         payload?: string
     ) => {
-        existingHogFunctions: HogFunctionType[]
+        existingDestinations: LogsAlertDestinationConfigApi[]
         payload?: string
     }
     removePendingNotification: (index: number) => {
@@ -230,7 +231,6 @@ export interface logsAlertNotificationLogicMeta {
             slackChannelValue: string | null,
             webhookUrl: string
         ) => string | undefined
-        destinationGroups: (existingHogFunctions: HogFunctionType[]) => LogsAlertDestinationGroup[]
     }
 }
 
@@ -257,7 +257,10 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
         removePendingNotification: (index: number) => ({ index }),
         clearPendingNotifications: true,
         setPendingNotifications: (notifications: PendingLogsAlertNotification[]) => ({ notifications }),
-        deleteExistingDestination: (group: LogsAlertDestinationGroup) => ({ group }),
+        deleteExistingDestination: (destination: LogsAlertDestinationConfigApi, label: string) => ({
+            destination,
+            label,
+        }),
         createPendingHogFunctions: (alertId: string) => ({ alertId }),
         destinationsChanged: true,
         setSelectedType: (selectedType: LogsAlertNotificationType) => ({ selectedType }),
@@ -303,21 +306,16 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
         ],
     }),
 
-    loaders(({ props }) => ({
-        existingHogFunctions: [
-            [] as HogFunctionType[],
+    loaders(({ props, values }) => ({
+        existingDestinations: [
+            [] as LogsAlertDestinationConfigApi[],
             {
-                loadExistingHogFunctions: async (alertId?: string) => {
+                loadExistingDestinations: async (alertId?: string) => {
                     const id = alertId ?? props.alertId
                     if (!id) {
                         return []
                     }
-                    const response = await api.hogFunctions.list({
-                        types: ['internal_destination'],
-                        filter_groups: [buildLogsAlertFilterConfig(id)],
-                        full: true,
-                    })
-                    return response.results
+                    return fetchLogsAlertDestinations(String(values.currentProjectId), id)
                 },
             },
         ],
@@ -361,12 +359,6 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                 return slackChannelValue ? undefined : 'Select a Slack channel'
             },
         ],
-        // Channel-name resolution happens in the view — slackChannels lives in a dynamically-keyed logic.
-        destinationGroups: [
-            (s) => [s.existingHogFunctions],
-            (hogFunctions: HogFunctionType[]): LogsAlertDestinationGroup[] =>
-                groupLogsAlertDestinations(hogFunctions, () => null),
-        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -401,20 +393,20 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                 actions.setSelectedType(LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK)
             }
         },
-        deleteExistingDestination: async ({ group }) => {
+        deleteExistingDestination: async ({ destination, label }) => {
             if (!props.alertId) {
                 return
             }
             try {
                 await logsAlertsDestinationsDeleteCreate(String(values.currentProjectId), props.alertId, {
-                    hog_function_ids: group.hogFunctions.map((hf) => hf.id),
+                    hog_function_ids: destination.hog_function_ids,
                 })
-                lemonToast.success(`Removed ${group.label}`)
-                actions.loadExistingHogFunctions()
+                lemonToast.success(`Removed ${label}`)
+                actions.loadExistingDestinations()
                 actions.destinationsChanged()
             } catch {
-                lemonToast.error(`Failed to remove ${group.label}`)
-                actions.loadExistingHogFunctions()
+                lemonToast.error(`Failed to remove ${label}`)
+                actions.loadExistingDestinations()
             }
         },
 
@@ -445,7 +437,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
 
             const failedNotifications = pending.filter((_, i) => results[i].status === 'rejected')
 
-            actions.loadExistingHogFunctions(alertId)
+            actions.loadExistingDestinations(alertId)
             actions.destinationsChanged()
 
             if (failedNotifications.length > 0) {
@@ -464,7 +456,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
 
     afterMount(({ actions, props }) => {
         if (props.alertId) {
-            actions.loadExistingHogFunctions()
+            actions.loadExistingDestinations()
         }
     }),
 ])

@@ -1,31 +1,23 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
-import { HogFunctionType } from '~/types'
 
-import { logsAlertsDestinationsCreate, logsAlertsDestinationsDeleteCreate } from 'products/logs/frontend/generated/api'
+import {
+    logsAlertsDestinationsCreate,
+    logsAlertsDestinationsDeleteCreate,
+    logsAlertsDestinationsList,
+} from 'products/logs/frontend/generated/api'
+import { LogsAlertDestinationConfigApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertNotificationLogic } from '../logsAlertNotificationLogic'
-import { buildLogsAlertFilterConfig, LogsAlertDestinationGroup } from '../logsAlertUtils'
-
-jest.mock('lib/api', () => {
-    // Keep the real module: the connected integrationsLogic calls api.integrations.list()
-    // on mount, which resolves via the MSW floor. Only hogFunctions is stubbed.
-    const actual = jest.requireActual('lib/api')
-    return {
-        ...actual,
-        __esModule: true,
-        default: { ...actual.default, hogFunctions: { list: jest.fn() } },
-    }
-})
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     __esModule: true,
     logsAlertsDestinationsCreate: jest.fn(),
     logsAlertsDestinationsDeleteCreate: jest.fn(),
+    logsAlertsDestinationsList: jest.fn(),
 }))
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -35,23 +27,27 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     },
 }))
 
-const mockApi = api as jest.Mocked<typeof api>
 const mockCreate = logsAlertsDestinationsCreate as jest.MockedFunction<typeof logsAlertsDestinationsCreate>
 const mockDelete = logsAlertsDestinationsDeleteCreate as jest.MockedFunction<typeof logsAlertsDestinationsDeleteCreate>
+const mockList = logsAlertsDestinationsList as jest.MockedFunction<typeof logsAlertsDestinationsList>
 
-const MOCK_HOG_FUNCTION = {
-    id: 'hf-1',
-    name: 'Test Notification',
+const MOCK_DESTINATION: LogsAlertDestinationConfigApi = {
+    hog_function_ids: ['hf-1', 'hf-2'],
+    type: 'slack',
     enabled: true,
-    inputs: { channel: { value: 'C123' } },
-    filters: {},
-} as unknown as HogFunctionType
+    slack_workspace_id: 1,
+    slack_channel_id: 'C123',
+}
+
+function onePage(results: LogsAlertDestinationConfigApi[]): ReturnType<typeof logsAlertsDestinationsList> {
+    return Promise.resolve({ count: results.length, next: null, previous: null, results })
+}
 
 describe('logsAlertNotificationLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
-        ;(mockApi.hogFunctions.list as jest.Mock).mockResolvedValue({ results: [] })
+        mockList.mockReturnValue(onePage([]))
     })
 
     describe('pending notifications', () => {
@@ -105,44 +101,68 @@ describe('logsAlertNotificationLogic', () => {
         })
     })
 
-    describe('loadExistingHogFunctions', () => {
+    describe('loadExistingDestinations', () => {
         it('returns empty array when no alertId', async () => {
             const logic = logsAlertNotificationLogic({ alertId: undefined })
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.loadExistingHogFunctions()
+                logic.actions.loadExistingDestinations()
             }).toFinishAllListeners()
 
-            expect(logic.values.existingHogFunctions).toEqual([])
-            expect(mockApi.hogFunctions.list).not.toHaveBeenCalled()
+            expect(logic.values.existingDestinations).toEqual([])
+            expect(mockList).not.toHaveBeenCalled()
 
             logic.unmount()
         })
 
-        it('loads hog functions filtered by alert id only (not by event)', async () => {
-            ;(mockApi.hogFunctions.list as jest.Mock).mockResolvedValue({
-                results: [MOCK_HOG_FUNCTION],
-            })
+        it("loads the alert's destinations from the alert endpoint", async () => {
+            mockList.mockReturnValue(onePage([MOCK_DESTINATION]))
 
             const logic = logsAlertNotificationLogic({ alertId: 'alert-1' })
             logic.mount()
 
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(mockApi.hogFunctions.list).toHaveBeenCalledWith({
-                types: ['internal_destination'],
-                filter_groups: [buildLogsAlertFilterConfig('alert-1')],
-                full: true,
-            })
-            // The filter must not include events — otherwise per-event HogFunctions
-            // created by the backend fan-out won't match the JSONB @> query.
-            expect(mockApi.hogFunctions.list).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    filter_groups: [expect.not.objectContaining({ events: expect.anything() })],
-                })
-            )
-            expect(logic.values.existingHogFunctions).toEqual([MOCK_HOG_FUNCTION])
+            expect(mockList).toHaveBeenCalledWith(expect.any(String), 'alert-1', { limit: 100, offset: 0 })
+            expect(logic.values.existingDestinations).toEqual([MOCK_DESTINATION])
+
+            logic.unmount()
+        })
+
+        it('keeps two Slack destinations that share a channel id in different workspaces apart', async () => {
+            const workspaceOne = { ...MOCK_DESTINATION, hog_function_ids: ['hf-1'], slack_workspace_id: 1 }
+            const workspaceTwo = { ...MOCK_DESTINATION, hog_function_ids: ['hf-2'], slack_workspace_id: 2 }
+            mockList.mockReturnValue(onePage([workspaceOne, workspaceTwo]))
+
+            const logic = logsAlertNotificationLogic({ alertId: 'alert-1' })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.existingDestinations).toEqual([workspaceOne, workspaceTwo])
+
+            logic.unmount()
+        })
+
+        it('reads every page so a long destination list is not truncated', async () => {
+            const firstPage = Array.from({ length: 100 }, (_, index) => ({
+                ...MOCK_DESTINATION,
+                hog_function_ids: [`hf-${index}`],
+            }))
+            mockList
+                .mockReturnValueOnce(Promise.resolve({ count: 101, next: 'next', previous: null, results: firstPage }))
+                .mockReturnValueOnce(
+                    Promise.resolve({ count: 101, next: null, previous: 'prev', results: [MOCK_DESTINATION] })
+                )
+
+            const logic = logsAlertNotificationLogic({ alertId: 'alert-1' })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockList).toHaveBeenNthCalledWith(2, expect.any(String), 'alert-1', { limit: 100, offset: 100 })
+            expect(logic.values.existingDestinations).toHaveLength(101)
 
             logic.unmount()
         })
@@ -221,42 +241,30 @@ describe('logsAlertNotificationLogic', () => {
     })
 
     describe('deleteExistingDestination', () => {
-        it('sends the whole group of HogFunction ids in a single atomic delete call', async () => {
-            ;(mockApi.hogFunctions.list as jest.Mock).mockResolvedValue({
-                results: [MOCK_HOG_FUNCTION],
-            })
+        it('sends the listed destination’s whole group of HogFunction ids in one atomic call', async () => {
+            mockList.mockReturnValue(onePage([MOCK_DESTINATION]))
             mockDelete.mockResolvedValue(undefined as any)
 
             const logic = logsAlertNotificationLogic({ alertId: 'alert-1' })
             logic.mount()
 
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.existingHogFunctions).toHaveLength(1)
+            expect(logic.values.existingDestinations).toHaveLength(1)
 
-            const group: LogsAlertDestinationGroup = {
-                key: 'slack:C123',
-                type: 'slack',
-                label: 'Slack #alerts',
-                hogFunctions: [MOCK_HOG_FUNCTION, { ...MOCK_HOG_FUNCTION, id: 'hf-2' }],
-                enabled: true,
-            }
-
-            logic.actions.deleteExistingDestination(group)
+            logic.actions.deleteExistingDestination(logic.values.existingDestinations[0], 'Slack #alerts')
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockDelete).toHaveBeenCalledWith(expect.any(String), 'alert-1', {
                 hog_function_ids: ['hf-1', 'hf-2'],
             })
             expect(lemonToast.success).toHaveBeenCalledWith('Removed Slack #alerts')
-            expect(mockApi.hogFunctions.list).toHaveBeenCalledTimes(2)
+            expect(mockList).toHaveBeenCalledTimes(2)
 
             logic.unmount()
         })
 
         it('reloads from the server on delete failure so the list reflects actual state', async () => {
-            ;(mockApi.hogFunctions.list as jest.Mock).mockResolvedValue({
-                results: [MOCK_HOG_FUNCTION],
-            })
+            mockList.mockReturnValue(onePage([MOCK_DESTINATION]))
             mockDelete.mockRejectedValue(new Error('network'))
 
             const logic = logsAlertNotificationLogic({ alertId: 'alert-1' })
@@ -264,20 +272,12 @@ describe('logsAlertNotificationLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
 
-            const group: LogsAlertDestinationGroup = {
-                key: 'slack:C123',
-                type: 'slack',
-                label: 'Slack #alerts',
-                hogFunctions: [MOCK_HOG_FUNCTION],
-                enabled: true,
-            }
-
-            logic.actions.deleteExistingDestination(group)
+            logic.actions.deleteExistingDestination(MOCK_DESTINATION, 'Slack #alerts')
             await expectLogic(logic).toFinishAllListeners()
 
             expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining('Failed to remove Slack #alerts'))
             // List loader fired twice: once on mount, once after the error
-            expect(mockApi.hogFunctions.list).toHaveBeenCalledTimes(2)
+            expect(mockList).toHaveBeenCalledTimes(2)
 
             logic.unmount()
         })

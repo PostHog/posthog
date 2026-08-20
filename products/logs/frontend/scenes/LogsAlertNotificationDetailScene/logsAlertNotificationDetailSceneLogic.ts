@@ -16,11 +16,16 @@ import { Breadcrumb, HogFunctionType, IntegrationType } from '~/types'
 
 import {
     buildLogsAlertFilterConfig,
-    groupLogsAlertDestinations,
-    LogsAlertDestinationGroup,
+    destinationLabel,
+    fetchLogsAlertDestinations,
+    SlackChannelLookup,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
 import { logsAlertsDestinationsDeleteCreate, logsAlertsRetrieve } from 'products/logs/frontend/generated/api'
-import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertConfigurationApi, LogsAlertDestinationConfigApi } from 'products/logs/frontend/generated/api.schemas'
+
+// Slack channel names come from a logic the scene component mounts, so the breadcrumb names a
+// Slack destination "Slack" rather than resolving its channel.
+const NO_SLACK_CHANNELS: SlackChannelLookup = { workspaceId: undefined, channels: [] }
 
 export interface LogsAlertNotificationDetailSceneLogicProps {
     alertId: string
@@ -35,12 +40,14 @@ export interface logsAlertNotificationDetailSceneLogicValues {
     alertId: string
     alertLoading: boolean
     breadcrumbs: Breadcrumb[]
-    destinationGroup: LogsAlertDestinationGroup | null
+    destination: LogsAlertDestinationConfigApi | null
+    destinations: LogsAlertDestinationConfigApi[]
+    destinationsError: string | null
+    destinationsLoading: boolean
     firstSlackIntegration: IntegrationType | undefined
     hasLoaded: boolean
     hogFunctionId: string
     hogFunctions: HogFunctionType[]
-    hogFunctionsError: string | null
     hogFunctionsLoading: boolean
     isDeleting: boolean
     togglingHogFunctionIds: string[]
@@ -67,6 +74,21 @@ export interface logsAlertNotificationDetailSceneLogicActions {
         payload?: any
     ) => {
         alert: LogsAlertConfigurationApi | null
+        payload?: any
+    }
+    loadDestinations: () => any
+    loadDestinationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDestinationsSuccess: (
+        destinations: LogsAlertDestinationConfigApi[],
+        payload?: any
+    ) => {
+        destinations: LogsAlertDestinationConfigApi[]
         payload?: any
     }
     loadHogFunctions: () => any
@@ -100,10 +122,13 @@ export interface logsAlertNotificationDetailSceneLogicMeta {
         alertId: (arg: any) => string
         hogFunctionId: (arg: any) => string
         firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
-        destinationGroup: (hogFunctions: HogFunctionType[], hogFunctionId: string) => LogsAlertDestinationGroup | null
+        destination: (
+            destinations: LogsAlertDestinationConfigApi[],
+            hogFunctionId: string
+        ) => LogsAlertDestinationConfigApi | null
         breadcrumbs: (
             alert: LogsAlertConfigurationApi | null,
-            destinationGroup: LogsAlertDestinationGroup | null,
+            destination: LogsAlertDestinationConfigApi | null,
             alertId: string
         ) => Breadcrumb[]
     }
@@ -143,15 +168,15 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
         hasLoaded: [
             false,
             {
-                loadHogFunctionsSuccess: () => true,
+                loadDestinationsSuccess: () => true,
             },
         ],
-        hogFunctionsError: [
+        destinationsError: [
             null as string | null,
             {
-                loadHogFunctions: () => null,
-                loadHogFunctionsSuccess: () => null,
-                loadHogFunctionsFailure: (_, { error }: { error: string }) => error || 'Failed to load destinations',
+                loadDestinations: () => null,
+                loadDestinationsSuccess: () => null,
+                loadDestinationsFailure: (_, { error }: { error: string }) => error || 'Failed to load destinations',
             },
         ],
         isDeleting: [
@@ -184,6 +209,20 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                 },
             },
         ],
+        destinations: [
+            [] as LogsAlertDestinationConfigApi[],
+            {
+                loadDestinations: async () => {
+                    if (!values.currentTeamId) {
+                        return []
+                    }
+                    return fetchLogsAlertDestinations(String(values.currentTeamId), props.alertId)
+                },
+            },
+        ],
+        // The per-event breakdown needs each HogFunction's name, event kind and enabled flag,
+        // which the destinations endpoint does not carry. The CDP list API hides managed alert
+        // destinations, so this comes back empty and the breakdown is hidden.
         hogFunctions: [
             [] as HogFunctionType[],
             {
@@ -209,18 +248,19 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
             (s) => [s.slackIntegrations],
             (slackIntegrations: IntegrationType[] | undefined): IntegrationType | undefined => slackIntegrations?.[0],
         ],
-        destinationGroup: [
-            (s) => [s.hogFunctions, s.hogFunctionId],
-            (hogFunctions: HogFunctionType[], hogFunctionId: string): LogsAlertDestinationGroup | null => {
-                const groups = groupLogsAlertDestinations(hogFunctions, () => null)
-                return groups.find((g) => g.hogFunctions.some((hf) => hf.id === hogFunctionId)) ?? null
-            },
+        destination: [
+            (s) => [s.destinations, s.hogFunctionId],
+            (
+                destinations: LogsAlertDestinationConfigApi[],
+                hogFunctionId: string
+            ): LogsAlertDestinationConfigApi | null =>
+                destinations.find((destination) => destination.hog_function_ids.includes(hogFunctionId)) ?? null,
         ],
         breadcrumbs: [
-            (s) => [s.alert, s.destinationGroup, s.alertId],
+            (s) => [s.alert, s.destination, s.alertId],
             (
                 alert: LogsAlertConfigurationApi | null,
-                group: LogsAlertDestinationGroup | null,
+                destination: LogsAlertDestinationConfigApi | null,
                 alertId: string
             ): Breadcrumb[] => [
                 {
@@ -237,7 +277,7 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                 },
                 {
                     key: Scene.LogsAlertNotificationDetail,
-                    name: group?.label ?? 'Destination',
+                    name: destination ? destinationLabel(destination, NO_SLACK_CHANNELS) : 'Destination',
                     iconType: 'logs',
                 },
             ],
@@ -246,14 +286,14 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
 
     listeners(({ actions, values, props }) => ({
         deleteDestination: async ({ displayLabel }) => {
-            const group = values.destinationGroup
-            if (!group || !values.currentTeamId) {
+            const destination = values.destination
+            if (!destination || !values.currentTeamId) {
                 actions.deleteDestinationDone()
                 return
             }
             try {
                 await logsAlertsDestinationsDeleteCreate(String(values.currentTeamId), props.alertId, {
-                    hog_function_ids: group.hogFunctions.map((hf) => hf.id),
+                    hog_function_ids: destination.hog_function_ids,
                 })
                 lemonToast.success(`Removed ${displayLabel}`)
                 router.actions.push(urls.logsAlertDetail(props.alertId, 'notifications'))
@@ -297,7 +337,8 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
             if (!values.alert && !values.alertLoading) {
                 actions.loadAlert()
             }
-            if (!values.hasLoaded && !values.hogFunctionsLoading) {
+            if (!values.hasLoaded && !values.destinationsLoading) {
+                actions.loadDestinations()
                 actions.loadHogFunctions()
             }
         },
@@ -306,6 +347,7 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
     afterMount(({ actions, values }) => {
         if (values.currentTeamId) {
             actions.loadAlert()
+            actions.loadDestinations()
             actions.loadHogFunctions()
         }
     }),

@@ -12,11 +12,10 @@ import {
 
 import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import {
-    getHogFunctionEventKind,
+    destinationLabel,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     PendingLogsAlertNotification,
-    resolveGroupLabel,
 } from './logsAlertUtils'
 
 function getPendingNotificationDestination(
@@ -33,8 +32,8 @@ function getPendingNotificationDestination(
 
 export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.Element {
     const {
-        existingHogFunctionsLoading,
-        destinationGroups,
+        existingDestinationsLoading,
+        existingDestinations,
         pendingNotifications,
         integrationsLoading,
         integrationsFailed,
@@ -66,17 +65,24 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         }
     }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
 
-    const existingDestinations: AlertNotificationDestinationView[] = destinationGroups.map((group) => {
-        const detailHogFunctionId =
-            group.hogFunctions.find((hogFunction) => getHogFunctionEventKind(hogFunction) === 'firing')?.id ??
-            group.hogFunctions[0]?.id
+    const slackLookup = { workspaceId: firstSlackIntegration?.id, channels: slackChannels }
+
+    const destinationViews: AlertNotificationDestinationView[] = existingDestinations.map((destination) => {
+        // Any id in the group resolves to the same destination on the detail scene.
+        const detailHogFunctionId = destination.hog_function_ids[0]
         const detailUrl =
             alertId && detailHogFunctionId ? urls.logsAlertNotificationDetail(alertId, detailHogFunctionId) : undefined
+        const label = destinationLabel(destination, slackLookup)
 
         return {
-            key: group.key,
-            title: resolveGroupLabel(group, slackChannels),
-            tags: [{ label: group.enabled ? 'Active' : 'Paused', type: group.enabled ? 'success' : 'default' }],
+            key: destination.hog_function_ids.join('|'),
+            title: label,
+            tags: [
+                {
+                    label: destination.enabled ? 'Active' : 'Paused',
+                    type: destination.enabled ? 'success' : 'default',
+                },
+            ],
             viewAction: {
                 kind: 'button',
                 label: 'View',
@@ -84,7 +90,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
                 disabledReason: detailUrl ? undefined : 'Save the alert to view details',
                 dataAttr: 'logs-alert-destination-view',
             },
-            onDelete: () => deleteExistingDestination(group),
+            onDelete: () => deleteExistingDestination(destination, label),
         }
     })
 
@@ -101,8 +107,8 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
             description="Each destination delivers notifications for all alert events: firing, resolved, and broken."
             destinations={{
                 showExisting: true,
-                existingLoading: existingHogFunctionsLoading,
-                existing: existingDestinations,
+                existingLoading: existingDestinationsLoading,
+                existing: destinationViews,
                 pending: pendingDestinations,
             }}
             notificationType={{
