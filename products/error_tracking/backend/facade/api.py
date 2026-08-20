@@ -406,6 +406,53 @@ def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
     rules.reorder_assignment_rules(team_id, orders)
 
 
+def _to_severity_rule(rule) -> contracts.ErrorTrackingSeverityRule:
+    return contracts.ErrorTrackingSeverityRule(
+        id=rule.id,
+        filters=rule.filters,
+        severity=rule.severity,
+        order_key=rule.order_key,
+        disabled_data=rule.disabled_data,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+def list_severity_rules(team_id: int) -> list[contracts.ErrorTrackingSeverityRule]:
+    return [_to_severity_rule(rule) for rule in rules.list_severity_rules(team_id)]
+
+
+def get_severity_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingSeverityRule | None:
+    rule = rules.get_severity_rule(team_id, rule_id)
+    return _to_severity_rule(rule) if rule is not None else None
+
+
+def create_severity_rule(
+    team_id: int, *, filters: dict, severity: str, order_key: int = 0
+) -> contracts.ErrorTrackingSeverityRule:
+    rule = rules.create_severity_rule(team_id, filters=filters, severity=severity, order_key=order_key)
+    return _to_severity_rule(rule)
+
+
+def update_severity_rule(
+    team_id: int,
+    rule_id: str,
+    *,
+    filters: dict | None = None,
+    severity: str | None = None,
+) -> contracts.ErrorTrackingSeverityRule | None:
+    rule = rules.update_severity_rule(team_id, rule_id, filters=filters, severity=severity)
+    return _to_severity_rule(rule) if rule is not None else None
+
+
+def delete_severity_rule(team_id: int, rule_id: str) -> bool:
+    return rules.delete_severity_rule(team_id, rule_id)
+
+
+def reorder_severity_rules(team_id: int, orders: dict[str, int]) -> None:
+    rules.reorder_severity_rules(team_id, orders)
+
+
 def _to_grouping_rule(rule, issue: tuple[UUID, str | None] | None = None) -> contracts.ErrorTrackingGroupingRule:
     return contracts.ErrorTrackingGroupingRule(
         id=rule.id,

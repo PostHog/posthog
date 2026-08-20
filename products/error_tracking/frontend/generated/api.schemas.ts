@@ -1594,6 +1594,110 @@ export interface PatchedErrorTrackingSettingsApi {
     per_issue_rate_limit_bucket_size_minutes?: number | null
 }
 
+/**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `critical` - critical
+ */
+export type ErrorTrackingIssueSeverityRuleEnumApi =
+    (typeof ErrorTrackingIssueSeverityRuleEnumApi)[keyof typeof ErrorTrackingIssueSeverityRuleEnumApi]
+
+export const ErrorTrackingIssueSeverityRuleEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+/**
+ * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+ * @nullable
+ */
+export type ErrorTrackingSeverityRuleApiDisabledData = {
+    message?: string
+    issue?: { [key: string]: unknown }
+    properties?: { [key: string]: unknown }
+} | null
+
+export interface ErrorTrackingSeverityRuleApi {
+    /** Unique identifier of the severity rule. */
+    readonly id: string
+    /** Property-group filters evaluated against the event that creates an issue. */
+    filters: PropertyGroupFilterValueApi
+    /** Severity assigned to a newly created issue when this rule is the first match.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity: ErrorTrackingIssueSeverityRuleEnumApi
+    /** Evaluation priority. Lower values run first, and the first matching rule wins. */
+    order_key: number
+    /**
+     * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+     * @nullable
+     */
+    disabled_data: ErrorTrackingSeverityRuleApiDisabledData
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last updated. */
+    readonly updated_at: string
+}
+
+export interface ErrorTrackingSeverityRuleListResponseApi {
+    /** Severity rules in ascending evaluation order. */
+    results: ErrorTrackingSeverityRuleApi[]
+}
+
+export interface ErrorTrackingSeverityRuleCreateRequestApi {
+    /** Property-group filters evaluated against the event that creates an issue. */
+    filters: PropertyGroupFilterValueApi
+    /** Severity assigned when this rule is the first match.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity: ErrorTrackingIssueSeverityRuleEnumApi
+    /** Evaluation priority. Lower values run first. Defaults to 0. */
+    order_key?: number
+}
+
+export interface ErrorTrackingSeverityRuleUpdateRequestApi {
+    /** Replacement property-group filters. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+    /** Replacement severity. Omit to preserve the existing severity.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity?: ErrorTrackingIssueSeverityRuleEnumApi
+}
+
+export interface PatchedErrorTrackingSeverityRuleUpdateRequestApi {
+    /** Replacement property-group filters. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+    /** Replacement severity. Omit to preserve the existing severity.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity?: ErrorTrackingIssueSeverityRuleEnumApi
+}
+
+/**
+ * Mapping from severity rule UUID to its new evaluation order.
+ */
+export type PatchedErrorTrackingSeverityRuleReorderRequestApiOrders = { [key: string]: number }
+
+export interface PatchedErrorTrackingSeverityRuleReorderRequestApi {
+    /** Mapping from severity rule UUID to its new evaluation order. */
+    orders?: PatchedErrorTrackingSeverityRuleReorderRequestApiOrders
+}
+
 export interface ErrorTrackingSpikeDetectionConfigApi {
     /**
      * Time to wait before alerting again for the same issue after a spike is detected.
