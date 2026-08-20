@@ -3,7 +3,6 @@ from decimal import Decimal
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
@@ -119,43 +118,24 @@ class TestBillingAlertDestinations(APIBaseTest):
             {"type": "webhook", "hog_function_ids": sorted(hog_function_ids)}
         ]
 
-    @parameterized.expand(
-        [
-            (
-                "webhook",
-                "template-webhook",
-                "url",
-                [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
-                "https://hooks.example.com/T123/secret-path",
-            ),
-            (
-                "teams",
-                "template-microsoft-teams",
-                "webhookUrl",
-                [{"key": "webhookUrl", "type": "string"}, {"key": "text", "type": "string"}],
-                "https://example.webhook.office.com/webhookb2/secret-path/IncomingWebhook/abc/def",
-            ),
-        ]
-    )
-    def test_created_destination_stores_webhook_url_as_secret_input(
-        self, destination_type: str, template_id: str, url_key: str, inputs_schema: list[dict], webhook_url: str
-    ) -> None:
-        self._sync_template(template_id, inputs_schema)
+    def test_created_destination_stores_webhook_url_as_secret_input(self) -> None:
+        # Wiring guard for the endpoint; the per-type matrix lives in
+        # products/alerts/backend/test/test_destinations.py.
+        self._sync_webhook_template()
         alert = self._alert()
+        webhook_url = "https://hooks.example.com/T123/secret-path"
 
         response = self.client.post(
             f"{self.url}{alert.id}/destinations/",
-            {"type": destination_type, "webhook_url": webhook_url},
+            {"type": "webhook", "webhook_url": webhook_url},
             format="json",
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         for hog_function in HogFunction.objects.filter(id__in=response.json()["hog_function_ids"]):
-            assert url_key not in (hog_function.inputs or {})
-            assert (hog_function.encrypted_inputs or {})[url_key]["value"] == webhook_url
+            assert "url" not in (hog_function.inputs or {})
+            assert (hog_function.encrypted_inputs or {})["url"]["value"] == webhook_url
             assert "secret-path" not in hog_function.name
-            schema_by_key = {schema["key"]: schema for schema in hog_function.inputs_schema}
-            assert schema_by_key[url_key]["secret"] is True
 
     def test_configuration_and_destination_changes_commit_atomically(self) -> None:
         self._sync_webhook_template()
