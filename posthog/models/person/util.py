@@ -388,6 +388,13 @@ LIMIT {limit}
 # limits even when several persons share an email (each shared email costs an extra result row).
 _EMAIL_LOOKUP_CHUNK_SIZE = 1_000
 
+# Matched persons per personhog resolution call. get_persons_by_uuids returns whole Person models
+# (properties included) and accumulates every match into one list, so resolving the entire matched set
+# at once would hold them all at peak and can OOM the sync worker on a large email backfill. Chunking
+# caps peak memory at one chunk's models, mirroring the existence-lookup chunking the sync activity
+# already applies for the distinct-id and group paths.
+_PERSON_RESOLVE_CHUNK_SIZE = 1_000
+
 
 def get_distinct_ids_mapped_by_email(team_id: int, emails: list[str]) -> dict[str, str]:
     """Map each lowercased email to one existing person's distinct_id, for warehouse person-property
@@ -428,12 +435,17 @@ def get_distinct_ids_mapped_by_email(team_id: int, emails: list[str]) -> dict[st
     if not uuid_by_email:
         return {}
 
+    # Resolve in chunks so only one chunk's person models are alive at a time (see
+    # _PERSON_RESOLVE_CHUNK_SIZE). Only one distinct id per person is used as the $set target, so
+    # distinct_id_limit=1 bounds the fetch, since the default is unbounded and pulls every distinct id
+    # for merge-heavy persons behind a shared email.
     distinct_id_by_uuid: dict[str, str] = {}
-    # Only one distinct id per person is used as the $set target, so bound the fetch — the default
-    # is unbounded and pulls every distinct id for merge-heavy persons behind a shared email.
-    for person in get_persons_by_uuids(team_id, list(set(uuid_by_email.values())), distinct_id_limit=1):
-        if person.distinct_ids:
-            distinct_id_by_uuid[str(person.uuid)] = person.distinct_ids[0]
+    unique_uuids = list(set(uuid_by_email.values()))
+    for start in range(0, len(unique_uuids), _PERSON_RESOLVE_CHUNK_SIZE):
+        chunk = unique_uuids[start : start + _PERSON_RESOLVE_CHUNK_SIZE]
+        for person in get_persons_by_uuids(team_id, chunk, distinct_id_limit=1):
+            if person.distinct_ids:
+                distinct_id_by_uuid[str(person.uuid)] = person.distinct_ids[0]
 
     return {
         email: distinct_id_by_uuid[person_uuid]
