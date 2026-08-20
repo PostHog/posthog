@@ -40,7 +40,7 @@ const RULES: { key: string; title: string; should: string; formula: string; exam
         should: 'A series that reports in one bucket and not the next has not dropped to zero, it just has not been heard from. Totals over sparsely reported metrics swing on how many series happened to report, which reads as a real change but is not one.',
         formula: 'absent series should carry forward or drop out, never count as 0',
         example:
-            'A total across 300 series where only 5 report each minute swings by millions between buckets purely on who reported.',
+            'A total across 300 series where only 5 report each minute swings by millions between buckets purely on who reported. The check above cannot catch this one. It reads a single bucket, so a series that never reported is invisible to it. Compare neighbouring buckets by hand.',
     },
     {
         key: 'ordering',

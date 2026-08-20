@@ -58,6 +58,21 @@ describe('metricsFundamentalsLogic', () => {
         expect(jest.mocked(metricsExplainCreate).mock.calls[0][1].query.bucketStart).toEqual('2026-01-01T00:05:00Z')
     })
 
+    it('drops the previous result when a new check starts', async () => {
+        // Otherwise the old metric's decomposition sits under the new metric's
+        // name while the new one loads, and reads as its answer.
+        jest.mocked(metricsQueryCreate).mockResolvedValue({
+            results: [{ points: [{ time: '2026-01-01T00:00:00Z', value: 1 }] }],
+        } as any)
+        logic.actions.setMetricName('cache_size')
+        await expectLogic(logic, () => logic.actions.runCheck()).toFinishAllListeners()
+        expect(logic.values.checkResult).not.toBeNull()
+
+        logic.actions.setMetricName('other_metric')
+        expectLogic(logic, () => logic.actions.runCheck())
+        expect(logic.values.checkResult).toBeNull()
+    })
+
     it('does not explain anything when the metric reported no values', async () => {
         jest.mocked(metricsQueryCreate).mockResolvedValue({ results: [{ points: [] }] } as any)
 

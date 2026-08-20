@@ -86,6 +86,10 @@ export const metricsFundamentalsLogic = kea<metricsFundamentalsLogicType>([
     reducers({
         metricName: ['', { setMetricName: (_, { metricName }) => metricName }],
         aggregation: ['sum' as MetricAggregation, { setAggregation: (_, { aggregation }) => aggregation }],
+        // Drop the previous decomposition the moment a new check starts. The
+        // loading flag alone leaves a frame where the old answer is still on
+        // screen under the new metric name, which reads as the new answer.
+        checkResult: [null as FundamentalsCheckResult | null, { runCheck: () => null }],
     }),
 
     loaders(({ values }) => ({
