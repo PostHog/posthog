@@ -32,6 +32,29 @@ export function useContextWikiPage(path: string) {
   );
 }
 
+// How many times a lock-busy write is retried before the 429 surfaces.
+const WIKI_WRITE_MAX_RETRIES = 3;
+
+/**
+ * A 429 means the org's wiki writer lock is busy (an agent is landing a
+ * commit). Retrying with the same base head is safe; anything else — a 409
+ * conflict, a 400 lint rejection, a network error — must fall through to the
+ * caller's conflict/lint handling rather than being retried.
+ */
+export function shouldRetryWikiWrite(
+  failureCount: number,
+  error: unknown,
+): boolean {
+  return (
+    failureCount < WIKI_WRITE_MAX_RETRIES && requestErrorStatus(error) === 429
+  );
+}
+
+// Backoff between lock-busy retries: 400ms, 800ms, then 1200ms.
+export function wikiWriteRetryDelay(failureCount: number): number {
+  return 400 * (failureCount + 1);
+}
+
 export function useContextWikiPageMutation() {
   const queryClient = useQueryClient();
   return useAuthenticatedMutation<
@@ -39,12 +62,8 @@ export function useContextWikiPageMutation() {
     Error,
     { path: string; content: string; baseHead: string }
   >((client, input) => client.putContextWikiPage(input), {
-    // 429 means the org's wiki writer lock is busy (an agent is landing a
-    // commit). Retrying with the same base head is safe; anything else lands
-    // on the caller's conflict/lint handling.
-    retry: (failureCount, error) =>
-      failureCount < 3 && requestErrorStatus(error) === 429,
-    retryDelay: (failureCount) => 400 * (failureCount + 1),
+    retry: shouldRetryWikiWrite,
+    retryDelay: wikiWriteRetryDelay,
     onSuccess: (result, input) => {
       // The PUT echoes everything the caches need, so write them in place
       // instead of refetching content the client just uploaded.
