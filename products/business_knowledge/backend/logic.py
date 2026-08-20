@@ -1581,34 +1581,51 @@ def has_maintained_sources(team_id: int) -> bool:
     Searches leave no trace anywhere — no hit counters, no `last_searched_at`, no analytics
     event — so this reads the rows for evidence of upkeep instead of for evidence of use. Any
     of a second source, an `always_include` pin, a configured refresh cadence, more than
-    `TRIAL_MAX_CHUNKS` live chunks, or a source touched inside `TRIAL_QUIET_PERIOD` counts as
-    maintained; only the full trial shape fails.
+    `TRIAL_MAX_CHUNKS` searchable chunks, or a source touched inside `TRIAL_QUIET_PERIOD` counts
+    as maintained; only the full trial shape fails.
+
+    Only sources with SAFE, searchable content count — both the second-source shortcut and the
+    chunk bar sit behind the exact gate the search path uses (`_safe_chunks_qs`). Search returns
+    nothing for UNSAFE or still-`UNKNOWN` content, so a base made only of those would render a
+    prompt section promising a searchable base that comes back empty. A freshly-created source
+    whose documents haven't classified SAFE yet reads as not-yet-maintained and starts counting
+    on the run after its first ingest finishes — the same "resolved fresh per run" posture the
+    scout runner relies on.
 
     The content bar counts chunks, not documents: an upload or a paste is one document however
     long, so a document count would read a book-length handbook as a one-item trial (see the
-    note on `TRIAL_MAX_CHUNKS`). `updated_at` is load-bearing too, and only trustworthy because
-    the disqualifier already requires a manual source: the refresh coordinator stamps
-    `updated_at` on every pass of an auto-refreshing source (a 304 included), so recency on
-    those proves a cron ran, not that a human returned.
+    note on `TRIAL_MAX_CHUNKS`). It caps the scan at `TRIAL_MAX_CHUNKS + 1` rows rather than
+    counting the whole base, because this runs once per scout run and several scouts on a team
+    can be due in the same coordinator tick. `updated_at` is load-bearing too, and only
+    trustworthy because the disqualifier already requires a manual source: the refresh
+    coordinator stamps `updated_at` on every pass of an auto-refreshing source (a 304 included),
+    so recency on those proves a cron ran, not that a human returned.
     """
+    has_safe_content = Exists(_safe_chunks_qs(team_id).filter(source_id=OuterRef("pk")))
     sources = list(
         KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY)
-        .annotate(
-            live_chunks=Count("documents__chunks", filter=Q(documents__tombstoned_at__isnull=True), distinct=True)
-        )
-        .values("refresh_interval", "always_include", "updated_at", "live_chunks")[:2]
+        .filter(has_safe_content)
+        .values("id", "refresh_interval", "always_include", "updated_at")[:2]
     )
     if not sources:
         return False
     if len(sources) > 1:
         return True
     (only,) = sources
-    return bool(
+    updated_at = only["updated_at"]
+    if (
         only["always_include"]
         or only["refresh_interval"] != RefreshInterval.MANUAL
-        or only["live_chunks"] > TRIAL_MAX_CHUNKS
-        or only["updated_at"] > timezone.now() - TRIAL_QUIET_PERIOD
+        or (updated_at is not None and updated_at > timezone.now() - TRIAL_QUIET_PERIOD)
+    ):
+        return True
+    # A lone old manual source is a real base, not a tire-kick, only above TRIAL_MAX_CHUNKS
+    # searchable chunks. Slice to one past the bar so the query stops at 3 rows instead of a
+    # COUNT(*) over a base that can run to 100k chunks.
+    searchable_over_bar = (
+        _safe_chunks_qs(team_id).filter(source_id=only["id"]).values_list("id", flat=True)[: TRIAL_MAX_CHUNKS + 1]
     )
+    return len(searchable_over_bar) > TRIAL_MAX_CHUNKS
 
 
 @with_team_scope(canonical=True)

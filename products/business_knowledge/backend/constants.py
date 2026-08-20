@@ -195,11 +195,13 @@ MAX_ALWAYS_ON_CONTEXT_CHARS = 20_000
 # source, this little content, quiet this long — because the opposite error hides a real
 # knowledge base from every agent. Widen it only on evidence.
 #
-# The content bar counts live chunks, not documents: an upload or a paste stores the whole text
-# as ONE document however long it is (`create_text_source` / `create_file_source`), so a
-# document count would read a book-length handbook as a one-item trial. Chunks track content
+# The content bar counts searchable (SAFE) chunks, not documents: an upload or a paste stores the
+# whole text as ONE document however long it is (`create_text_source` / `create_file_source`), so
+# a document count would read a book-length handbook as a one-item trial. Chunks track content
 # volume (~CHUNK_TARGET_CHARS each), so a real base clears this bar and only a genuine tire-kick
-# paste — a chunk or two — stays under it.
+# paste — a chunk or two — stays under it. It counts only chunks the search path would return
+# (SAFE, non-tombstoned, in a READY source), so a base of UNSAFE/UNKNOWN content that no search
+# can reach never clears the bar on volume alone.
 TRIAL_MAX_CHUNKS = 2
 TRIAL_QUIET_PERIOD = datetime.timedelta(days=60)
 

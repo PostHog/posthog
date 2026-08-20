@@ -245,6 +245,7 @@ class TestHasMaintainedSources(BaseTest):
         refresh_interval: str = RefreshInterval.MANUAL,
         live_chunks: int = 1,
         tombstoned_chunks: int = 0,
+        safe: bool = True,
         age: datetime.timedelta = datetime.timedelta(days=1),
     ) -> KnowledgeSource:
         source = KnowledgeSource.objects.unscoped().create(
@@ -268,7 +269,7 @@ class TestHasMaintainedSources(BaseTest):
                 title="doc",
                 content="content",
                 content_hash=str(uuid.uuid4()),
-                safety_verdict=SafetyVerdict.SAFE,
+                safety_verdict=SafetyVerdict.SAFE if safe else SafetyVerdict.UNKNOWN,
                 tombstoned_at=timezone.now() if tombstoned else None,
             )
             for ordinal in range(count):
@@ -311,6 +312,14 @@ class TestHasMaintainedSources(BaseTest):
             (
                 "lone_trial_with_tombstoned_content",
                 [{"age": TRIAL_QUIET_PERIOD * 2, "tombstoned_chunks": 50}],
+                False,
+            ),
+            # Unsafe/unclassified content is invisible to search (`_safe_chunks_qs` filters on
+            # SAFE), so a base of it can't clear the volume bar — otherwise the prompt would
+            # promise a searchable base that returns nothing.
+            (
+                "lone_abandoned_unsafe_content",
+                [{"age": TRIAL_QUIET_PERIOD * 2, "live_chunks": 50, "safe": False}],
                 False,
             ),
             ("pending_source_only", [{"status": SourceStatus.PENDING, "live_chunks": 50}], False),
