@@ -227,7 +227,9 @@ class TestIncrementalParams:
     @parameterized.expand([("Team",), ("TimeOff",)])
     def test_unpaginated_endpoints_have_no_start_date_param(self, endpoint: str) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=False, incremental_field=None)
-        assert resource["endpoint"].get("params") is None
+        resource_endpoint = resource["endpoint"]
+        assert isinstance(resource_endpoint, dict)
+        assert resource_endpoint.get("params") is None
 
 
 class TestErrorHandling:
