@@ -13,7 +13,7 @@ import {
 import { useTaskAgentDefaults } from "@posthog/ui/features/settings/hooks/useTaskAgentDefaults";
 import { usePreviewConfig } from "@posthog/ui/features/task-detail/hooks/usePreviewConfig";
 import { Text } from "@radix-ui/themes";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** The tasks settings page in PostHog, where the project default is set. */
 const POSTHOG_SETTINGS_PATH = "/settings/environment-task-agents";
@@ -54,8 +54,19 @@ function MyDefaultPicker({
 }) {
   const isInherited = !preferences.model;
   const shown = isInherited ? inherited : preferences;
-  const adapter: Adapter =
+  const storedAdapter: Adapter =
     shown.runtime_adapter === "codex" ? "codex" : "claude";
+  // A harness choice lives here until a model pick on it completes the triple.
+  // Saving an all-null pair on the switch would both clear an existing personal
+  // default and flip `shown` back to the inherited row, snapping the control
+  // to the old harness under the cursor.
+  const [pendingAdapter, setPendingAdapter] = useState<Adapter | null>(null);
+  const adapter = pendingAdapter ?? storedAdapter;
+  useEffect(() => {
+    if (pendingAdapter && storedAdapter === pendingAdapter) {
+      setPendingAdapter(null);
+    }
+  }, [pendingAdapter, storedAdapter]);
   const { modelOption, thoughtOption, isLoading, setConfigOption } =
     usePreviewConfig(adapter);
 
@@ -67,6 +78,9 @@ function MyDefaultPicker({
   const seedKey = `${adapter}:${shown.model ?? ""}:${shown.reasoning_effort ?? ""}`;
   useEffect(() => {
     if (isLoading || seeded.current === seedKey) return;
+    // The stored triple belongs to another harness while a switch is pending;
+    // seeding its model into this harness's options would show a phantom pick.
+    if (pendingAdapter) return;
     seeded.current = seedKey;
     if (shown.model && modelOption) {
       setConfigOption(modelOption.id, shown.model);
@@ -77,6 +91,7 @@ function MyDefaultPicker({
   }, [
     isLoading,
     seedKey,
+    pendingAdapter,
     modelOption,
     thoughtOption,
     setConfigOption,
@@ -114,7 +129,9 @@ function MyDefaultPicker({
         thoughtOption={thoughtOption}
         adapter={adapter}
         anchor={anchorRef}
-        isDefaultSelection={isInherited}
+        // Mid-switch the pill shows the new harness's own default, which is a
+        // browse, not the inherited project default — no "Default ·" marker.
+        isDefaultSelection={isInherited && !pendingAdapter}
         onModelChange={handleModelChange}
         onChange={handleEffortChange}
         // A slider notch changes model and effort at once. Save them as one
@@ -129,13 +146,10 @@ function MyDefaultPicker({
           });
         }}
         onAdapterChange={(next) => {
-          // Switching harness clears the pair; the next model pick supplies the new one.
+          // Nothing is saved yet: the next model pick on this harness supplies
+          // the pair and carries the adapter with it.
           seeded.current = null;
-          onSave({
-            runtime_adapter: next,
-            model: null,
-            reasoning_effort: null,
-          });
+          setPendingAdapter(next);
         }}
         onConfigOptionChange={(configId, value) => {
           if (modelOption && configId === modelOption.id) {
