@@ -35,9 +35,7 @@ from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import is_direct_query_cancellation_requested
 from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
-from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceAuth, ServiceCredentialUnavailable
-from products.managed_warehouse.backend.facade.sql_editor import resolve_managed_warehouse_postgres_connection
-from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND
+from products.warehouse_sources.backend.models.external_data_source import MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND
 
 if TYPE_CHECKING:
     from psycopg.pq.abc import PGresult
@@ -393,6 +391,16 @@ class DuckgresRawAdapter:
             return self.validate_source_config(request.source, request.team)[1]
         if not request.source.is_dynamic_managed_warehouse or request.principal is None:
             raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
+
+        # Function-local: keeps the managed_warehouse facade chain off the direct_sql module import,
+        # which runs during first-request URLconf resolution and can race another thread.
+        from products.managed_warehouse.backend.facade.contracts import (  # noqa: PLC0415
+            ManagedWarehouseSourceAuth,
+            ServiceCredentialUnavailable,
+        )
+        from products.managed_warehouse.backend.facade.sql_editor import (  # noqa: PLC0415
+            resolve_managed_warehouse_postgres_connection,
+        )
 
         try:
             connection = resolve_managed_warehouse_postgres_connection(

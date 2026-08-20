@@ -354,7 +354,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         cursor.stream.assert_called_once_with("SELECT 1 AS value", None)
 
     @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.resolve_managed_warehouse_postgres_connection")
+    @patch("products.managed_warehouse.backend.facade.sql_editor.resolve_managed_warehouse_postgres_connection")
     def test_dynamic_source_mints_for_the_stable_user_identity_and_uses_tls(self, resolve_connection, connect) -> None:
         source = self._dynamic_managed_source()
         source.job_inputs = {}
