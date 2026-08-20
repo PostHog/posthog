@@ -109,6 +109,10 @@ export function useSignalTeamConfigMutations() {
         const fresh = await client.updateSignalTeamConfig({
           max_reports_per_day: limit,
         });
+        // Cancel any in-flight config fetch first (the desktop client refetches
+        // this query on window focus) so a stale GET can't resolve after this
+        // write and clobber the fresh cap.
+        await queryClient.cancelQueries({ queryKey: TEAM_CONFIG_QUERY_KEY });
         queryClient.setQueryData<SignalTeamConfig | null>(
           TEAM_CONFIG_QUERY_KEY,
           fresh,
