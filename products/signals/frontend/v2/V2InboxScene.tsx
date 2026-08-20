@@ -44,18 +44,41 @@ export function V2InboxScene(): JSX.Element {
                 resourceType={{ type: 'inbox' }}
             />
 
-            <div className="mx-auto w-full max-w-4xl">
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={setTab}
-                    data-attr="v2-inbox-tabs"
-                    tabs={[
-                        { key: 'reports', label: 'Reports', content: <InboxReportsTab /> },
-                        { key: 'scouts', label: 'Scouts', content: <InboxScoutsTab /> },
-                        { key: 'settings', label: 'Settings', content: <InboxSettingsTab /> },
-                    ]}
-                />
-            </div>
+            {/* The tab bar spans the scene; each tab's content stays in the centered column */}
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setTab}
+                data-attr="v2-inbox-tabs"
+                tabs={[
+                    {
+                        key: 'reports',
+                        label: 'Reports',
+                        content: (
+                            <div className="mx-auto w-full max-w-4xl">
+                                <InboxReportsTab />
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'scouts',
+                        label: 'Scouts',
+                        content: (
+                            <div className="mx-auto w-full max-w-4xl">
+                                <InboxScoutsTab />
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'settings',
+                        label: 'Settings',
+                        content: (
+                            <div className="mx-auto w-full max-w-4xl">
+                                <InboxSettingsTab />
+                            </div>
+                        ),
+                    },
+                ]}
+            />
 
             <CreatePrModal
                 isOpen={prModalTarget !== null}
