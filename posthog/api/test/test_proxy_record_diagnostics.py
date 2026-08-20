@@ -121,14 +121,14 @@ class TestCheckCloudflare(TestCase):
 
     @parameterized.expand(
         [
-            ("blocked", CustomHostnameStatus.BLOCKED),
-            ("pending_blocked", CustomHostnameStatus.PENDING_BLOCKED),
-            ("moved", CustomHostnameStatus.MOVED),
-            ("pending_migration", CustomHostnameStatus.PENDING_MIGRATION),
+            ("blocked", CustomHostnameStatus.BLOCKED, "release"),
+            ("pending_blocked", CustomHostnameStatus.PENDING_BLOCKED, "release"),
+            ("moved", CustomHostnameStatus.MOVED, "restore"),
+            ("pending_migration", CustomHostnameStatus.PENDING_MIGRATION, "restore"),
         ]
     )
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
-    def test_fail_when_hostname_blocked_despite_active_cert(self, _name, status, get_mock):
+    def test_fail_when_hostname_blocked_despite_active_cert(self, _name, status, remediation_word, get_mock):
         # An active SSL certificate must not let a blocked or moved hostname pass the check.
         info = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
         info.status = status
@@ -139,6 +139,7 @@ class TestCheckCloudflare(TestCase):
         self.assertEqual(result.status, "failed")
         assert result.remediation is not None
         self.assertEqual(result.remediation.type, "config")
+        self.assertIn(remediation_word, result.remediation.summary)
 
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     def test_fail_when_api_errors(self, get_mock):

@@ -31,6 +31,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     CustomHostname,
     CustomHostnameSSLStatus,
+    CustomHostnameStatus,
     describe_blocked_hostname_status,
     describe_cross_user_banned,
     get_custom_hostname_by_domain,
@@ -382,13 +383,19 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
     # A blocked or moved hostname rejects traffic at the edge even when the certificate reads
     # active, so check it before the SSL status — otherwise an active cert masks the block.
     if info.status in BLOCKED_HOSTNAME_STATUSES:
+        moved = info.status in (CustomHostnameStatus.MOVED, CustomHostnameStatus.PENDING_MIGRATION)
         return (
             CheckResult(
                 id="cloudflare",
                 name="Cloudflare custom hostname",
                 status="failed",
                 detail=describe_blocked_hostname_status(info.status, record.domain),
-                remediation=Remediation(type="config", summary="Contact support to release this domain."),
+                remediation=Remediation(
+                    type="config",
+                    summary="Contact support to restore this domain."
+                    if moved
+                    else "Contact support to release this domain.",
+                ),
             ),
             info,
         )
