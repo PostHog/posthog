@@ -796,10 +796,6 @@ export function TaskInput({
 
   const effectiveWorkspaceMode = workspaceMode;
 
-  // Only cloud runs can span several repositories, so that's where the
-  // multi-repository chip belongs. A worktree run still needs one concrete
-  // checkout and a base branch, so it keeps the repo + branch pickers even on
-  // surfaces that opt into repo-optional mode.
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
   // Get current values from preview config options for task creation.
