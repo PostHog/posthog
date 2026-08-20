@@ -398,7 +398,7 @@ function ConversationDetail({
     }
     const page = threadDetailPages[conversation.email.id] ?? 1
     return (
-        <div className="flex flex-col gap-2 bg-surface-primary p-4">
+        <div className="flex flex-col gap-2 bg-surface-primary p-4" data-attr="account-email-thread-detail">
             {detail.results.map((message) => (
                 <EmailMessage key={message.id} message={message} />
             ))}

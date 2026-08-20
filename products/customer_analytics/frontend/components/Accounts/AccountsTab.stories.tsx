@@ -16,6 +16,8 @@ const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
 const ACCOUNT_EMAIL_THREADS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/email_threads/'
 const ACCOUNT_EMAIL_THREAD_DETAIL_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/email_threads/:thread_id/'
+const ACCOUNT_SUMMARIES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/summaries/'
+const ACCOUNT_SUPPORT_TICKETS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/support_tickets/'
 const ACCOUNT_RELATIONSHIPS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
 const FEATURE_REQUESTS_ENDPOINT = 'api/projects/:team_id/feature_requests/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
@@ -170,6 +172,8 @@ const EXPANDED_ROW_FETCH_MOCKS = {
     [ORGANIZATION_MEMBERS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
     [ACCOUNT_RELATIONSHIPS_ENDPOINT]: [],
     [ACCOUNT_EMAIL_THREADS_ENDPOINT]: EMPTY_EMAIL_THREADS,
+    [ACCOUNT_SUMMARIES_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+    [ACCOUNT_SUPPORT_TICKETS_ENDPOINT]: [],
 }
 
 // Billing tab stories share the same account + notebooks mocks; they differ only in the insight and query responses.
@@ -458,7 +462,7 @@ export const RowExpandedFeatureRequests: Story = {
     },
 }
 
-export const RowExpandedEmailThreads: Story = {
+export const RowExpandedConversations: Story = {
     render: () => <App />,
     parameters: {
         testOptions: {
@@ -550,18 +554,18 @@ export const RowExpandedEmailThreads: Story = {
     play: async ({ canvasElement }) => {
         await expandFirstRow(canvasElement)
         const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Email threads', {}, { timeout: 15000 }))
+        await userEvent.click(await canvas.findByRole('tab', { name: 'Conversations' }, { timeout: 15000 }))
         await waitFor(
             () => {
-                if (!canvasElement.querySelector('[data-attr="account-email-threads-table"]')) {
-                    throw new Error('Email threads table did not render')
+                if (!canvasElement.querySelector('[data-attr="account-conversations-table"]')) {
+                    throw new Error('Conversations table did not render')
                 }
             },
             { timeout: 15000 }
         )
-        const table = canvasElement.querySelector('[data-attr="account-email-threads-table"]') as HTMLElement
+        const table = canvasElement.querySelector('[data-attr="account-conversations-table"]') as HTMLElement
         if (within(table).queryByTitle('Show more')) {
-            throw new Error('Email thread expansion toggle should not render')
+            throw new Error('Conversation expansion toggle should not render')
         }
         await userEvent.click(await within(table).findByText('Renewal planning'))
         await waitFor(() => {
@@ -575,10 +579,10 @@ export const RowExpandedEmailThreads: Story = {
                 throw new Error('Email thread detail did not collapse')
             }
         })
-        await userEvent.click(await within(table).findByText('Example buyer'))
+        await userEvent.click(await within(table).findByText('Renewal planning'))
         await waitFor(() => {
             if (!canvasElement.querySelector('[data-attr="account-email-thread-detail"]')) {
-                throw new Error('Email thread detail did not render from participant click')
+                throw new Error('Email thread detail did not reopen')
             }
         })
     },
