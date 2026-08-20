@@ -97,6 +97,11 @@ def create_workflow_task(
             }
         },
         "inactivity_timeout_seconds": WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS,
+        # The boot-path override, not pending_user_message: the agent server self-delivers a
+        # pending message at boot AND forward_pending_user_message forwards it, and the two
+        # deliveries carry no shared idempotency id, so a cold-start background run gets the
+        # prompt twice. The override is only read by the boot path, so it delivers once.
+        "initial_prompt_override": _render_run_message(prompt),
     }
 
     try:
@@ -135,7 +140,6 @@ def create_workflow_task(
                 extra_run_state=extra_run_state,
                 model=model,
                 reasoning_effort=reasoning_effort,
-                pending_user_message=_render_run_message(prompt),
             )
     except IntegrityError:
         if origin_key is None:
@@ -169,7 +173,7 @@ def _find_replayed_task(
 def _validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[str] | None) -> None:
     if not mcp_installation_ids:
         return
-    valid_ids = {installation.id for installation in get_active_installations(team_id, owner_id)}
+    valid_ids = {installation.id for installation in get_active_installations(team_id, owner_id, include_shared=True)}
     invalid = sorted(set(mcp_installation_ids) - valid_ids)
     if invalid:
         raise WorkflowTaskConnectorsInvalid(invalid)

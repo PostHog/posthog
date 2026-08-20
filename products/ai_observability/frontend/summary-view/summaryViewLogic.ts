@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, isTransientServerError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -119,20 +119,33 @@ function lookupWindow(createdAt: string): Pick<SummarizeRequestApi, 'date_from' 
     }
 }
 
+const GENERIC_SUMMARY_ERROR = "Couldn't generate a summary. Try again, and if it keeps happening contact support."
+
+function bodylessStatusMessage(error: ApiError): string {
+    if (error.status === 413) {
+        return 'This trace is too large to summarize. Open a single generation and summarize that instead.'
+    }
+    if (error.status === 504) {
+        return 'Generating this summary took too long. Try again in a moment.'
+    }
+    if (isTransientServerError(error)) {
+        return 'The summary service is busy right now. Try again in a moment.'
+    }
+    return GENERIC_SUMMARY_ERROR
+}
+
 /**
- * A gateway rejection or timeout carries no body, so `ApiError` has no `detail` to show and falls
- * back to its own `Non-OK response [POST ...] (status 504: )` string. The status is carried over so
- * transient gateway errors stay out of error tracking.
+ * Keep a raw status code out of the toast and inline error. `ApiError` falls back to its own
+ * `API request failed with status: 413` string when the response carries no body, so replace that
+ * with a readable sentence. A response that does carry a `detail` is left alone, since it says
+ * more than any status-keyed guess. The status is carried over so transient gateway errors stay out of
+ * error tracking.
  */
 function toReadableError(error: unknown): unknown {
     if (!(error instanceof ApiError) || error.detail) {
         return error
     }
-    const message =
-        error.status === 504
-            ? 'Generating this summary took too long. Try again in a moment.'
-            : "Couldn't generate a summary. Try again, and if it keeps happening contact support."
-    return new ApiError(message, error.status, error.headers, error.data)
+    return new ApiError(bodylessStatusMessage(error), error.status, error.headers, error.data)
 }
 
 export const summaryViewLogic = kea<summaryViewLogicType>([
