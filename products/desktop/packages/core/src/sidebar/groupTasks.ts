@@ -61,7 +61,9 @@ export function getRepositoryInfo(
     // of colliding with a real owner/repo group.
   }
   if (folderPath) {
-    const name = folderPath.split("/").pop() ?? folderPath;
+    // Both separators: a Windows checkout would otherwise take its whole path
+    // as the repository's name, which a row then prints in full.
+    const name = folderPath.split(/[/\\]/).filter(Boolean).pop() ?? folderPath;
     return {
       fullPath: folderPath,
       name,

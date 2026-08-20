@@ -1,4 +1,5 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { metadataFromValues } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
 import {
   activityValue,
@@ -18,11 +19,21 @@ export type ChannelItemFacts = Partial<
   Record<ListItemMetadataField, ListItemMetadataValue | string>
 >;
 
+/**
+ * Who made it. A session carries its creator as a user (`authorName` is only
+ * ever set for a canvas), so reading the name alone showed no creator on any
+ * session row.
+ */
+export function channelItemAuthor(item: ChannelItemModel): string | null {
+  if (item.authorUser) return userDisplayName(item.authorUser);
+  return item.authorName;
+}
+
 export function channelItemFacts(item: ChannelItemModel): ChannelItemFacts {
   return {
     repository: item.repository?.label,
     branch: item.branch ?? undefined,
-    creator: item.authorName ?? undefined,
+    creator: channelItemAuthor(item) ?? undefined,
     activity: activityValue(item.ts),
   };
 }

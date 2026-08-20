@@ -22,9 +22,9 @@ import {
   TaskRowMenuList,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
+import { channelItemAuthor } from "@posthog/ui/features/canvas/hooks/useChannelItemFacts";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useLatestTurnMessage } from "@posthog/ui/features/canvas/hooks/useLatestTurnMessage";
-import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { getOriginProductMeta } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
 import { TaskDotMark } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import {
@@ -69,18 +69,13 @@ function previewGlyph(item: ChannelItemModel, dot: TaskDot | null): ReactNode {
   return <TaskDotMark dot={dot} />;
 }
 
-function authorLabel(item: ChannelItemModel): string | null {
-  if (item.authorUser) return userDisplayName(item.authorUser);
-  return item.authorName;
-}
-
 /**
  * Who made it, as the avatar alone. The name is worth a line of the card only
  * where the avatar can't carry it, so it goes to the label and a tooltip
  * instead of a row of its own.
  */
 function AuthorAvatar({ item }: { item: ChannelItemModel }) {
-  const author = authorLabel(item);
+  const author = channelItemAuthor(item);
   if (!author) return null;
   const label = `Created by ${author}`;
   return (

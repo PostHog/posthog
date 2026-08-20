@@ -528,6 +528,25 @@ describe("ChannelItemRow", () => {
     expect(screen.getByText("PostHog/code")).toBeInTheDocument();
   });
 
+  // A session carries its creator as a user, not a name, so reading the name
+  // alone left every session row without one.
+  it("names the creator of a session, which carries a user rather than a name", () => {
+    useSidebarStore.setState({ listItemMetadataFields: ["creator"] });
+    renderRow(
+      item({
+        authorUser: {
+          id: 1,
+          uuid: "user-uuid",
+          first_name: "Ada",
+          last_name: "Lovelace",
+          email: "ada@example.com",
+        },
+      }),
+    );
+
+    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
+  });
+
   it("leaves a row single-line when no metadata fields are chosen", () => {
     renderRow(
       item({
