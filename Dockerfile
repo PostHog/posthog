@@ -445,9 +445,9 @@ COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
 # runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
-# source. The engine arrives with products/ above; only tools/owners needs its own COPY. This is
-# separate from posthog-owners being installed into the venv as a library: the sandbox gets files
-# copied into a checkout, not an import.
+# source. The engine arrives with products/ above, and only tools/owners needs its own COPY. This
+# differs from the installation of posthog-owners into the venv as a library: the sandbox receives
+# files copied into a checkout, and not an import.
 COPY --chown=posthog:posthog tools/owners tools/owners/
 RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
 # Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page

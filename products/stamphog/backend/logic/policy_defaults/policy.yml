@@ -123,9 +123,9 @@ deny:
                 - '\.stamphog/'
                 - 'AGENT_APPROVALS\.md'
                 - 'pr-approval-agent/'
-                # Kept alongside the location-agnostic pattern above: the engine that
-                # validates this file ships in the server image, so a deploy still running
-                # the previous engine requires this exact literal.
+                # Kept next to the location-agnostic pattern above. The engine that
+                # validates this file ships in the server image, so a deploy that still
+                # runs the previous engine needs this exact literal.
                 - 'tools/pr-approval-agent/'
                 - 'CODEOWNERS'
 allow:

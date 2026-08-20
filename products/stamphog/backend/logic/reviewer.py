@@ -1,16 +1,17 @@
 """Sandbox reviewer invocation + output parsing.
 
-The whole review engine — hard gates, tier classification, git-blame
-familiarity, and the LLM reviewer — now runs inside the sandbox via the Action's
-own modules (``products/stamphog/packages/pr-approval-agent/review_local.py``). This module no longer
-embeds a reviewer script; it only:
+The whole review engine (hard gates, tier classification, git-blame
+familiarity, and the LLM reviewer) runs inside the sandbox via the engine's own
+modules (``products/stamphog/packages/pr-approval-agent/review_local.py``). This
+module no longer embeds a reviewer script. It only does two things:
 
 - ``build_reviewer_invocation``: assembles the ``--context`` JSON payload the
   sandbox entrypoint consumes (PR metadata, changed files, the author's merged-PR
   numbers, base/head shas) and the ``uv run`` command to execute it.
-- ``parse_reviewer_output``: turns the entrypoint's last stdout JSON line — the
-  Action's full ``to_dict()`` contract — into a verdict, defensively. A run we
-  can't read is never an approval: malformed output escalates.
+- ``parse_reviewer_output``: turns the entrypoint's last stdout JSON line, which
+  is the engine's full ``to_dict()`` contract, into a verdict. It parses
+  defensively, because a run that the server cannot read is never an approval.
+  Malformed output escalates.
 
 The trusted review-norms prose and gate policy are NOT passed here — the server
 overwrites ``.stamphog/policy.yml`` and ``.stamphog/review-guidance.md`` in the

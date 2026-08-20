@@ -6,11 +6,12 @@ policy files, raw reviewer output) is persisted on ``ReviewRun.output`` between 
 rather than threaded through the workflow, keeping every Temporal payload well under the
 ~2 MiB limit.
 
-The whole review engine — hard gates, tier classification, git-blame familiarity, and
-the LLM reviewer — runs inside the sandbox via the Action's own modules
-(``products/stamphog/packages/pr-approval-agent/review_local.py``). The server never processes repo content:
-it fetches PR data and the trusted default-branch policy over the API, ships the engine
-and injects the policy into the sandbox, and only ever reads back a single verdict JSON.
+The whole review engine (hard gates, tier classification, git-blame familiarity, and
+the LLM reviewer) runs inside the sandbox via the engine's own modules
+(``products/stamphog/packages/pr-approval-agent/review_local.py``). The server never
+processes repo content. It fetches PR data and the trusted default-branch policy over
+the API, ships the engine and injects the policy into the sandbox, and reads back only a
+single verdict JSON.
 """
 
 from __future__ import annotations
@@ -69,10 +70,10 @@ from products.tasks.backend.facade.sandbox import (
     get_sandbox_class_for_backend,
 )
 
-# The review engine on the server's own checkout. Read as data files at runtime (never imported —
-# the directory is hyphenated and lives outside the import graph) and shipped into the sandbox
-# checkout. activities.py is at products/stamphog/backend/temporal/activities.py, so the product root
-# is three parents up.
+# The review engine on the server's own checkout. The server reads these as data files at runtime
+# and ships them into the sandbox checkout. It never imports them, because the directory is
+# hyphenated and sits outside the import graph. activities.py is at
+# products/stamphog/backend/temporal/activities.py, so the product root is three parents up.
 _SERVER_ENGINE_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent"
 
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
@@ -1160,11 +1161,12 @@ def _ship_owners_package(sandbox: SandboxBase) -> None:
     """Ship the posthog-owners resolver package the engine's ownership format imports.
 
     The default policy declares a ``hogli-resolver`` ownership source, and gates.py imports
-    ``posthog_owners`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust posture as the
-    engine: always our copy, wiping whatever the PR head carried at that path. Repos without
+    ``posthog_owners`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust
+    posture as the engine: always our copy, which overwrites whatever the PR head carried at that
+    path. Repos without
     owners.yaml/product.yaml files simply resolve to "no ownership-source match".
     """
-    # Repo root rather than a sibling of the engine: posthog_owners is a shared tool, so it stays
+    # Repo root rather than a sibling of the engine. posthog_owners is a shared tool, so it stays
     # under tools/ while the engine lives in the product.
     package_dir = Path(__file__).resolve().parents[4] / "tools" / "owners" / "posthog_owners"
     if not package_dir.is_dir():

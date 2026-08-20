@@ -28,6 +28,7 @@ import uuid
 import argparse
 import tempfile
 import subprocess
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -735,7 +736,7 @@ class Pipeline:
         return links
 
     @contextmanager
-    def _pr_head_worktree(self):
+    def _pr_head_worktree(self) -> Iterator[Path | None]:
         """Yield a detached worktree at the PR head, or None when none is needed.
 
         Only stacked PRs reviewed from a trunk checkout need this: their head

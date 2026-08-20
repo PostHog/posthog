@@ -5,8 +5,9 @@ import pytest
 
 import yaml
 
-# The review engine (packages/pr-approval-agent) is a set of plain modules, not an importable package, so
-# its directory must be on sys.path to import its policy loader by bare name — same way its own tests do.
+# The review engine (packages/pr-approval-agent) is a set of plain modules, and not an importable
+# package, so its directory must be on sys.path to import its policy loader by bare name. Its own
+# tests do the same.
 _ENGINE_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent"
 sys.path.insert(0, str(_ENGINE_DIR))
 

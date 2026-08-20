@@ -557,10 +557,10 @@ def test_ownership_cross_team_and_unowned(tmp_path: Path) -> None:
 
 
 def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
-    # policy.repo_root() walks up for a .stamphog/ directory, and the PR head is untrusted: a PR that
-    # adds tools/.stamphog/ would move that root and aim the lookup at a directory it controls, which
-    # then gets imported inside the sandbox holding the run's LLM credentials. Both candidates must
-    # stay fixed offsets from the engine's own file.
+    # policy.repo_root() walks up to find a .stamphog/ directory, and the PR head is untrusted. A PR
+    # that adds tools/.stamphog/ would move that root and aim the lookup at a directory that the PR
+    # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
+    # credentials. Both candidates must stay fixed offsets from the engine's own file.
     engine_dir = Path(gates.__file__).resolve().parent
     assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parent / "owners"
     assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parents[3] / "tools" / "owners"

@@ -210,10 +210,11 @@ jobs:
 
                   - name: Run pr-approval-agent (stamphog) tests
                     shell: bash
-                    # Two candidate paths: the engine now lives under the stamphog product, but an
-                    # open PR that hasn't rebased still carries it under tools/, and this workflow runs
-                    # against that branch merged with master. Both trees are tested when both exist,
-                    # because that merge can carry an addition to the old path alongside the new tree.
+                    # Two candidate paths. The engine now lives under the stamphog product, but an
+                    # open PR that has not rebased still carries it under tools/, and this workflow
+                    # runs against that branch merged with master. The loop tests both trees when
+                    # both exist, because that merge can add a file at the old path next to the new
+                    # tree.
                     run: |
                         found=0
                         for dir in products/stamphog/packages/pr-approval-agent tools/pr-approval-agent; do

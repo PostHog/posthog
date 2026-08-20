@@ -483,7 +483,7 @@ def test_resolve_invalid_child_rides_parent_grant(fake_repo: Path) -> None:
         ".stamphog/policy.yml",
         "some/AGENT_APPROVALS.md",
         "products/stamphog/packages/pr-approval-agent/review_pr.py",
-        # A vendored copy keeps the engine under tools/, which the same deny must still cover.
+        # A vendored copy keeps the engine under tools/, and the same deny must still cover it.
         "tools/pr-approval-agent/review_pr.py",
     ],
 )

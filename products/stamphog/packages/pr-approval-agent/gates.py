@@ -22,23 +22,24 @@ from policy import OwnershipSource, load_policy
 if TYPE_CHECKING:
     from posthog_owners.resolver import OwnersResolver
 
-# The resolver lives in the posthog-owners package. It is not installed in this script's uv env, so
-# it is put on the path and imported as a library (it needs only pyyaml, which review_pr.py
-# declares). The import is deferred to _build_hogli_resolver: downstream repos vendor this directory
-# (plus .stamphog/) without tools/owners, and a module-level import would disable their stamphog copy
-# before any gate runs — the package is only required once a policy actually declares a
-# hogli-resolver ownership source.
+# The resolver lives in the posthog-owners package. This script's uv env does not install it, so the
+# code puts it on the path and imports it as a library. It needs only pyyaml, which review_pr.py
+# declares. _build_hogli_resolver defers the import, because downstream repos vendor this directory
+# (plus .stamphog/) without tools/owners. A module-level import would disable their stamphog copy
+# before any gate runs. The package is only necessary once a policy declares a hogli-resolver
+# ownership source.
 #
-# Two candidate locations, and only the FIRST one that exists is ever put on the path. The sibling
-# `owners/` covers both the vendored layout downstream repos copy and the review sandbox, which
-# receives this directory at <checkout>/tools/pr-approval-agent with tools/owners beside it, so the
-# sandbox never reaches the second entry. The second covers running from this repo, where the
-# engine's own home is under products/stamphog/packages/.
+# There are two candidate locations, and the code puts only the FIRST one that exists on the path.
+# The sibling `owners/` covers two cases: the vendored layout that downstream repos copy, and the
+# review sandbox, which receives this directory at <checkout>/tools/pr-approval-agent with
+# tools/owners beside it. The sandbox therefore never reaches the second entry. The second entry
+# covers a run from this repo, where the engine's own home is under products/stamphog/packages/.
 #
-# Both are fixed offsets from this file rather than a discovered repo root. `policy.repo_root()`
-# walks up looking for a `.stamphog/` directory, and the PR head is untrusted: a PR that adds
-# `tools/.stamphog/` would move that root and point this at a directory it controls, which then gets
-# imported inside the sandbox that holds the run's LLM credentials.
+# Both entries are fixed offsets from this file, and not a discovered repo root.
+# `policy.repo_root()` walks up to find a `.stamphog/` directory, and the PR head is untrusted. A PR
+# that adds `tools/.stamphog/` would move that root and point this code at a directory that the PR
+# controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
+# credentials.
 _OWNERS_PKG_CANDIDATES = (
     Path(__file__).resolve().parents[1] / "owners",
     Path(__file__).resolve().parents[4] / "tools" / "owners",

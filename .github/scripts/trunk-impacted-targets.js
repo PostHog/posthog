@@ -1462,10 +1462,10 @@ function computeTargets(changedFiles, context) {
             targets.add('tools:pr-approval-agent')
             continue
         }
-        // The engine sits inside the stamphog product but no product suite reads it: ci-python runs
-        // its tests directly, and they are the same tests .stamphog/ and every AGENT_APPROVALS.md
-        // feed. All three share one lane so a policy change and an engine change cannot merge in
-        // parallel against each other.
+        // The engine sits inside the stamphog product, but no product suite imports it. ci-python
+        // runs its tests directly, and those are the same tests that .stamphog/ and every
+        // AGENT_APPROVALS.md feed into. All three share one lane, so a policy change and an engine
+        // change cannot merge in parallel against each other.
         if (file.startsWith(`${PR_APPROVAL_AGENT_DIR}/`)) {
             targets.add('tools:pr-approval-agent')
             continue
