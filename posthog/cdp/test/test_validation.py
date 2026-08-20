@@ -3,6 +3,8 @@ import json
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -1139,3 +1141,33 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             )
         # The original value round-trips so the UI can still render the templated source string.
         assert validated["tags"]["value"] == value
+
+
+class TestTaskInputTypeValidation(SimpleTestCase):
+    # The task_* input types are authored programmatically (workflow API, MCP agents), so the
+    # serializer is the only guard against a payload shape the tasks endpoint would reject at
+    # run time - long after the workflow saved fine.
+    @parameterized.expand(
+        [
+            ("repository_string", "task_repository", "example-org/example-repo", True),
+            ("repository_not_string", "task_repository", 123, False),
+            ("model_full", "task_model", {"model": "claude-sonnet-5", "reasoning_effort": "high"}, True),
+            ("model_without_effort", "task_model", {"model": "claude-sonnet-5"}, True),
+            ("model_not_dict", "task_model", "claude-sonnet-5", False),
+            ("model_value_not_string", "task_model", {"model": 5}, False),
+            ("model_key_absent", "task_model", {"reasoning_effort": "high"}, False),
+            ("model_value_empty_string", "task_model", {"model": ""}, False),
+            ("installations_string_list", "task_mcp_installations", ["id-1", "id-2"], True),
+            ("installations_not_list", "task_mcp_installations", "id-1", False),
+            ("installations_not_strings", "task_mcp_installations", [1, 2], False),
+        ]
+    )
+    def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):
+        schema = [{"key": "field", "type": schema_type, "label": "Field", "required": False}]
+        inputs = {"field": {"value": value}}
+
+        if expect_valid:
+            validate_inputs(schema, inputs)
+        else:
+            with pytest.raises(ValidationError):
+                validate_inputs(schema, inputs)
