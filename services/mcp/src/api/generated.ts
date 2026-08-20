@@ -6323,6 +6323,16 @@ export namespace Schemas {
       uuid: string;
     }
 
+    export type ErrorTrackingQueryIssueSeverity = typeof ErrorTrackingQueryIssueSeverity[keyof typeof ErrorTrackingQueryIssueSeverity];
+
+
+    export const ErrorTrackingQueryIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export type ErrorTrackingIssueStatus = typeof ErrorTrackingIssueStatus[keyof typeof ErrorTrackingIssueStatus];
 
 
@@ -6348,6 +6358,7 @@ export namespace Schemas {
       last_seen: string;
       library?: string | null;
       name?: string | null;
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       source?: string | null;
       status: ErrorTrackingIssueStatus;
     }
@@ -6398,6 +6409,7 @@ export namespace Schemas {
       name?: string | null;
       odds_ratio: number;
       population: Population;
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       status: ErrorTrackingIssueStatus;
     }
 
@@ -7669,6 +7681,7 @@ export namespace Schemas {
       issue_description?: string | null;
       issue_id: string;
       issue_name?: string | null;
+      issue_severity?: ErrorTrackingQueryIssueSeverity | null;
       issue_status: string;
       /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
       version: number;
@@ -21543,6 +21556,8 @@ export namespace Schemas {
       readonly latest_error: string | null;
       /** @nullable */
       readonly is_materialized: boolean | null;
+      /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
+      readonly is_incremental: boolean;
       /** Where this SavedQuery is created.
        *
        * * `data_warehouse` - Data Warehouse
@@ -30323,6 +30338,22 @@ export namespace Schemas {
       cohort: ErrorTrackingIssueCohortRead | null;
     }
 
+    /**
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical
+     */
+    export type ErrorTrackingIssueSeverityRuleEnum = typeof ErrorTrackingIssueSeverityRuleEnum[keyof typeof ErrorTrackingIssueSeverityRuleEnum];
+
+
+    export const ErrorTrackingIssueSeverityRuleEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export interface ErrorTrackingIssueSplitFingerprint {
       /** Fingerprint to split into a new issue. */
       fingerprint: string;
@@ -30671,6 +30702,72 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
     }
 
+    /**
+     * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+     * @nullable
+     */
+    export type ErrorTrackingSeverityRuleDisabledData = {
+      message?: string;
+      issue?: { [key: string]: unknown };
+      properties?: { [key: string]: unknown };
+    } | null;
+
+    export interface ErrorTrackingSeverityRule {
+      /** Unique identifier of the severity rule. */
+      readonly id: string;
+      /** Property-group filters evaluated against the event that creates an issue. */
+      filters: PropertyGroupFilterValue;
+      /** Severity assigned to a newly created issue when this rule is the first match.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Evaluation priority. Lower values run first, and the first matching rule wins. */
+      order_key: number;
+      /**
+         * Diagnostic details when ingestion automatically disables the rule, otherwise null.
+         * @nullable
+         */
+      disabled_data: ErrorTrackingSeverityRuleDisabledData;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingSeverityRuleCreateRequest {
+      /** Property-group filters evaluated against the event that creates an issue. */
+      filters: PropertyGroupFilterValue;
+      /** Severity assigned when this rule is the first match.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Evaluation priority. Lower values run first. Defaults to 0. */
+      order_key?: number;
+    }
+
+    export interface ErrorTrackingSeverityRuleListResponse {
+      /** Severity rules in ascending evaluation order. */
+      results: ErrorTrackingSeverityRule[];
+    }
+
+    export interface ErrorTrackingSeverityRuleUpdateRequest {
+      /** Replacement property-group filters. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /** Replacement severity. Omit to preserve the existing severity.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity?: ErrorTrackingIssueSeverityRuleEnum;
+    }
+
     export interface ErrorTrackingSignalExtra {
       fingerprint: string;
     }
@@ -30885,6 +30982,37 @@ export namespace Schemas {
       force?: boolean;
       /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
       skip_on_conflict?: boolean;
+    }
+
+    /**
+     * Form fields to include in the multipart POST, before the file part.
+     */
+    export type ErrorTrackingSymbolSetPresignedPostFields = {[key: string]: string};
+
+    export interface ErrorTrackingSymbolSetPresignedPost {
+      /** S3 endpoint URL to send the multipart POST to. */
+      url: string;
+      /** Form fields to include in the multipart POST, before the file part. */
+      fields: ErrorTrackingSymbolSetPresignedPostFields;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkStartUploadEntry {
+      /** ID of the symbol set the upload belongs to. */
+      symbol_set_id: string;
+      /** Presigned POST for the upload. Uses the S3 transfer-acceleration endpoint when configured. */
+      presigned_url: ErrorTrackingSymbolSetPresignedPost;
+      /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
+      fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPost;
+    }
+
+    /**
+     * Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted.
+     */
+    export type ErrorTrackingSymbolSetBulkStartUploadResponseIdMap = {[key: string]: ErrorTrackingSymbolSetBulkStartUploadEntry};
+
+    export interface ErrorTrackingSymbolSetBulkStartUploadResponse {
+      /** Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted. */
+      id_map: ErrorTrackingSymbolSetBulkStartUploadResponseIdMap;
     }
 
     export interface ErrorTrackingSymbolSetFinishUpload {
@@ -37612,6 +37740,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly requested_on: string | null;
+      /** Uploaded image IDs attached to this evidence item, in display order. */
+      readonly image_ids: readonly string[];
       /**
          * ID of the user who added the evidence.
          * @nullable
@@ -37752,6 +37882,8 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /** Uploaded image IDs from this project to attach in display order. */
+      image_ids?: string[];
     }
 
     export interface FeatureRequestAddAccount {
@@ -37802,6 +37934,8 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /** Uploaded image IDs from this project to attach in display order. */
+      image_ids?: string[];
       /**
          * Request version loaded by the editor. Stale versions return 409 Conflict.
          * @minimum 1
@@ -37841,6 +37975,8 @@ export namespace Schemas {
          * @nullable
          */
       requested_on?: string | null;
+      /** Uploaded image IDs from this project to attach in display order. */
+      image_ids?: string[];
       /**
          * Request version loaded by the editor. Stale versions return 409 Conflict.
          * @minimum 1
@@ -37892,6 +38028,7 @@ export namespace Schemas {
       source_url: string;
       /** @nullable */
       requested_on: string | null;
+      image_ids?: string[];
     } | null;
 
     /**
@@ -37916,6 +38053,7 @@ export namespace Schemas {
       source_url: string;
       /** @nullable */
       requested_on: string | null;
+      image_ids?: string[];
     } | null;
 
     export interface FeatureRequestHistoryChange {
@@ -39795,6 +39933,7 @@ export namespace Schemas {
      * * `events` - events
      * * `person-updates` - person-updates
      * * `data-warehouse-table` - data-warehouse-table
+     * * `data-warehouse-view` - data-warehouse-view
      */
     export type HogFunctionFiltersSourceEnum = typeof HogFunctionFiltersSourceEnum[keyof typeof HogFunctionFiltersSourceEnum];
 
@@ -39803,6 +39942,7 @@ export namespace Schemas {
       Events: 'events',
       PersonUpdates: 'person-updates',
       DataWarehouseTable: 'data-warehouse-table',
+      DataWarehouseView: 'data-warehouse-view',
     } as const;
 
     export type HogFunctionFiltersActionsItem = { [key: string]: unknown };
@@ -40503,6 +40643,9 @@ export namespace Schemas {
      * * `non_failure_status_codes` - non_failure_status_codes
      * * `customer_analytics_account_properties` - customer_analytics_account_properties
      * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
+     * * `task_model` - task_model
+     * * `task_repository` - task_repository
+     * * `task_mcp_installations` - task_mcp_installations
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -40525,6 +40668,9 @@ export namespace Schemas {
       NonFailureStatusCodes: 'non_failure_status_codes',
       CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
       CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
+      TaskModel: 'task_model',
+      TaskRepository: 'task_repository',
+      TaskMcpInstallations: 'task_mcp_installations',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -49345,6 +49491,44 @@ export namespace Schemas {
       redirect_url: string;
     }
 
+    /**
+     * * `insight` - insight
+     * * `hogql` - hogql
+     * * `dashboard` - dashboard
+     * * `error` - error
+     * * `replay` - replay
+     * * `flag` - flag
+     * * `experiment` - experiment
+     * * `survey` - survey
+     * * `ticket` - ticket
+     * * `trace` - trace
+     * * `eval` - eval
+     * * `event` - event
+     * * `cohort` - cohort
+     * * `action` - action
+     * * `person` - person
+     */
+    export type ObjectKindEnum = typeof ObjectKindEnum[keyof typeof ObjectKindEnum];
+
+
+    export const ObjectKindEnum = {
+      Insight: 'insight',
+      Hogql: 'hogql',
+      Dashboard: 'dashboard',
+      Error: 'error',
+      Replay: 'replay',
+      Flag: 'flag',
+      Experiment: 'experiment',
+      Survey: 'survey',
+      Ticket: 'ticket',
+      Trace: 'trace',
+      Eval: 'eval',
+      Event: 'event',
+      Cohort: 'cohort',
+      Action: 'action',
+      Person: 'person',
+    } as const;
+
     export interface ObjectMediaPreview {
       readonly id: string;
       readonly created_at: string;
@@ -54437,6 +54621,30 @@ export namespace Schemas {
       DeltaS3Wrapper: 'DeltaS3Wrapper',
     } as const;
 
+    /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     * * `source` - source
+     * * `materialized_view` - materialized_view
+     * * `demo` - demo
+     */
+    export type TableCreatedViaEnum = typeof TableCreatedViaEnum[keyof typeof TableCreatedViaEnum];
+
+
+    export const TableCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+      Wizard: 'wizard',
+      SelfDriving: 'self_driving',
+      Source: 'source',
+      MaterializedView: 'materialized_view',
+      Demo: 'demo',
+    } as const;
+
     export interface SimpleExternalDataSourceSerializers {
       readonly id: string;
       readonly created_at: string;
@@ -54469,6 +54677,17 @@ export namespace Schemas {
       format: TableFormatEnum;
       readonly created_by: UserBasic;
       readonly created_at: string;
+      /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving
+       * * `source` - source
+       * * `materialized_view` - materialized_view
+       * * `demo` - demo */
+      readonly created_via: TableCreatedViaEnum | null;
       /** @maxLength 500 */
       url_pattern: string;
       credential: Credential;
@@ -54631,7 +54850,7 @@ export namespace Schemas {
       Ultracode: 'ultracode',
     } as const;
 
-    export interface TaskRunArtifactMetadata {
+    export interface TaskRunSkillBundleMetadata {
       /**
          * Name of the local skill included in a skill_bundle artifact.
          * @maxLength 255
@@ -54661,6 +54880,59 @@ export namespace Schemas {
     }
 
     /**
+     * * `posthog_object` - posthog_object
+     */
+    export type ReferenceTypeEnum = typeof ReferenceTypeEnum[keyof typeof ReferenceTypeEnum];
+
+
+    export const ReferenceTypeEnum = {
+      PosthogObject: 'posthog_object',
+    } as const;
+
+    export interface TaskRunPostHogReferenceMetadata {
+      /** Reference metadata type. posthog_object identifies a live PostHog object.
+       *
+       * * `posthog_object` - posthog_object */
+      reference_type: ReferenceTypeEnum;
+      /** PostHog object kind used to resolve the reference.
+       *
+       * * `insight` - insight
+       * * `hogql` - hogql
+       * * `dashboard` - dashboard
+       * * `error` - error
+       * * `replay` - replay
+       * * `flag` - flag
+       * * `experiment` - experiment
+       * * `survey` - survey
+       * * `ticket` - ticket
+       * * `trace` - trace
+       * * `eval` - eval
+       * * `event` - event
+       * * `cohort` - cohort
+       * * `action` - action
+       * * `person` - person */
+      object_kind: ObjectKindEnum;
+      /**
+         * Exact PostHog object identifier, flag key, event name, or SQL query.
+         * @maxLength 16384
+         */
+      object_id: string;
+      /**
+         * Completed assistant message identifiers that referenced the object.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      source_message_ids: string[];
+      /**
+         * Number of distinct completed assistant messages that referenced the object.
+         * @minimum 1
+         */
+      occurrence_count: number;
+    }
+
+    export type TaskRunArtifactMetadata = TaskRunSkillBundleMetadata | TaskRunPostHogReferenceMetadata;
+
+    /**
      * * `agent` - agent
      * * `user` - user
      */
@@ -54685,11 +54957,11 @@ export namespace Schemas {
       size?: number;
       /** Optional MIME type */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      /** Structured metadata for a skill bundle or a PostHog object reference. */
       metadata?: TaskRunArtifactMetadata;
-      /** S3 object key for the artifact */
-      storage_path: string;
-      /** Timestamp when the artifact was uploaded */
+      /** S3 object key for file artifacts. Reference artifacts do not have one. */
+      storage_path?: string;
+      /** Timestamp when the artifact was uploaded or registered */
       uploaded_at: string;
       /** Whether the artifact version was uploaded by the task agent or an interactive user.
        *
@@ -58311,6 +58583,28 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+    }
+
+    /**
+     * Mapping from severity rule UUID to its new evaluation order.
+     */
+    export type PatchedErrorTrackingSeverityRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingSeverityRuleReorderRequest {
+      /** Mapping from severity rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingSeverityRuleReorderRequestOrders;
+    }
+
+    export interface PatchedErrorTrackingSeverityRuleUpdateRequest {
+      /** Replacement property-group filters. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /** Replacement severity. Omit to preserve the existing severity.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity?: ErrorTrackingIssueSeverityRuleEnum;
     }
 
     export interface PatchedErrorTrackingSpikeDetectionConfig {
@@ -63401,6 +63695,17 @@ export namespace Schemas {
       format?: TableFormatEnum;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
+      /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving
+       * * `source` - source
+       * * `materialized_view` - materialized_view
+       * * `demo` - demo */
+      readonly created_via?: TableCreatedViaEnum | null;
       /** @maxLength 500 */
       url_pattern?: string;
       credential?: Credential;
@@ -73223,13 +73528,14 @@ export namespace Schemas {
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunDetailMetadata = {
       harness_prompt_version?: string;
       report_channel?: string;
       skill_origin?: string;
       github_guidance?: boolean;
+      business_knowledge_maintained?: boolean;
       model?: string;
       runtime_adapter?: string;
       reasoning_effort?: string;
@@ -73303,7 +73609,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunDetailMetadata;
     }
 
@@ -73317,13 +73623,14 @@ export namespace Schemas {
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunSummaryMetadata = {
       harness_prompt_version?: string;
       report_channel?: string;
       skill_origin?: string;
       github_guidance?: boolean;
+      business_knowledge_maintained?: boolean;
       model?: string;
       runtime_adapter?: string;
       reasoning_effort?: string;
@@ -73397,7 +73704,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
     }
 
@@ -79398,6 +79705,17 @@ export namespace Schemas {
       runtime?: RuntimeEnum;
     }
 
+    /**
+     * Request body for handing a task off to a colleague: they become its owner.
+     */
+    export interface TaskHandoffRequest {
+      /**
+         * ID of the user taking over the task. Must have access to this project and not be the task's current owner.
+         * @minimum 1
+         */
+      user: number;
+    }
+
     export interface TaskPinRequest {
       /** Whether the task should be pinned for the requester. */
       pinned: boolean;
@@ -79495,8 +79813,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskRunArtifactPrepareUpload {
@@ -79532,8 +79850,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskRunArtifactPrepareUploadResponse {
@@ -79549,8 +79867,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
       /** S3 object key reserved for the artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */
@@ -79608,8 +79926,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskRunArtifactsDismissRequest {
@@ -80246,6 +80564,55 @@ export namespace Schemas {
       peers: TaskRunPeer[];
     }
 
+    export interface TaskRunPostHogReference {
+      /**
+         * Fallback display name for the referenced object.
+         * @maxLength 255
+         */
+      name: string;
+      /** PostHog object kind used to resolve the reference.
+       *
+       * * `insight` - insight
+       * * `hogql` - hogql
+       * * `dashboard` - dashboard
+       * * `error` - error
+       * * `replay` - replay
+       * * `flag` - flag
+       * * `experiment` - experiment
+       * * `survey` - survey
+       * * `ticket` - ticket
+       * * `trace` - trace
+       * * `eval` - eval
+       * * `event` - event
+       * * `cohort` - cohort
+       * * `action` - action
+       * * `person` - person */
+      object_kind: ObjectKindEnum;
+      /**
+         * Exact PostHog object identifier, flag key, event name, or SQL query.
+         * @maxLength 16384
+         */
+      object_id: string;
+      /**
+         * Stable identifier of the completed assistant message containing the reference.
+         * @maxLength 255
+         */
+      source_message_id: string;
+    }
+
+    export interface TaskRunPostHogReferencesRequest {
+      /**
+         * PostHog object references extracted from one completed assistant message.
+         * @maxItems 50
+         */
+      references: TaskRunPostHogReference[];
+    }
+
+    export interface TaskRunPostHogReferencesResponse {
+      /** Updated list of artifacts on the run. */
+      artifacts: TaskRunArtifactResponse[];
+    }
+
     export interface TaskRunRelayMessageRequest {
       /**
          * Joined message body. Used when text_parts is absent.
@@ -80387,8 +80754,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUpload {
@@ -80424,8 +80791,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUploadResponse {
@@ -80441,8 +80808,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
-      /** Optional structured metadata for special artifact types, such as skill bundles. */
-      metadata?: TaskRunArtifactMetadata;
+      /** Skill bundle metadata, required when the artifact type is skill_bundle. */
+      metadata?: TaskRunSkillBundleMetadata;
       /** S3 object key reserved for the staged artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */
@@ -93234,6 +93601,31 @@ export namespace Schemas {
      */
     created_by?: number;
     /**
+     * Exclude tasks with this origin product from the results
+     *
+     * * `onboarding` - Onboarding
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
+     * * `signal_report` - Signal Report
+     * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow
+     * @minLength 1
+     */
+    exclude_origin_product?: TasksListExcludeOriginProduct;
+    /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *
      * * `true` - true
@@ -93334,6 +93726,31 @@ export namespace Schemas {
       Failing: 'failing',
       Pending: 'pending',
       None: 'none',
+    } as const;
+
+    export type TasksListExcludeOriginProduct = typeof TasksListExcludeOriginProduct[keyof typeof TasksListExcludeOriginProduct];
+
+
+    export const TasksListExcludeOriginProduct = {
+      Onboarding: 'onboarding',
+      ErrorTracking: 'error_tracking',
+      EvalClusters: 'eval_clusters',
+      UserCreated: 'user_created',
+      Slack: 'slack',
+      SupportQueue: 'support_queue',
+      SessionSummaries: 'session_summaries',
+      PosthogAi: 'posthog_ai',
+      Experiments: 'experiments',
+      SignalReport: 'signal_report',
+      SignalsScout: 'signals_scout',
+      SupportReply: 'support_reply',
+      Hogdesk: 'hogdesk',
+      ReviewHog: 'review_hog',
+      ImageBuilder: 'image_builder',
+      Loop: 'loop',
+      McpAnalytics: 'mcp_analytics',
+      SignalsChat: 'signals_chat',
+      Workflow: 'workflow',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];

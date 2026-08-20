@@ -1509,6 +1509,22 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Transfer ownership of a task to another member of the project: they take over driving it (steering, archiving, running), and future runs resolve GitHub authorship and notification recipients from them. Only the task's current owner can hand it off. Every run must be finished or canceled, and every sandbox must be shut down first. A task in a private space moves into the recipient's private space; a task in a shared space stays there.
+ * @summary Hand a task off to a colleague
+ */
+
+export const TasksHandoffCreateBody = /* @__PURE__ */ zod
+    .object({
+        user: zod
+            .number()
+            .min(1)
+            .describe(
+                "ID of the user taking over the task. Must have access to this project and not be the task's current owner."
+            ),
+    })
+    .describe('Request body for handing a task off to a colleague: they become its owner.')
+
+/**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
 export const TasksPinCreateBody = /* @__PURE__ */ zod.object({
@@ -2010,7 +2026,7 @@ export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.
                             .describe('Version of the local skill bundle metadata schema.'),
                     })
                     .optional()
-                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
+                    .describe('Skill bundle metadata, required when the artifact type is skill_bundle.'),
             })
         )
         .describe('Array of staged artifacts to finalize after upload'),
@@ -2105,7 +2121,7 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
                             .describe('Version of the local skill bundle metadata schema.'),
                     })
                     .optional()
-                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
+                    .describe('Skill bundle metadata, required when the artifact type is skill_bundle.'),
             })
         )
         .describe('Array of staged artifacts to prepare before creating a run'),
@@ -2392,7 +2408,7 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                             .describe('Version of the local skill bundle metadata schema.'),
                     })
                     .optional()
-                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
+                    .describe('Skill bundle metadata, required when the artifact type is skill_bundle.'),
             })
         )
         .describe('Array of artifacts to upload'),
@@ -2523,7 +2539,7 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                             .describe('Version of the local skill bundle metadata schema.'),
                     })
                     .optional()
-                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
+                    .describe('Skill bundle metadata, required when the artifact type is skill_bundle.'),
             })
         )
         .describe('Array of uploaded artifacts to finalize'),
@@ -2616,7 +2632,7 @@ export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.obj
                             .describe('Version of the local skill bundle metadata schema.'),
                     })
                     .optional()
-                    .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
+                    .describe('Skill bundle metadata, required when the artifact type is skill_bundle.'),
             })
         )
         .describe('Array of artifacts to prepare'),
@@ -2633,6 +2649,64 @@ export const TasksRunsArtifactsPresignCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(tasksRunsArtifactsPresignCreateBodyStoragePathMax)
         .describe('S3 storage path returned in the artifact manifest'),
+})
+
+/**
+ * Attach live PostHog object references to the run artifact manifest without uploading files.
+ * @summary Register PostHog object references for a task run
+ */
+export const tasksRunsArtifactsReferencesCreateBodyReferencesItemNameMax = 255
+
+export const tasksRunsArtifactsReferencesCreateBodyReferencesItemObjectIdMax = 16384
+
+export const tasksRunsArtifactsReferencesCreateBodyReferencesItemSourceMessageIdMax = 255
+
+export const tasksRunsArtifactsReferencesCreateBodyReferencesMax = 50
+
+export const TasksRunsArtifactsReferencesCreateBody = /* @__PURE__ */ zod.object({
+    references: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(tasksRunsArtifactsReferencesCreateBodyReferencesItemNameMax)
+                    .describe('Fallback display name for the referenced object.'),
+                object_kind: zod
+                    .enum([
+                        'insight',
+                        'hogql',
+                        'dashboard',
+                        'error',
+                        'replay',
+                        'flag',
+                        'experiment',
+                        'survey',
+                        'ticket',
+                        'trace',
+                        'eval',
+                        'event',
+                        'cohort',
+                        'action',
+                        'person',
+                    ])
+                    .describe(
+                        '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                    )
+                    .describe(
+                        'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                    ),
+                object_id: zod
+                    .string()
+                    .max(tasksRunsArtifactsReferencesCreateBodyReferencesItemObjectIdMax)
+                    .describe('Exact PostHog object identifier, flag key, event name, or SQL query.'),
+                source_message_id: zod
+                    .string()
+                    .max(tasksRunsArtifactsReferencesCreateBodyReferencesItemSourceMessageIdMax)
+                    .describe('Stable identifier of the completed assistant message containing the reference.'),
+            })
+        )
+        .max(tasksRunsArtifactsReferencesCreateBodyReferencesMax)
+        .describe('PostHog object references extracted from one completed assistant message.'),
 })
 
 /**

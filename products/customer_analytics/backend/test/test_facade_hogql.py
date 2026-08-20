@@ -4,6 +4,8 @@
 # in-product: it fails here if a backing table is renamed or a model column is renamed/dropped
 # without updating facade/hogql.py, catching the drift on the shard that actually runs for
 # model changes.
+from uuid import uuid4
+
 from posthog.test.base import NonAtomicBaseTest
 
 from django.test import SimpleTestCase
@@ -102,8 +104,13 @@ class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):
         denied_link = FeatureRequestAccountLink.objects.unscoped().create(
             team=self.team, feature_request=visible_request, account=denied_account
         )
+        visible_image_id = uuid4()
         FeatureRequestEvidence.objects.unscoped().create(
-            team=self.team, account_link=visible_link, source="conversation", summary="Visible evidence"
+            team=self.team,
+            account_link=visible_link,
+            source="conversation",
+            summary="Visible evidence",
+            image_ids=[visible_image_id],
         )
         FeatureRequestEvidence.objects.unscoped().create(
             team=self.team, account_link=denied_link, source="conversation", summary="Denied evidence"
@@ -140,7 +147,7 @@ class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):
             "SELECT id FROM system.feature_request_account_links", team=self.team, user=viewer
         ).results
         evidence = execute_hogql_query(
-            "SELECT summary FROM system.feature_request_evidence", team=self.team, user=viewer
+            "SELECT summary, image_ids FROM system.feature_request_evidence", team=self.team, user=viewer
         ).results
         history = execute_hogql_query(
             "SELECT changed_fields FROM system.feature_request_history", team=self.team, user=viewer
@@ -148,7 +155,7 @@ class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):
 
         assert {str(row[0]) for row in requests} == {str(visible_request.id)}
         assert {str(row[0]) for row in links} == {str(visible_link.id)}
-        assert evidence == [("Visible evidence",)]
+        assert evidence == [("Visible evidence", [str(visible_image_id)])]
         assert history == [(["evidence"],)]
         with self.assertRaises(QueryError):
             execute_hogql_query("SELECT changes FROM system.feature_request_history", team=self.team, user=viewer)
