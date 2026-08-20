@@ -1804,6 +1804,11 @@ export class SessionService {
     }
   >();
   private pendingPermissionHydratedRuns = new Set<string>();
+  /** References whose registration failed, kept for retry keyed by task run. */
+  private pendingReferenceRegistrations = new Map<
+    string,
+    { taskId: string; references: Map<string, PostHogObjectReferenceInput> }
+  >();
   /** In-flight hydrations keyed by `${taskRunId}:${hydrationMode}` */
   private cloudHydrationPromises = new Map<
     string,
@@ -3272,11 +3277,28 @@ export class SessionService {
     void this.registerPostHogReferences(session.taskId, taskRunId, inputs);
   }
 
+  // References enter the pending map before the attempt and leave it only on
+  // a confirmed registration, so an offline endpoint, a transient network
+  // error, or auth that is not ready yet loses nothing: the next turn on the
+  // run and the next hydration both retry whatever is still pending.
   private async registerPostHogReferences(
     taskId: string,
     taskRunId: string,
     references: PostHogObjectReferenceInput[],
   ): Promise<void> {
+    const pending = this.pendingReferenceRegistrations.get(taskRunId) ?? {
+      taskId,
+      references: new Map<string, PostHogObjectReferenceInput>(),
+    };
+    for (const reference of references) {
+      pending.references.set(
+        `${reference.object_kind}\0${reference.object_id}\0${reference.source_message_id}`,
+        reference,
+      );
+    }
+    this.pendingReferenceRegistrations.set(taskRunId, pending);
+    const attempted = [...pending.references.keys()];
+    if (attempted.length === 0) return;
     try {
       const authStatus = await this.getAuthCredentialsStatus();
       if (authStatus.kind !== "ready") return;
@@ -3284,8 +3306,15 @@ export class SessionService {
         await authStatus.auth.client.registerTaskRunPostHogReferences(
           taskId,
           taskRunId,
-          references,
+          [...pending.references.values()],
         );
+      const current = this.pendingReferenceRegistrations.get(taskRunId);
+      if (current) {
+        for (const key of attempted) current.references.delete(key);
+        if (current.references.size === 0) {
+          this.pendingReferenceRegistrations.delete(taskRunId);
+        }
+      }
       this.d.store.updateSession(taskRunId, { cloudArtifacts: artifacts });
     } catch (error) {
       this.d.log.warn("Failed to register PostHog object references", {
@@ -3294,6 +3323,12 @@ export class SessionService {
         error: String(error),
       });
     }
+  }
+
+  private retryPendingReferenceRegistrations(taskRunId: string): void {
+    const pending = this.pendingReferenceRegistrations.get(taskRunId);
+    if (!pending || pending.references.size === 0) return;
+    void this.registerPostHogReferences(pending.taskId, taskRunId, []);
   }
 
   private updatePromptStateFromEvents(
@@ -7207,6 +7242,7 @@ export class SessionService {
         session.processedLineCount > 0 &&
         !isResumeRun;
     if (alreadyApplied) {
+      this.retryPendingReferenceRegistrations(taskRunId);
       this.surfacePersistedPendingPermissions(taskRunId, rawEntries);
       this.pendingPermissionHydratedRuns.add(taskRunId);
       return {
@@ -7242,6 +7278,7 @@ export class SessionService {
     // baseline already contains an in-flight session/prompt — the live delta
     // path otherwise sees delta <= 0 and never re-evaluates the tail.
     this.updatePromptStateFromEvents(taskRunId, events);
+    this.retryPendingReferenceRegistrations(taskRunId);
     if (isTerminalRun) {
       this.clearTerminalCloudPromptState(taskRunId);
     }
