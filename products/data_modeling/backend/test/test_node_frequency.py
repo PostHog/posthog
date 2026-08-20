@@ -171,6 +171,7 @@ class TestClampTargetToBounds(BaseTest):
         matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
 
+        assert matview.saved_query_id is not None
         self.assertEqual(clamp_target_to_bounds(self.team.id, matview.saved_query_id, H12), H12)
 
     def test_coarsens_to_the_source_floor_when_desired_is_too_fast(self):
@@ -179,6 +180,7 @@ class TestClampTargetToBounds(BaseTest):
         matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
 
+        assert matview.saved_query_id is not None
         self.assertEqual(clamp_target_to_bounds(self.team.id, matview.saved_query_id, H12), DAY)
 
     def test_returns_none_when_bounds_cross(self):
@@ -190,6 +192,7 @@ class TestClampTargetToBounds(BaseTest):
         Edge.objects.create(team=self.team, dag=dag, source=matview, target=endpoint)
         set_declared_target(endpoint, H1)  # consumer wants fresher than the daily source can deliver
 
+        assert matview.saved_query_id is not None
         self.assertIsNone(clamp_target_to_bounds(self.team.id, matview.saved_query_id, H12))
 
     def test_returns_none_when_no_node_carries_the_saved_query(self):
