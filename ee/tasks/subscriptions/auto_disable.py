@@ -45,6 +45,11 @@ SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
     description="PostHog can no longer post to this Slack channel",
     user_message="Cannot re-enable {target_type} subscription: PostHog can't post to this Slack channel. Reconnect Slack or re-add the bot to the channel, then try again.",
 )
+WEBHOOK_REJECTED_DISABLE_REASON = DisableReason(
+    key="webhook_rejected",
+    description="The destination stopped accepting messages",
+    user_message="Cannot re-enable {target_type} subscription: the destination stopped accepting messages. Create a new webhook URL in your channel, update this subscription with it, then try again.",
+)
 AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
     key="ai_prompt_invalid",
     description="AI subscription prompt or creator is invalid",
