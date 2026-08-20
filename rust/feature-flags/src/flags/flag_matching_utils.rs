@@ -867,7 +867,8 @@ async fn try_get_feature_flag_hash_key_overrides(
     let query_duration = query_start.elapsed();
 
     // The join keeps a person row even when it has no override, so no rows at all means this pool
-    // could not see the person. That is a different miss from seeing it and finding no override.
+    // could not see any of the requested distinct IDs. That is a different miss from seeing at
+    // least one and finding no override.
     let person_found = !rows.is_empty();
 
     if query_duration.as_millis() > 200 {
@@ -970,6 +971,10 @@ async fn check_primary_for_stale_empty(
 ) {
     let check = primary_has_override(persons_writer, team_id, distinct_id_and_hash_key_override);
 
+    // Both booleans test "any requested distinct ID", not one specific person, so with several
+    // distinct IDs (the $anon_distinct_id case) the split between the two disagree buckets is
+    // approximate: the replica may have seen one distinct ID while missing the person that owns the
+    // primary override. The aggregate disagreement rate is unaffected.
     let outcome = match timeout(REPLICA_STALENESS_CHECK_TIMEOUT, check).await {
         Err(_) => "timeout",
         Ok(Err(_)) => "error",
