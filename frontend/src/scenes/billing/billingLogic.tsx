@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
-import api, { getJSONOrNull } from 'lib/api'
+import api, { ApiError, getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -828,11 +828,21 @@ export const billingLogic = kea<billingLogicType>([
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
                     const skipForecasting = values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
-                    const response = await api.get(
-                        'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
-                    )
+                    try {
+                        const response = await api.get(
+                            'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
+                        )
 
-                    return parseBillingResponse(response)
+                        return parseBillingResponse(response)
+                    } catch (error: unknown) {
+                        // The endpoint returns 404 by design when the instance has no v2 license, or on
+                        // Cloud when the organization uses legacy billing. Neither is a defect, so keep
+                        // billing empty instead of rethrowing into error tracking.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
