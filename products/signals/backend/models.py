@@ -125,7 +125,7 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
-class SignalTeamConfig(UUIDModel):
+class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     team = models.OneToOneField(
         "posthog.Team",
         on_delete=models.CASCADE,
