@@ -7,37 +7,54 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import * as zod from 'zod';
-
+import * as zod from 'zod'
 
 /**
  * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
  * @summary Land agent commits from a git bundle
  */
-export const contextLayerCommitsCreateBodyBranchMax = 64;
+export const contextLayerCommitsCreateBodyBranchMax = 64
 
-
-
-export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod.object({
-  "bundle": zod.url().describe('A `git bundle` carrying the ref to land, created in the agent\'s clone (for example `git bundle create out.bundle origin\/main..main`).'),
-  "branch": zod.string().max(contextLayerCommitsCreateBodyBranchMax).nullish().describe('Land a dated dreaming branch (`dream\/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.')
-}).describe('Request body for landing agent commits posted back as a git bundle.')
-
+export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod
+    .object({
+        bundle: zod
+            .url()
+            .describe(
+                "A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
+            ),
+        branch: zod
+            .string()
+            .max(contextLayerCommitsCreateBodyBranchMax)
+            .nullish()
+            .describe(
+                'Land a dated dreaming branch (`dream\/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.'
+            ),
+    })
+    .describe('Request body for landing agent commits posted back as a git bundle.')
 
 /**
  * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
  * @summary Create or replace a wiki page
  */
-export const contextLayerPagesUpdateBodyPathMax = 512;
+export const contextLayerPagesUpdateBodyPathMax = 512
 
-export const contextLayerPagesUpdateBodyContentMax = 1000000;
+export const contextLayerPagesUpdateBodyContentMax = 1000000
 
-
-
-export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod.object({
-  "path": zod.string().max(contextLayerPagesUpdateBodyPathMax).describe('Repo-relative Markdown path inside the wiki\'s structure, for example `channels\/general.md`.'),
-  "content": zod.string().max(contextLayerPagesUpdateBodyContentMax).describe('The complete Markdown content for the page.'),
-  "base_head": zod.string().nullish().describe('Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded.')
-}).describe('Request body for creating or replacing one wiki page.')
-
-
+export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(contextLayerPagesUpdateBodyPathMax)
+            .describe("Repo-relative Markdown path inside the wiki's structure, for example `channels\/general.md`."),
+        content: zod
+            .string()
+            .max(contextLayerPagesUpdateBodyContentMax)
+            .describe('The complete Markdown content for the page.'),
+        base_head: zod
+            .string()
+            .nullish()
+            .describe(
+                'Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded.'
+            ),
+    })
+    .describe('Request body for creating or replacing one wiki page.')
