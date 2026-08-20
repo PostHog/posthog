@@ -96,7 +96,7 @@ export interface logsServicesLogicActions {
         servicesData: _LogsServicesResponseApi
         payload?: any
     }
-    loadServicesData: () => any
+    loadServicesData: (_?: any) => any
     loadServicesDataFailure: (
         error: string,
         errorObject?: any
@@ -244,11 +244,11 @@ export const logsServicesLogic = kea<logsServicesLogicType>([
         servicesData: [
             EMPTY_SERVICES_RESPONSE,
             {
-                loadServicesData: async () => {
+                loadServicesData: async (_ = null, breakpoint) => {
                     if (!values.currentTeamId) {
                         return EMPTY_SERVICES_RESPONSE
                     }
-                    return await logsServicesCreate(String(values.currentTeamId), {
+                    const response = await logsServicesCreate(String(values.currentTeamId), {
                         query: {
                             dateRange: { date_from: values.dateFrom },
                             limit: SERVICES_REQUEST_LIMIT,
@@ -257,6 +257,11 @@ export const logsServicesLogic = kea<logsServicesLogicType>([
                             ...(values.searchTerm ? { serviceNameSearch: values.searchTerm } : {}),
                         },
                     })
+                    // A superseded call must not land its (stale) response after the newer one:
+                    // sorting is undebounced, so a slower earlier request would otherwise leave the
+                    // old ordering under the new sort indicator, and hasMore/total_services with it.
+                    breakpoint()
+                    return response
                 },
                 loadMoreServices: async () => {
                     const current = values.servicesData
