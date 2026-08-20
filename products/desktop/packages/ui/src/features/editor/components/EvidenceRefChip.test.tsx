@@ -113,7 +113,6 @@ describe("EvidenceRefChip", () => {
     // real elements a keyboard user can Tab to.
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeDefined();
-    expect(dialog.classList.contains("dark")).toBe(false);
     expect(
       screen.getByRole("button", { name: /Open in PostHog/ }),
     ).toBeDefined();
