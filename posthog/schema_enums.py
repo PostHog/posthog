@@ -3359,6 +3359,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_QUALITY_DAILY_STATS_QUERY = "MCPToolQualityDailyStatsQuery"
     MCP_TOOL_CATEGORY_COUNTS_QUERY = "MCPToolCategoryCountsQuery"
     MCP_TOOL_CATEGORIES_QUERY = "MCPToolCategoriesQuery"
+    MCP_TOOL_CATEGORY_MAP_QUERY = "MCPToolCategoryMapQuery"
     MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"

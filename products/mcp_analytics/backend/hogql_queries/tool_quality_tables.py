@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from posthog.schema import (
     CachedMCPToolCategoriesQueryResponse,
     CachedMCPToolCategoryCountsQueryResponse,
+    CachedMCPToolCategoryMapQueryResponse,
     CachedMCPToolQualityDailyStatsQueryResponse,
     CachedMCPToolQualityRowsQueryResponse,
     MCPToolCategoriesQuery,
@@ -20,6 +21,9 @@ from posthog.schema import (
     MCPToolCategoryCountsQuery,
     MCPToolCategoryCountsQueryResponse,
     MCPToolCategoryItem,
+    MCPToolCategoryMapItem,
+    MCPToolCategoryMapQuery,
+    MCPToolCategoryMapQueryResponse,
     MCPToolQualityDailyStatItem,
     MCPToolQualityDailyStatsQuery,
     MCPToolQualityDailyStatsQueryResponse,
@@ -352,5 +356,75 @@ class MCPToolCategoriesQueryRunner(AnalyticsQueryRunner[MCPToolCategoriesQueryRe
 
         results = [MCPToolCategoryItem(category=str(row[0] or "")) for row in (response.results or []) if row[0]]
         return MCPToolCategoriesQueryResponse(
+            results=results, timings=response.timings, hogql=response.hogql, modifiers=self.modifiers
+        )
+
+
+class MCPToolCategoryMapQueryRunner(AnalyticsQueryRunner[MCPToolCategoryMapQueryResponse]):
+    query: MCPToolCategoryMapQuery
+    cached_response: CachedMCPToolCategoryMapQueryResponse
+
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return validate_mcp_analytics_access(self.team, user)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return mcp_query_date_range(self.team, self.query.dateRange)
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        where = ast.And(
+            exprs=[
+                parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
+                parse_expr(
+                    "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
+                ),
+                parse_expr(
+                    "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
+                ),
+                parse_expr("properties.$mcp_tool_name IS NOT NULL"),
+                parse_expr("properties.$mcp_tool_name != ''"),
+                parse_expr("properties.$mcp_tool_category IS NOT NULL"),
+                parse_expr("properties.$mcp_tool_category != ''"),
+            ]
+        )
+        # A tool recategorised mid-window yields a row per category rather than one arbitrary
+        # winner, so the caller can decide. The limit sits well above MAX_TOOLS_IN_SNAPSHOT (300)
+        # so the map always covers every tool a snapshot can name.
+        return parse_select(
+            """
+            SELECT DISTINCT
+                toString(properties.$mcp_tool_name) AS tool,
+                toString(properties.$mcp_tool_category) AS category
+            FROM events
+            WHERE {where}
+            ORDER BY tool, category
+            LIMIT 2000
+            """,
+            placeholders={"where": where},
+        )
+
+    def _calculate(self) -> MCPToolCategoryMapQueryResponse:
+        with tags_context(
+            product=Product.MCP_ANALYTICS,
+            feature=Feature.QUERY,
+            team_id=self.team.id,
+            name="mcp_tool_category_map_query",
+        ):
+            response = execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                user=self.user,
+                query_type="mcp_tool_category_map_query",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+        results = [
+            MCPToolCategoryMapItem(tool=str(row[0] or ""), category=str(row[1] or ""))
+            for row in (response.results or [])
+            if row[0] and row[1]
+        ]
+        return MCPToolCategoryMapQueryResponse(
             results=results, timings=response.timings, hogql=response.hogql, modifiers=self.modifiers
         )

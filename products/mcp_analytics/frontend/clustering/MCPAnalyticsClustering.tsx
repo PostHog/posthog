@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh, IconSparkles } from '@posthog/icons'
 import { Button, Skeleton, Spinner } from '@posthog/quill-primitives'
 
+import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
@@ -36,6 +37,33 @@ function ViewToggle(): JSX.Element {
                     {VIEW_LABELS[key]}
                 </Button>
             ))}
+        </div>
+    )
+}
+
+/**
+ * Scopes both views to tools in the chosen categories. Hidden until at least one tool
+ * carries a category — an always-visible empty dropdown would read as broken on a project
+ * that never sets $mcp_tool_category.
+ */
+function CategoryScope(): JSX.Element | null {
+    const { availableCategories, selectedCategories } = useValues(mcpClusteringLogic)
+    const { setSelectedCategories } = useActions(mcpClusteringLogic)
+
+    if (availableCategories.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="w-full max-w-[420px] sm:w-[320px]">
+            <TagsCombobox
+                options={availableCategories}
+                value={selectedCategories}
+                onChange={setSelectedCategories}
+                placeholder="All categories"
+                allowCustomValues={false}
+                dataAttr="mcp-clustering-category-scope"
+            />
         </div>
     )
 }
@@ -194,7 +222,10 @@ export function MCPAnalyticsClustering(): JSX.Element {
     return (
         <div className="flex flex-col gap-4" data-quill>
             <StatusRow />
-            <ViewToggle />
+            <div className="flex flex-wrap items-center gap-3">
+                <ViewToggle />
+                <CategoryScope />
+            </div>
             {viewMode === 'tools' ? <ToolsView /> : <IntentsView />}
         </div>
     )

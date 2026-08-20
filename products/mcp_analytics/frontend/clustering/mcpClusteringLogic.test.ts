@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { urls } from '~/scenes/urls'
 import { initKeaTests } from '~/test/init'
 
@@ -15,6 +17,7 @@ import type {
 import {
     type ClusterFilter,
     type RouteShape,
+    clusterCategories,
     fitDomain,
     mcpClusteringLogic,
     routeShape,
@@ -30,6 +33,7 @@ jest.mock('../generated/api', () => ({
 }))
 
 const mockRetrieve = mcpAnalyticsIntentClustersRetrieve as jest.Mock
+const mockQuery = api.query as jest.Mock
 
 function cluster(id: number, overrides: Partial<MCPIntentClusterApi> = {}): MCPIntentClusterApi {
     return {
@@ -305,6 +309,163 @@ function pivot(clusters: MCPToolPivotClusterEntryApi[]): MCPToolPivotApi {
     }
 }
 
+// Categories live on the events, not in the precomputed snapshot, so they arrive as a
+// separate tool→category map that every view joins against by tool name.
+describe('mcpClusteringLogic category scope', () => {
+    let logic: ReturnType<typeof mcpClusteringLogic.build>
+
+    // `a` and `c` are Data, `b` is Insights, and `loner` deliberately has no category row.
+    const CATEGORY_MAP = [
+        { tool: 'a', category: 'Data' },
+        { tool: 'b', category: 'Insights' },
+        { tool: 'c', category: 'Data' },
+    ]
+
+    // Distinct call counts so the pivot's volume ordering is explicit rather than
+    // resting on sort stability.
+    const named = (tool: string, callCount: number): MCPToolPivotApi => ({
+        ...pivot([]),
+        tool,
+        call_count: callCount,
+    })
+
+    const SCOPED_SNAPSHOT: MCPIntentClusterSnapshotApi = {
+        ...SNAPSHOT,
+        tools: [named('a', 30), named('b', 20), named('loner', 10)],
+        tool_overlaps: [
+            {
+                tool_a: 'a',
+                tool_b: 'b',
+                contested_calls: 10,
+                sessions_with_both: 2,
+                sessions_with_either: 5,
+                top_cluster_id: SPREAD_ID,
+            },
+            {
+                tool_a: 'loner',
+                tool_b: 'stranger',
+                contested_calls: 3,
+                sessions_with_both: 1,
+                sessions_with_either: 4,
+                top_cluster_id: SPREAD_ID,
+            },
+        ],
+    }
+
+    beforeEach(async () => {
+        jest.clearAllMocks()
+        initKeaTests()
+        mockRetrieve.mockResolvedValue(SCOPED_SNAPSHOT)
+        mockQuery.mockResolvedValue({ results: CATEGORY_MAP })
+        router.actions.push(urls.mcpAnalyticsIntentClustering())
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    // Selecting nothing has to mean everything. An empty selection that produced an empty
+    // scope set instead of "no scope" would blank the whole tab on first load.
+    it('shows every cluster and tool while no category is selected', () => {
+        expect(logic.values.selectedCategories).toEqual([])
+        expect(logic.values.scopedClusters).toHaveLength(SHAPED_CLUSTERS.length)
+        expect(logic.values.scopedTools.map((t) => t.tool)).toEqual(['a', 'b', 'loner'])
+    })
+
+    // Matching only the cluster's top tool would be an easy simplification, and it would
+    // silently drop clusters whose secondary tool is the one in the chosen category.
+    it('keeps a cluster when any tool it routes to is in the category, not just its top one', () => {
+        logic.actions.setSelectedCategories(['Insights'])
+
+        // `b` is second by volume in clusters 1 and 4, and third in cluster 3.
+        expect(logic.values.scopedClusters.map((c) => c.id)).toEqual([CONCENTRATED_ID, SPREAD_ID, MIXED_ID])
+    })
+
+    it('drops clusters routing to no tool in the selected categories', () => {
+        logic.actions.setSelectedCategories(['Insights'])
+
+        const ids = logic.values.scopedClusters.map((c) => c.id)
+        expect(ids).not.toContain(NO_TOOLS_ID)
+        expect(ids).not.toContain(FAILING_ID)
+    })
+
+    // A tool the map never mentions belongs to no category, so a live filter must exclude
+    // it — keeping it visible would contradict the scope the user picked.
+    it('excludes an uncategorized tool once a category is selected', () => {
+        expect(logic.values.scopedTools.map((t) => t.tool)).toContain('loner')
+
+        logic.actions.setSelectedCategories(['Data'])
+
+        expect(logic.values.scopedTools.map((t) => t.tool)).toEqual(['a'])
+    })
+
+    // Either side in scope, not both: a contested pair is worth seeing precisely when the
+    // competitor sits in another category.
+    it('keeps a contested pair when only one side is in scope', () => {
+        logic.actions.setSelectedCategories(['Insights'])
+
+        expect(logic.values.toolOverlaps.map((o) => [o.tool_a, o.tool_b])).toEqual([['a', 'b']])
+    })
+
+    it('moves the selection into the scoped set when the category excludes it', () => {
+        logic.actions.selectTool('loner')
+
+        logic.actions.setSelectedCategories(['Data'])
+
+        expect(logic.values.selectedToolName).toBe('a')
+    })
+
+    // A single category comes back from the url as a bare string rather than an array,
+    // which would otherwise scope to the individual characters of its name.
+    it.each([
+        ['one category', 'Insights', ['Insights']],
+        ['several categories', ['Data', 'Insights'], ['Data', 'Insights']],
+    ])('round-trips %s through the url', async (_label, param, expected) => {
+        logic.unmount()
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { categories: param })
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedCategories).toEqual(expected)
+    })
+
+    it('offers only categories that some tool actually belongs to', () => {
+        expect(logic.values.availableCategories).toEqual(['Data', 'Insights'])
+    })
+
+    // Selecting a cluster rewrites the url, which re-runs urlToAction. Refetching the map
+    // on every click would put a ClickHouse query behind each row.
+    it('fetches the category map once however often the url is rewritten', () => {
+        const before = mockQuery.mock.calls.length
+
+        logic.actions.selectCluster(SPREAD_ID)
+        logic.actions.selectTool('b')
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { view: 'tools' })
+
+        expect(mockQuery.mock.calls.length).toBe(before)
+    })
+
+    // The dashboard tab connects to this logic purely for cluster counts, so mounting it
+    // there must not fire the category query.
+    it('does not fetch the category map when mounted away from the clustering tab', async () => {
+        logic.unmount()
+        jest.clearAllMocks()
+        mockRetrieve.mockResolvedValue(SCOPED_SNAPSHOT)
+        router.actions.push(urls.mcpAnalyticsDashboard())
+
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockQuery).not.toHaveBeenCalled()
+        expect(logic.values.availableCategories).toEqual([])
+    })
+})
+
 describe('mcpClusteringLogic helpers', () => {
     // A cluster with no tool distribution used to fall through to a `?? 100` default and
     // be counted as the best-routed shape there is, inflating the headline number.
@@ -408,6 +569,24 @@ describe('mcpClusteringLogic helpers', () => {
 
     // The pivot no longer ships the cluster's label with every entry, so a broken
     // join renders the intents table with blank rows instead of intent text.
+    // Two tools in one category used to mean the badge rendered twice, which React also
+    // flags as a duplicate key.
+    it('clusterCategories lists each category once, busiest tool first', () => {
+        const c = cluster(1, {
+            tool_distribution: dist([
+                ['b', 60],
+                ['a', 30],
+                ['c', 10],
+            ]),
+        })
+
+        expect(clusterCategories(c, { a: ['Data'], b: ['Insights'], c: ['Data'] })).toEqual(['Insights', 'Data'])
+    })
+
+    it('clusterCategories is empty when none of the cluster tools are mapped', () => {
+        expect(clusterCategories(cluster(1, { tool_distribution: dist([['a', 100]]) }), {})).toEqual([])
+    })
+
     it('toolClusterRows joins each entry to the cluster it points at', () => {
         const rows = toolClusterRows(pivot([entry({ cluster_id: 3 }), entry({ cluster_id: 1 })]), [
             cluster(1),
