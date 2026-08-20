@@ -641,12 +641,13 @@ class Task(DeletedMetaFields, models.Model):
 
         A partially pinned selection (either `runtime_adapter` or `model` present) is
         treated as explicit and left untouched — overwriting half a pin would replace a
-        value the caller chose. Internal tasks (custom-prompt infra agents) keep their
-        pinned behavior and never inherit preferences. An explicitly set
-        `reasoning_effort` survives injection; the default triple's effort only fills a
-        gap.
+        value the caller chose. Internal tasks (custom-prompt infra agents) and
+        Pi-runtime tasks keep their pinned behavior and never inherit preferences — the
+        defaults describe the claude/codex ACP harness, which a Pi run doesn't use. An
+        explicitly set `reasoning_effort` survives injection; the default triple's effort
+        only fills a gap.
         """
-        if self.internal:
+        if self.internal or self.runtime == Task.Runtime.PI:
             return
 
         from products.tasks.backend.logic.services.ai_run_defaults import (  # noqa: PLC0415 — breaks the circular import with ai_run_defaults, which imports this module
