@@ -90,7 +90,9 @@ class BaseNextUrlPaginator(BasePaginator):
         if not next_url:
             self._has_next_page = False
             return
-        if base_url:
+        # `Response.url` is a str once a request has been sent, but stays unset (or a test
+        # double) before that, so only resolve against a real string base.
+        if isinstance(base_url, str) and base_url:
             next_url = urljoin(base_url, next_url)
         if next_url == self._previous_next_url:
             self._handle_non_advancing_page(next_url)
