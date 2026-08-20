@@ -1,4 +1,4 @@
-import { LogicWrapper, MakeLogicType, actions, kea, key, path, props, reducers } from 'kea'
+import { LogicWrapper, MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -65,9 +65,13 @@ export const externalIssueSearchLogic: LogicWrapper<externalIssueSearchLogicType
             {
                 searchIssues: async (query, breakpoint) => {
                     const search = query.trim()
-                    // LemonInputSelect emits an empty input on blur/selection, and the endpoint
-                    // rejects blank queries - keep whatever results are already shown.
-                    if (!search || (props.requiresRepository && !values.repository)) {
+                    if (props.requiresRepository && !values.repository) {
+                        return values.results
+                    }
+                    // A blank query loads the provider's recent issues so the picker never opens
+                    // empty, but LemonInputSelect also emits blank on blur/selection - keep the
+                    // results already shown then.
+                    if (!search && values.results.length > 0) {
                         return values.results
                     }
                     // The breakpoint debounces typing and cancels superseded searches, so a slow
@@ -99,5 +103,11 @@ export const externalIssueSearchLogic: LogicWrapper<externalIssueSearchLogicType
             searchIssues: (state, query) => (typeof query === 'string' && query.trim() ? [] : state),
             setRepository: () => [],
         },
+    }),
+    listeners(({ actions }) => ({
+        setRepository: () => actions.searchIssues(''),
+    })),
+    afterMount(({ actions }) => {
+        actions.searchIssues('')
     }),
 ])
