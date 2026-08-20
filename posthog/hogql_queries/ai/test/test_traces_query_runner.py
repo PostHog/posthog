@@ -412,6 +412,29 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         assert response.results[0].sentiment is None
         mock_load_sentiment.assert_not_called()
 
+    @parameterized.expand([("limit_1", 1), ("limit_5", 5)])
+    def test_limit_is_honored(self, _name: str, limit: int):
+        # The paginator fetches limit+1 rows to detect hasMore; results must be
+        # trimmed back to limit before returning.
+        _create_person(distinct_ids=["person1"], team=self.team)
+        for i in range(limit + 3):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i),
+            )
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                limit=limit,
+                offset=0,
+                dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T23:59:59Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), limit)
+        self.assertEqual(response.hasMore, True)
+
     @freeze_time("2025-01-16T00:00:00Z")
     @snapshot_clickhouse_queries
     def test_pagination(self):
@@ -426,26 +449,26 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             )
         response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=0)).calculate()
         self.assertEqual(response.hasMore, True)
-        self.assertEqual(len(response.results), 5)
+        self.assertEqual(len(response.results), 4)
         self.assertEqual(response.results[0].id, "trace_10")
         self.assertEqual(response.results[1].id, "trace_9")
         self.assertEqual(response.results[2].id, "trace_8")
         self.assertEqual(response.results[3].id, "trace_7")
-        self.assertEqual(response.results[4].id, "trace_6")
 
-        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=5)).calculate()
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=4)).calculate()
         self.assertEqual(response.hasMore, True)
-        self.assertEqual(len(response.results), 5)
-        self.assertEqual(response.results[0].id, "trace_5")
-        self.assertEqual(response.results[1].id, "trace_4")
-        self.assertEqual(response.results[2].id, "trace_3")
-        self.assertEqual(response.results[3].id, "trace_2")
-        self.assertEqual(response.results[4].id, "trace_1")
+        self.assertEqual(len(response.results), 4)
+        self.assertEqual(response.results[0].id, "trace_6")
+        self.assertEqual(response.results[1].id, "trace_5")
+        self.assertEqual(response.results[2].id, "trace_4")
+        self.assertEqual(response.results[3].id, "trace_3")
 
-        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=10)).calculate()
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=4, offset=8)).calculate()
         self.assertEqual(response.hasMore, False)
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace_0")
+        self.assertEqual(len(response.results), 3)
+        self.assertEqual(response.results[0].id, "trace_2")
+        self.assertEqual(response.results[1].id, "trace_1")
+        self.assertEqual(response.results[2].id, "trace_0")
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_pagination_with_multi_event_traces(self):
@@ -481,20 +504,28 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 timestamp=datetime(2025, 1, 15, 10 - i),
             )
 
-        # Page 1 (limit=2, offset=0): returns limit+1=3 results, hasMore=True
+        # Page 1 (limit=2, offset=0): 2 traces, hasMore=True
         response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=2, offset=0)).calculate()
         self.assertEqual(response.hasMore, True)
         page1_ids = [t.id for t in response.results]
-        self.assertEqual(page1_ids, ["trace_4", "trace_3", "trace_2"])
+        self.assertEqual(page1_ids, ["trace_4", "trace_3"])
 
-        # Page 2 (limit=2, offset=3): returns remaining 2 traces, hasMore=False
-        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=2, offset=3)).calculate()
-        self.assertEqual(response.hasMore, False)
+        # Page 2 (limit=2, offset=2): 2 traces, hasMore=True (trace_0 still remains)
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=2, offset=2)).calculate()
+        self.assertEqual(response.hasMore, True)
         page2_ids = [t.id for t in response.results]
-        self.assertEqual(page2_ids, ["trace_1", "trace_0"])
+        self.assertEqual(page2_ids, ["trace_2", "trace_1"])
 
-        # No trace ID appears on both pages
+        # Page 3 (limit=2, offset=4): last trace, hasMore=False
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=2, offset=4)).calculate()
+        self.assertEqual(response.hasMore, False)
+        page3_ids = [t.id for t in response.results]
+        self.assertEqual(page3_ids, ["trace_0"])
+
+        # No trace ID appears on more than one page
         self.assertEqual(len(set(page1_ids) & set(page2_ids)), 0)
+        self.assertEqual(len(set(page1_ids) & set(page3_ids)), 0)
+        self.assertEqual(len(set(page2_ids) & set(page3_ids)), 0)
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_maps_all_fields(self):
@@ -736,10 +767,12 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
 
         result_ids = [t.id for t in response.results]
+        # limit=4 with 5 in-window traces: honor the limit and report more remain.
+        self.assertEqual(response.hasMore, True)
         self.assertEqual(
             len(response.results),
-            5,
-            f"expected 5 in-window traces; got {len(response.results)}: {result_ids}",
+            4,
+            f"expected 4 in-window traces; got {len(response.results)}: {result_ids}",
         )
         for rid in result_ids:
             self.assertTrue(rid.startswith("in_window_"), f"unexpected trace id {rid} in results")
