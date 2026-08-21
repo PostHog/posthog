@@ -808,7 +808,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
                   <ReportFilterControls
                     filters={reportFilters}
                     onChange={setReportFilters}
-                    showSearch={false}
+                    compact
                   />
                 }
                 searchOpen={searchOpen}

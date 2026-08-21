@@ -30,22 +30,28 @@ const STATUS_FILTERS: readonly {
 ];
 
 /**
- * The report filter row shared by the sidebar Reports tab and the space feed:
- * title search, a "Me" (suggested-reviewer) toggle, and a priority menu. State
- * is owned by the caller so each surface filters its own list.
+ * The report filters shared by the sidebar Reports tab and the space feed.
+ * State is owned by the caller so each surface filters its own list. In
+ * `compact` mode (the sidebar header, where the tabs already fill the row)
+ * everything folds into the one funnel menu; the feed keeps the labeled
+ * search / "For you" controls beside it.
  */
 export function ReportFilterControls({
   filters,
   onChange,
   showStatusInMenu = true,
-  showSearch = true,
+  compact = false,
 }: {
   filters: ChannelReportsFilters;
   onChange: (filters: ChannelReportsFilters) => void;
   /** Off where visible status chips carry the choice instead (the feed). */
   showStatusInMenu?: boolean;
-  /** Off where a shared search bar owns the query (the sidebar header). */
-  showSearch?: boolean;
+  /**
+   * The funnel menu only: no search input (a shared bar owns the query) and
+   * "For you" as a menu checkbox instead of a labeled button. For the narrow
+   * sidebar header, which has no room beside the tabs.
+   */
+  compact?: boolean;
 }) {
   const filtersActive =
     filters.relevantToMeOnly ||
@@ -62,38 +68,45 @@ export function ReportFilterControls({
 
   return (
     <>
-      {showSearch && (
-        <Input
-          value={filters.search}
-          onChange={(event) =>
-            onChange({ ...filters, search: event.target.value })
-          }
-          placeholder="Search reports…"
-          aria-label="Search reports"
-          className="h-6 flex-1 text-[12px]"
-        />
+      {!compact && (
+        <>
+          <Input
+            value={filters.search}
+            onChange={(event) =>
+              onChange({ ...filters, search: event.target.value })
+            }
+            placeholder="Search reports…"
+            aria-label="Search reports"
+            className="h-6 flex-1 text-[12px]"
+          />
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label="Show only reports suggested for me"
+            aria-pressed={filters.relevantToMeOnly}
+            onClick={() =>
+              onChange({
+                ...filters,
+                relevantToMeOnly: !filters.relevantToMeOnly,
+              })
+            }
+            className={`${cnHeaderButton(filters.relevantToMeOnly)} w-auto px-1.5`}
+          >
+            <span className="font-semibold text-[10px]">For you</span>
+          </Button>
+        </>
       )}
-      <Button
-        variant="default"
-        size="icon-xs"
-        aria-label="Show only reports suggested for me"
-        aria-pressed={filters.relevantToMeOnly}
-        onClick={() =>
-          onChange({ ...filters, relevantToMeOnly: !filters.relevantToMeOnly })
-        }
-        className={`${cnHeaderButton(filters.relevantToMeOnly)} w-auto px-1.5`}
-      >
-        <span className="font-semibold text-[10px]">For you</span>
-      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
             <Button
               variant="default"
               size="icon-xs"
-              aria-label="Filter reports by status and priority"
+              aria-label="Filter reports"
               className={cnHeaderButton(
-                filters.priorities.length > 0 || filters.status !== "all",
+                compact
+                  ? filtersActive
+                  : filters.priorities.length > 0 || filters.status !== "all",
               )}
             >
               <FunnelSimpleIcon size={12} />
@@ -101,6 +114,23 @@ export function ReportFilterControls({
           }
         />
         <DropdownMenuContent align="end">
+          {compact && (
+            <>
+              <DropdownMenuCheckboxItem
+                checked={filters.relevantToMeOnly}
+                closeOnClick={false}
+                onCheckedChange={() =>
+                  onChange({
+                    ...filters,
+                    relevantToMeOnly: !filters.relevantToMeOnly,
+                  })
+                }
+              >
+                For you
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           {showStatusInMenu && (
             <>
               <DropdownMenuLabel>Status</DropdownMenuLabel>
