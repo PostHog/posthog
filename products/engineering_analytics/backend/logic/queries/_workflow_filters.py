@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
+
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 
 # Trunk's merge-queue batch branches. Trunk-specific and hardcoded like KNOWN_BOT_HANDLES;
@@ -104,6 +106,25 @@ def date_to_filter_clause(
         return ""
     placeholders["date_to"] = ast.Constant(value=date_to)
     return f"AND {column} <= {{date_to}}"
+
+
+@frozen
+class WindowPredicates:
+    current: str
+    previous: str
+
+
+def window_pair_predicates(column: str, *, date_to: datetime | None) -> WindowPredicates:
+    """The current/previous window predicates every with-prev aggregate splits on.
+
+    Half-open at ``{date_from}``: a row exactly on the boundary is current, never both. Callers
+    register ``{date_from}``/``{prev_from}`` (and ``{date_to}`` when set) themselves; the pair is
+    the one place the boundary semantics live, not the placeholder bookkeeping.
+    """
+    return WindowPredicates(
+        current=f"({column} >= {{date_from}}" + (f" AND {column} <= {{date_to}})" if date_to is not None else ")"),
+        previous=f"({column} >= {{prev_from}} AND {column} < {{date_from}})",
+    )
 
 
 def non_default_branch_predicate(branch_column: str = "r.head_branch") -> str:
