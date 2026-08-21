@@ -15,7 +15,7 @@ from products.signals.eval.agentic.cases.research import CASES as RESEARCH_CASES
 from products.signals.eval.agentic.cassette import Cassette, RecordedTurn
 from products.signals.eval.agentic.datasets import ResearchCase, ResearchExpectation, SignalSpec
 from products.signals.eval.agentic.harness import AgenticEvalHarness
-from products.signals.eval.agentic.run import build_runtime_override
+from products.signals.eval.agentic.run import build_runtime_override, run_step
 from products.signals.eval.agentic.runners import (
     RUNNERS,
     RunContext,
@@ -26,6 +26,12 @@ from products.signals.eval.agentic.runners import (
 )
 from products.signals.eval.agentic.scorers_research import default_research_scorers
 from products.signals.eval.agentic.session_backends import _Recorder
+
+
+@pytest.mark.parametrize("sample", [0, -1])
+def test_run_step_rejects_nonpositive_sample(sample):
+    with pytest.raises(ValueError, match="sample must be a positive integer"):
+        asyncio.run(run_step("research", sample=sample))
 
 
 def test_golden_research_case_passes():

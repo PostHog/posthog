@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import math
 import time
 import uuid
 import shlex
@@ -120,9 +121,10 @@ def _truncate_output(output: str | None) -> str:
 def _local_memory_cap_gb() -> float:
     """Per-container memory cap for the local Docker provider (SANDBOX_DOCKER_MEMORY_GB)."""
     try:
-        return float(os.environ.get("SANDBOX_DOCKER_MEMORY_GB", "1"))
+        cap = float(os.environ.get("SANDBOX_DOCKER_MEMORY_GB", "1"))
     except ValueError:
         return 1.0
+    return cap if math.isfinite(cap) and cap > 0 else 1.0
 
 
 def _terminate_subprocess(process: subprocess.Popen[str]) -> tuple[str, str]:
@@ -549,7 +551,7 @@ class DockerSandbox(SandboxBase):
                 WORKING_DIR,
                 # Local sandboxes idle at ~200MB; the cloud-oriented 16GB default would let
                 # a parallel eval run oversubscribe the Docker VM many times over.
-                f"--memory={min(config.memory_gb, _local_memory_cap_gb())}g",
+                f"--memory={min(config.memory_gb, _local_memory_cap_gb()):g}g",
                 f"--cpus={config.cpu_cores}",
                 *env_args,
                 *port_args,

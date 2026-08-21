@@ -27,14 +27,43 @@ class EvalProjectManifest:
     n_clusters: int = DEFAULT_N_CLUSTERS
     # OSS repos exposed as repo-selection candidates (full_name, lowercased).
     candidate_repos: tuple[str, ...] = field(default_factory=lambda: tuple(r.full_name for r in REGISTRY.values()))
+    error_names: tuple[str, ...] = (
+        "Checkout API timeout",
+        "File preview render failure",
+        "Team invite rejected",
+    )
+    event_names: tuple[str, ...] = (
+        "signed_up",
+        "logged_in",
+        "logged_out",
+        "uploaded_file",
+        "downloaded_file",
+        "deleted_file",
+        "shared_file_link",
+        "upgraded_plan",
+        "downgraded_plan",
+        "invited_team_member",
+        "removed_team_member",
+        "paid_bill",
+    )
+    experiment_names: tuple[str, ...] = (
+        "z. Onboarding flow test",
+        "File engagement boost",
+        "Pricing page redesign",
+        "File sharing incentive",
+        "Upgrade prompt experiment",
+        "Retention nudge",
+        "Team collaboration boost",
+        "Bias warning demo: uneven split with multi-variant",
+    )
 
     # What hedgebox seeds that the research agent can query via MCP; observed on a local
     # seed (team 1) on 2026-06-27.
     seeded_data: tuple[str, ...] = (
         "Analytics: ~78 distinct event types (downloaded_file, uploaded_file, signed_up, paid_bill, "
         "$pageview, $feature_flag_called, $web_vitals, react_framerate …) over months of history",
-        "Error tracking: ~62 issues incl. Checkout API timeout, File preview render failure, Team invite "
-        "rejected, plus $exception events",
+        "Error tracking: 3 synthetic issues (Checkout API timeout, File preview render failure, Team invite "
+        "rejected), plus their $exception events",
         "Session replays: ~37 recorded sessions (queryable via session-replay tools)",
         "Insights (~17) and dashboards (~5): key metrics, revenue, website",
         "Feature flags and experiments in varied states (Pricing page redesign, File engagement boost, "

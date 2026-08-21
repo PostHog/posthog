@@ -140,7 +140,7 @@ python manage.py run_agentic_signals_eval --step scout --mode live --sample 21 -
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `datasets.py`                        | `EvalCase` + per-step case/expectation dataclasses; `SignalSpec` builder                                                                                      |
 | `cases/`                             | datasets per step (`research.py`, …), `*_live.py` curated live variants, `generated/*.json` (large generated suite) + `generated.py` loader, and `cassettes/` |
-| `generators/`                        | builders that produce the generated JSON from the project's real data (`generate_eval_cases`)                                                                 |
+| `generators/`                        | builders that produce safe generated JSON from the synthetic manifest and public OSS registry (`generate_eval_cases`)                                         |
 | `session_backends.py`                | `ReplayMultiTurnSession`, `RecordingMultiTurnSession`, `inject_session`, cassette context vars                                                                |
 | `cassette.py`                        | recorded-turn format (load/save/cursor)                                                                                                                       |
 | `runners.py`                         | one `StepRunner` per step — invokes the real step fn under a backend                                                                                          |
@@ -158,7 +158,7 @@ python manage.py run_agentic_signals_eval --step scout --mode live --sample 21 -
 ## Coverage — what the project holds and what the suite tests
 
 The eval project (hedgebox demo, seeded by `seed_eval_project`) carries a representative **mix of
-data the agent can analyze**: ~78 event types (analytics), ~62 error-tracking issues, ~37 session
+data the agent can analyze**: ~78 event types (analytics), 3 synthetic error-tracking issues, ~37 session
 replays, ~17 insights, ~5 dashboards, feature flags + experiments in varied states, and
 data-warehouse tables. See `project/manifest.py` for the catalog.
 
@@ -181,19 +181,18 @@ narrations with `problem_type`/`session_id` extras, and production `source_type`
 
 To compare models or prompt changes you need volume, so the bulk of the live suite is **generated**
 and committed under `cases/generated/*.json` (~110 research, ~114 repo-selection, ~110 implementation
-≈ **340+ cases / 230+ signals**). Generation is grounded in the project's real data and templated for
-variety:
+≈ **340+ cases / 230+ signals**). Generation uses only committed synthetic/public inputs, while live
+research still checks those cases against the seeded project's data:
 
-- **repo-selection** — one case per real cached repo (expected = that repo; near-duplicate repos
-  accepted as a set), plus ops/billing/legal **null** cases.
-- **research** — one case per real error-tracking issue, top event, and experiment (data-grounded,
-  `expect_data_evidence=True`), plus templated bug/feature/vague/perf cases across sources for verdict
-  calibration.
+- **repo-selection** — varied ownership scenarios for the fixed public OSS registry, plus
+  ops/billing/legal **null** cases.
+- **research** — seeded Hedgebox error, event, and experiment cases (`expect_data_evidence=True`),
+  plus templated bug/feature/vague/perf cases across sources for verdict calibration.
 - **implementation** — templated, auto-verifiable edit tasks (add function/constant, create file/module)
   with expected files + diff keywords derived from the template.
 
 ```bash
-python manage.py generate_eval_cases                       # (re)generate JSON, ~110/step (needs DB)
+python manage.py generate_eval_cases                       # (re)generate safe JSON, ~110/step
 # live runs default to the curated cases only; opt the generated suite in explicitly:
 python manage.py run_agentic_signals_eval --mode live --include-generated --sample 20
 python manage.py run_agentic_signals_eval --step research --mode live --include-generated --sample 30 --seed 7 --concurrency 6

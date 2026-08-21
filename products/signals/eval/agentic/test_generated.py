@@ -8,6 +8,7 @@ DB-free; the committed JSON under cases/generated/ is the source.
 from __future__ import annotations
 
 from products.signals.eval.agentic.cases.generated import GENERATED_STEPS, load_generated
+from products.signals.eval.agentic.project.manifest import DEFAULT_MANIFEST
 from products.signals.eval.agentic.suites import STEPS, load_cases
 
 
@@ -34,7 +35,7 @@ def test_generated_suite_is_broad():
 
 def test_live_suite_includes_generated_and_curated():
     for step in GENERATED_STEPS:
-        live = load_cases(step, mode="live")
+        live = load_cases(step, mode="live", include_generated=True)
         replay = load_cases(step, mode="replay")
         assert len(live) >= 60
         assert len(live) > len(replay)
@@ -49,10 +50,14 @@ def test_live_suite_excludes_generated_when_disabled():
     assert len(full) > len(base)
 
 
+def test_live_suite_defaults_to_curated_cases():
+    assert load_cases("research", mode="live") == load_cases("research", mode="live", include_generated=False)
+
+
 def test_total_signal_count_is_large():
     total = 0
     for step in STEPS:
-        for c in load_cases(step, mode="live"):
+        for c in load_cases(step, mode="live", include_generated=True):
             total += len(getattr(c, "signals", ()) or ())
     assert total >= 150, f"only {total} signals across the live suite"
 
@@ -62,8 +67,31 @@ def test_repo_selection_generated_has_null_case():
     assert any(c.expected.expect_null for c in cases), "expected at least one null repo-selection case"
 
 
+def test_generated_repo_selection_uses_only_synthetic_manifest_repositories():
+    allowed = set(DEFAULT_MANIFEST.candidate_repos)
+    for case in load_generated("repo_selection"):
+        expected = case.expected.expected_repository
+        if expected is None:
+            continue
+        repositories = {expected} if isinstance(expected, str) else set(expected)
+        assert repositories <= allowed, f"{case.case_id} exposes a repository outside the synthetic manifest"
+
+
 def test_generated_research_cases_carry_data_or_verdict_ground_truth():
     cases = load_generated("research")
     grounded = sum(1 for c in cases if c.expected.expect_data_evidence)
     verdict = sum(1 for c in cases if c.expected.expected_actionability is not None)
     assert grounded >= 1 and verdict >= 1, "research suite should mix data-grounded and verdict cases"
+
+
+def test_generated_research_uses_only_synthetic_manifest_entities():
+    allowed = {
+        *DEFAULT_MANIFEST.error_names,
+        *DEFAULT_MANIFEST.event_names,
+        *DEFAULT_MANIFEST.experiment_names,
+    }
+    for case in load_generated("research"):
+        if not case.expected.expect_data_evidence:
+            continue
+        content = " ".join(signal.content for signal in case.signals)
+        assert any(name in content for name in allowed), f"{case.case_id} exposes data outside the synthetic manifest"

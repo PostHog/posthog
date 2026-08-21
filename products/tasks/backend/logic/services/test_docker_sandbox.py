@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
-from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox, _local_memory_cap_gb
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
@@ -139,6 +139,25 @@ class TestDockerSandboxUnit:
     def test_transform_url_for_docker(self, input_url, expected_url):
         result = DockerSandbox._transform_url_for_docker(input_url)
         assert result == expected_url
+
+    @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "invalid"])
+    def test_local_memory_cap_rejects_nonpositive_or_nonfinite_values(self, monkeypatch, value):
+        monkeypatch.setenv("SANDBOX_DOCKER_MEMORY_GB", value)
+
+        assert _local_memory_cap_gb() == 1.0
+
+    @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
+    @patch("products.tasks.backend.logic.services.docker_sandbox.os.path.exists")
+    def test_create_formats_integer_memory_without_decimal(self, mock_exists, mock_run, monkeypatch):
+        mock_exists.return_value = False
+        mock_run.return_value = MagicMock(stdout="abc123container", returncode=0)
+        monkeypatch.setenv("SANDBOX_DOCKER_MEMORY_GB", "1")
+
+        with patch.object(DockerSandbox, "_get_image", return_value="posthog-sandbox-base"):
+            DockerSandbox.create(SandboxConfig(name="test-sandbox"))
+
+        docker_args = mock_run.call_args_list[-1][0][0]
+        assert "--memory=1g" in docker_args
 
     def test_get_local_posthog_code_root(self, tmp_path, monkeypatch):
         for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):

@@ -114,7 +114,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--include-generated",
             action="store_true",
-            help="Include the generated bulk cases in live/record mode (replay always includes them).",
+            help="Include the generated bulk cases in live/record mode.",
         )
         parser.add_argument(
             "--min-pass-rate",

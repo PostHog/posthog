@@ -1,993 +1,993 @@
 [
     {
-        "case_id": "reposel_gen_000_analytics",
+        "case_id": "reposel_gen_000_cal",
         "signal": {
             "signal_id": "sig_000",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A barebones implementation of an analytics backend built in rust 🦀\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer reports that a core workflow in this product is failing: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/analytics"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_001_awesomemcpservers",
+        "case_id": "reposel_gen_001_supabase",
         "signal": {
             "signal_id": "sig_001",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A collection of MCP servers.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer reports that a core workflow in this product is failing: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/awesome-mcp-servers"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_002_awesomeweb3",
+        "case_id": "reposel_gen_002_n8n",
         "signal": {
             "signal_id": "sig_002",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A curated list of tools, libs and resources to help you make the web decentralised 🚀\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer reports that a core workflow in this product is failing: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/awesome-web3"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_003_calendso",
+        "case_id": "reposel_gen_003_excalidraw",
         "signal": {
             "signal_id": "sig_003",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"The open-source Calendly alternative.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer reports that a core workflow in this product is failing: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/calendso"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_004_camcs",
+        "case_id": "reposel_gen_004_strapi",
         "signal": {
             "signal_id": "sig_004",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Repository for lecture notes, content and projects from the Cambridge Computer Science Tripos\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer reports that a core workflow in this product is failing: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/camcs"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_005_chatwoot",
+        "case_id": "reposel_gen_005_posthog-js",
         "signal": {
             "signal_id": "sig_005",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Open-source customer engagement suite, an alternative to Intercom, Zendesk, Salesforce Service Cloud etc. 🔥💬\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer reports that a core workflow in this product is failing: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/chatwoot"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_006_cldatascipnp",
+        "case_id": "reposel_gen_006_posthog-python",
         "signal": {
             "signal_id": "sig_006",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Data Science: principles and practice - course materials (2018/2019)\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer reports that a core workflow in this product is failing: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/cl-datasci-pnp"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_007_content",
+        "case_id": "reposel_gen_007_cal",
         "signal": {
             "signal_id": "sig_007",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Official content for Harvard CS109\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Support needs the owner of a regression in this product: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/content"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_008_cookiephon",
+        "case_id": "reposel_gen_008_supabase",
         "signal": {
             "signal_id": "sig_008",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Respository for the Cookiephon organization\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Support needs the owner of a regression in this product: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/cookiephon"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_009_deepwalk",
+        "case_id": "reposel_gen_009_n8n",
         "signal": {
             "signal_id": "sig_009",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Master's thesis on dynamic network embeddings using DeepWalk. Cambridge University in collaboration with DeepMind.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Support needs the owner of a regression in this product: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/deepwalk"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_010_devcontent",
+        "case_id": "reposel_gen_010_excalidraw",
         "signal": {
             "signal_id": "sig_010",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A collection of content downloaded for web development purposes\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Support needs the owner of a regression in this product: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/dev_content"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_011_djangoses",
+        "case_id": "reposel_gen_011_strapi",
         "signal": {
             "signal_id": "sig_011",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A Django email backend for Amazon's Simple Email Service\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Support needs the owner of a regression in this product: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/django-ses"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_012_dynamicnetworkembeddings",
+        "case_id": "reposel_gen_012_posthog-js",
         "signal": {
             "signal_id": "sig_012",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Masters thesis on DeepWalk, an algorithm for computing embeddings for dynamic network graphs.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Support needs the owner of a regression in this product: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/dynamic-network-embeddings"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_013_emergent",
+        "case_id": "reposel_gen_013_posthog-python",
         "signal": {
             "signal_id": "sig_013",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"An implementation of long term memory and external tools for LLMs\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Support needs the owner of a regression in this product: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/emergent"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_014_exampleamplificationapp",
+        "case_id": "reposel_gen_014_cal",
         "signal": {
             "signal_id": "sig_014",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"An example amplification Nest.js app\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An upgrade caused unexpected behavior in this codebase: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/example-amplification-app"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_015_examples",
+        "case_id": "reposel_gen_015_supabase",
         "signal": {
             "signal_id": "sig_015",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Enjoy our curated collection of examples and solutions. Use these patterns to build your own robust and scalable applications.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An upgrade caused unexpected behavior in this codebase: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/examples"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_016_examplesnextprismastarter",
+        "case_id": "reposel_gen_016_n8n",
         "signal": {
             "signal_id": "sig_016",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"🚀 tRPC starter repo with E2E-testing\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An upgrade caused unexpected behavior in this codebase: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/examples-next-prisma-starter"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_017_faviconic",
+        "case_id": "reposel_gen_017_excalidraw",
         "signal": {
             "signal_id": "sig_017",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"🔍 Find the logo for any website using just the domain. No dependencies!\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An upgrade caused unexpected behavior in this codebase: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/faviconic"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_018_fc",
+        "case_id": "reposel_gen_018_strapi",
         "signal": {
             "signal_id": "sig_018",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Ephemeral VMs: Serverless Infrastructure with VM Flexibility\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An upgrade caused unexpected behavior in this codebase: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/fc"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_019_fider",
+        "case_id": "reposel_gen_019_posthog-js",
         "signal": {
             "signal_id": "sig_019",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Open platform to collect and prioritize product feedback\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An upgrade caused unexpected behavior in this codebase: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/fider"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_020_firestoregoogleappsscript",
+        "case_id": "reposel_gen_020_posthog-python",
         "signal": {
             "signal_id": "sig_020",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A Google Apps Script library for accessing Google Cloud Firestore.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An upgrade caused unexpected behavior in this codebase: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/firestoregoogleappsscript"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_021_githog",
+        "case_id": "reposel_gen_021_cal",
         "signal": {
             "signal_id": "sig_021",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"GitHogAI sets up PostHog so that you don't have to 🦔\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A performance issue appears under load in this product: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/githog"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_022_ogleappsscriptawesomelist",
+        "case_id": "reposel_gen_022_supabase",
         "signal": {
             "signal_id": "sig_022",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"The usual list of links to interesting resources for Google Apps Script\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A performance issue appears under load in this product: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/google-apps-script-awesome-list"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_023_oglecalendarautoplan",
+        "case_id": "reposel_gen_023_n8n",
         "signal": {
             "signal_id": "sig_023",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"An automatic week planner that allows you to set preferences to schedule your week and includes helpful time management practices by default.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A performance issue appears under load in this product: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/google-calendar-autoplan"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_024_oglecalendarsimpleapi",
+        "case_id": "reposel_gen_024_excalidraw",
         "signal": {
             "signal_id": "sig_024",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Pythonic wrapper for the Google Calendar API\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A performance issue appears under load in this product: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/google-calendar-simple-api"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_025_intellisheets",
+        "case_id": "reposel_gen_025_strapi",
         "signal": {
             "signal_id": "sig_025",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Monorepo for IntelliSheets. All code is private and should not be used without explicit written consent from a director of MindfulAI Ltd..\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A performance issue appears under load in this product: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/intellisheets"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_026_joshsny",
+        "case_id": "reposel_gen_026_posthog-js",
         "signal": {
             "signal_id": "sig_026",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Website for joshsny.com\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A performance issue appears under load in this product: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/joshsny_old"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_027_joshuapl",
+        "case_id": "reposel_gen_027_posthog-python",
         "signal": {
             "signal_id": "sig_027",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"New Portolio Website\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A performance issue appears under load in this product: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/joshua.pl"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_028_tutoring",
+        "case_id": "reposel_gen_028_cal",
         "signal": {
             "signal_id": "sig_028",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"JS Tutoring\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Users cannot complete the primary workflow described here: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": ["joshsny/jstutoring", "joshsny/tutoring"]
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_029_landing",
+        "case_id": "reposel_gen_029_supabase",
         "signal": {
             "signal_id": "sig_029",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"The landing page for timenavi.io\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Users cannot complete the primary workflow described here: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/landing"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_030_langchain",
+        "case_id": "reposel_gen_030_n8n",
         "signal": {
             "signal_id": "sig_030",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"⚡ Building applications with LLMs through composability ⚡\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Users cannot complete the primary workflow described here: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": ["joshsny/langchain", "joshsny/langchain-demo"]
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_031_langchain",
+        "case_id": "reposel_gen_031_excalidraw",
         "signal": {
             "signal_id": "sig_031",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Langchain Demo\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Users cannot complete the primary workflow described here: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": ["joshsny/langchain", "joshsny/langchain-demo"]
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_032_maths",
+        "case_id": "reposel_gen_032_strapi",
         "signal": {
             "signal_id": "sig_032",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Questions, Solutions and Resources for mathematics. Mostly from my time at Cambridge.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Users cannot complete the primary workflow described here: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/maths"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_033_mathsexchange",
+        "case_id": "reposel_gen_033_posthog-js",
         "signal": {
             "signal_id": "sig_033",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"maths.exchange website\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Users cannot complete the primary workflow described here: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/maths.exchange"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_034_mathsservices",
+        "case_id": "reposel_gen_034_posthog-python",
         "signal": {
             "signal_id": "sig_034",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Website for JS Tutoring\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "Users cannot complete the primary workflow described here: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/maths.services"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_035_metamaskextension",
+        "case_id": "reposel_gen_035_cal",
         "signal": {
             "signal_id": "sig_035",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \":globe_with_meridians: :electric_plug: The MetaMask browser extension enables browsing Ethereum blockchain enabled websites\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A security fix is needed in the project matching this description: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/metamask-extension"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_036_mindful",
+        "case_id": "reposel_gen_036_supabase",
         "signal": {
             "signal_id": "sig_036",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Monorepo for MindfulAI. All code is private and should not be used without explicit written consent from a director of MindfulAI Ltd..\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A security fix is needed in the project matching this description: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/mindful"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_037_mindfulwebsite",
+        "case_id": "reposel_gen_037_n8n",
         "signal": {
             "signal_id": "sig_037",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"MindfulAI website\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A security fix is needed in the project matching this description: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/mindful-website"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_038_mindfullauncher",
+        "case_id": "reposel_gen_038_excalidraw",
         "signal": {
             "signal_id": "sig_038",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Lightning fast, open-source, < 200kb Android launcher. Based of Naemar/KISS.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A security fix is needed in the project matching this description: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/mindfullauncher"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_039_nextauth",
+        "case_id": "reposel_gen_039_strapi",
         "signal": {
             "signal_id": "sig_039",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"NextJS boilerplate for Credentials, Google, and Github authentication built with NextJS 14, Next-Auth v5, PostgreSQL, Prisma, Zod, etc...\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A security fix is needed in the project matching this description: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/next-auth-boilerplate"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_040_nextethereum",
+        "case_id": "reposel_gen_040_posthog-js",
         "signal": {
             "signal_id": "sig_040",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A Sign-In With Ethereum Starter for NextJS\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A security fix is needed in the project matching this description: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/next-ethereum"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_041_nextjs",
+        "case_id": "reposel_gen_041_posthog-python",
         "signal": {
             "signal_id": "sig_041",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"🚀🎉📚 Boilerplate and Starter for Next.js 15 with App Router and Page Router support, Tailwind CSS 4 and TypeScript ⚡️ Made with developer experience first: Next.js + TypeScript + ESLint + Prettier + Drizzle ORM + Husky + Lint-Staged + Vitest + Testing Library + Playwright + Storybook + Commitlint + VSCode + Netlify + PostCSS + Tailwind CSS ✨\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A security fix is needed in the project matching this description: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": ["joshsny/next-js-boilerplate", "joshsny/nextjs-boilerplate", "joshsny/nextjs-template"]
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_042_nextjsstripestarter",
+        "case_id": "reposel_gen_042_cal",
         "signal": {
             "signal_id": "sig_042",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A starter for Next.js Stripe built using the Nextjs typescript example\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "The TypeScript service matching this description needs a bug fix: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/nextjs-stripe-starter"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_043_mindfullanding",
+        "case_id": "reposel_gen_043_supabase",
         "signal": {
             "signal_id": "sig_043",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A repository for MindfulAI content\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "The TypeScript service matching this description needs a bug fix: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/old-mindful-landing"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_044_projectsblog",
+        "case_id": "reposel_gen_044_n8n",
         "signal": {
             "signal_id": "sig_044",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Projects GitHub Page\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "The TypeScript service matching this description needs a bug fix: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/old_projects_blog"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_045_optical",
+        "case_id": "reposel_gen_045_excalidraw",
         "signal": {
             "signal_id": "sig_045",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"On-Chain Analytics\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "The TypeScript service matching this description needs a bug fix: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/optical"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_046_pilgrim",
+        "case_id": "reposel_gen_046_strapi",
         "signal": {
             "signal_id": "sig_046",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Analytics\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "The JavaScript service matching this description needs a bug fix: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/pilgrim"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_047_plugin",
+        "case_id": "reposel_gen_047_posthog-js",
         "signal": {
             "signal_id": "sig_047",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Template of ChatGPT plugin - with NextJS\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "The TypeScript service matching this description needs a bug fix: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/plugin-template"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_048_portfolio",
+        "case_id": "reposel_gen_048_posthog-python",
         "signal": {
             "signal_id": "sig_048",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"✨  My portfolio built with Next.js, Tailwind, Prisma, and Vercel.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "The Python service matching this description needs a bug fix: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/portfolio"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_049_posthog",
+        "case_id": "reposel_gen_049_cal",
         "signal": {
             "signal_id": "sig_049",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"🦔 PostHog provides open-source product analytics, session recording, feature flagging and A/B testing that you can self-host.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A dependency update broke functionality in this product: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/posthog"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_050_privateprojects",
+        "case_id": "reposel_gen_050_supabase",
         "signal": {
             "signal_id": "sig_050",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Projects that are kept private from the public domain.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A dependency update broke functionality in this product: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/private_projects"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_051_projects",
+        "case_id": "reposel_gen_051_n8n",
         "signal": {
             "signal_id": "sig_051",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Home to some of my machine learning and web development projects\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A dependency update broke functionality in this product: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/projects"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_052_reactwebshare",
+        "case_id": "reposel_gen_052_excalidraw",
         "signal": {
             "signal_id": "sig_052",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Tiny web share wrapper with fallback for unsupported browsers\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A dependency update broke functionality in this product: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/react-web-share"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_053_responseless",
+        "case_id": "reposel_gen_053_strapi",
         "signal": {
             "signal_id": "sig_053",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Website for responseless.co\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A dependency update broke functionality in this product: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/responseless"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_054_sanity",
+        "case_id": "reposel_gen_054_posthog-js",
         "signal": {
             "signal_id": "sig_054",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"sanity\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A dependency update broke functionality in this product: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/sanity"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_055_scaffoldeth",
+        "case_id": "reposel_gen_055_posthog-python",
         "signal": {
             "signal_id": "sig_055",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"🏗 forkable Ethereum dev stack focused on fast product iterations\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A dependency update broke functionality in this product: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/scaffold-eth"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_056_servers",
+        "case_id": "reposel_gen_056_cal",
         "signal": {
             "signal_id": "sig_056",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Model Context Protocol Servers\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer-facing error points to the project described as: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/servers"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_057_softwareproblems",
+        "case_id": "reposel_gen_057_supabase",
         "signal": {
             "signal_id": "sig_057",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Fun software problems\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer-facing error points to the project described as: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/software-problems"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_058_soulmategpt",
+        "case_id": "reposel_gen_058_n8n",
         "signal": {
             "signal_id": "sig_058",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Create an agent from your friend or family and chat with them.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer-facing error points to the project described as: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/soulmategpt"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_059_speedstore",
+        "case_id": "reposel_gen_059_excalidraw",
         "signal": {
             "signal_id": "sig_059",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Blazingly fast Properties storage for Google Apps Script ⚡\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer-facing error points to the project described as: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/speedstore"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_060_tablerreact",
+        "case_id": "reposel_gen_060_strapi",
         "signal": {
             "signal_id": "sig_060",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"React components and demo for the Tabler UI theme.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer-facing error points to the project described as: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/tabler-react"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_061_testrepo",
+        "case_id": "reposel_gen_061_posthog-js",
         "signal": {
             "signal_id": "sig_061",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Test\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer-facing error points to the project described as: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/test-repo"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_062_textreminderaddon",
+        "case_id": "reposel_gen_062_posthog-python",
         "signal": {
             "signal_id": "sig_062",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"The Text Reminder AddOn\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A customer-facing error points to the project described as: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/textreminder-addon"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_063_timenavischedule",
+        "case_id": "reposel_gen_063_cal",
         "signal": {
             "signal_id": "sig_063",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"TimeNavi Schedule. All rights reserved.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An accessibility regression belongs to this product: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/timenavi-schedule"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_064_timenavischeduleogimage",
+        "case_id": "reposel_gen_064_supabase",
         "signal": {
             "signal_id": "sig_064",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Creates og images for TimeNavi Schedule\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An accessibility regression belongs to this product: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/timenavi-schedule-og-image"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_065_timestampparserplugin",
+        "case_id": "reposel_gen_065_n8n",
         "signal": {
             "signal_id": "sig_065",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Parse your event timestamps into useful date properties.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An accessibility regression belongs to this product: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/timestamp-parser-plugin"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_066_tutoring",
+        "case_id": "reposel_gen_066_excalidraw",
         "signal": {
             "signal_id": "sig_066",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"JS Tutoring Website\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An accessibility regression belongs to this product: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": ["joshsny/jstutoring", "joshsny/tutoring"]
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_067_tzdatagenerate",
+        "case_id": "reposel_gen_067_strapi",
         "signal": {
             "signal_id": "sig_067",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Generates the tzdata* family of NPM modules.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An accessibility regression belongs to this product: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/tzdata-generate"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_068_unusedsites",
+        "case_id": "reposel_gen_068_posthog-js",
         "signal": {
             "signal_id": "sig_068",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A directory for unused websites\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An accessibility regression belongs to this product: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/unused_sites"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_069_webapp",
+        "case_id": "reposel_gen_069_posthog-python",
         "signal": {
             "signal_id": "sig_069",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Repository for the TimeNavi Webapp built with React\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "An accessibility regression belongs to this product: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/webapp"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_070_website",
+        "case_id": "reposel_gen_070_cal",
         "signal": {
             "signal_id": "sig_070",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Personal Website. Notion + NextJS\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A flaky integration test covers the product described here: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/website"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_071_wedding",
+        "case_id": "reposel_gen_071_supabase",
         "signal": {
             "signal_id": "sig_071",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Website for wedding\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A flaky integration test covers the product described here: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/wedding"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_072_weddingphotos",
+        "case_id": "reposel_gen_072_n8n",
         "signal": {
             "signal_id": "sig_072",
-            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Repository containing our wedding photos\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "content": "A flaky integration test covers the product described here: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/wedding-photos"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_073_app",
+        "case_id": "reposel_gen_073_excalidraw",
         "signal": {
             "signal_id": "sig_073",
-            "content": "A bug was reported in our TypeScript project known as 'app'. Identify which connected repository owns this code.",
+            "content": "A flaky integration test covers the product described here: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/app"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_074_blog",
+        "case_id": "reposel_gen_074_strapi",
         "signal": {
             "signal_id": "sig_074",
-            "content": "A bug was reported in our JavaScript project known as 'blog'. Identify which connected repository owns this code.",
+            "content": "A flaky integration test covers the product described here: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/blog"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_075_chatanalytics",
+        "case_id": "reposel_gen_075_posthog-js",
         "signal": {
             "signal_id": "sig_075",
-            "content": "A bug was reported in our TypeScript project known as 'chatanalytics'. Identify which connected repository owns this code.",
+            "content": "A flaky integration test covers the product described here: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/chatanalytics"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_076_codehog",
+        "case_id": "reposel_gen_076_posthog-python",
         "signal": {
             "signal_id": "sig_076",
-            "content": "A bug was reported in our TypeScript project known as 'codehog'. Identify which connected repository owns this code.",
+            "content": "A flaky integration test covers the product described here: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/codehog"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_077_commerce",
+        "case_id": "reposel_gen_077_cal",
         "signal": {
             "signal_id": "sig_077",
-            "content": "A bug was reported in our TypeScript project known as 'commerce'. Identify which connected repository owns this code.",
+            "content": "An API compatibility issue affects this product: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/commerce"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_078_designsystem",
+        "case_id": "reposel_gen_078_supabase",
         "signal": {
             "signal_id": "sig_078",
-            "content": "A bug was reported in our software project known as 'design-system'. Identify which connected repository owns this code.",
+            "content": "An API compatibility issue affects this product: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/design-system"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_079_dexarb",
+        "case_id": "reposel_gen_079_n8n",
         "signal": {
             "signal_id": "sig_079",
-            "content": "A bug was reported in our Solidity project known as 'dex-arb'. Identify which connected repository owns this code.",
+            "content": "An API compatibility issue affects this product: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/dex-arb"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_080_eximo",
+        "case_id": "reposel_gen_080_excalidraw",
         "signal": {
             "signal_id": "sig_080",
-            "content": "A bug was reported in our TypeScript project known as 'eximo'. Identify which connected repository owns this code.",
+            "content": "An API compatibility issue affects this product: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/eximo"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_081_finance",
+        "case_id": "reposel_gen_081_strapi",
         "signal": {
             "signal_id": "sig_081",
-            "content": "A bug was reported in our software project known as 'finance'. Identify which connected repository owns this code.",
+            "content": "An API compatibility issue affects this product: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/finance"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_082_gasmockglobals",
+        "case_id": "reposel_gen_082_posthog-js",
         "signal": {
             "signal_id": "sig_082",
-            "content": "A bug was reported in our TypeScript project known as 'gas-mock-globals'. Identify which connected repository owns this code.",
+            "content": "An API compatibility issue affects this product: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/gas-mock-globals"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_083_gasreactboilerplace",
+        "case_id": "reposel_gen_083_posthog-python",
         "signal": {
             "signal_id": "sig_083",
-            "content": "A bug was reported in our JavaScript project known as 'gas-react-boilerplace'. Identify which connected repository owns this code.",
+            "content": "An API compatibility issue affects this product: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/gas-react-boilerplace"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_084_holywebsite",
+        "case_id": "reposel_gen_084_cal",
         "signal": {
             "signal_id": "sig_084",
-            "content": "A bug was reported in our CSS project known as 'holy-website'. Identify which connected repository owns this code.",
+            "content": "The deployment for this product started failing: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/holy-website"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_085_inboxzero",
+        "case_id": "reposel_gen_085_supabase",
         "signal": {
             "signal_id": "sig_085",
-            "content": "A bug was reported in our TypeScript project known as 'inboxzero'. Identify which connected repository owns this code.",
+            "content": "The deployment for this product started failing: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/inboxzero"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_086_keatypegen",
+        "case_id": "reposel_gen_086_n8n",
         "signal": {
             "signal_id": "sig_086",
-            "content": "A bug was reported in our software project known as 'kea-typegen'. Identify which connected repository owns this code.",
+            "content": "The deployment for this product started failing: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/kea-typegen"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_087_kg",
+        "case_id": "reposel_gen_087_excalidraw",
         "signal": {
             "signal_id": "sig_087",
-            "content": "A bug was reported in our TypeScript project known as 'kg'. Identify which connected repository owns this code.",
+            "content": "The deployment for this product started failing: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/kg"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_088_langchainjs",
+        "case_id": "reposel_gen_088_strapi",
         "signal": {
             "signal_id": "sig_088",
-            "content": "A bug was reported in our TypeScript project known as 'langchainjs'. Identify which connected repository owns this code.",
+            "content": "The deployment for this product started failing: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/langchainjs"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_089_mcp",
+        "case_id": "reposel_gen_089_posthog-js",
         "signal": {
             "signal_id": "sig_089",
-            "content": "A bug was reported in our TypeScript project known as 'mcp-demo'. Identify which connected repository owns this code.",
+            "content": "The deployment for this product started failing: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/mcp-demo"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_090_mindfullandingpage",
+        "case_id": "reposel_gen_090_posthog-python",
         "signal": {
             "signal_id": "sig_090",
-            "content": "A bug was reported in our SCSS project known as 'mindful-landing-page'. Identify which connected repository owns this code.",
+            "content": "The deployment for this product started failing: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/mindful-landing-page"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_091_minimalrustblockchain",
+        "case_id": "reposel_gen_091_cal",
         "signal": {
             "signal_id": "sig_091",
-            "content": "A bug was reported in our Rust project known as 'minimal-rust-blockchain'. Identify which connected repository owns this code.",
+            "content": "A data-loss report concerns the project described here: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/minimal-rust-blockchain"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_092_mlab2",
+        "case_id": "reposel_gen_092_supabase",
         "signal": {
             "signal_id": "sig_092",
-            "content": "A bug was reported in our software project known as 'mlab2'. Identify which connected repository owns this code.",
+            "content": "A data-loss report concerns the project described here: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/mlab2"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_093_nestjsblog",
+        "case_id": "reposel_gen_093_n8n",
         "signal": {
             "signal_id": "sig_093",
-            "content": "A bug was reported in our TypeScript project known as 'nestjs-blog'. Identify which connected repository owns this code.",
+            "content": "A data-loss report concerns the project described here: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/nestjs-blog"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_094_nextjs",
+        "case_id": "reposel_gen_094_excalidraw",
         "signal": {
             "signal_id": "sig_094",
-            "content": "A bug was reported in our TypeScript project known as 'nextjs-boilerplate'. Identify which connected repository owns this code.",
+            "content": "A data-loss report concerns the project described here: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": ["joshsny/next-js-boilerplate", "joshsny/nextjs-boilerplate", "joshsny/nextjs-template"]
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_095_nextjs",
+        "case_id": "reposel_gen_095_strapi",
         "signal": {
             "signal_id": "sig_095",
-            "content": "A bug was reported in our JavaScript project known as 'nextjs-template'. Identify which connected repository owns this code.",
+            "content": "A data-loss report concerns the project described here: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": ["joshsny/next-js-boilerplate", "joshsny/nextjs-boilerplate", "joshsny/nextjs-template"]
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_096_othersideml",
+        "case_id": "reposel_gen_096_posthog-js",
         "signal": {
             "signal_id": "sig_096",
-            "content": "A bug was reported in our Python project known as 'otherside-ml'. Identify which connected repository owns this code.",
+            "content": "A data-loss report concerns the project described here: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/otherside-ml"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_097_phinterview",
+        "case_id": "reposel_gen_097_posthog-python",
         "signal": {
             "signal_id": "sig_097",
-            "content": "A bug was reported in our TypeScript project known as 'ph-interview'. Identify which connected repository owns this code.",
+            "content": "A data-loss report concerns the project described here: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/ph-interview"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_098_platformsstarterkit",
+        "case_id": "reposel_gen_098_cal",
         "signal": {
             "signal_id": "sig_098",
-            "content": "A bug was reported in our TypeScript project known as 'platforms-starter-kit'. Identify which connected repository owns this code.",
+            "content": "A mobile browser regression affects this product: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/platforms-starter-kit"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_099_polygondid",
+        "case_id": "reposel_gen_099_supabase",
         "signal": {
             "signal_id": "sig_099",
-            "content": "A bug was reported in our TypeScript project known as 'polygon-did-example'. Identify which connected repository owns this code.",
+            "content": "A mobile browser regression affects this product: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/polygon-did-example"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_100_polygonid",
+        "case_id": "reposel_gen_100_n8n",
         "signal": {
             "signal_id": "sig_100",
-            "content": "A bug was reported in our TypeScript project known as 'polygon-id'. Identify which connected repository owns this code.",
+            "content": "A mobile browser regression affects this product: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/polygon-id"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_101_posthognextjs",
+        "case_id": "reposel_gen_101_excalidraw",
         "signal": {
             "signal_id": "sig_101",
-            "content": "A bug was reported in our TypeScript project known as 'posthog-nextjs'. Identify which connected repository owns this code.",
+            "content": "A mobile browser regression affects this product: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/posthog-nextjs"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_102_posthogwithflagssdkandnextjs",
+        "case_id": "reposel_gen_102_strapi",
         "signal": {
             "signal_id": "sig_102",
-            "content": "A bug was reported in our TypeScript project known as 'posthog-with-flags-sdk-and-next-js'. Identify which connected repository owns this code.",
+            "content": "A mobile browser regression affects this product: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/posthog-with-flags-sdk-and-next-js"
+        "expected_repository": "strapi/strapi"
     },
     {
-        "case_id": "reposel_gen_103_responsable",
+        "case_id": "reposel_gen_103_posthog-js",
         "signal": {
             "signal_id": "sig_103",
-            "content": "A bug was reported in our TypeScript project known as 'responsable'. Identify which connected repository owns this code.",
+            "content": "A mobile browser regression affects this product: PostHog browser/JS SDK for product analytics, autocapture, session replay.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/responsable"
+        "expected_repository": "posthog/posthog-js"
     },
     {
-        "case_id": "reposel_gen_104_scheduling",
+        "case_id": "reposel_gen_104_posthog-python",
         "signal": {
             "signal_id": "sig_104",
-            "content": "A bug was reported in our TypeScript project known as 'scheduling'. Identify which connected repository owns this code.",
+            "content": "A mobile browser regression affects this product: PostHog server-side Python SDK for capture, feature flags, LLM analytics.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/scheduling"
+        "expected_repository": "posthog/posthog-python"
     },
     {
-        "case_id": "reposel_gen_105_soulmatejs",
+        "case_id": "reposel_gen_105_cal",
         "signal": {
             "signal_id": "sig_105",
-            "content": "A bug was reported in our TypeScript project known as 'soulmatejs'. Identify which connected repository owns this code.",
+            "content": "A reliability alert maps to the product described as: Open-source scheduling / booking platform (Calendly alternative).",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/soulmatejs"
+        "expected_repository": "calcom/cal.com"
     },
     {
-        "case_id": "reposel_gen_106_techspertchallenge",
+        "case_id": "reposel_gen_106_supabase",
         "signal": {
             "signal_id": "sig_106",
-            "content": "A bug was reported in our Python project known as 'techspert-challenge'. Identify which connected repository owns this code.",
+            "content": "A reliability alert maps to the product described as: Backend-as-a-service: hosted Postgres, auth, storage, realtime.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/techspert-challenge"
+        "expected_repository": "supabase/supabase"
     },
     {
-        "case_id": "reposel_gen_107_testapp",
+        "case_id": "reposel_gen_107_n8n",
         "signal": {
             "signal_id": "sig_107",
-            "content": "A bug was reported in our TypeScript project known as 'test-app'. Identify which connected repository owns this code.",
+            "content": "A reliability alert maps to the product described as: Workflow automation tool with a node-based editor.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/test-app"
+        "expected_repository": "n8n-io/n8n"
     },
     {
-        "case_id": "reposel_gen_108_textreminderwebapp",
+        "case_id": "reposel_gen_108_excalidraw",
         "signal": {
             "signal_id": "sig_108",
-            "content": "A bug was reported in our HTML project known as 'textreminder-webapp'. Identify which connected repository owns this code.",
+            "content": "A reliability alert maps to the product described as: Virtual whiteboard / hand-drawn-style diagramming SPA.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/textreminder-webapp"
+        "expected_repository": "excalidraw/excalidraw"
     },
     {
-        "case_id": "reposel_gen_109_tokenstest",
+        "case_id": "reposel_gen_109_strapi",
         "signal": {
             "signal_id": "sig_109",
-            "content": "A bug was reported in our software project known as 'tokens-test'. Identify which connected repository owns this code.",
+            "content": "A reliability alert maps to the product described as: Headless CMS with a customizable admin panel and content API.",
             "source_product": "conversations"
         },
-        "expected_repository": "joshsny/tokens-test"
+        "expected_repository": "strapi/strapi"
     },
     {
         "case_id": "reposel_gen_null_00",

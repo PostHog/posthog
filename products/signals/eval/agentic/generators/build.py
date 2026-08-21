@@ -1,11 +1,11 @@
-"""Builders that turn the eval project's real data + templates into case dicts.
+"""Builders that turn the synthetic eval manifest + templates into case dicts.
 
 Each builder returns a list of JSON-serializable dicts (the loader in ``generated.py`` turns
 them into typed Case objects and attaches scorers). Generation is deterministic (index-based,
 no RNG) so regenerating the same project yields a stable, diffable dataset.
 
-DB-backed builders (repo selection, research) require the local stack; the implementation
-builder is pure templating. Run via the ``generate_eval_cases`` management command.
+All builders use committed synthetic/public inputs so regenerated tracked fixtures cannot
+leak data from a developer's local project. Run via the ``generate_eval_cases`` command.
 """
 
 from __future__ import annotations
@@ -142,84 +142,40 @@ def _dedupe(cases: list[dict], *, ignore_keys: tuple[str, ...] = ("case_id", "si
     return out
 
 
-def _stem(repo_name: str) -> str:
-    """Normalized stem for grouping near-duplicate repos (tutoring/jstutoring, foo/foo-old)."""
-    n = repo_name.lower()
-    n = re.sub(r"^(js|ts|py|go|old|new|the)[-_]?", "", n)
-    n = re.sub(r"[-_](old|new|v\d+|copy|fork|mirror|template|example|boilerplate|demo)$", "", n)
-    return re.sub(r"[^a-z0-9]", "", n)
+_REPO_SCENARIOS: tuple[str, ...] = (
+    "A customer reports that a core workflow in this product is failing: {domain}",
+    "Support needs the owner of a regression in this product: {domain}",
+    "An upgrade caused unexpected behavior in this codebase: {domain}",
+    "A performance issue appears under load in this product: {domain}",
+    "Users cannot complete the primary workflow described here: {domain}",
+    "A security fix is needed in the project matching this description: {domain}",
+    "The {language} service matching this description needs a bug fix: {domain}",
+    "A dependency update broke functionality in this product: {domain}",
+    "A customer-facing error points to the project described as: {domain}",
+    "An accessibility regression belongs to this product: {domain}",
+    "A flaky integration test covers the product described here: {domain}",
+    "An API compatibility issue affects this product: {domain}",
+    "The deployment for this product started failing: {domain}",
+    "A data-loss report concerns the project described here: {domain}",
+    "A mobile browser regression affects this product: {domain}",
+    "A reliability alert maps to the product described as: {domain}",
+)
 
 
-# A description too short to discriminate the target repo makes the ground truth ambiguous.
-_MIN_DESC_LEN = 25
-# Name-embedding "known as 'X'" cases are trivially passable; keep only a handful as a sanity floor.
-_MAX_NAME_ONLY_CASES = 8
+def build_repo_selection_cases(*, target: int = 110) -> list[dict]:
+    from products.signals.eval.agentic.repos import REGISTRY  # noqa: PLC0415
 
-
-def _usable_description(row: dict) -> str | None:
-    desc = (row["description"] or "").strip()
-    name = row["full_name"].split("/")[-1]
-    if len(desc) < _MIN_DESC_LEN or desc.lower() == name.lower():
-        return None
-    return desc
-
-
-def build_repo_selection_cases(team_id: int, *, target: int = 110) -> list[dict]:
-    from posthog.models.integration import Integration  # noqa: PLC0415
-
-    integration = Integration.objects.filter(team_id=team_id, kind="github").first()
-    if integration is None:
-        return []
-    rows = list(
-        integration.repository_cache_entries.filter(team_id=team_id, archived=False)
-        .values("full_name", "description", "primary_language")
-        .order_by("full_name")
-    )
-    # Group near-duplicate repos by stem so same-domain ambiguity is accepted, not penalized.
-    by_stem: dict[str, list[str]] = {}
-    # Repos sharing an identical description are mutually acceptable too — the signal only
-    # carries the description, so any of them is a defensible pick.
-    by_desc: dict[str, list[str]] = {}
-    for r in rows:
-        name = r["full_name"].split("/")[-1]
-        by_stem.setdefault(_stem(name), []).append(r["full_name"])
-        desc = _usable_description(r)
-        if desc:
-            by_desc.setdefault(desc.lower(), []).append(r["full_name"])
-
+    repositories = tuple(REGISTRY.values())
     cases: list[dict] = []
-    # Prefer usably-described repos first (clearer signals), then the rest, for stable ordering.
-    rows.sort(key=lambda r: (_usable_description(r) is None, r["full_name"]))
-    name_only_count = 0
-    for i, r in enumerate(rows):
-        if len(cases) >= target:
-            break
-        full = r["full_name"]
-        name = full.split("/")[-1]
-        desc = _usable_description(r)
-        lang = r["primary_language"] or "software"
-        accepted_set = set(by_stem.get(_stem(name), [full]))
-        if desc:
-            accepted_set |= set(by_desc.get(desc.lower(), ()))
-            content = (
-                f"A user reported a problem in one of our connected projects. The affected product is "
-                f'best described as: "{desc}". They hit a bug in its core functionality and we need to '
-                f"find the repository that owns this code."
-            )
-        else:
-            if name_only_count >= _MAX_NAME_ONLY_CASES:
-                continue
-            name_only_count += 1
-            content = (
-                f"A bug was reported in our {lang} project known as '{name}'. Identify which connected "
-                f"repository owns this code."
-            )
-        accepted = sorted(accepted_set)
+    for i in range(target):
+        repo = repositories[i % len(repositories)]
+        scenario = _REPO_SCENARIOS[(i // len(repositories)) % len(_REPO_SCENARIOS)]
+        content = scenario.format(domain=repo.domain, language=repo.primary_language)
         cases.append(
             {
-                "case_id": f"reposel_gen_{i:03d}_{_stem(name) or 'repo'}",
+                "case_id": f"reposel_gen_{i:03d}_{repo.key}",
                 "signal": {"signal_id": f"sig_{i:03d}", "content": content, "source_product": "conversations"},
-                "expected_repository": accepted if len(accepted) > 1 else accepted[0],
+                "expected_repository": repo.full_name,
             }
         )
     # A few null cases: ops/billing/legal requests no repo owns.
@@ -241,129 +197,45 @@ def build_repo_selection_cases(team_id: int, *, target: int = 110) -> list[dict]
     return _dedupe(cases)
 
 
-def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
-    from django.apps import apps  # noqa: PLC0415
+_RESEARCH_ANGLES: tuple[str, ...] = (
+    "Investigate the recent trend and assess whether it is worth acting on.",
+    "Compare affected cohorts and determine the likely customer impact.",
+    "Verify its frequency in project data and recommend the next action.",
+    "Check for a change around recent releases and summarize the evidence.",
+    "Decide whether the available evidence supports prioritizing engineering work.",
+)
 
-    from posthog.clickhouse.client import sync_execute  # noqa: PLC0415
-    from posthog.clickhouse.query_tagging import tag_queries  # noqa: PLC0415
+
+def build_research_cases(*, target: int = 110) -> list[dict]:
+    from products.signals.eval.agentic.project.manifest import DEFAULT_MANIFEST  # noqa: PLC0415
 
     cases: list[dict] = []
-    section_counts: dict[str, int] = {}
-    # A keyword reused across cases can't discriminate which case's summary passed.
-    used_tokens: set[str] = set()
+    grounded_target = max(0, target - len(_VERDICT_DETAILS))
 
-    def _fresh_token(name: str) -> str | None:
-        tok = _case_token(name)
-        if tok is None or tok in used_tokens:
-            return None
-        used_tokens.add(tok)
-        return tok
-
-    # 1) Data-grounded from real error-tracking issues (dedupe names).
-    section_start = len(cases)
-    try:
-        from products.error_tracking.backend.facade import list_issues  # noqa: PLC0415
-
-        names: list[str] = []
-        seen: set[str] = set()
-        for issue in sorted(list_issues(team_id), key=lambda issue: issue.name or ""):
-            n = issue.name
-            key = (n or "").strip().lower()
-            if key and key not in seen:
-                seen.add(key)
-                assert n is not None
-                names.append(n)
-        for i, name in enumerate(names):
-            tok = _fresh_token(name)
+    def append_grounded(prefix: str, names: tuple[str, ...], source_product: str, source_type: str) -> None:
+        for entity_index, name in enumerate(names):
+            tok = _case_token(name)
             if tok is None:
                 continue
-            cases.append(
-                {
-                    "case_id": f"research_gen_err_{i:03d}_{tok}",
-                    "signal": {
-                        "signal_id": f"sig_err_{i:03d}",
-                        "content": (
-                            f"Error tracking shows a '{name}' issue. Customers are hitting it. Investigate the "
-                            f"real impact via the project's data and assess whether it's worth acting on."
-                        ),
-                        "source_product": "error_tracking",
-                        "source_type": "issue_spiking",
-                    },
-                    "expectation": {"expect_data_evidence": True, "summary_must_mention": [tok]},
-                }
-            )
-    except Exception:
-        logger.exception("research case generation: error-tracking section failed; its cases were lost")
-    section_counts["error_tracking"] = len(cases) - section_start
+            for angle_index, angle in enumerate(_RESEARCH_ANGLES):
+                if len(cases) >= grounded_target:
+                    return
+                cases.append(
+                    {
+                        "case_id": f"research_gen_{prefix}_{entity_index:03d}_{angle_index}_{tok}",
+                        "signal": {
+                            "signal_id": f"sig_{prefix}_{entity_index:03d}_{angle_index}",
+                            "content": f"The synthetic eval project reports '{name}'. {angle}",
+                            "source_product": source_product,
+                            "source_type": source_type,
+                        },
+                        "expectation": {"expect_data_evidence": True, "summary_must_mention": [tok]},
+                    }
+                )
 
-    # 2) Data-grounded from real top events.
-    section_start = len(cases)
-    try:
-        tag_queries(product="max_ai", feature="management_command")
-        rows = sync_execute(
-            "SELECT event, count() c FROM events WHERE team_id=%(t)s AND event NOT LIKE '$%%' "
-            "GROUP BY event ORDER BY c DESC LIMIT 20",
-            {"t": team_id},
-        )
-        for i, (event, _c) in enumerate(rows):
-            tok = _fresh_token(event)
-            if tok is None:
-                continue
-            cases.append(
-                {
-                    "case_id": f"research_gen_evt_{i:03d}_{tok}",
-                    "signal": {
-                        "signal_id": f"sig_evt_{i:03d}",
-                        "content": (
-                            f"We suspect the '{event}' behavior has shifted recently. Check the trend in the "
-                            f"project's analytics and assess whether there's a real change worth acting on."
-                        ),
-                        "source_product": "session_replay",
-                        "source_type": "replay_vision",
-                    },
-                    "expectation": {"expect_data_evidence": True, "summary_must_mention": [tok]},
-                }
-            )
-    except Exception:
-        logger.exception("research case generation: top-events section failed; its cases were lost")
-    section_counts["events"] = len(cases) - section_start
-
-    # 3) Data-grounded from real experiments.
-    section_start = len(cases)
-    try:
-        Experiment = apps.get_model("experiments", "Experiment")
-        for i, name in enumerate(
-            Experiment.objects.filter(team_id=team_id).values_list("name", flat=True).order_by("id")
-        ):
-            tok = _fresh_token(name or "")
-            if tok is None:
-                continue
-            cases.append(
-                {
-                    "case_id": f"research_gen_exp_{i:03d}_{tok}",
-                    "signal": {
-                        "signal_id": f"sig_exp_{i:03d}",
-                        "content": (
-                            f"A teammate flagged that the '{name}' experiment may be inconclusive or negative. "
-                            f"Read the experiment results in the project and recommend ship / iterate / roll back."
-                        ),
-                        "source_product": "github",
-                        "source_type": "issue_created",
-                    },
-                    "expectation": {"expect_data_evidence": True, "summary_must_mention": [tok]},
-                }
-            )
-    except Exception:
-        logger.exception("research case generation: experiments section failed; its cases were lost")
-    section_counts["experiments"] = len(cases) - section_start
-
-    logger.info("research case generation: data-grounded section counts %s", section_counts)
-    if not any(section_counts.values()):
-        raise RuntimeError(
-            "research case generation produced zero data-grounded cases across all sections "
-            f"({section_counts}); the stack/project data is broken — a purely-templated dataset "
-            "would silently lose the live suite's data-grounded coverage"
-        )
+    append_grounded("err", DEFAULT_MANIFEST.error_names, "error_tracking", "issue_spiking")
+    append_grounded("evt", DEFAULT_MANIFEST.event_names, "session_replay", "replay_vision")
+    append_grounded("exp", DEFAULT_MANIFEST.experiment_names, "github", "issue_created")
 
     # 4) Templated source/verdict variety — synthetic, so only the stable dimensions are
     # asserted. One case per detail; repeats would pad the suite with verbatim duplicates.

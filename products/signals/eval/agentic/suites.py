@@ -3,10 +3,9 @@
 A single place both the management command and the pytest entrypoints use to discover
 cases, so adding a step (e.g. ``grouping``) is a one-line change here plus the dataset.
 
-Live mode = the small hand-authored live-calibrated cases **plus** the large generated suite
-(``cases/generated/*.json``, produced by ``generate_eval_cases``). The generated suite is what
-makes the eval broad enough to compare models/prompts; the hand-authored ones are curated
-anchors. Replay mode uses only the cassette-backed regression cases.
+Live mode defaults to the small hand-authored live-calibrated cases. Callers can opt into the
+large generated suite (``cases/generated/*.json``) for broad model/prompt comparisons. Replay
+mode uses only the cassette-backed regression cases.
 """
 
 from __future__ import annotations
@@ -51,7 +50,7 @@ def _replay(step: str) -> list[EvalCase]:
     return []
 
 
-def load_cases(step: str, *, mode: str = "replay", include_generated: bool = True) -> list[EvalCase]:
+def load_cases(step: str, *, mode: str = "replay", include_generated: bool | None = None) -> list[EvalCase]:
     if step not in STEPS:
         raise KeyError(f"unknown step {step!r}; known: {STEPS}")
     if mode != "live":

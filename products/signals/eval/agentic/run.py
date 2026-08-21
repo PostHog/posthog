@@ -67,6 +67,8 @@ async def run_step(
     judge_model: str | None = None,
 ) -> SuiteResult:
     cases = load_cases(step, mode=mode, include_generated=include_generated)
+    if sample is not None and sample < 1:
+        raise ValueError("sample must be a positive integer")
     if case_filter:
         cases = [c for c in cases if case_filter in c.case_id]
         if not cases:
