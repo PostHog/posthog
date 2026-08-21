@@ -76,12 +76,12 @@ def restricted_property_keys_for_table_type(
         return set()
 
     return {
-        name
-        for name, ptype, restricted_group_type_index in context.restricted_properties
-        if ptype == prop_def_type
+        restriction.name
+        for restriction in context.restricted_properties
+        if restriction.property_type == prop_def_type
         and (
             prop_def_type != PropertyDefinition.Type.GROUP
             or group_type_index is None
-            or restricted_group_type_index == group_type_index
+            or restriction.group_type_index == group_type_index
         )
     }

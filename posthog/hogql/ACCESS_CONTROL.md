@@ -195,7 +195,7 @@ Otherwise a denied user gets served an allowed user's cached rows.
 
 The cache key is derived from `get_cache_payload()`:
 
-- `QueryRunner.get_cache_payload()` adds `restricted_properties` (sorted `(name, type, group_type_index)` tuples) when the user has property restrictions.
+- `QueryRunner.get_cache_payload()` adds named property restriction records, including the group type index, when the user has property restrictions.
 - `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
 
 Two things keep cache hit rates high:
