@@ -117,6 +117,7 @@ export interface alertNotificationLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -170,6 +171,7 @@ export interface alertNotificationLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     } // integrationsLogic

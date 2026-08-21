@@ -60,6 +60,10 @@ async def _get_redis():
         await redis.ping()
     except Exception as e:
         capture_exception(e)
+        # get_async_client only builds a lazy client, so a failed ping means redis is
+        # still unreachable - reset it to None so callers' `if redis_client is None` guard
+        # actually skips the real command instead of raising the same error uncaught.
+        redis = None
 
     yield redis
 
@@ -255,12 +259,20 @@ async def reset_rows_synced_if_needed(
     is_incremental: bool,
     reset_pipeline: bool,
     should_resume: bool,
+    *,
+    incremental_cursor_staged: bool = False,
 ) -> None:
-    # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
+    # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout.
+    #
+    # Incremental syncs are exempt only when the durable cursor advances per batch (pipeline v2), so
+    # a retried attempt resumes past the rows already counted. When the cursor is staged and only
+    # promoted on completion (pipeline v3), a retried attempt re-extracts the whole window from
+    # batch 0, so keeping the previous attempt's count double-counts every re-read row —
+    # `rows_synced` feeds billed usage via `Sum("rows_synced")` in usage reports.
     if (
         job.rows_synced is not None
         and job.rows_synced != 0
-        and (not is_incremental or reset_pipeline is True)
+        and (not is_incremental or reset_pipeline is True or incremental_cursor_staged)
         and not should_resume
     ):
         job.rows_synced = 0
@@ -341,7 +353,6 @@ def validate_incremental_sync(
     *,
     is_first_sync: bool = True,
 ) -> None:
-    # Check for duplicate primary keys
     if is_incremental and resource.has_duplicate_primary_keys:
         raise DuplicatePrimaryKeysException(
             f"The primary keys for this table are not unique. We can't sync incrementally until the table "

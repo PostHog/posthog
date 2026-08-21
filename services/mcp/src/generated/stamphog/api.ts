@@ -168,6 +168,10 @@ export const StamphogReviewRunsListQueryParams = /* @__PURE__ */ zod.object({
     pr_number: zod.number().optional().describe('Filter by pull request number.'),
     repository: zod.string().optional().describe("Filter by repository full name, e.g. 'PostHog\/posthog'."),
     status: zod.string().optional().describe('Filter by review run status.'),
+    trigger: zod
+        .enum(['all', 'label', 'self_driving'])
+        .optional()
+        .describe('Filter by what caused the run: self_driving, label, or all.'),
 })
 
 /**

@@ -602,6 +602,8 @@ SPECTACULAR_SETTINGS = {
         "TicketTagsMatchEnum": "products.conversations.backend.api.ticket_filters.TICKET_TAGS_MATCH_CHOICES",
         "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
         "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
+        # Shared by HogFlowBatchJob.status and HogFlowBatchJobCancelResponse.status (same choice set).
+        "HogFlowBatchJobStatusEnum": "products.workflows.backend.models.hog_flow_batch_job.HogFlowBatchJob.State",
         # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
         "MetricsRecalculationStatusEnum": (
             "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
@@ -682,9 +684,20 @@ SPECTACULAR_SETTINGS = {
         # and churn subscriptions' generated types.
         "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
+        "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
+        "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
         "PropertyGroupOperator": ["AND", "OR"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
+        # `kind` is a generic field name; one shared name for the canvas kind set.
+        "CanvasKindEnum": ["freeform", "grid", "component"],
+        # `status`/`op`/`columns`/`schemaVersion` are generic field names; pin the grid layout sets.
+        "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
+        "CanvasLayoutOpEnum": ["set_grid", "add_placement", "update_placement", "remove_placement"],
+        # Integer choice sets need explicit (value, label) pairs; a bare list is
+        # only matched for string choices.
+        "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
+        "CanvasLayoutSchemaVersionEnum": [(1, 1)],
         # `bucket` is a generic field name; name the experiment recordings bucket set explicitly.
         "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
         # `strength` and `kind` are generic enough that the next one added anywhere would collide,
@@ -875,6 +888,7 @@ SPECTACULAR_SETTINGS = {
         "WoWChangeDirectionEnum": ["Up", "Down"],
         "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+        "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
         # Dashboard widget polymorphic OpenAPI: each per-type serializer uses a singleton
         # widget_type ChoiceField (one value). drf-spectacular hashes enum value sets — without

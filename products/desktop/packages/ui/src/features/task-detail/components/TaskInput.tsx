@@ -25,6 +25,7 @@ import {
   useTaskRepositoryDraftStore,
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
@@ -141,9 +142,10 @@ interface TaskInputProps {
    */
   channelContextId?: string;
   /**
-   * Channels "generic chat box" mode: hide the repo/branch pickers and let the
-   * task be submitted without a repo. The agent decides at runtime whether it
-   * needs a repo and attaches one lazily.
+   * Channels "generic chat box" mode: in cloud mode, swap the repo/branch
+   * pickers for the multi-repository chip and let the task be submitted without
+   * a repo. The agent decides at runtime whether it needs a repo and attaches
+   * one lazily. Local mode keeps the repo + branch pickers a worktree needs.
    */
   allowNoRepo?: boolean;
   channelRepositories?: string[];
@@ -794,6 +796,8 @@ export function TaskInput({
 
   const effectiveWorkspaceMode = workspaceMode;
 
+  const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
+
   // Get current values from preview config options for task creation.
   // Defaults ensure values are always passed even before the preview config loads.
   const currentModel =
@@ -861,11 +865,11 @@ export function TaskInput({
   useWarmTask({
     workspaceMode,
     selectedRepository: selectedCloudRepository,
-    repositories: allowNoRepo ? taskRepositories : undefined,
-    githubIntegrationId: allowNoRepo
+    repositories: repoOptional ? taskRepositories : undefined,
+    githubIntegrationId: repoOptional
       ? (taskGithubIntegration ?? undefined)
       : orgGithubIntegrationId,
-    allowNoRepo,
+    allowNoRepo: repoOptional,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     runtimeAdapter: adapter ?? null,
@@ -975,6 +979,7 @@ export function TaskInput({
 
   const {
     isCreatingTask,
+    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,
@@ -982,14 +987,12 @@ export function TaskInput({
   } = useTaskCreation({
     editorRef,
     sessionId,
-    selectedDirectory: allowNoRepo ? taskFolder : selectedDirectory,
+    selectedDirectory: repoOptional ? taskFolder : selectedDirectory,
     selectedRepository: selectedCloudRepository,
-    repositories:
-      allowNoRepo && workspaceMode === "cloud" ? taskRepositories : undefined,
-    githubIntegrationId:
-      allowNoRepo && workspaceMode === "cloud"
-        ? (taskGithubIntegration ?? undefined)
-        : undefined,
+    repositories: repoOptional ? taskRepositories : undefined,
+    githubIntegrationId: repoOptional
+      ? (taskGithubIntegration ?? undefined)
+      : undefined,
     githubUserIntegrationId: selectedGithubUserIntegrationId,
     workspaceMode: effectiveWorkspaceMode,
     branch: branchForTaskCreation,
@@ -1017,7 +1020,7 @@ export function TaskInput({
     channelName,
     channelId,
     channelContextId,
-    allowNoRepo,
+    allowNoRepo: repoOptional,
   });
 
   // Wraps the prompt in the autoresearch kickoff: protocol preamble first,
@@ -1265,8 +1268,16 @@ export function TaskInput({
                 // suggestions fade out (and back in when the prompt is cleared).
                 top: suggestions && suggestions.length > 0 ? "38%" : "50%",
                 transform: "translate(-50%, -50%)",
+                // Once the task is on its way, the whole composer fades out and
+                // the pending chat fades in over it.
+                opacity: isExitingComposer ? 0 : 1,
+                transitionProperty: "opacity",
+                transitionDuration: `${NEW_TASK_COMPOSER_FADE_MS}ms`,
+                transitionTimingFunction: "ease-out",
               }}
-              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
+              className={`absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2 ${
+                isExitingComposer ? "pointer-events-none" : ""
+              }`}
             >
               <Flex
                 gap="2"
@@ -1283,7 +1294,7 @@ export function TaskInput({
                   onCustomImageChange={setSelectedCustomImageId}
                   size="1"
                 />
-                {allowNoRepo && (
+                {repoOptional && (
                   <TaskRepositoryChip
                     cloud={workspaceMode === "cloud"}
                     repositoryCount={taskRepositories.length}
@@ -1292,7 +1303,7 @@ export function TaskInput({
                     onOpen={() => setRepositoryDialogOpen(true)}
                   />
                 )}
-                {!allowNoRepo && workspaceMode === "worktree" && (
+                {!repoOptional && workspaceMode === "worktree" && (
                   <EnvironmentSelector
                     repoPath={effectiveRepoPath ?? null}
                     value={selectedEnvironment}
@@ -1305,7 +1316,7 @@ export function TaskInput({
                     }
                   />
                 )}
-                {!allowNoRepo && (
+                {!repoOptional && (
                   <ButtonGroup
                     ref={buttonGroupRef}
                     data-tour="folder-picker"
@@ -1395,7 +1406,7 @@ export function TaskInput({
                     />
                   </ButtonGroup>
                 )}
-                {!allowNoRepo && workspaceMode !== "cloud" && (
+                {!repoOptional && workspaceMode !== "cloud" && (
                   <AdditionalDirectoriesButton
                     values={additionalDirectories}
                     onChange={setAdditionalDirectories}
@@ -1646,7 +1657,7 @@ export function TaskInput({
         </Box>
       </Flex>
 
-      {allowNoRepo && (
+      {repoOptional && (
         <TaskRepositoryDialog
           open={repositoryDialogOpen}
           onOpenChange={setRepositoryDialogOpen}

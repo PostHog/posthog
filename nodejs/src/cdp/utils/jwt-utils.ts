@@ -4,6 +4,9 @@ export enum PosthogJwtAudience {
     RECORDING_API = 'posthog:recording_api',
     SUBSCRIPTION_PREFERENCES = 'posthog:messaging:subscription_preferences',
     WORKFLOWS_RESCHEDULE_PARKED = 'posthog:workflows:reschedule_parked',
+    WORKFLOWS_CANCEL_INVOCATIONS = 'posthog:workflows:cancel_invocations',
+    WORKFLOWS_CANCEL_BATCH = 'posthog:workflows:cancel_batch',
+    TASKS_CREATE = 'posthog:tasks:create',
 }
 
 export class JWT {

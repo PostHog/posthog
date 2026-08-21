@@ -1176,6 +1176,7 @@ export enum PropertyFilterType {
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
+    Account = 'account',
     /** Customer analytics account custom property — the key is the property definition id */
     AccountCustomProperty = 'account_custom_property',
     /** Feature flag dependency */
@@ -1853,6 +1854,10 @@ export interface CohortType {
     errors_calculating?: number
     last_calculation?: string
     last_error_message?: string | null
+    /** Number of IDs supplied by the most recent static cohort import. */
+    last_import_total_count?: number | null
+    /** How many of those IDs matched no person, and so were left out of the cohort. */
+    last_import_unmatched_count?: number | null
     is_static?: boolean
     name?: string
     csv?: File
@@ -2377,6 +2382,7 @@ export interface BillingType {
     projected_total_amount_usd_with_limit?: string
     projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
+    usage_summary?: Record<string, { usage?: number | null; limit?: number | null; todays_usage?: number | null }>
 
     custom_limits_usd?: {
         [key: string]: number | null
@@ -2702,7 +2708,13 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     breakdown_colors?: BreakdownColorConfig[]
     data_color_theme_id?: number | null
     quick_filter_ids?: string[] | null
+    customization?: {
+        tile_spacing?: DashboardTileSpacing
+        layout_compaction?: 'vertical' | 'horizontal' | 'stable'
+    }
 }
+
+export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',
@@ -4778,6 +4790,7 @@ export enum PropertyDefinitionType {
     Event = 'event',
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
+    Account = 'account',
     AccountCustomProperty = 'account_custom_property',
     Person = 'person',
     PersonMetadata = 'person_metadata',
@@ -5522,6 +5535,7 @@ export const INTEGRATION_KINDS = [
     'aws-s3',
     's3-compatible',
     'snowflake',
+    'youtube-analytics',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5765,6 +5779,7 @@ export const API_SCOPE_OBJECTS = [
     'batch_export',
     'batch_import',
     'batch_import_support',
+    'billing',
     'business_knowledge',
     'canvas',
     'clickhouse_test_cluster_perf',
@@ -5963,15 +5978,15 @@ export type AccessControlResponseType = {
     inherited_access?: InheritedAccessType | null
 }
 
-export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
-
 export interface EffectiveAccessControlEntry {
+    /** The subject's own stored rule, if any — what the settings UI edits. */
     access_level: AccessControlLevel | null
+    /** What the subject actually gets, as enforced. */
     effective_access_level: AccessControlLevel | null
-    inherited_access_level: AccessControlLevel | null
-    inherited_access_level_reason: InheritedAccessLevelReason | null
-    /** What applies when no rule exists anywhere. Only returned by the defaults endpoint. */
-    system_default_access_level?: AccessControlLevel
+    /** What the subject would get if their own rule were removed, with the rule that decides
+     * it — resolved by the same walker that enforces access. Null only when nothing sits above
+     * the object's own default (a project's default). */
+    inherited_access: Omit<InheritedAccessType, 'source_display_name'> | null
     minimum: AccessControlLevel
     maximum: AccessControlLevel
 }
@@ -6105,6 +6120,7 @@ export enum ActivityScope {
     TICKET = 'Ticket',
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
+    SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
 }
 
 export type CommentType = {
@@ -7211,7 +7227,7 @@ export type OnboardingProduct = {
     capabilities?: string[]
     /** Title + problem pairs shown in the post-onboarding modal. Falls back to capabilities if absent. */
     valueProps?: { title: string; problem: string }[]
-    /** Hedgehog illustration for the post-onboarding modal. Falls back to SupermanHog if absent. */
+    /** Hedgehog illustration for the post-onboarding modal. Falls back to HedgehogSuperhero if absent. */
     hedgehog?: React.ComponentType<{ className?: string }>
 }
 
@@ -7234,6 +7250,9 @@ export type CyclotronJobInputSchemaType = {
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
         | 'customer_analytics_account_relationships'
+        | 'task_model'
+        | 'task_repository'
+        | 'task_mcp_installations'
     key: string
     label: string
     choices?: { value: string; label: string }[]

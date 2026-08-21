@@ -17,6 +17,7 @@ const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/n
 const ACCOUNT_EMAIL_THREADS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/email_threads/'
 const ACCOUNT_EMAIL_THREAD_DETAIL_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/email_threads/:thread_id/'
 const ACCOUNT_RELATIONSHIPS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
+const FEATURE_REQUESTS_ENDPOINT = 'api/projects/:team_id/feature_requests/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
 const ORGANIZATION_MEMBERS_ENDPOINT = 'api/projects/:team_id/organization_members/'
 const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
@@ -120,6 +121,33 @@ const ACCOUNT_WITHOUT_LINKS = {
     notebooks: [],
     created_at: '2026-05-15T10:30:00Z',
     created_by: null,
+    updated_at: '2026-05-15T10:30:00Z',
+}
+
+const ACCOUNT_FEATURE_REQUEST = {
+    id: '11111111-2222-3333-4444-555555555555',
+    title: 'Scheduled account exports',
+    description: 'Send account reports on a schedule.',
+    request_status: 'requested',
+    request_priority: null,
+    is_archived: false,
+    archived_at: null,
+    archived_by: null,
+    version: 1,
+    account: { id: 'acc-1', name: 'Acme Inc' },
+    account_links: [
+        {
+            id: '66666666-7777-8888-9999-aaaaaaaaaaaa',
+            account: { id: 'acc-1', name: 'Acme Inc' },
+            evidence: [],
+            created_at: '2026-05-15T10:30:00Z',
+            updated_at: '2026-05-15T10:30:00Z',
+        },
+    ],
+    product_areas: [],
+    created_by: 1,
+    updated_by: 1,
+    created_at: '2026-05-15T10:30:00Z',
     updated_at: '2026-05-15T10:30:00Z',
 }
 
@@ -384,6 +412,49 @@ export const RowExpandedWithNote: Story = {
     ],
     play: async ({ canvasElement }) => {
         await expandFirstRow(canvasElement)
+    },
+}
+
+export const RowExpandedFeatureRequests: Story = {
+    render: () => <App />,
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS,
+        ],
+        testOptions: {
+            ...EXPANDED_ROW_TEST_OPTIONS,
+            waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-feature-requests"]'],
+        },
+    },
+    decorators: [
+        ...expandedRowDecorators(),
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+                [FEATURE_REQUESTS_ENDPOINT]: {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [ACCOUNT_FEATURE_REQUEST],
+                },
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(SINGLE_ROW),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandFirstRow(canvasElement)
+        const expansion = canvasElement.querySelector('[data-attr="account-expansion"]') as HTMLElement
+        await userEvent.click(await within(expansion).findByText('Feature requests', {}, { timeout: 15000 }))
+        await waitFor(() => {
+            if (!canvasElement.querySelector('[data-attr="account-feature-requests"]')) {
+                throw new Error('Feature requests tab did not render')
+            }
+        })
     },
 }
 
