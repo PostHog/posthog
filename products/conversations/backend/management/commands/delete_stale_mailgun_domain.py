@@ -1,9 +1,17 @@
+import re
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
 from products.conversations.backend import mailgun
 from products.conversations.backend.models import EmailChannel, EmailChannelKind
+
+# A bare DNS hostname: dot-separated labels of letters, digits, and hyphens, nothing else.
+# The argument reaches Mailgun by interpolation into a URL path, and `requests` drops a
+# "?"/"#" suffix from that path. Without this guard, an argument like "acme.example.com?x"
+# would slip past the channel-in-use check below (which filters on the literal string) yet
+# still delete the base domain from Mailgun.
+DNS_HOSTNAME = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
 
 
 class Command(BaseCommand):
@@ -28,6 +36,11 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         domain = options["domain"].strip().lower()
         dry_run = options["dry_run"]
+
+        if not DNS_HOSTNAME.fullmatch(domain):
+            raise CommandError(
+                f"Invalid domain {options['domain']!r}: expected a plain sending domain like acme.example.com"
+            )
 
         # Only support channels own a Mailgun sending-domain registration; customer
         # communication channels just receive captured mail.

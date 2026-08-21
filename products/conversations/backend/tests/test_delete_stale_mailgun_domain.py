@@ -7,6 +7,8 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
+from parameterized import parameterized
+
 from products.conversations.backend.mailgun import MailgunNotConfigured
 from products.conversations.backend.models import EmailChannel, EmailChannelKind
 
@@ -32,6 +34,24 @@ class TestDeleteStaleMailgunDomain(BaseTest):
             with pytest.raises(CommandError, match=f"team\\(s\\) \\[{self.team.id}\\]"):
                 call_command(COMMAND, "acme.example.com")
 
+        mock_mailgun.delete_domain.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("query_suffix", "acme.example.com?x"),
+            ("fragment_suffix", "acme.example.com#x"),
+            ("path_suffix", "acme.example.com/domains"),
+        ]
+    )
+    def test_rejects_a_domain_argument_with_url_control_characters(self, _name, domain):
+        # A support channel on the base domain the mangled argument would otherwise slip past.
+        self._create_support_channel()
+
+        with patch(MAILGUN) as mock_mailgun:
+            with pytest.raises(CommandError, match="Invalid domain"):
+                call_command(COMMAND, domain)
+
+        mock_mailgun.get_domain.assert_not_called()
         mock_mailgun.delete_domain.assert_not_called()
 
     def test_releases_an_orphaned_domain(self):
