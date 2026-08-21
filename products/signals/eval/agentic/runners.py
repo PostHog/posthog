@@ -469,9 +469,10 @@ class ImplementationRunner:
             diff: str = Field(description="The full unified diff from `git diff --cached`.")
             summary: str = Field(description="One sentence describing the change.")
 
-        # "implementation" isn't a payload step name — coding-agent runs resolve
-        # via the custom_agent slot, matching the production autostart analog.
-        runtime = ctx.runtime_override or await _resolve_runtime(ctx.team_id, "custom_agent")
+        # Resolve the "implementation" slot like production auto-start (auto_start.py resolves
+        # STEP_IMPLEMENTATION for this coding-agent step), so the `signals-pipeline-models` payload
+        # controls the model under eval too. self.step == "implementation" == STEP_IMPLEMENTATION.
+        runtime = ctx.runtime_override or await _resolve_runtime(ctx.team_id, self.step)
         if meta is not None:
             meta["runtime"] = _runtime_meta(runtime)
         full_name = repo_registry.get(case.repo).full_name if case.repo in repo_registry.REGISTRY else case.repo
