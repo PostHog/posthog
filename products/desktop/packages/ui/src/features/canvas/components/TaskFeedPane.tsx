@@ -4,6 +4,10 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import {
+  buildChannelItems,
+  type ChannelItemModel,
+} from "@posthog/core/canvas/channelItems";
+import {
   AlertDialog,
   AlertDialogClose,
   AlertDialogContent,
@@ -21,12 +25,14 @@ import {
   Spinner,
   Text,
 } from "@posthog/quill";
-import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import type { Task } from "@posthog/shared/domain-types";
+import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
+import type { ChannelItemActions } from "@posthog/ui/features/canvas/components/ChannelItemRow";
+import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { FeedQueryHighlight } from "@posthog/ui/features/canvas/components/FeedQueryInput";
 import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
-import { useTaskStatusInput } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
+import { useChannelSessionFacts } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import { useProjectTaskFeed } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import {
@@ -34,40 +40,13 @@ import {
   useTaskFeedSelectionStore,
 } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
 import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
-import { TaskStatusDot } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
-import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
+import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
+import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-
-function TaskFeedRow({
-  task,
-  isActive,
-  onSelect,
-}: {
-  task: Task;
-  isActive: boolean;
-  onSelect: () => void;
-}) {
-  const status = useTaskStatusInput(task, { withPrStatus: false });
-
-  return (
-    <SidebarItem
-      depth={0}
-      icon={status ? <TaskStatusDot dot={taskDot(status)} /> : null}
-      label={task.title}
-      isActive={isActive}
-      onClick={onSelect}
-      endHint={
-        <span className="text-muted-foreground text-xs">
-          {formatRelativeTimeShort(task.last_activity_at ?? task.updated_at)}
-        </span>
-      }
-    />
-  );
-}
+import { useEffect, useMemo, useState } from "react";
 
 export function TaskFeedPane({
   feedId,
@@ -83,8 +62,51 @@ export function TaskFeedPane({
   const selected = useTaskFeedSelection(feedId);
   const { error, errorMessage, isComplete, isLoading, tasks } =
     useTaskFeedResults(feed?.query);
+  const archivedTaskIds = useArchivedTaskIds();
+  const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
+  const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
+  const sessionFacts = useChannelSessionFacts();
+  const commandCenterCells = useCommandCenterStore((state) => state.cells);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+  const items = useMemo(
+    () =>
+      buildChannelItems({
+        dashboards: [],
+        feedTasks: tasks,
+        archivedTaskIds,
+        pinnedTaskIds,
+        ownedBy: null,
+        sessionFacts,
+      }),
+    [tasks, archivedTaskIds, pinnedTaskIds, sessionFacts],
+  );
+
+  const actions = useMemo<ChannelItemActions>(
+    () => ({
+      open: (item) =>
+        select({
+          feedId,
+          taskId: item.id,
+          channelId: item.task?.channel ?? null,
+        }),
+      togglePin: (item) => {
+        togglePin(item.id).catch(() => toast.error("Couldn't update pin"));
+      },
+      setPinned: (pinItems, pinned) => {
+        setPinnedMany(
+          pinItems.map((item) => item.id),
+          pinned,
+        ).catch(() => toast.error("Couldn't update pin"));
+      },
+      archive: (item) => {
+        void archiveTask({ taskId: item.id });
+      },
+      remove: () => undefined,
+    }),
+    [feedId, select, togglePin, setPinnedMany, archiveTask],
+  );
 
   useEffect(() => {
     track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
@@ -130,7 +152,7 @@ export function TaskFeedPane({
         <span className="truncate font-bold text-base">{feed.name}</span>
         {!isLoading && !error && (
           <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
-            {isComplete ? tasks.length : `${tasks.length}+`}
+            {isComplete ? items.length : `${items.length}+`}
           </span>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -164,7 +186,7 @@ export function TaskFeedPane({
       </Button>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-        {isLoading && tasks.length === 0 ? (
+        {isLoading && items.length === 0 ? (
           <div className="flex justify-center py-10">
             <Spinner />
           </div>
@@ -172,7 +194,7 @@ export function TaskFeedPane({
           <Text className="block px-2 py-6 text-center text-(--red-11) text-xs">
             {errorMessage}
           </Text>
-        ) : tasks.length === 0 ? (
+        ) : items.length === 0 ? (
           <Empty className="border-0 py-8">
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -186,17 +208,17 @@ export function TaskFeedPane({
           </Empty>
         ) : (
           <div className="flex flex-col gap-px">
-            {tasks.map((task) => (
-              <TaskFeedRow
-                key={task.id}
-                task={task}
-                isActive={selected?.taskId === task.id}
-                onSelect={() =>
-                  select({
-                    feedId,
-                    taskId: task.id,
-                    channelId: task.channel ?? null,
-                  })
+            {items.map((item: ChannelItemModel) => (
+              <ChannelItemRow
+                key={item.key}
+                item={item}
+                channelId={item.task?.channel ?? undefined}
+                isActive={selected?.taskId === item.id}
+                actions={actions}
+                onAddToCommandCenter={
+                  commandCenterCells.includes(item.id)
+                    ? undefined
+                    : () => placeTaskInCommandCenter(item.id, item.title)
                 }
               />
             ))}

@@ -5,15 +5,48 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
+vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
+  useArchivedTaskIds: () => new Set<string>(),
+}));
+vi.mock("@posthog/ui/features/archive/useArchiveTask", () => ({
+  useArchiveTask: () => ({ archiveTask: vi.fn() }),
+}));
+vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
+  usePinnedTasks: () => ({
+    pinnedTaskIds: new Set<string>(),
+    togglePin: vi.fn(),
+    setPinnedMany: vi.fn(),
+  }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelItems", () => ({
+  useChannelSessionFacts: () => ({
+    needsInputTaskIds: new Set<string>(),
+    viewedTimestamps: {},
+    workspaceByTaskId: new Map(),
+  }),
+}));
+vi.mock("@posthog/ui/features/command-center/commandCenterStore", () => ({
+  useCommandCenterStore: () => [] as string[],
+}));
+vi.mock("@posthog/ui/features/canvas/components/ChannelItemRow", () => ({
+  ChannelItemRow: ({
+    item,
+    actions,
+  }: {
+    item: { id: string; title: string };
+    actions: { open: (item: { id: string; title: string }) => void };
+  }) => (
+    <button type="button" onClick={() => actions.open(item)}>
+      {item.title}
+    </button>
+  ),
+}));
 vi.mock("@posthog/ui/features/canvas/components/FeedQueryInput", () => ({
   FeedQueryHighlight: ({ query }: { query: string }) => <span>{query}</span>,
 }));
 vi.mock("@posthog/ui/features/canvas/components/TaskFeedModal", () => ({
   TaskFeedModal: ({ open }: { open: boolean }) =>
     open ? <div>Edit saved search</div> : null,
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
-  useTaskStatusInput: () => null,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useTaskFeedResults: () => ({
@@ -26,6 +59,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
         id: "task-1",
         title: "Invoice total rounds down",
         channel: "channel-1",
+        created_at: "2026-08-20T00:00:00Z",
         updated_at: "2026-08-21T00:00:00Z",
       } as Task,
     ],
