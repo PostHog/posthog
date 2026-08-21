@@ -4990,14 +4990,27 @@ describe('PersonState.processEvent()', () => {
             )
         }
 
-        it('overlapping batches on one person: the later flush overwrites the whole properties blob', async () => {
-            // The NO_ASSERT flush materializes cached base + diff into a full
-            // properties blob keyed by uuid. Two consumers that both fetched
-            // before either flushed each write their own blob, so the later
-            // flush erases the earlier one's property instead of merging.
-            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, {
-                distinctId: newUserDistinctId,
-            })
+        it('updates via two distinct ids of one person: the later flush overwrites the whole properties blob', async () => {
+            // Kafka partitions by distinct id, so a person with two distinct
+            // ids can be written by two consumers at once with per-distinct-id
+            // ordering fully intact. The NO_ASSERT flush materializes cached
+            // base + diff into a full properties blob keyed by uuid: two
+            // consumers that both fetched before either flushed each write
+            // their own blob, so the later flush erases the earlier one's
+            // property instead of merging.
+            await createPerson(
+                hub,
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                { distinctId: newUserDistinctId },
+                [{ distinctId: oldUserDistinctId }]
+            )
 
             const storeA = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
             const storeB = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
@@ -5010,7 +5023,7 @@ describe('PersonState.processEvent()', () => {
             }
             const eventB: Partial<PluginEvent> = {
                 event: 'custom-event',
-                distinct_id: newUserDistinctId,
+                distinct_id: oldUserDistinctId,
                 uuid: new UUIDT().toString(),
                 properties: { $set: { written_by_b: 'yes' } },
             }
