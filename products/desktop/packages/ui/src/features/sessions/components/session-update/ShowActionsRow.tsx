@@ -1,5 +1,5 @@
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Button, Card, CardContent } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import { readShowActions } from "@posthog/ui/features/sessions/components/session-update/inlineArtifacts";
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import { useMutation } from "@tanstack/react-query";
@@ -7,9 +7,9 @@ import { useMutation } from "@tanstack/react-query";
 /**
  * The buttons a `show_actions` call offered, drawn where the agent offered them.
  * A click sends the typed action to the host, which builds the link and opens
- * it — the card never sees or chooses a url.
+ * it, so nothing here ever sees or chooses a url.
  */
-export function ShowActionsCard({ toolCall }: ToolViewProps) {
+export function ShowActionsRow({ toolCall }: ToolViewProps) {
   const trpc = useHostTRPC();
   const openAction = useMutation(
     trpc.deepLink.openAgentAction.mutationOptions(),
@@ -18,20 +18,21 @@ export function ShowActionsCard({ toolCall }: ToolViewProps) {
 
   if (buttons.length === 0) return null;
 
+  // No surrounding card: the buttons sit in the conversation, which already
+  // frames them. A box around them would draw a second frame around nothing.
   return (
-    <Card>
-      <CardContent className="flex flex-wrap gap-2 p-3">
-        {buttons.map(({ label, action }, index) => (
-          <Button
-            key={`${index}-${label}`}
-            variant="outline"
-            disabled={openAction.isPending}
-            onClick={() => openAction.mutate({ action })}
-          >
-            {label}
-          </Button>
-        ))}
-      </CardContent>
-    </Card>
+    <div className="flex flex-wrap gap-2">
+      {buttons.map(({ label, action }, index) => (
+        <Button
+          key={`${index}-${label}`}
+          variant="outline"
+          size="sm"
+          disabled={openAction.isPending}
+          onClick={() => openAction.mutate({ action })}
+        >
+          {label}
+        </Button>
+      ))}
+    </div>
   );
 }

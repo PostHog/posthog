@@ -27,7 +27,7 @@ import {
   isUploadArtifactCall,
   readCreatedPrUrl,
 } from "./inlineArtifacts";
-import { ShowActionsCard } from "./ShowActionsCard";
+import { ShowActionsRow } from "./ShowActionsRow";
 import { SubagentToolView } from "./SubagentToolView";
 
 interface ToolCallBlockProps extends ToolViewProps {
@@ -69,8 +69,8 @@ export function ToolCallBlock({
   // row instead of a tool header the user would have to expand.
   if (isShowActionsCall(toolCall._meta)) {
     return (
-      <div className={chatChrome ? "" : "pl-3"}>
-        <ShowActionsCard {...props} />
+      <div className={chatChrome ? "my-1" : "my-1 pl-3"}>
+        <ShowActionsRow {...props} />
       </div>
     );
   }

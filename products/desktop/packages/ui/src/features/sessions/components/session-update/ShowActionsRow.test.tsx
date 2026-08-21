@@ -16,18 +16,18 @@ vi.mock("@posthog/host-router/react", () => ({
   }),
 }));
 
-import { ShowActionsCard } from "./ShowActionsCard";
+import { ShowActionsRow } from "./ShowActionsRow";
 
 function renderCard(actions: unknown[]) {
   const toolCall = { toolCallId: "tc", rawInput: { actions } } as ToolCall;
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <ShowActionsCard toolCall={toolCall} turnComplete />
+      <ShowActionsRow toolCall={toolCall} turnComplete />
     </QueryClientProvider>,
   );
 }
 
-describe("ShowActionsCard", () => {
+describe("ShowActionsRow", () => {
   it("draws a button per usable action and drops one that cannot open anything", () => {
     renderCard([
       { kind: "compose", label: "Fix the bug", prompt: "Fix the login bug" },
