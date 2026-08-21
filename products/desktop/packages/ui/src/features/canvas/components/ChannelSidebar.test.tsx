@@ -75,7 +75,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelReports", () => ({
     markSeen: () => {},
     isLoading: false,
     isError: false,
-    forMeCount: 0,
     fetchNextPage: () => {},
     hasNextPage: false,
     isFetchingNextPage: false,

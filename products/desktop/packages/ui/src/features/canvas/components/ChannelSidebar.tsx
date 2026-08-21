@@ -171,18 +171,22 @@ function RecentSectionHeader({
               can't be utilities here, see the rule's comment. */}
           <TabsList
             variant="line"
-            className="quill-tabs-fill h-auto gap-0.5 border-b-0"
+            className="quill-tabs-fill h-auto min-w-0 gap-0.5 overflow-hidden border-b-0"
           >
+            {/* When space runs out, labels truncate instead of sliding under
+                the search button. The badge only shows on an inactive tab —
+                the open list already marks unread rows with dots — and caps at
+                9+ so its width is bounded. */}
             {tabs.map(({ value, label, badge }) => (
               <TabsTrigger
                 key={value}
                 value={value}
-                className="rounded-sm px-1 py-0.5 text-[13px]"
+                className="min-w-0 rounded-sm px-1 py-0.5 text-[13px]"
               >
-                {label}
-                {(badge ?? 0) > 0 && (
-                  <span className="ml-1 rounded-full bg-(--amber-3) px-1 font-semibold text-[10px] text-(--amber-11) tabular-nums">
-                    {badge}
+                <span className="truncate">{label}</span>
+                {(badge ?? 0) > 0 && value !== tab && (
+                  <span className="ml-1 shrink-0 rounded-full bg-(--amber-3) px-1 font-semibold text-[10px] text-(--amber-11) tabular-nums">
+                    {(badge ?? 0) > 9 ? "9+" : badge}
                   </span>
                 )}
               </TabsTrigger>

@@ -4,7 +4,6 @@ import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportRestoreButton } from "@posthog/ui/features/inbox/components/ReportRestoreButton";
 import { ReportStateMonogram } from "@posthog/ui/features/inbox/components/ReportStateMonogram";
-import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 
@@ -29,7 +28,6 @@ export function ReportRow({
         label={<span className="truncate">{title}</span>}
         isActive={isActive}
         onClick={() => onOpen(report.id)}
-        badge={report.is_suggested_reviewer ? <ForYouBadge /> : undefined}
         endContent={
           <span className="flex items-center gap-1">
             {report.implementation_pr_url && (

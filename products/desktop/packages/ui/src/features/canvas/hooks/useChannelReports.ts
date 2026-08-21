@@ -1,15 +1,19 @@
 import {
   buildChannelReportList,
   countChannelReportsByStatus,
-  countChannelReportsForMe,
   countUnseenReports,
   latestReportArrival,
   type ReportChannelView,
   type ReportStatusCounts,
   type ReportStatusFilter,
 } from "@posthog/core/inbox/reportChannelScope";
-import { INBOX_DISMISSED_STATUS_FILTER } from "@posthog/core/inbox/reportFiltering";
+import {
+  buildSuggestedReviewerFilterParam,
+  INBOX_DISMISSED_STATUS_FILTER,
+} from "@posthog/core/inbox/reportFiltering";
 import type { SignalReport, SignalReportPriority } from "@posthog/shared/types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
   reportViewKey,
   useReportSeenStore,
@@ -56,7 +60,6 @@ export function useChannelReports(
   reports: SignalReport[];
   isLoading: boolean;
   isError: boolean;
-  forMeCount: number;
   /** Per-status-bucket counts under the current filters, for the status chips. */
   statusCounts: ReportStatusCounts;
   /** Active reports newer than the last time this view's reports were looked at. */
@@ -70,10 +73,29 @@ export function useChannelReports(
   const channelId = view.kind === "channel" ? view.channelId : undefined;
   const enabled = options?.enabled ?? true;
   const archivedMode = filters.status === "archived";
+  // "For you" is applied server-side via `suggested_reviewers`, mirroring the
+  // inbox feed: the general space holds every report in the project, so
+  // fetching only the scoped set is what keeps the sidebar fast — and it makes
+  // the unread badge, the status counts, and the list read the same pages.
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const reviewerUuid = filters.relevantToMeOnly
+    ? (currentUser?.uuid ?? null)
+    : null;
+  const suggestedReviewers = reviewerUuid
+    ? buildSuggestedReviewerFilterParam([reviewerUuid])
+    : undefined;
+  // Hold the scoped query until the uuid resolves rather than firing a
+  // throwaway project-wide fetch first.
+  const scopeReady = !filters.relevantToMeOnly || reviewerUuid != null;
   const query = useInboxReportsInfinite(
-    { ordering: "-updated_at", channel_id: channelId },
     {
-      enabled,
+      ordering: "-updated_at",
+      channel_id: channelId,
+      suggested_reviewers: suggestedReviewers,
+    },
+    {
+      enabled: enabled && scopeReady,
       refetchInterval: 60_000,
       refetchIntervalInBackground: false,
     },
@@ -85,9 +107,10 @@ export function useChannelReports(
       status: INBOX_DISMISSED_STATUS_FILTER,
       ordering: "-updated_at",
       channel_id: channelId,
+      suggested_reviewers: suggestedReviewers,
     },
     {
-      enabled: enabled && archivedMode,
+      enabled: enabled && archivedMode && scopeReady,
       refetchInterval: 60_000,
       refetchIntervalInBackground: false,
     },
@@ -96,35 +119,26 @@ export function useChannelReports(
   const sourceReports = archivedMode
     ? archivedQuery.allReports
     : query.allReports;
+  // Reviewer scope is already applied server-side; don't re-filter on the
+  // `is_suggested_reviewer` boolean — it can disagree with that filter and
+  // silently drop reports the fetch paid for.
   const reports = useMemo(
     () =>
       buildChannelReportList(sourceReports, {
         view,
         search: filters.search,
-        relevantToMeOnly: filters.relevantToMeOnly,
+        relevantToMeOnly: false,
         priorities: filters.priorities,
         status: filters.status,
       }),
-    [
-      sourceReports,
-      view,
-      filters.search,
-      filters.relevantToMeOnly,
-      filters.priorities,
-      filters.status,
-    ],
-  );
-
-  const forMeCount = useMemo(
-    () => countChannelReportsForMe(query.allReports, view),
-    [query.allReports, view],
+    [sourceReports, view, filters.search, filters.priorities, filters.status],
   );
 
   const statusCounts = useMemo(() => {
     const counts = countChannelReportsByStatus(query.allReports, {
       view,
       search: filters.search,
-      relevantToMeOnly: filters.relevantToMeOnly,
+      relevantToMeOnly: false,
       priorities: filters.priorities,
     });
     // Known only while the archived fetch is mounted; 0 reads as "not shown".
@@ -134,7 +148,6 @@ export function useChannelReports(
     query.allReports,
     view,
     filters.search,
-    filters.relevantToMeOnly,
     filters.priorities,
     archivedMode,
     reports.length,
@@ -165,9 +178,9 @@ export function useChannelReports(
     statusCounts,
     unseenCount,
     markSeen,
-    isLoading: activeQuery.isLoading,
+    // Scope not resolved yet reads as loading, not as an empty list.
+    isLoading: activeQuery.isLoading || !scopeReady,
     isError: activeQuery.isError,
-    forMeCount,
     fetchNextPage: activeQuery.fetchNextPage,
     hasNextPage: activeQuery.hasNextPage ?? false,
     isFetchingNextPage: activeQuery.isFetchingNextPage,
