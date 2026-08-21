@@ -254,7 +254,7 @@ const SurveyUpdateSchema = SurveysPartialUpdateParams.omit({ project_id: true })
             'Complete replacement display conditions object. Do not provide this field unless changing display targeting. Use targeting_flag_filters for person, group, or cohort property targeting. Preserve existing URL, selector, event, device, wait-period, and linked flag variant conditions unless explicitly changing them.'
         ),
         targeting_flag_filters: SurveysPartialUpdateBody.shape['targeting_flag_filters'].describe(
-            "Update an in-app survey's person, group, or cohort property targeting. Pass rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Do not use this for external_survey forms."
+            "Update an in-app survey's person, group, or cohort property targeting. Pass rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Complete replacement: fetch the survey first, start from targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this for external_survey forms."
         ),
         translations: SurveysPartialUpdateBody.shape['translations'].describe(
             'Complete replacement survey-level translations object. Do not provide this field unless changing translations. Preserve existing language keys and translated fields that should remain. Use null only when the user explicitly asks to remove survey-level translations.'
