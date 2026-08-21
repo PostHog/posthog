@@ -121,6 +121,7 @@ class TestCSVExporter(APIBaseTest):
 
         asset = ExportedAsset(
             team=self.team,
+            created_by=self.user,
             export_format=ExportedAsset.ExportFormat.CSV,
             export_context={"path": "/api/literally/anything", **extra_context},
             source_authentication=ExportedAsset.SourceAuthentication.SESSION,
