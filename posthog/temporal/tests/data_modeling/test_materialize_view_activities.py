@@ -54,8 +54,15 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_warehouse.backend.facade.api import CreateTableResult
 from products.notifications.backend.facade.api import NotificationType, TargetType
-from products.warehouse_sources.backend.facade.hooks import PersonPropertySourceProjection, saved_query_binding
+from products.warehouse_sources.backend.facade.hooks import (
+    AccountPropertySourceProjection,
+    PersonPropertySourceProjection,
+    saved_query_binding,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_paths import (
+    job_staged_prefix as account_job_staged_prefix,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
     job_staged_prefix,
 )
@@ -1803,3 +1810,71 @@ class TestMaterializeViewStagesPersonPropertyRows:
         assert result.person_property_sync_enabled is False
         listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix="person_property_sync/")
         assert listing.get("Contents", []) == []
+
+
+class TestMaterializeViewStagesAccountPropertyRows:
+    @staticmethod
+    def _hogql_table(*args, **kwargs):
+        del args, kwargs
+        data = cast(
+            Collection[pa.Array],
+            [pa.array(["org-1", "org-2"], type=pa.string()), pa.array([100.0, 200.0], type=pa.float64())],
+        )
+        batch = pa.RecordBatch.from_arrays(data, names=["organization_id", "mrr"])
+
+        async def async_generator():
+            yield batch, [("organization_id", "String"), ("mrr", "Float64")]
+
+        return async_generator()
+
+    async def test_stages_account_projection_under_the_materialization_job(
+        self, activity_environment, ateam, anode, asaved_query, ajob, adag, bucket_name, minio_client
+    ) -> None:
+        projection = [
+            AccountPropertySourceProjection(
+                key_column="organization_id",
+                columns=frozenset({"organization_id", "mrr"}),
+            )
+        ]
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            node_id=str(anode.id),
+            job_id=str(ajob.id),
+        )
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_BUCKET=bucket_name,
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                USE_LOCAL_SETUP=True,
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table",
+                self._hogql_table,
+            ),
+            unittest.mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports."
+                "pipelines.core.account_property_row_sink.account_property_projection_for",
+                return_value=projection,
+            ),
+        ):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+            prefix = account_job_staged_prefix(
+                ateam.pk,
+                saved_query_binding(asaved_query.id),
+                str(ajob.id),
+            )
+
+        assert result.account_property_sync_enabled is True
+        listing = await minio_client.list_objects_v2(
+            Bucket=bucket_name,
+            Prefix=prefix.removeprefix(f"{bucket_name}/"),
+        )
+        keys = [obj["Key"] for obj in listing.get("Contents", [])]
+        assert len(keys) == 1
+        staged = await minio_client.get_object(Bucket=bucket_name, Key=keys[0])
+        table = pq.read_table(BytesIO(await staged["Body"].read()))
+        assert table.column_names == ["mrr", "organization_id"]
