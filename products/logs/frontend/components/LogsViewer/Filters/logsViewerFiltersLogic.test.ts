@@ -134,14 +134,71 @@ describe('logsViewerFiltersLogic', () => {
     })
 
     describe('setFilterGroup fallback', () => {
-        it('falls back to default when given invalid filterGroup', async () => {
-            logic.actions.setFilterGroup(null as any)
+        const DEFAULT_GROUP = {
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.And, values: [] }],
+        }
+
+        // An outer group with no inner group leaves `values[0]` undefined, which used to crash
+        // addFilter. The reducer keeps such a group out of state instead.
+        it.each([
+            ['null', null],
+            ['a group with no inner values', { type: FilterLogicalOperator.And, values: [] }],
+        ])('falls back to default when given %s', async (_label, filterGroup) => {
+            logic.actions.setFilterGroup(filterGroup as any)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.filters.filterGroup).toEqual({
-                type: FilterLogicalOperator.And,
-                values: [{ type: FilterLogicalOperator.And, values: [] }],
-            })
+            expect(logic.values.filters.filterGroup).toEqual(DEFAULT_GROUP)
+        })
+
+        it('keeps existing state when setFilters carries an empty filterGroup', async () => {
+            logic.actions.addFilter('level', 'error')
+            await expectLogic(logic).toFinishAllListeners()
+            const applied = logic.values.filters.filterGroup
+
+            logic.actions.setFilters({ filterGroup: { type: FilterLogicalOperator.And, values: [] } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.filters.filterGroup).toEqual(applied)
+        })
+
+        // The leaf-at-values[0] case arrives from an externally-supplied filterGroup (URL param,
+        // initialFilters): its outer values array is non-empty, so it passes the reducer guard and
+        // reaches state, but values[0] is a property filter with no nested `values` array. addFilter
+        // used to spread that missing array and crash the viewer.
+        it.each([
+            ['the default group', null],
+            [
+                'a group whose inner value is a leaf property filter',
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: 'service',
+                            value: ['api'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.LogAttribute,
+                        },
+                    ],
+                },
+            ],
+        ])('addFilter appends a chip without crashing, starting from %s', async (_label, initialGroup) => {
+            if (initialGroup) {
+                logic.actions.setFilterGroup(initialGroup as any)
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            logic.actions.addFilter('level', 'error')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect((logic.values.filters.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([
+                {
+                    key: 'level',
+                    value: ['error'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.LogAttribute,
+                },
+            ])
         })
     })
 
