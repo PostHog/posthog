@@ -15,9 +15,13 @@ export function StepFooterCell({
     stepIndex: number
     steps: string[]
     stepTotals: number[]
-}): JSX.Element {
+}): JSX.Element | null {
     const label = steps[stepIndex]
     const count = stepTotals[stepIndex]
+    // A stale band array can ask for a step that no longer exists; drop the cell instead of crashing.
+    if (count == null) {
+        return null
+    }
     const previousCount = stepIndex > 0 ? stepTotals[stepIndex - 1] : null
     const droppedOff = previousCount != null ? Math.max(previousCount - count, 0) : 0
     const droppedOffRate = previousCount ? 1 - funnelConversionRate(count, previousCount) : 0

@@ -235,6 +235,10 @@ export function FunnelChart<Meta = unknown>({
 
     const [bands, setBands] = useState<StepBand[] | null>(null)
 
+    // The probe fills `bands` one render late, so after the step count shrinks it still holds the
+    // previous, longer array. Clamp to the current step count so the footer never asks for a gone step.
+    const footerBands = bands ? bands.slice(0, steps.length) : null
+
     const chart = (
         <BarChart<Meta>
             series={series}
@@ -267,7 +271,7 @@ export function FunnelChart<Meta = unknown>({
             >
                 {chart}
             </div>
-            {bands && bands.length > 0 && <StepFooterRow bands={bands} stepFooter={stepFooter} />}
+            {footerBands && footerBands.length > 0 && <StepFooterRow bands={footerBands} stepFooter={stepFooter} />}
         </div>
     )
 }
