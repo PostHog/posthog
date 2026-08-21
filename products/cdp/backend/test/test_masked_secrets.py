@@ -171,27 +171,3 @@ class TestMaskedSecretsAdmin(MaskedSecretsDatabaseTest):
 
         assert response.status_code == 200
         assert str(hog_function.id) in response.content.decode()
-
-    def test_the_page_downloads_the_findings_as_csv(self) -> None:
-        hog_function = self._create_hog_function()
-
-        response = self.client.post(
-            reverse("admin:hog-function-masked-secrets"), {"max_results": 100, "_csv": "Download CSV"}
-        )
-
-        assert response["Content-Type"] == "text/csv"
-        body = response.content.decode()
-        assert str(hog_function.id) in body
-        # The scan reports which inputs are masked, never what is stored in them.
-        assert MASKED_SECRET_VALUE not in body
-
-    def test_a_capped_scan_does_not_hand_back_a_partial_csv(self) -> None:
-        self._create_hog_function()
-        self._create_hog_function()
-
-        response = self.client.post(
-            reverse("admin:hog-function-masked-secrets"), {"max_results": 1, "_csv": "Download CSV"}
-        )
-
-        assert response.status_code == 200
-        assert response["Content-Type"].startswith("text/html")

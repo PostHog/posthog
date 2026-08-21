@@ -10,10 +10,8 @@ timestamp and a random IV, so the same plaintext produces different ciphertext o
 Every candidate row has to be decrypted in Python and inspected.
 """
 
-import csv
 from collections.abc import Iterable, Sequence
 from datetime import datetime
-from io import StringIO
 from uuid import UUID
 
 from django.db.models import Q
@@ -28,23 +26,6 @@ DEFAULT_BATCH_SIZE = 500
 # Bounds a fleet-wide sweep so an admin request cannot run unbounded. Callers are told when it
 # bites rather than being handed a silently short list.
 DEFAULT_MAX_RESULTS = 1000
-
-CSV_COLUMNS = (
-    "organization_id",
-    "organization_name",
-    "team_id",
-    "team_name",
-    "hog_function_id",
-    "hog_function_name",
-    "hog_function_type",
-    "template_id",
-    "enabled",
-    "deleted",
-    "updated_at",
-    "masked_live_inputs",
-    "masked_draft_inputs",
-    "configuration_url",
-)
 
 
 @frozen
@@ -65,24 +46,6 @@ class MaskedSecretFinding:
     masked_live_inputs: tuple[str, ...]
     masked_draft_inputs: tuple[str, ...]
     configuration_url: str
-
-    def as_csv_row(self) -> list[str]:
-        return [
-            str(self.organization_id),
-            self.organization_name,
-            str(self.team_id),
-            self.team_name,
-            str(self.hog_function_id),
-            self.hog_function_name,
-            self.hog_function_type,
-            self.template_id,
-            str(self.enabled),
-            str(self.deleted),
-            self.updated_at.isoformat(),
-            " ".join(self.masked_live_inputs),
-            " ".join(self.masked_draft_inputs),
-            self.configuration_url,
-        ]
 
 
 @frozen
@@ -195,12 +158,3 @@ def summarize_by_organization(findings: Iterable[MaskedSecretFinding]) -> list[A
     # organizations to contact first sort to the top.
     summaries.sort(key=lambda summary: (-summary.enabled_hog_function_count, -summary.hog_function_count))
     return summaries
-
-
-def findings_as_csv(findings: Iterable[MaskedSecretFinding]) -> str:
-    buffer = StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(CSV_COLUMNS)
-    for finding in findings:
-        writer.writerow(finding.as_csv_row())
-    return buffer.getvalue()

@@ -4,7 +4,6 @@ from io import StringIO
 from django import forms
 from django.contrib import admin, messages
 from django.core.management import call_command
-from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -14,7 +13,6 @@ from posthog.management.commands.rerun_google_ads_failed_invocations import MAX_
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from products.cdp.backend.services.masked_secrets import (
     DEFAULT_MAX_RESULTS,
-    findings_as_csv,
     scan_for_masked_secrets,
     summarize_by_organization,
 )
@@ -215,21 +213,12 @@ class HogFunctionAdmin(admin.ModelAdmin):
                     include_deleted=form.cleaned_data["include_deleted"],
                     max_results=form.cleaned_data["max_results"],
                 )
-                wants_csv = bool(request.POST.get("_csv"))
-                # A downloaded CSV carries no place to show a warning, and a partial list of
-                # "everyone affected" is the kind of thing someone acts on as if it were complete.
-                if wants_csv and not scan.truncated:
-                    response = HttpResponse(findings_as_csv(scan.findings), content_type="text/csv")
-                    response["Content-Disposition"] = 'attachment; filename="masked-hog-function-secrets.csv"'
-                    return response
-
                 organizations = summarize_by_organization(scan.findings)
                 if scan.truncated:
                     cap = form.cleaned_data["max_results"]
-                    lead = "The download was held back because the scan" if wants_csv else "The scan"
                     messages.warning(
                         request,
-                        f"{lead} stopped at the cap of {cap} hog functions, so more are affected than this "
+                        f"The scan stopped at the cap of {cap} hog functions, so more are affected than this "
                         "shows. Raise the cap or scan a narrower set of teams, then try again.",
                     )
                 elif not scan.findings:
