@@ -19,6 +19,7 @@ from django.db import transaction
 import structlog
 
 from posthog.cdp.internal_events import is_managed_alert_internal_event
+from posthog.dataclasses import frozen
 
 from products.alerts.backend.destination_configs import DESTINATION_SECRET_INPUT_KEYS, DESTINATION_TEMPLATE_IDS
 from products.alerts.backend.destinations import _DESTINATION_NAME_SEPARATOR, _receipt_safe_name
@@ -48,8 +49,19 @@ def _is_alert_owned(hog_function: HogFunction) -> bool:
     return any(is_managed_alert_internal_event(event.get("id")) for event in events if isinstance(event, dict))
 
 
-def _plan_hardening(hog_function: HogFunction) -> tuple[list[dict], str, bool, bool]:
-    """Compute the hardened inputs_schema and name for a row, and whether either changed."""
+@frozen
+class _HardeningPlan:
+    inputs_schema: list[dict]
+    name: str
+    schema_changed: bool
+    name_changed: bool
+
+    @property
+    def has_changes(self) -> bool:
+        return self.schema_changed or self.name_changed
+
+
+def _plan_hardening(hog_function: HogFunction) -> _HardeningPlan:
     secret_keys = _TEMPLATE_ID_TO_SECRET_KEYS.get(hog_function.template_id or "", ())
     new_schema = []
     schema_changed = False
@@ -60,8 +72,12 @@ def _plan_hardening(hog_function: HogFunction) -> tuple[list[dict], str, bool, b
         new_schema.append(schema)
 
     new_name = _host_only_destination_segment(hog_function.name or "")
-    name_changed = new_name != (hog_function.name or "")
-    return new_schema, new_name, schema_changed, name_changed
+    return _HardeningPlan(
+        inputs_schema=new_schema,
+        name=new_name,
+        schema_changed=schema_changed,
+        name_changed=new_name != (hog_function.name or ""),
+    )
 
 
 class Command(BaseCommand):
@@ -89,8 +105,8 @@ class Command(BaseCommand):
                 continue
             scanned += 1
 
-            _, _, schema_changed, name_changed = _plan_hardening(hog_function)
-            if not schema_changed and not name_changed:
+            plan = _plan_hardening(hog_function)
+            if not plan.has_changes:
                 continue
             to_harden.append(hog_function.id)
 
@@ -99,8 +115,8 @@ class Command(BaseCommand):
                     "would harden alert destination",
                     hog_function_id=str(hog_function.id),
                     team_id=hog_function.team_id,
-                    rename=name_changed,
-                    secret_inputs=schema_changed,
+                    rename=plan.name_changed,
+                    secret_inputs=plan.schema_changed,
                 )
 
         hardened = 0
@@ -131,12 +147,12 @@ class Command(BaseCommand):
                 logger.info("skipped alert destination gone since scan", hog_function_id=str(hog_function_id))
                 return False
 
-            new_schema, new_name, schema_changed, name_changed = _plan_hardening(hog_function)
-            if not schema_changed and not name_changed:
+            plan = _plan_hardening(hog_function)
+            if not plan.has_changes:
                 return False
 
-            hog_function.inputs_schema = new_schema
-            hog_function.name = new_name
+            hog_function.inputs_schema = plan.inputs_schema
+            hog_function.name = plan.name
             # A full save so move_secret_inputs relocates the credential and the post_save
             # signal reloads the function on workers.
             hog_function.save()
