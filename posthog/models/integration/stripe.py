@@ -74,11 +74,14 @@ def evict_team_oauth_tokens(
     if not applications:
         return
 
-    covers_team = {"application__in": applications, "scoped_teams__contains": [team_id]}
-
     with transaction.atomic():
-        user_ids = set(OAuthAccessToken.objects.filter(**covers_team).values_list("user_id", flat=True)) | set(
-            OAuthRefreshToken.objects.filter(**covers_team).values_list("user_id", flat=True)
+        covered_access = OAuthAccessToken.objects.filter(application__in=applications, scoped_teams__contains=[team_id])
+        covered_refresh = OAuthRefreshToken.objects.filter(
+            application__in=applications, scoped_teams__contains=[team_id]
+        )
+
+        user_ids = set(covered_access.values_list("user_id", flat=True)) | set(
+            covered_refresh.values_list("user_id", flat=True)
         )
         # Advisory lock before any row lock, and both in a fixed order, so this cannot deadlock
         # against a mint taking the same locks.
@@ -89,15 +92,13 @@ def evict_team_oauth_tokens(
         for application_id in sorted(application.id for application in applications):
             OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
 
-        for model, keep_field in ((OAuthRefreshToken, "access_token_id"), (OAuthAccessToken, "id")):
-            shared = (
-                model.objects.filter(**covers_team)
-                .exclude(scoped_teams=[team_id])
-                .exclude(**{f"{keep_field}__in": keep_access_token_ids})
-            )
-            for token in shared:
-                token.scoped_teams = [scoped for scoped in token.scoped_teams if scoped != team_id]
-                token.save(update_fields=["scoped_teams"])
+        shared = [
+            *covered_refresh.exclude(scoped_teams=[team_id]).exclude(access_token_id__in=keep_access_token_ids),
+            *covered_access.exclude(scoped_teams=[team_id]).exclude(id__in=keep_access_token_ids),
+        ]
+        for token in shared:
+            token.scoped_teams = [scoped for scoped in token.scoped_teams if scoped != team_id]
+            token.save(update_fields=["scoped_teams"])
 
         OAuthRefreshToken.objects.filter(application__in=applications, scoped_teams=[team_id]).exclude(
             access_token_id__in=keep_access_token_ids
