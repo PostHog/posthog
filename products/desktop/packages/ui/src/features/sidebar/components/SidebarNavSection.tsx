@@ -6,7 +6,6 @@ import {
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useSelfDrivingHomeEnabled } from "@posthog/ui/features/feature-flags/useSelfDrivingHomeEnabled";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
@@ -73,7 +72,6 @@ export function SidebarNavSection({
   // With channel reports on, spaces own reports (sidebar tab + feed) and the
   // inbox disappears as a destination.
   const channelReportsEnabled = useChannelReportsEnabled();
-  const selfDrivingHomeEnabled = useSelfDrivingHomeEnabled();
   // When this section renders inside the Channels space, the destinations that
   // have a /website mirror stay in that space; everything else (and the whole
   // section in the Code space) uses the canonical routes. Inbox and New task
@@ -140,9 +138,7 @@ export function SidebarNavSection({
     ),
   );
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
-    // The Self-Driving home reclaims the inbox slot from the channel-reports
-    // takeover; without it, spaces own reports and the entry goes away.
-    inbox: !channelReportsEnabled || selfDrivingHomeEnabled,
+    inbox: !channelReportsEnabled,
     "command-center": true,
     activity: bluebirdEnabled,
     configure: true,

@@ -69,7 +69,6 @@ import { useCommandCenterStore } from "@posthog/ui/features/command-center/comma
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useSelfDrivingHomeEnabled } from "@posthog/ui/features/feature-flags/useSelfDrivingHomeEnabled";
 import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
 import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
@@ -337,12 +336,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
-  // The per-space Reports tab exists only while spaces are the sole home for
-  // reports. Once the Self-Driving home owns global triage, the tab is a
-  // redundant middle layer — feeds keep their ambient report cards, and the
-  // in-space detail route stays for reports opened from them.
-  const reportsEnabled =
-    useChannelReportsEnabled() && !useSelfDrivingHomeEnabled();
+  const reportsEnabled = useChannelReportsEnabled();
 
   const { items, actions, me, isLoading, channelMissing } =
     useChannelItems(channelId);

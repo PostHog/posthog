@@ -29,7 +29,6 @@ import {
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useSelfDrivingHomeEnabled } from "@posthog/ui/features/feature-flags/useSelfDrivingHomeEnabled";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
@@ -187,11 +186,8 @@ function ActivityNavItem({
 export function ChannelNav() {
   const view = useAppView();
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
-  // With channel reports on, spaces own reports and the inbox icon goes away —
-  // unless the Self-Driving home has reclaimed the slot as its destination.
+  // With channel reports on, spaces own reports and the inbox icon goes away.
   const channelReportsEnabled = useChannelReportsEnabled();
-  const selfDrivingHomeEnabled = useSelfDrivingHomeEnabled();
-  const showInbox = !channelReportsEnabled || selfDrivingHomeEnabled;
 
   const { counts } = useInboxAllReports({
     ignoreFilters: true,
@@ -228,12 +224,12 @@ export function ChannelNav() {
           isActive={isHome}
           onClick={withTrack("home", navigateToHome)}
         />
-        {showInbox && (
+        {!channelReportsEnabled && (
           <NavIcon
             icon={
               <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
             }
-            label={selfDrivingHomeEnabled ? "Self-driving" : "Inbox"}
+            label="Inbox"
             shortcut={formatHotkey(SHORTCUTS.INBOX)}
             isActive={isInbox}
             onClick={withTrack("inbox", navigateToInbox)}

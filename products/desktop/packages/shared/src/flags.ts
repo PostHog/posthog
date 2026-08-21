@@ -59,12 +59,6 @@ export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
 export const CHANNEL_REPORTS_FLAG = "posthog-desktop-channel-reports";
 
 /**
- * Replaces the inbox's pipeline tabs with the decision-ordered Self-Driving
- * home, and reclaims the inbox nav slot from the channel-reports takeover.
- */
-export const SELF_DRIVING_HOME_FLAG = "posthog-desktop-self-driving-home";
-
-/**
  * Serves a session's Claude traffic from Bedrock instead of Anthropic. The
  * `test` variant sends `x-posthog-provider: bedrock`, which the gateway routes
  * to its Bedrock backend; `control` sends nothing and the gateway keeps its

@@ -36,7 +36,7 @@ export function PullRequestsTab() {
  * through `usePrDiffStatsFromBatch`; the per-PR REST query is only used on
  * the standalone detail view.
  */
-export function PullRequestsBatchProvider({
+function PullRequestsBatchProvider({
   reports,
   children,
 }: {

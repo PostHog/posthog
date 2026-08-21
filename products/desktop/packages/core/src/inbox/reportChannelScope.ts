@@ -5,7 +5,6 @@ import {
   isExcludedFromInbox,
   isLiveRunReport,
   isQueuedRunReport,
-  matchesInboxScope,
 } from "./reportMembership";
 
 /**
@@ -125,6 +124,66 @@ export function buildChannelReportList(
   return reports
     .filter((report) => matchesChannelReportOptions(report, options))
     .sort((a, b) => reportTimestampMs(b) - reportTimestampMs(a));
+}
+
+/**
+ * Whether a report is waiting on a person: an implementation PR to review,
+ * input the agent asked for, a failed run needing a call, or a ready report
+ * that is actionable and not already fixed. Everything else is the agent's
+ * problem (still running) or read-and-archive.
+ */
+export function reportNeedsAttention(report: SignalReport): boolean {
+  if (report.status === "pending_input" || report.status === "failed") {
+    return true;
+  }
+  if (report.implementation_pr_url) return true;
+  if (report.status !== "ready") return false;
+  return !report.already_addressed && report.actionability !== "not_actionable";
+}
+
+const PRIORITY_RANK: Record<SignalReportPriority, number> = {
+  P0: 0,
+  P1: 1,
+  P2: 2,
+  P3: 3,
+  P4: 4,
+};
+
+function priorityRank(report: SignalReport): number {
+  return report.priority
+    ? PRIORITY_RANK[report.priority]
+    : Number.MAX_SAFE_INTEGER;
+}
+
+export interface ChannelReportSections {
+  /** Reports waiting on a person — highest priority first, then newest. */
+  attention: SignalReport[];
+  /** Everything else, newest first — the same chronology as the feed. */
+  rest: SignalReport[];
+}
+
+/**
+ * Split an already-filtered sidebar list into the needs-attention section
+ * rendered above the divider and the chronological rest below it. A narrowed
+ * status bucket is already one kind of report, so it stays a single
+ * recency-ordered list with nothing above the divider.
+ */
+export function splitChannelReportSections(
+  reports: SignalReport[],
+  status: ReportStatusFilter,
+): ChannelReportSections {
+  if (status !== "all") return { attention: [], rest: reports };
+  const attention: SignalReport[] = [];
+  const rest: SignalReport[] = [];
+  for (const report of reports) {
+    (reportNeedsAttention(report) ? attention : rest).push(report);
+  }
+  attention.sort((a, b) => {
+    const rankDiff = priorityRank(a) - priorityRank(b);
+    if (rankDiff !== 0) return rankDiff;
+    return reportTimestampMs(b) - reportTimestampMs(a);
+  });
+  return { attention, rest };
 }
 
 export type ReportStatusCounts = Record<ReportStatusFilter, number>;

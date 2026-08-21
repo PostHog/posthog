@@ -1,5 +1,8 @@
 import { FileMagnifyingGlassIcon } from "@phosphor-icons/react";
-import type { ReportChannelView } from "@posthog/core/inbox/reportChannelScope";
+import {
+  type ReportChannelView,
+  splitChannelReportSections,
+} from "@posthog/core/inbox/reportChannelScope";
 import {
   Empty,
   EmptyDescription,
@@ -128,16 +131,30 @@ export function ChannelReportsSection({
         </Empty>
       );
     }
+    // Reports waiting on the reader float above a divider, most important
+    // first; below it the list stays chronological like the feed.
+    const { attention, rest } = splitChannelReportSections(
+      reports,
+      filters.status,
+    );
+    const row = (report: (typeof reports)[number]) => (
+      <ReportRow
+        key={report.id}
+        report={report}
+        isActive={report.id === activeReportId}
+        onOpen={openReport}
+      />
+    );
     return (
       <div className="flex flex-col gap-px px-2 pt-1 pb-2">
-        {reports.map((report) => (
-          <ReportRow
-            key={report.id}
-            report={report}
-            isActive={report.id === activeReportId}
-            onOpen={openReport}
+        {attention.map(row)}
+        {attention.length > 0 && rest.length > 0 && (
+          <div
+            aria-hidden
+            className="mx-1 my-1.5 border-(--gray-a5) border-t"
           />
-        ))}
+        )}
+        {rest.map(row)}
       </div>
     );
   }, [
@@ -149,6 +166,7 @@ export function ChannelReportsSection({
     filtersActive,
     onlyForYouActive,
     filters.search,
+    filters.status,
   ]);
 
   return (

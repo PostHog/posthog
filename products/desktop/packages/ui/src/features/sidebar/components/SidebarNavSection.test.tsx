@@ -39,14 +39,9 @@ vi.mock("@posthog/ui/router/useAppView", () => ({ useAppView }));
 // Channel reports defaults off here so the Inbox item renders; the flag-on
 // test flips it via `channelReportsFlag`.
 let channelReportsFlag = false;
-let selfDrivingHomeFlag = false;
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: (flag: string) =>
-    flag === "posthog-desktop-channel-reports"
-      ? channelReportsFlag
-      : flag === "posthog-desktop-self-driving-home"
-        ? selfDrivingHomeFlag
-        : true,
+    flag === "posthog-desktop-channel-reports" ? channelReportsFlag : true,
 }));
 // These tests pin the legacy layout (flag off), where the "Enable channels"
 // toggle row is present.
@@ -169,18 +164,6 @@ describe("SidebarNavSection", () => {
       ).not.toBeInTheDocument();
     } finally {
       channelReportsFlag = false;
-    }
-  });
-
-  it("keeps the Inbox item when the Self-Driving home reclaims the slot", () => {
-    channelReportsFlag = true;
-    selfDrivingHomeFlag = true;
-    try {
-      renderNav();
-      expect(screen.getByRole("button", { name: /Inbox/ })).toBeInTheDocument();
-    } finally {
-      channelReportsFlag = false;
-      selfDrivingHomeFlag = false;
     }
   });
 
