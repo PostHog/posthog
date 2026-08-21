@@ -82,6 +82,8 @@ interface BuildDiscussReportPromptOptions {
   reportTitle?: string | null;
   question?: string;
   isDevBuild: boolean;
+  /** Serialized report body to inline; see buildReportPromptContext. */
+  reportContext?: string;
 }
 
 export function buildDiscussReportPrompt({
@@ -89,7 +91,13 @@ export function buildDiscussReportPrompt({
   reportTitle,
   question,
   isDevBuild,
+  reportContext,
 }: BuildDiscussReportPromptOptions): string {
   const reportLink = buildInboxDeeplink(reportId, reportTitle, { isDevBuild });
-  return buildSharedDiscussReportPrompt({ reportId, reportLink, question });
+  return buildSharedDiscussReportPrompt({
+    reportId,
+    reportLink,
+    question,
+    reportContext,
+  });
 }

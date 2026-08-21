@@ -2588,6 +2588,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        signal_report_task_relationship?: string;
         branch?: string | null;
         runtime_adapter?: string | null;
         model?: string | null;

@@ -58,11 +58,7 @@ export function ReportDetailActions({ report }: ReportDetailActionsProps) {
   const fireAction = useReportActionTracker(report);
   const openTask = useOpenTask();
 
-  const { discussReport, isDiscussing } = useDiscussReport({
-    reportId: report.id,
-    reportTitle: report.title ?? null,
-    cloudRepository,
-  });
+  const { discussReport, isDiscussing } = useDiscussReport({ report });
 
   const { createPrReport, isCreatingPr } = useCreatePrReport({
     reportId: report.id,

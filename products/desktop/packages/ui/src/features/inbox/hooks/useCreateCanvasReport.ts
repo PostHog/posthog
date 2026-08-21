@@ -59,8 +59,6 @@ export function useCreateCanvasReport({
       return {
         content: prompt,
         taskDescription: prompt,
-        repository: ctx.cloudRepository,
-        githubUserIntegrationId: ctx.githubUserIntegrationId ?? undefined,
         workspaceMode: "cloud",
         executionMode: "auto",
         adapter: ctx.adapter,
@@ -69,6 +67,8 @@ export function useCreateCanvasReport({
         cloudPrAuthorshipMode: "user",
         cloudRunSource: "signal_report",
         signalReportId: reportId,
+        // A canvas build must not consume the report's one-live-PR gate.
+        signalReportTaskRelationship: "canvas",
       };
     },
     [reportId, channelId, cloudRegion, projectId],
