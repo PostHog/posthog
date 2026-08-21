@@ -3084,6 +3084,12 @@ export interface ExternalDataSourceRevenueAnalyticsConfigApi {
 
 export type ExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
 
+export type ExternalDataSourceSerializersApiDeprecatedApiVersionsItem = {
+    version?: string
+    /** @nullable */
+    sunset_at?: string | null
+}
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -3152,12 +3158,17 @@ export interface ExternalDataSourceSerializersApi {
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
     /**
-     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Upgrade-only: set it to a newer supported version to move an existing source forward; downgrading to an older version is rejected. New sources always start on the newest version and cannot pick a pin at creation.
+     * @maxLength 128
      * @nullable
      */
-    readonly api_version: string | null
+    api_version?: string | null
     /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
     readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
+    /** Vendor API versions this source type supports. `api_version` can be moved to any of them. Source types without real vendor versioning report a single opaque `v1`. */
+    readonly supported_api_versions: readonly string[]
+    /** The subset of `supported_api_versions` the vendor has deprecated, each with the date it stops being served (null if not announced). Still selectable, so a source stuck on one can be moved off it, but they are flagged as a poor choice to move onto. */
+    readonly deprecated_api_versions: readonly ExternalDataSourceSerializersApiDeprecatedApiVersionsItem[]
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -4532,6 +4543,12 @@ export interface ExternalDataSourceCreateResponseApi {
 
 export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
 
+export type PatchedExternalDataSourceSerializersApiDeprecatedApiVersionsItem = {
+    version?: string
+    /** @nullable */
+    sunset_at?: string | null
+}
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -4600,12 +4617,17 @@ export interface PatchedExternalDataSourceSerializersApi {
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
     /**
-     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Upgrade-only: set it to a newer supported version to move an existing source forward; downgrading to an older version is rejected. New sources always start on the newest version and cannot pick a pin at creation.
+     * @maxLength 128
      * @nullable
      */
-    readonly api_version?: string | null
+    api_version?: string | null
     /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
     readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
+    /** Vendor API versions this source type supports. `api_version` can be moved to any of them. Source types without real vendor versioning report a single opaque `v1`. */
+    readonly supported_api_versions?: readonly string[]
+    /** The subset of `supported_api_versions` the vendor has deprecated, each with the date it stops being served (null if not announced). Still selectable, so a source stuck on one can be moved off it, but they are flagged as a poor choice to move onto. */
+    readonly deprecated_api_versions?: readonly PatchedExternalDataSourceSerializersApiDeprecatedApiVersionsItem[]
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
