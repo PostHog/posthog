@@ -16,10 +16,8 @@ afterEach(cleanup)
 
 describe('CommentsList', () => {
     // Loading, empty, and loaded are three different screens, and a thread that has already answered
-    // is never the first of them again. Branching the skeleton on `commentsLoading` broke that: the
-    // ticket page polls `refreshComments` every 20 seconds, that shares the loader's flag with the
-    // first fetch, so an open panel dropped its empty state and jumped the composer up the panel
-    // every 20 seconds while someone was typing into it.
+    // is never the first of them again. The ticket page refreshes this one every 20 seconds, and
+    // every handler on the `comments` loader shares one loading flag with the first fetch.
     it('shows the empty state once loaded and keeps it through a background refresh', async () => {
         initKeaTests()
 
@@ -59,5 +57,8 @@ describe('CommentsList', () => {
         })
         expect(logic.values.commentsLoading).toBe(true)
         expect(screen.getByText('Start the discussion!')).toBeInTheDocument()
+
+        // Let the refresh land, so its request doesn't settle after teardown
+        await waitFor(() => expect(logic.values.commentsLoading).toBe(false))
     })
 })

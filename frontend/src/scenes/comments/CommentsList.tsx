@@ -38,7 +38,7 @@ export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JS
     return (
         <BindLogic logic={commentsLogic} props={props}>
             <div className="flex flex-col">
-                {!commentsWithReplies?.length && commentsInitialLoading ? (
+                {commentsInitialLoading ? (
                     <div className="deprecated-space-y-2">
                         <LemonSkeleton className="h-10 w-full" />
                     </div>
