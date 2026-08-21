@@ -327,7 +327,6 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
 
     def test_filter_by_zendesk_ticket_ids(self, mock_on_commit):
-        """Test filtering tickets by the Zendesk ticket ids they were imported from."""
         self.ticket.zendesk_ticket_id = 60186
         self.ticket.save()
 
@@ -355,9 +354,16 @@ class TestTicketAPI(APIBaseTest):
             {(60186, self.ticket.ticket_number), (60187, imported.ticket_number)},
         )
 
-    @parameterized.expand([("empty", ""), ("non_numeric", "abc"), ("too_many", ",".join(str(i) for i in range(101)))])
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("non_numeric", "abc"),
+            ("unicode_digit", "%C2%B2"),
+            ("blank_entry", "60186,,60187"),
+            ("too_many", ",".join(str(i) for i in range(101))),
+        ]
+    )
     def test_invalid_zendesk_ticket_ids_rejected(self, mock_on_commit, _name, invalid_value):
-        """An unusable id list is a 400, not a silently unfiltered list of every ticket."""
         response = self.client.get(
             f"/api/projects/{self.team.id}/conversations/tickets/?zendesk_ticket_ids={invalid_value}"
         )

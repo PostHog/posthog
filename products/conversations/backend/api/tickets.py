@@ -411,15 +411,15 @@ def _parse_zendesk_ticket_ids(raw: str) -> list[int]:
     this to map a known set of Zendesk ids onto tickets, and silently ignoring an unparseable or
     over-long list would hand them a map that is quietly missing entries.
     """
-    entries = [entry.strip().lstrip("#") for entry in raw.split(",")]
-    entries = [entry for entry in entries if entry]
-    if not entries:
+    if not raw.strip():
         raise ValidationError({"zendesk_ticket_ids": "Provide at least one Zendesk ticket id."})
+    entries = [entry.strip().lstrip("#") for entry in raw.split(",")]
     if len(entries) > MAX_ZENDESK_TICKET_IDS:
         raise ValidationError(
             {"zendesk_ticket_ids": f"Provide at most {MAX_ZENDESK_TICKET_IDS} Zendesk ticket ids per request."}
         )
-    if not all(entry.isdigit() for entry in entries):
+    # `isascii` guards `int()`: `isdigit()` also accepts characters like `²` that `int()` rejects.
+    if not all(entry.isascii() and entry.isdigit() for entry in entries):
         raise ValidationError({"zendesk_ticket_ids": "Zendesk ticket ids must be numeric."})
     return [int(entry) for entry in entries]
 
@@ -704,7 +704,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     "Comma-separated list of Zendesk ticket ids to filter by, matched against `zendesk_ticket_id` "
                     f"(max {MAX_ZENDESK_TICKET_IDS}). Each id may be prefixed with `#`. Use this to map Zendesk "
                     "ticket ids onto PostHog tickets imported from Zendesk. Returns 400 if the list is empty, "
-                    "too long, or contains a non-numeric id."
+                    "too long, or holds an entry that is not a number."
                 ),
             ),
             OpenApiParameter(

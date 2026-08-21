@@ -86853,7 +86853,7 @@ export namespace Schemas {
      */
     view?: string;
     /**
-     * Comma-separated list of Zendesk ticket ids to filter by, matched against `zendesk_ticket_id` (max 100). Each id may be prefixed with `#`. Use this to map Zendesk ticket ids onto PostHog tickets imported from Zendesk. Returns 400 if the list is empty, too long, or contains a non-numeric id.
+     * Comma-separated list of Zendesk ticket ids to filter by, matched against `zendesk_ticket_id` (max 100). Each id may be prefixed with `#`. Use this to map Zendesk ticket ids onto PostHog tickets imported from Zendesk. Returns 400 if the list is empty, too long, or holds an entry that is not a number.
      */
     zendesk_ticket_ids?: string;
     };
