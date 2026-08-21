@@ -1,6 +1,7 @@
 import { browserSupportsWebAuthnAutofill, startAuthentication } from '@simplewebauthn/browser'
 import { expectLogic } from 'kea-test-utils'
 
+import { loginLogic } from 'scenes/authentication/login/loginLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -94,6 +95,36 @@ describe('passkeyLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(beginHandler).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('startPasskeyAuthentication (deliberate passkey login)', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+
+        beforeEach(() => {
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: { '/api/webauthn/login/begin/': () => [503, {}] },
+            })
+            initKeaTests()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it('on a transient server error, shows a retry message instead of the raw internal error', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.startPasskeyAuthentication()
+            }).toDispatchActions(['startPasskeyAuthenticationSuccess'])
+
+            expect(loginLogic.findMounted()?.values.generalError).toEqual({
+                code: 'passkey_error',
+                detail: 'Passkey login is temporarily unavailable. Please try again.',
+            })
         })
     })
 })

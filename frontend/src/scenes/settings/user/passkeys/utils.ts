@@ -1,3 +1,5 @@
+import { ApiError } from 'lib/api-error'
+
 const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
     NotAllowedError: 'Operation was cancelled or timed out.',
     InvalidStateError: 'This passkey is already registered.',
@@ -23,17 +25,23 @@ export function isWebAuthnCancellation(error: unknown): boolean {
     return typeof nestedName === 'string' && WEBAUTHN_CANCELLATION_ERROR_NAMES.has(nestedName)
 }
 
+// A response that never arrived (`status` undefined, e.g. a NetworkError) or a 5xx is a server,
+// gateway, or network hiccup rather than a bad request. api.ts documents
+// `status === undefined || status >= 500` as the recovery check; passkey login mirrors it to show
+// a retry message instead of a raw internal error string.
+export function isTransientPasskeyServerError(error: unknown): boolean {
+    return error instanceof ApiError && (error.status === undefined || error.status >= 500)
+}
+
 export function getPasskeyErrorMessage(error: any, defaultMessage?: string): string {
     if (error?.name && WEBAUTHN_ERROR_MESSAGES[error.name]) {
         return WEBAUTHN_ERROR_MESSAGES[error.name]
     }
 
+    // Only trust a server-provided `detail`. Falling back to `error.message` would surface the
+    // raw internal fallback string (e.g. "Non-OK response [POST ...] (status 503)") to the user.
     if (error?.detail) {
         return error.detail
-    }
-
-    if (error?.message) {
-        return error.message
     }
 
     return defaultMessage ?? 'Passkey authentication failed. Please try again.'
