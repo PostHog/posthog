@@ -90,8 +90,9 @@ a note about which variables become required.
 ### Step 3 — Does the query need rewriting?
 
 For a SQL endpoint that isn't eligible, the rejection reason from
-`endpoints-materialization-preview` is the lead. That tool always resolves. Read the reason,
-match it to the bullets below, and propose the rewrite by hand:
+`endpoints-materialization-preview` is the lead. That tool always resolves. Read the reason and
+match it to the bullets below — they summarise the common cases, not every check the server runs,
+so the raw reason wins when the two disagree. Propose the rewrite by hand:
 
 - **Cohort breakdown / compare mode rejection** → regular property breakdowns materialise fine;
   only cohort breakdowns and compare mode are blocked. Swap a cohort breakdown for a property
@@ -105,6 +106,12 @@ match it to the bullets below, and propose the rewrite by hand:
   Encourage adding a required time-window variable (e.g. `date_from`, `lookback_days`).
 - **HogQL with `*` / non-deterministic functions** → narrow the columns selected, replace
   `now()` / `today()` with a variable when possible.
+- **No bullet matches** → the list above is not exhaustive; the live checks reject more shapes than
+  it names (a variable inside an `OR`, a variable compared against another variable, a variable in a
+  `HAVING` clause, an unsupported operator, a query kind that can't be materialised). Quote the
+  rejection reason to the user verbatim and reason from it directly rather than forcing the nearest
+  bullet. Some reasons have no equivalent rewrite at all — the `OR {variables.x} = 'all'`
+  optional-variable idiom is one — so say that instead of changing the query's behaviour.
 
 Check `endpoint-versions` to see whether the query was recently changed. Often the regression
 came from a specific commit and reverting that version is faster than rewriting.
