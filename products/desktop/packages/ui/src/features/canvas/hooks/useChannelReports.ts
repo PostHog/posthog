@@ -1,8 +1,6 @@
 import {
   buildChannelReportList,
   countChannelReportsByStatus,
-  countUnseenReports,
-  latestReportArrival,
   type ReportChannelView,
   type ReportStatusCounts,
   type ReportStatusFilter,
@@ -14,13 +12,9 @@ import {
 import type { SignalReport, SignalReportPriority } from "@posthog/shared/types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import {
-  reportViewKey,
-  useReportSeenStore,
-} from "@posthog/ui/features/canvas/stores/reportSeenStore";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { keepPreviousData } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 
 /** Sidebar rows are small; a short first page paints fast and scroll streams the rest. */
 const SIDEBAR_REPORTS_PAGE_SIZE = 25;
@@ -69,10 +63,8 @@ export function useChannelReports(
   isError: boolean;
   /** Per-status-bucket counts under the current filters, for the status chips. */
   statusCounts: ReportStatusCounts;
-  /** Active reports newer than the last time this view's reports were looked at. */
-  unseenCount: number;
-  /** Stamp this view's reports seen up to the newest arrival. */
-  markSeen: () => void;
+  /** Whether the space has any unarchived reports at all — the tab dot. */
+  hasReports: boolean;
   fetchNextPage: () => void;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
@@ -169,31 +161,15 @@ export function useChannelReports(
     reports.length,
   ]);
 
-  const viewKey = reportViewKey(view);
-  const seenAt = useReportSeenStore((s) => s.seenAtByView[viewKey]);
-  const hasHydrated = useReportSeenStore((s) => s.hasHydrated);
-  const markReportsSeen = useReportSeenStore((s) => s.markReportsSeen);
-  const unseenCount = useMemo(
-    () => countUnseenReports(query.allReports, view, seenAt),
-    [query.allReports, view, seenAt],
-  );
-  const latestArrival = useMemo(
-    () => latestReportArrival(query.allReports, view),
-    [query.allReports, view],
-  );
-  const markSeen = useCallback(() => {
-    if (!hasHydrated || !latestArrival) return;
-    markReportsSeen(viewKey, latestArrival);
-  }, [hasHydrated, latestArrival, markReportsSeen, viewKey]);
-
   // Pagination follows whichever query feeds the visible list, so the
   // Archived bucket pages through its own fetch.
   const activeQuery = archivedMode ? archivedQuery : query;
   return {
     reports,
     statusCounts,
-    unseenCount,
-    markSeen,
+    // The main query excludes archived server-side, so any row means the space
+    // has live reports (the tab dot's whole question).
+    hasReports: query.allReports.length > 0,
     // Scope not resolved yet reads as loading, not as an empty list.
     isLoading: activeQuery.isLoading || !scopeReady,
     isError: activeQuery.isError,

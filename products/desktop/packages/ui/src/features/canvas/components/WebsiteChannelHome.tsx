@@ -107,11 +107,9 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   const [reportFilters, setReportFilters] = useState<ChannelReportsFilters>(
     DEFAULT_CHANNEL_REPORTS_FILTERS,
   );
-  const { reports, statusCounts, unseenCount, markSeen } = useChannelReports(
-    reportView,
-    reportFilters,
-    { enabled: reportsEnabled },
-  );
+  const { reports } = useChannelReports(reportView, reportFilters, {
+    enabled: reportsEnabled,
+  });
   const openReport = useOpenInboxReport();
 
   useSetHeaderContent(
@@ -340,9 +338,6 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           onOpenReport={openReport}
           reportFilters={reportFilters}
           onReportFiltersChange={setReportFilters}
-          reportStatusCounts={statusCounts}
-          reportUnseenCount={unseenCount}
-          onReportsViewed={markSeen}
           isLoading={isLoading}
           emptyState={emptyState}
           intro={intro}

@@ -5,10 +5,7 @@ import {
   buildChannelReportList,
   channelReportView,
   countChannelReportsByStatus,
-  countChannelReportsForMe,
-  countUnseenReports,
   generalReportView,
-  latestReportArrival,
 } from "./reportChannelScope";
 
 function report(overrides: Partial<SignalReport>): SignalReport {
@@ -146,22 +143,6 @@ describe("reportChannelScope", () => {
     expect(ids).toEqual(["suppressed", "resolved"]);
   });
 
-  it("unseen count only counts active reports newer than the stamp, none without one", () => {
-    const reports = [
-      report({ id: "old", created_at: "2026-01-01T00:00:00Z" }),
-      report({ id: "new", created_at: "2026-06-01T00:00:00Z" }),
-      report({
-        id: "archived",
-        status: "suppressed",
-        created_at: "2026-06-02T00:00:00Z",
-      }),
-    ];
-    const view = generalReportView();
-    expect(countUnseenReports(reports, view, undefined)).toBe(0);
-    expect(countUnseenReports(reports, view, "2026-03-01T00:00:00Z")).toBe(1);
-    expect(latestReportArrival(reports, view)).toBe("2026-06-01T00:00:00Z");
-  });
-
   it("status counts bucket every non-archived report exactly once and ignore the status filter", () => {
     const reports = [
       report({ id: "pr", implementation_pr_url: "https://example.com/pr/1" }),
@@ -180,16 +161,5 @@ describe("reportChannelScope", () => {
       running: 2,
       archived: 0,
     });
-  });
-
-  it("countChannelReportsForMe counts suggested-reviewer reports in scope", () => {
-    const reports = [
-      report({ id: "a", channel_id: "s1", is_suggested_reviewer: true }),
-      report({ id: "b", channel_id: "s1", is_suggested_reviewer: false }),
-      report({ id: "c", channel_id: "s2", is_suggested_reviewer: true }),
-      report({ id: "gone", status: "suppressed", is_suggested_reviewer: true }),
-    ];
-    expect(countChannelReportsForMe(reports, channelReportView("s1"))).toBe(1);
-    expect(countChannelReportsForMe(reports, generalReportView())).toBe(2);
   });
 });

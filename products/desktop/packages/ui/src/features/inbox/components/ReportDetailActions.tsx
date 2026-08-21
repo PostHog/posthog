@@ -19,6 +19,7 @@ import {
   Textarea,
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
+import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
@@ -51,13 +52,21 @@ export function ReportDetailActions({
   const isResolved = report.status === "resolved";
 
   const fireAction = useReportActionTracker(report);
-  const { discussReport, isDiscussing } = useDiscussReport({ report });
+  // Sessions and canvases started from a report file into the report's space,
+  // or #general when the report has none — a task without a channel shows in
+  // no space's sidebar at all.
+  const { generalChannel } = useTaskChannels();
+  const taskChannelId = report.channel_id ?? generalChannel?.id ?? null;
+  const { discussReport, isDiscussing } = useDiscussReport({
+    report,
+    channelId: taskChannelId,
+  });
 
   const canvasActionEnabled = useChannelReportsEnabled();
   const { createCanvasReport, isCreatingCanvas } = useCreateCanvasReport({
     reportId: report.id,
     reportTitle: report.title ?? null,
-    channelId: report.channel_id ?? null,
+    channelId: taskChannelId,
     cloudRepository: null,
   });
 

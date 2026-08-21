@@ -79,6 +79,10 @@ export function useInboxReportsInfinite(
       enabled: options?.enabled,
       initialPageParam: 0,
       getNextPageParam: (lastPage, allPages) => {
+        // An empty page ends pagination even when `count` says otherwise —
+        // trusting a disagreeing count would loop the scroll sentinel on a
+        // spinner forever, refetching the same empty page.
+        if (lastPage.results.length === 0) return undefined;
         const loaded = allPages.reduce((n, p) => n + p.results.length, 0);
         return loaded < lastPage.count ? loaded : undefined;
       },

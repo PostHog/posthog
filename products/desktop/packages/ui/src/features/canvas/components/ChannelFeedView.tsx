@@ -15,7 +15,6 @@ import {
 import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
 import type { PrCheck } from "@posthog/core/git/router-schemas";
 import { parsePrNumber } from "@posthog/core/git-interaction/prStatus";
-import type { ReportStatusCounts } from "@posthog/core/inbox/reportChannelScope";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import {
@@ -58,7 +57,6 @@ import {
 } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
 import { ReportFeedRow } from "@posthog/ui/features/canvas/components/ReportFeedRow";
 import { ReportFilterControls } from "@posthog/ui/features/canvas/components/ReportFilterControls";
-import { ReportStatusChips } from "@posthog/ui/features/canvas/components/ReportStatusChips";
 import {
   TaskRowContextMenu,
   TaskRowDropdownMenu,
@@ -1353,9 +1351,6 @@ export function ChannelFeedView({
   showKindFilter = true,
   reportFilters,
   onReportFiltersChange,
-  reportStatusCounts,
-  reportUnseenCount,
-  onReportsViewed,
   isLoading,
   emptyState,
   intro,
@@ -1374,17 +1369,11 @@ export function ChannelFeedView({
   /** Off for single-kind feeds (a `type:report` saved feed), where the
    * sessions/reports tabs would only offer empty views. */
   showKindFilter?: boolean;
-  /** When provided with its setter, the Reports tab shows the same search /
-   * "Me" / priority controls as the sidebar Reports list. The caller owns the
-   * state and filters the `reports` prop with it. */
+  /** When provided with its setter, the Reports tab shows the same funnel
+   * menu as the sidebar Reports list. The caller owns the state and filters
+   * the `reports` prop with it. */
   reportFilters?: ChannelReportsFilters;
   onReportFiltersChange?: (filters: ChannelReportsFilters) => void;
-  /** Per-bucket counts for the status chips on the Reports tab. */
-  reportStatusCounts?: ReportStatusCounts;
-  /** Unread badge on the Reports kind tab: reports newer than the last look. */
-  reportUnseenCount?: number;
-  /** Called while the Reports kind tab is showing, to stamp reports seen. */
-  onReportsViewed?: () => void;
   isLoading: boolean;
   emptyState?: React.ReactNode;
   /** Rendered pinned above the first entry — the Slack-style channel intro
@@ -1415,14 +1404,6 @@ export function ChannelFeedView({
   }>({ channelId, value: "all" });
   const activeKindFilter =
     kindFilter.channelId === channelId ? kindFilter.value : "all";
-
-  // Looking at the Reports tab reads this space's reports: the identity of
-  // onReportsViewed advances with the newest arrival, so a report landing
-  // while the tab is open re-stamps it (same convention as useMarkChannelSeen).
-  useEffect(() => {
-    if (activeKindFilter !== "reports") return;
-    onReportsViewed?.();
-  }, [activeKindFilter, onReportsViewed]);
 
   const entries = useMemo<FeedEntry[]>(
     () =>
@@ -1477,13 +1458,17 @@ export function ChannelFeedView({
     <div className="mx-auto mb-2 w-full max-w-[660px]">{composer}</div>
   );
 
+  // One row: the kind tabs, and — on the Reports kind only — the same compact
+  // funnel the sidebar uses. Reports deliberately get no extra filter chrome
+  // beyond that, so the row reads the same weight whichever kind is active.
   const kindFilterBlock = reports !== undefined && showKindFilter && (
-    <div className="mx-auto flex w-full max-w-[660px] flex-col gap-1 pt-1">
+    <div className="mx-auto flex w-full max-w-[660px] items-center gap-1 pt-1">
       <Tabs
         value={activeKindFilter}
         onValueChange={(value: string) =>
           setKindFilter({ channelId, value: value as FeedKindFilter })
         }
+        className="min-w-0 flex-1"
       >
         <TabsList
           variant="line"
@@ -1496,11 +1481,15 @@ export function ChannelFeedView({
               className="rounded-sm px-1 py-0.5 text-[13px]"
             >
               {label}
-              {value === "reports" && (reportUnseenCount ?? 0) > 0 && (
-                <span className="ml-1 rounded-full bg-(--amber-3) px-1 font-semibold text-[10px] text-(--amber-11) tabular-nums">
-                  {reportUnseenCount}
-                </span>
-              )}
+              {value === "reports" &&
+                activeKindFilter !== "reports" &&
+                (reports?.length ?? 0) > 0 && (
+                  <span
+                    className="ml-1 size-1.5 shrink-0 rounded-full bg-(--amber-9)"
+                    role="img"
+                    aria-label="Has reports"
+                  />
+                )}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -1508,25 +1497,27 @@ export function ChannelFeedView({
       {activeKindFilter === "reports" &&
         reportFilters &&
         onReportFiltersChange && (
-          <>
-            {reportStatusCounts && (
-              <ReportStatusChips
-                filters={reportFilters}
-                onChange={onReportFiltersChange}
-                counts={reportStatusCounts}
-              />
-            )}
-            <div className="flex items-center gap-1">
-              <ReportFilterControls
-                filters={reportFilters}
-                onChange={onReportFiltersChange}
-                showStatusInMenu={reportStatusCounts === undefined}
-              />
-            </div>
-          </>
+          <ReportFilterControls
+            filters={reportFilters}
+            onChange={onReportFiltersChange}
+            compact
+          />
         )}
     </div>
   );
+
+  // With the intro pinned, an emptied kind renders nothing below the tabs —
+  // say so, and point at the next action, instead of dead space.
+  const kindEmptyNote =
+    activeKindFilter === "sessions" ? (
+      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-[13px] text-(--gray-10)">
+        No sessions yet. Start one from the composer above.
+      </p>
+    ) : activeKindFilter === "reports" ? (
+      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-[13px] text-(--gray-10)">
+        No reports here yet. Open the filter to widen the list.
+      </p>
+    ) : null;
 
   if (isLoading && pending.length === 0) {
     // Everything already known renders now. The skeleton cards hold the
@@ -1605,7 +1596,7 @@ export function ChannelFeedView({
         {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
         {composerBlock}
         {kindFilterBlock}
-        {rows}
+        {rows.length === 0 ? kindEmptyNote : rows}
       </div>
     </div>
   );

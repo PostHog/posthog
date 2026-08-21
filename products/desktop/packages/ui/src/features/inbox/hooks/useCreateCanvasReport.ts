@@ -69,6 +69,9 @@ export function useCreateCanvasReport({
         signalReportId: reportId,
         // A canvas build must not consume the report's one-live-PR gate.
         signalReportTaskRelationship: "canvas",
+        // Files the build session in the target space so it shows in that
+        // space's Sessions tab (the canvas itself lands there via the prompt).
+        channelId: channelId ?? undefined,
       };
     },
     [reportId, channelId, cloudRegion, projectId],

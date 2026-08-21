@@ -103,7 +103,7 @@ type ChannelTab = ChannelItemModel["kind"] | "report";
 const CHANNEL_TABS: readonly {
   value: ChannelTab;
   label: string;
-  badge?: number;
+  badge?: boolean;
 }[] = [
   { value: "task", label: "Sessions" },
   { value: "canvas", label: "Canvases" },
@@ -130,7 +130,7 @@ function RecentSectionHeader({
   filterControls,
 }: {
   tab: ChannelTab;
-  tabs: readonly { value: ChannelTab; label: string; badge?: number }[];
+  tabs: readonly { value: ChannelTab; label: string; badge?: boolean }[];
   onTabChange: (tab: ChannelTab) => void;
   searchOpen: boolean;
   onToggleSearch: () => void;
@@ -174,9 +174,9 @@ function RecentSectionHeader({
             className="quill-tabs-fill h-auto min-w-0 gap-0.5 overflow-hidden border-b-0"
           >
             {/* When space runs out, labels truncate instead of sliding under
-                the search button. The badge only shows on an inactive tab —
-                the open list already marks unread rows with dots — and caps at
-                9+ so its width is bounded. */}
+                the search button. The dot says the space has reports at all —
+                no counter — and only on an inactive tab, where the list isn't
+                already answering the question. */}
             {tabs.map(({ value, label, badge }) => (
               <TabsTrigger
                 key={value}
@@ -184,10 +184,12 @@ function RecentSectionHeader({
                 className="min-w-0 rounded-sm px-1 py-0.5 text-[13px]"
               >
                 <span className="truncate">{label}</span>
-                {(badge ?? 0) > 0 && value !== tab && (
-                  <span className="ml-1 shrink-0 rounded-full bg-(--amber-3) px-1 font-semibold text-[10px] text-(--amber-11) tabular-nums">
-                    {(badge ?? 0) > 9 ? "9+" : badge}
-                  </span>
+                {badge && value !== tab && (
+                  <span
+                    className="ml-1 size-1.5 shrink-0 rounded-full bg-(--amber-9)"
+                    role="img"
+                    aria-label="Has reports"
+                  />
                 )}
               </TabsTrigger>
             ))}
@@ -379,31 +381,27 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     !isGeneralChannel({ channel_type: channel.channelType, name: channel.name })
       ? channelReportView(channelId)
       : generalReportView();
-  // Shares the section's query key, so the badge costs no extra fetch.
-  const { unseenCount: unseenReportCount, markSeen: markReportsSeen } =
-    useChannelReports(reportView, EMPTY_CHANNEL_REPORTS_FILTERS, {
-      enabled: reportsEnabled,
-    });
-  // Read through a ref: the stamp should fire per opened report, not every
-  // time a new arrival changes markSeen's identity while a detail is open.
-  const markReportsSeenRef = useRef(markReportsSeen);
-  markReportsSeenRef.current = markReportsSeen;
+  // Shares the section's query key, so the dot costs no extra fetch.
+  const { hasReports } = useChannelReports(
+    reportView,
+    EMPTY_CHANNEL_REPORTS_FILTERS,
+    { enabled: reportsEnabled },
+  );
   const visibleTabs = useMemo(
     () =>
       reportsEnabled
         ? [
-            // Reports lead: they arrive on their own and carry the unread
-            // badge, so they take the first slot; the space still opens on
-            // its sessions.
+            // Reports lead: they arrive on their own and carry the dot, so
+            // they take the first slot; the space still opens on its sessions.
             {
               value: "report" as ChannelTab,
               label: "Reports",
-              badge: unseenReportCount,
+              badge: hasReports,
             },
             ...CHANNEL_TABS,
           ]
         : CHANNEL_TABS,
-    [reportsEnabled, unseenReportCount],
+    [reportsEnabled, hasReports],
   );
   // The tab is the list, so everything below it — the filters, the empty state,
   // the sections — is about one kind of thing at a time.
@@ -464,12 +462,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // Opening a report (feed card, deep link, old inbox link) cuts the sidebar
   // over to Reports so the open report shows highlighted in its list. Only on
   // report change — the user can still switch tabs while the report stays open.
-  // Opening is also what clears the unread badge: browsing the list doesn't
-  // count as reading, clicking into a report does.
   useEffect(() => {
     if (!reportsEnabled || !activeReportId) return;
     setChosenTab({ channelId, tab: "report" });
-    markReportsSeenRef.current();
   }, [reportsEnabled, activeReportId, channelId]);
 
   // Pins sort to the top because a pin is a request not to lose the thing:
