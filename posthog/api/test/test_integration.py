@@ -4617,16 +4617,17 @@ class TestStripeIntegrationOAuthTokens:
             integration_id="acct_split",
             created_by=self.user,
         )
-        unwritten = StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
+        publication = StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
 
         minted = OAuthAccessToken.objects.filter(scoped_teams__contains=[self.team.pk])
         assert not minted.filter(application=orchestrator_app).exists()
 
         if marketplace_setting == "configured":
-            assert unwritten == []
+            assert publication.unwritten == ()
             assert minted.latest("id").application == self.oauth_app
         else:
-            assert unwritten == list(STRIPE_POSTHOG_SECRET_NAMES)
+            assert publication.unwritten == STRIPE_POSTHOG_SECRET_NAMES
+            assert publication.access_token_id is None
             assert not minted.exists()
 
     @patch("posthog.models.integration.stripe.settings")
