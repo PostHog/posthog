@@ -367,6 +367,8 @@ export interface taxonomicFilterLogicValues {
         eventNames: string[]
         mcpExcludedEventProperties: string[]
         primaryPropertiesForContextEvents: string[]
+        requestedGroupTypes: TaxonomicFilterGroupType[] | undefined
+        selectingKeyOnly: TaxonomicFilterLogicProps['selectingKeyOnly']
     }
     excludedProperties: TaxonomicFilterGroupValueMap
     explicitActiveTab: TaxonomicFilterGroupType | null
@@ -501,11 +503,14 @@ export interface taxonomicFilterLogicMeta {
         eventNamesWithPrimaryProperties: (
             eventNames: any,
             primaryProperties: Record<string, string>,
-            arg: any
+            arg: any,
+            arg2: any
         ) => {
             eventNames: string[]
             mcpExcludedEventProperties: string[]
             primaryPropertiesForContextEvents: string[]
+            requestedGroupTypes: TaxonomicFilterGroupType[] | undefined
+            selectingKeyOnly: TaxonomicFilterLogicProps['selectingKeyOnly']
         }
         schemaColumns: (arg: any) => any
         maxContextOptions: (arg: any) => any
@@ -584,12 +589,12 @@ export interface taxonomicFilterLogicMeta {
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -816,19 +821,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         // Combined selector that returns the event names, the distinct primary properties for
-        // those events, and the known MCP schema to hide from Event properties when the MCP tab
-        // hosts it. Combined into a single selector so taxonomicGroups stays under kea's 16-dep
-        // tuple type limit; consumers destructure the fields.
+        // those events, the known MCP schema to hide from Event properties when the MCP tab
+        // hosts it, and the caller's requested group types and key-only mode. Combined into a
+        // single selector so taxonomicGroups stays under kea's 16-dep tuple type limit;
+        // consumers destructure the fields.
         eventNamesWithPrimaryProperties: [
-            (s) => [s.eventNames, s.primaryProperties, (_, props) => props.taxonomicGroupTypes],
+            (s) => [
+                s.eventNames,
+                s.primaryProperties,
+                (_, props) => props.taxonomicGroupTypes,
+                (_, props) => props.selectingKeyOnly,
+            ],
             (
                 eventNames: string[],
                 primaryProperties: Record<string, string>,
-                taxonomicGroupTypes: TaxonomicFilterGroupType[] | undefined
+                taxonomicGroupTypes: TaxonomicFilterGroupType[] | undefined,
+                selectingKeyOnly: TaxonomicFilterLogicProps['selectingKeyOnly']
             ): {
                 eventNames: string[]
                 primaryPropertiesForContextEvents: string[]
                 mcpExcludedEventProperties: string[]
+                requestedGroupTypes: TaxonomicFilterGroupType[] | undefined
+                selectingKeyOnly: TaxonomicFilterLogicProps['selectingKeyOnly']
             } => {
                 return {
                     eventNames,
@@ -837,6 +851,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         primaryProperties
                     ),
                     mcpExcludedEventProperties: getMCPExcludedEventProperties(eventNames, taxonomicGroupTypes),
+                    requestedGroupTypes: taxonomicGroupTypes,
+                    selectingKeyOnly,
                 }
             },
             { resultEqualityCheck: objectsEqual },
@@ -942,8 +958,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.endpointFilters,
                 s.hogQLExpressionComponentProps,
                 s.featureFlags,
-                (_, props) => props.taxonomicGroupTypes,
-                (_, props) => props.selectingKeyOnly,
             ],
             (
                 currentTeam: TeamType,
@@ -954,6 +968,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     eventNames: string[]
                     primaryPropertiesForContextEvents: string[]
                     mcpExcludedEventProperties: string[]
+                    requestedGroupTypes: TaxonomicFilterGroupType[] | undefined
+                    selectingKeyOnly: TaxonomicFilterLogicProps['selectingKeyOnly']
                 },
                 schemaColumns: DatabaseSchemaField[],
                 schemaColumnsLoading: boolean | undefined,
@@ -979,12 +995,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     globals?: Record<string, any>
                     showBreakdownLabelHint: boolean
                 },
-                featureFlags: Record<string, boolean | string | undefined>,
-                requestedGroupTypes: TaxonomicFilterGroupType[] | undefined,
-                selectingKeyOnly: TaxonomicFilterLogicProps['selectingKeyOnly']
+                featureFlags: Record<string, boolean | string | undefined>
             ): TaxonomicFilterGroup[] => {
-                const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
-                    eventNamesWithPrimaryProperties
+                const {
+                    eventNames,
+                    primaryPropertiesForContextEvents,
+                    mcpExcludedEventProperties,
+                    requestedGroupTypes,
+                    selectingKeyOnly,
+                } = eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
