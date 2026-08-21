@@ -109,6 +109,7 @@ import {
   convertStoredEntriesToEvents,
   createConversationClearedEvents,
   createUserShellExecuteEvent,
+  dropEventsCoveredByTail,
   extractPromptText,
   getStoredLogEventPosition,
   getUserShellExecutesSinceLastPrompt,
@@ -6826,10 +6827,14 @@ export class SessionService {
     if (!result) return;
     const watcher = this.cloudTaskWatchers.get(taskId);
     if (!watcher || watcher.runId !== taskRunId) return;
-    watcher.resumeHistoryCountOffset = Math.max(
+    const offset = Math.max(
       0,
       result.historyEntryCount - result.liveStreamLineCount,
     );
+    if (offset === 0 && watcher.resumeHistoryCountOffset) {
+      return;
+    }
+    watcher.resumeHistoryCountOffset = offset;
   }
 
   private logHydrationTruncation(
@@ -8538,22 +8543,15 @@ export class SessionService {
       if (plan.kind === "caught-up") {
         // Already caught up — skip duplicate entries
       } else if (plan.kind === "append-tail") {
-        const entriesToAppend = update.newEntries.slice(-plan.tailCount);
-        const newEvents = convertStoredEntriesToEvents(
-          entriesToAppend,
-          undefined,
+        this.appendCloudTailEvents(
+          taskRunId,
+          update.newEntries.slice(-plan.tailCount),
+          expectedCount,
           {
-            taskRunId,
-            startEntryIndex: expectedCount - entriesToAppend.length,
+            processedLineCount: expectedCount,
+            isLive: update.kind === "logs",
           },
         );
-        if (hasSessionPromptEvent(newEvents)) {
-          this.d.store.clearTailOptimisticItems(taskRunId);
-        }
-        this.d.store.appendEvents(taskRunId, newEvents, expectedCount);
-        this.updatePromptStateFromEvents(taskRunId, newEvents, {
-          isLive: update.kind === "logs",
-        });
       } else if (
         update.kind === "snapshot" &&
         update.windowStart !== undefined &&
@@ -8569,6 +8567,16 @@ export class SessionService {
           update.windowStart,
         );
       } else {
+        if (update.kind === "logs" && session) {
+          this.appendCloudTailEvents(
+            taskRunId,
+            update.newEntries,
+            expectedCount,
+            {
+              isLive: true,
+            },
+          );
+        }
         this.cloudLogGapReconciler.reconcile({
           taskId: update.taskId,
           taskRunId,
@@ -9030,16 +9038,66 @@ export class SessionService {
     }
   }
 
+  private appendCloudTailEvents(
+    taskRunId: string,
+    entries: StoredLogEntry[],
+    expectedCount: number,
+    options: { processedLineCount?: number; isLive: boolean },
+  ): void {
+    const startEntryIndex = Math.max(0, expectedCount - entries.length);
+    const events = convertStoredEntriesToEvents(entries, undefined, {
+      taskRunId,
+      startEntryIndex,
+    });
+    if (events.length === 0) return;
+    if (hasSessionPromptEvent(events)) {
+      this.d.store.clearTailOptimisticItems(taskRunId);
+    }
+    const existingEvents = this.getSessionByRunId(taskRunId)?.events;
+    const keptEvents = existingEvents
+      ? dropEventsCoveredByTail(existingEvents, taskRunId, startEntryIndex)
+      : undefined;
+    if (keptEvents) {
+      this.d.store.updateSession(taskRunId, {
+        events: [...keptEvents, ...events],
+        ...(options.processedLineCount !== undefined
+          ? { processedLineCount: options.processedLineCount }
+          : {}),
+      });
+    } else {
+      this.d.store.appendEvents(taskRunId, events, options.processedLineCount);
+    }
+    this.updatePromptStateFromEvents(taskRunId, events, {
+      isLive: options.isLive,
+    });
+  }
+
   private commitReconciledCloudEvents(
     taskRunId: string,
     rawEntries: StoredLogEntry[],
     logUrl: string | undefined,
     processedLineCount: number,
   ): void {
-    const events = convertStoredEntriesToEvents(rawEntries, undefined, {
+    let events = convertStoredEntriesToEvents(rawEntries, undefined, {
       taskRunId,
       startEntryIndex: 0,
     });
+    const liveEvents = this.getSessionByRunId(taskRunId)?.events ?? [];
+    let firstPositionedIndex = liveEvents.findIndex(
+      (event) => getStoredLogEventPosition(event) !== undefined,
+    );
+    if (firstPositionedIndex === -1) {
+      firstPositionedIndex = liveEvents.length;
+    }
+    const ancestorPrefix = liveEvents.slice(0, firstPositionedIndex);
+    const liveRunEvents = liveEvents.slice(firstPositionedIndex);
+    events = [
+      ...ancestorPrefix,
+      ...events,
+      ...(liveRunEvents.length
+        ? reconcileLiveEventsWithHydratedEvents(liveRunEvents, events)
+        : []),
+    ];
     if (hasSessionPromptEvent(events)) {
       this.d.store.clearTailOptimisticItems(taskRunId);
     }
