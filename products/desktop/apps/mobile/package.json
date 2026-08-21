@@ -45,7 +45,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@posthog/api-client": "workspace:*",
     "@posthog/core": "workspace:*",
-    "@posthog/react-native-plugin": "^2.3.1",
+    "@posthog/react-native-plugin": "^2.4.1",
     "@posthog/shared": "workspace:*",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/netinfo": "^12.0.1",

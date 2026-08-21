@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
     starred: boolean;
   }[],
   channelsLoading: false,
-  createChannel: vi.fn(),
   archivedTaskIds: new Set<string>(),
   navigateToArchived: vi.fn(),
   track: vi.fn(),
@@ -35,9 +34,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({
     channels: mocks.channels,
     isLoading: mocks.channelsLoading,
-  }),
-  useChannelMutations: () => ({
-    createChannel: mocks.createChannel,
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useMarkChannelSeen", () => ({
@@ -89,10 +85,7 @@ vi.mock("@tanstack/react-router", () => ({
   useParams: () => ({ channelId: mocks.routeChannelId }),
 }));
 
-import {
-  PROJECT_BLUEBIRD_FLAG,
-  REPORT_CANVAS_INBOX_FLAG,
-} from "@posthog/shared";
+import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   keepListForRoute,
@@ -131,7 +124,6 @@ describe("ChannelsSidebar", () => {
     mocks.channelsLayout = false;
     mocks.channels = [];
     mocks.channelsLoading = false;
-    mocks.createChannel.mockResolvedValue({ id: "general-id" });
     mocks.archivedTaskIds = new Set();
     mocks.track.mockClear();
     mocks.routeChannelId = undefined;
@@ -144,14 +136,6 @@ describe("ChannelsSidebar", () => {
       open: true,
       hasUserSetOpen: true,
     });
-  });
-
-  it("does not provision #general outside the report canvas rollout", () => {
-    mocks.featureFlags.set(REPORT_CANVAS_INBOX_FLAG, false);
-
-    renderSidebar();
-
-    expect(mocks.createChannel).not.toHaveBeenCalled();
   });
 
   // The sidebar is a two-pane slider: the channel list, and the channel you're

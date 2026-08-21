@@ -240,8 +240,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
         expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
         // Domains past the old cutoff point, i.e. the ones a truncated payload lost.
-        // (`workflow` singular: the extractor renders a family's shortest spelling.)
-        for (const domain of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflow']) {
+        for (const domain of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
             expect(domains).toContain(domain)
         }
     })

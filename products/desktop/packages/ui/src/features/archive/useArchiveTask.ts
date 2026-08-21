@@ -228,10 +228,7 @@ export function useArchiveTask(options?: {
   const { restore } = useUnarchiveTask();
 
   const archiveTask = async ({ taskId }: { taskId: string }) => {
-    // Non-optimistic: keep the row in place (with a spinner) until the archive
-    // is confirmed, rather than removing it instantly and rolling back on error.
     await archiveTaskImperative(taskId, queryClient, keys, {
-      optimistic: false,
       navigateSpace: options?.navigateSpace,
     });
     const toastId = `archive-undo-${taskId}`;
