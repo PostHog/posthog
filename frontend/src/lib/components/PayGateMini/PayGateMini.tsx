@@ -16,6 +16,13 @@ import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, Billin
 import { PayGateButton } from './PayGateButton'
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 
+// Some billing feature records arrive with the wrong name and icon for the blocker — the
+// projects limit, for example, has come back labelled as invites. Name those gates from the
+// local feature key instead of trusting the remote billing string.
+const PAY_GATE_FEATURE_DISPLAY: Partial<Record<AvailableFeature, { name: string; iconKey: string }>> = {
+    [AvailableFeature.ORGANIZATIONS_PROJECTS]: { name: 'Projects', iconKey: 'IconBuilding' },
+}
+
 export type PayGateMiniProps = PayGateMiniLogicProps & {
     /**
      * The content to show when the feature is available. Will show nothing if children is undefined.
@@ -183,6 +190,10 @@ function PayGateContent({
         return null
     }
 
+    const display = PAY_GATE_FEATURE_DISPLAY[feature]
+    const featureName = display?.name ?? featureInfo.name
+    const iconKey = display?.iconKey ?? featureInfo.icon_key
+
     return (
         <div
             className={clsx(
@@ -191,13 +202,14 @@ function PayGateContent({
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex mb-2 text-4xl text-warning">{getProductIcon(featureInfo.icon_key)}</div>
-            <h2>{featureInfo.name}</h2>
+            <div className="flex mb-2 text-4xl text-warning">{getProductIcon(iconKey)}</div>
+            <h2>{featureName}</h2>
             {renderUsageLimitMessage(
                 featureAvailableOnOrg,
                 featureInfoOnNextPlan,
                 gateVariant,
                 featureInfo,
+                featureName,
                 productWithFeature,
                 isAddonProduct,
                 handleCtaClick
@@ -214,6 +226,7 @@ const renderUsageLimitMessage = (
     featureInfoOnNextPlan: BillingFeatureType | undefined,
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     featureInfo: BillingFeatureType,
+    featureName: string,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
     isAddonProduct?: boolean,
     handleCtaClick?: () => void
@@ -225,7 +238,7 @@ const renderUsageLimitMessage = (
                     You've reached your usage limit for{' '}
                     <Tooltip title={featureInfo.description}>
                         <span>
-                            <b>{featureInfo.name}</b>
+                            <b>{featureName}</b>
                             <IconInfo className="ml-0.5 text-secondary" />
                         </span>
                     </Tooltip>
@@ -254,10 +267,10 @@ const renderUsageLimitMessage = (
                         </p>
                     </>
                 ) : !isAddonProduct ? (
-                    <p>Upgrade to create more {featureInfo.name}</p>
+                    <p>Upgrade to create more {featureName}</p>
                 ) : (
                     <p>
-                        Upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
+                        Upgrade your <b>{productWithFeature.name}</b> plan to create more {featureName}
                     </p>
                 )}
             </div>
