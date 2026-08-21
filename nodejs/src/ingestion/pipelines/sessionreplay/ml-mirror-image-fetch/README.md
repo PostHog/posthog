@@ -47,8 +47,8 @@ Query parameters:
 
 | Parameter              | Domain        | Notes                                                            |
 |------------------------|---------------|------------------------------------------------------------------|
-| `__cld_token__`        |               | Cloudinary access token                                          |
-| `__token__`            |               | Akamai token                                                     |
+| `__cld_token__`        |               | [Cloudinary](https://cloudinary.com/documentation/control_access_to_media) access token |
+| `__token__`            |               | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token |
 | `access_token`         |               |                                                                  |
 | `api_key`              |               |                                                                  |
 | `apikey`               |               |                                                                  |
@@ -56,47 +56,47 @@ Query parameters:
 | `authorization`        |               |                                                                  |
 | `AWSAccessKeyId`       |               | AWS Signature Version 2 credential                               |
 | `Credential`           |               |                                                                  |
-| `GoogleAccessId`       |               | Google Cloud Storage Signature Version 2 credential              |
-| `hdnea`                |               | Akamai token                                                     |
-| `hdntl`                |               | Akamai token                                                     |
-| `hdnts`                |               | Akamai token                                                     |
+| `GoogleAccessId`       |               | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 2 credential |
+| `hdnea`                |               | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token |
+| `hdntl`                |               | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token |
+| `hdnts`                |               | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token |
 | `id_token`             |               |                                                                  |
-| `ik-s`                 |               | ImageKit signature                                               |
-| `jsessionid`           |               |                                                                  |
-| `OSSAccessKeyId`       |               | Alibaba OSS credential                                           |
+| `ik-s`                 |               | [ImageKit](https://imagekit.io/docs/media-delivery-basic-security) signature |
+| `jsessionid`           |               | [Jakarta Servlet](https://jakarta.ee/specifications/servlet/6.1/jakarta-servlet-spec-6.1.html) session token |
+| `OSSAccessKeyId`       |               | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) credential |
 | `phpsessid`            |               |                                                                  |
-| `q-ak`                 |               | Tencent COS credential                                           |
-| `q-signature`          |               | Tencent COS signature                                            |
-| `s=<32-char token>`    |               | Imgix                                                            |
-| `security-token`       |               | Alibaba OSS temporary credential                                 |
+| `q-ak`                 |               | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) credential |
+| `q-signature`          |               | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) signature |
+| `s=<32-char token>`    |               | [Imgix](https://github.com/imgix/imgix-blueprint#securing-urls)   |
+| `security-token`       |               | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) temporary credential |
 | `session_token`        |               |                                                                  |
 | `sessionid`            |               |                                                                  |
-| `sig`                  |               | Includes Azure SAS and Cloudflare Images signatures              |
-| `Signature`            |               | Includes AWS, CloudFront, and Alibaba OSS signatures              |
+| `sig`                  |               | Includes [Azure SAS](https://learn.microsoft.com/en-us/rest/api/storageservices/create-account-sas) and [Cloudflare Images](https://developers.cloudflare.com/images/optimization/hosted-images/serve-private-images/) signatures |
+| `Signature`            |               | Includes AWS, [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-creating-signed-url-custom-policy.html), and [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) signatures |
 | `SignedHeaders`        |               | Signed URL header list                                            |
-| `token`                |               |                                                                  |
-| `X-Amz-Credential`     |               | AWS Signature Version 4 credential                               |
-| `X-Amz-Security-Token` |               | AWS temporary credential                                         |
-| `X-Amz-Signature`      |               | AWS Signature Version 4 signature                                |
-| `X-Amz-SignedHeaders`  |               | AWS Signature Version 4 signed header list                       |
-| `X-Cos-Security-Token` |               | Tencent COS temporary credential                                 |
-| `X-Goog-Credential`    |               | Google Cloud Storage Signature Version 4 credential              |
-| `X-Goog-Signature`     |               | Google Cloud Storage Signature Version 4 signature               |
-| `X-Goog-SignedHeaders` |               | Google Cloud Storage Signature Version 4 signed header list      |
-| `x-oss-credential`     |               | Alibaba OSS Signature Version 4 credential                       |
-| `x-oss-security-token` |               | Alibaba OSS temporary credential                                 |
-| `x-oss-signature`      |               | Alibaba OSS Signature Version 4 signature                        |
+| `token`                |               | Includes [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) query tokens |
+| `X-Amz-Credential`     |               | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) credential |
+| `X-Amz-Security-Token` |               | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) temporary credential |
+| `X-Amz-Signature`      |               | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) signature |
+| `X-Amz-SignedHeaders`  |               | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) signed header list |
+| `X-Cos-Security-Token` |               | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) temporary credential |
+| `X-Goog-Credential`    |               | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 credential |
+| `X-Goog-Signature`     |               | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 signature |
+| `X-Goog-SignedHeaders` |               | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 signed header list |
+| `x-oss-credential`     |               | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) Signature Version 4 credential |
+| `x-oss-security-token` |               | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) temporary credential |
+| `x-oss-signature`      |               | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) Signature Version 4 signature |
 
 Path patterns:
 
 | Pattern                                            | Domain                                     | Notes                    |
 |----------------------------------------------------|--------------------------------------------|--------------------------|
-| `/bcdn_token=<token>&expires=<timestamp>/`         |                                            | Bunny token              |
-| `/p/<token>/n/`                                   | `objectstorage.*.oraclecloud.com`           | Oracle pre-authenticated request |
-| `/s--<token>--/`                                  |                                            | Cloudinary signature     |
-| `/storage/v1/object/sign/`                        |                                            | Supabase signed object   |
-| `/storage/v1/render/image/sign/`                  |                                            | Supabase signed image    |
-| `;jsessionid=<token>` within any path segment     |                                            | Servlet session token    |
+| `/bcdn_token=<token>&expires=<timestamp>/`         |                                            | [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) token |
+| `/p/<token>/n/`                                   | `objectstorage.*.oraclecloud.com`           | [Oracle pre-authenticated request](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingpreauthenticatedrequests_topic-To_create_a_preauthenticated_request_for_all_objects_in_a_bucket.htm) |
+| `/s--<token>--/`                                  |                                            | [Cloudinary](https://cloudinary.com/documentation/control_access_to_media) signature |
+| `/storage/v1/object/sign/`                        |                                            | [Supabase](https://supabase.com/docs/guides/storage/cdn/smart-cdn) signed object |
+| `/storage/v1/render/image/sign/`                  |                                            | [Supabase](https://supabase.com/docs/guides/storage/cdn/smart-cdn) signed image |
+| `;jsessionid=<token>` within any path segment     |                                            | [Jakarta Servlet](https://jakarta.ee/specifications/servlet/6.1/jakarta-servlet-spec-6.1.html) session token |
 
 **1.3** It's preferable if upstream systems run the subset of these checks that they are easily able to, to reduce load on the system
 
@@ -575,21 +575,6 @@ ai_research_session_replay_image_fetch_retry_1h
 | [Google robots.txt behavior](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec)                    | Requirements 3.16 and 3.17. The places where PostHog follows or is more conservative than Google                                                                     |
 | [Smokescreen](https://github.com/stripe/smokescreen)                                                                     | Section 6. The outbound proxy that enforces the production network boundary                                                                                           |
 | [Public Suffix List](https://publicsuffix.org/)                                                                          | The registrable and root domains used by bounded metrics                                                                                                              |
-| [AWS S3 query authentication](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html)   | Requirement 1.2. AWS Signature Version 4 credential, token, signature, and signed-header parameters                                                                  |
-| [AWS CloudFront signed URLs](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-creating-signed-url-custom-policy.html) | Requirement 1.2. The `Signature` parameter                                                                                                                            |
-| [Google Cloud Storage signed URLs](https://docs.cloud.google.com/storage/docs/access-control/signed-urls)               | Requirement 1.2. Google Cloud Storage credential, signature, and signed-header parameters                                                                             |
-| [Azure Storage shared access signatures](https://learn.microsoft.com/en-us/rest/api/storageservices/create-account-sas) | Requirement 1.2. The `sig` parameter                                                                                                                                  |
-| [Cloudinary media access control](https://cloudinary.com/documentation/control_access_to_media)                         | Requirement 1.2. Cloudinary URL signatures and access tokens                                                                                                         |
-| [Imgix URL signatures](https://github.com/imgix/imgix-blueprint#securing-urls)                                           | Requirement 1.2. The `s` parameter and its signature format                                                                                                          |
-| [ImageKit signed URLs](https://imagekit.io/docs/media-delivery-basic-security)                                           | Requirement 1.2. The `ik-s` parameter                                                                                                                                |
-| [Akamai token authentication](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) | Requirement 1.2. Akamai token parameters                                                                                                                             |
-| [Alibaba OSS signed URLs](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls)          | Requirement 1.2. Alibaba OSS credential, token, and signature parameters                                                                                             |
-| [Tencent COS pre-signed URLs](https://cloud.tencent.com/document/product/436/68284)                                     | Requirement 1.2. Tencent COS credential, token, and signature parameters                                                                                             |
-| [Cloudflare Images signed URLs](https://developers.cloudflare.com/images/optimization/hosted-images/serve-private-images/) | Requirement 1.2. The `sig` parameter                                                                                                                                  |
-| [Bunny token authentication](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) | Requirement 1.2. Bunny query and path tokens                                                                                                                         |
-| [Oracle Object Storage pre-authenticated requests](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingpreauthenticatedrequests_topic-To_create_a_preauthenticated_request_for_all_objects_in_a_bucket.htm) | Requirement 1.2. Oracle's token-bearing path                                                                                                                         |
-| [Supabase Storage signed URLs](https://supabase.com/docs/guides/storage/cdn/smart-cdn)                                  | Requirement 1.2. Supabase signed object and image paths                                                                                                              |
-| [Jakarta Servlet URL rewriting](https://jakarta.ee/specifications/servlet/6.1/jakarta-servlet-spec-6.1.html)             | Requirement 1.2. The `jsessionid` path parameter                                                                                                                     |
 
 `noai` and `noimageai` in requirement 2.6 have no specification. They are a convention that art hosting
 platforms adopted, and `X-Robots-Tag` is the transport.
