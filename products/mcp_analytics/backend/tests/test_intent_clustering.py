@@ -1144,6 +1144,21 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         assert len(advertised["session-chatty"]) <= MAX_ADVERTISED_LIST_EVENTS_PER_SESSION
         assert len(advertised["session-union"]) == MAX_ADVERTISED_TOOLS_PER_SESSION
 
+    def test_tools_by_session_buckets_intent_bearing_sessions_by_effective_tool(self) -> None:
+        # session-a carries an intent; session-quiet does not, so its tools must
+        # not buckify it. The exec wrapper resolves to the inner effective tool.
+        self._seed_tool_call("session-a", "query-logs", intent="tail error logs")
+        self._seed_tool_call("session-a", "exec", intent="tail error logs", exec_tool_name="query-apm-spans")
+        self._seed_tool_call("session-quiet", "query-metrics")
+        flush_persons_and_events()
+
+        buckets = intent_clustering.fetch_tools_by_session(self.team)
+
+        assert buckets.get("query-logs") == {"session-a"}
+        # the exec-wrapped call buckets under its inner tool
+        assert buckets.get("query-apm-spans") == {"session-a"}
+        assert "session-quiet" not in buckets.get("query-metrics", set())
+
     def test_window_stats_count_calls_intents_and_sessions(self) -> None:
         self._seed_tool_call("session-a", "execute_sql", intent="find slow queries")
         self._seed_tool_call("session-a", "query_trends")
