@@ -1154,12 +1154,15 @@ class TestVerifyAndFixAllTeamsDeadline(BaseTest):
         [
             # A passed deadline breaks after the first (chunk_size=1) batch, leaving the
             # second team for the next cycle; headroom processes both teams.
-            ("deadline_passed", -1.0, True, 1),
-            ("headroom", 3600.0, False, 2),
+            ("deadline_passed", 1, -1.0, True, 1),
+            ("headroom", 1, 3600.0, False, 2),
+            # Both teams fit in one batch, so nothing remains when the deadline trips on it:
+            # the sweep completed and must not record a false early wind-down.
+            ("deadline_passed_final_batch", 2, -1.0, False, 2),
         ]
     )
     def test_winds_down_at_batch_boundary_once_deadline_passes(
-        self, _name: str, stop_time_offset: float, expected_wound_down: bool, expected_total: int
+        self, _name: str, chunk_size: int, stop_time_offset: float, expected_wound_down: bool, expected_total: int
     ) -> None:
         team2 = Team.objects.create(organization=self.organization, name="Team 2")
         mock_config = _make_verifier_config(Team.objects.filter(id__in=[self.team.id, team2.id]))
@@ -1172,7 +1175,7 @@ class TestVerifyAndFixAllTeamsDeadline(BaseTest):
                 config=mock_config,
                 verify_team_fn=verify_fn,
                 cache_type="test_cache",
-                chunk_size=1,
+                chunk_size=chunk_size,
                 stop_time=time.monotonic() + stop_time_offset,
             )
 

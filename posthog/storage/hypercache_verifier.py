@@ -230,8 +230,10 @@ def verify_and_fix_all_teams(
 
         # Wind down at a batch boundary once the deadline passes, so the run defers
         # its remaining teams to the next cycle instead of being SIGKILLed mid-batch
-        # past the hard time limit (which reports nothing).
-        if stop_time is not None and time.monotonic() > stop_time:
+        # past the hard time limit (which reports nothing). Only defer when teams
+        # actually remain: a deadline that trips on the final batch has already
+        # covered every team, so it completed rather than winding down early.
+        if stop_time is not None and time.monotonic() > stop_time and _fetch_team_batch(base_qs, teams[-1].id, 1):
             result.wound_down_early = True
             logger.warning(
                 "Cache verification wound down early, deadline reached",
