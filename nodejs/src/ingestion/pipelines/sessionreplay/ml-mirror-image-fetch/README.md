@@ -1,20 +1,20 @@
 # The image fetcher
 
-This app downloads remotes images that are referenced by URLs in session recordings, and sends them onwards to the
+This app downloads remote images that are referenced by URLs in session recordings, and sends them onwards to the
 scrubber for PII removal / sanitization. These images are eventually used for AI Research.
 
 It is a web crawler, but it does not follow links or discover new pages. It only fetches images and relevant config
-files (e.g.`robots.txt`, `.well-known` files) and will follow redirects to do so.
+files (e.g. `robots.txt`, `.well-known` files) and will follow redirects to do so.
 
-This README is the specification for the crawler, any difference from this spec is a bug.
+This README is the specification for the crawler. Any difference from this specification is a bug.
 
 ## Principles
 
-- The image fetcher is open source, this README is publicly visible, and everything we are doing is in the open and fully transparent
+- The image fetcher is open source. This README is publicly visible, and everything we are doing is in the open and fully transparent
 - Any time there is ambiguity, we should resolve it in the direction of not fetching the image
 - We only fetch images that are linked to by a Session Replay from a customer with AI training enabled, and respect known methods for websites to opt out of this fetching, regardless of whether there is a legal requirement to do so
 - We have a high standard for politeness, and have aggressive rate limits to enforce this
-- We combine many opt out signals, any one of them causes us to stop fetching. We pick the order that these are checked to prioritise legal requirements first, spec compliance second, and load on hosts third
+- We combine many opt-out signals. Any one of them causes us to stop fetching. We check them in an order that prioritizes legal requirements first, specification compliance second, and load on hosts third
 
 ## TL;DR
 
@@ -26,7 +26,7 @@ The [upstream Kafka consumer](/nodejs/src/ingestion/pipelines/sessionreplay/ml-m
 
 ### 1. PII
 
-**1.1** All image data must be sent to the image scrubber lane (via writing to it's Kafka topic) rather than written to S3 directly
+**1.1** All image data must be sent to the image scrubber lane (via writing to its Kafka topic) rather than written to S3 directly
 
 **1.2** We must never fetch URLs that meet any of these criteria:
 
@@ -38,8 +38,8 @@ The [upstream Kafka consumer](/nodejs/src/ingestion/pipelines/sessionreplay/ml-m
 - appears to be a pre-signed URL
 - contains a non-empty userinfo section
 
-We treat a URL as pre-signed if it contains certain parameters or path segments. Some apply to all domains, other to
-only specific domains. These checks are all case-insensitive.
+We treat a URL as pre-signed if it contains certain parameters or path segments. Some apply to all domains and others
+only to specific domains. These checks are all case-insensitive.
 
 Query parameters:
 
@@ -65,14 +65,14 @@ Path segments:
 
 ### 2. Opt-out signals
 
-**2.1** Sites can refuse fetching by signalling this via these files:
+**2.1** Sites can refuse fetching by signaling this via these files:
 
 - `/robots.txt`
 - `/.well-known/tdmrep.json`
 
 **2.2** These files apply their rules per origin, not registrable domain
 
-**2.3** Sites can refuse fetching by signalling this via headers in the HTTP response
+**2.3** Sites can refuse fetching by signaling this via headers in the HTTP response
 
 **2.4** Headers in an HTTP response apply their rules only to that URL
 
@@ -98,17 +98,17 @@ XMP can be `DMI-PROHIBITED-AIMLTRAINING`, `DMI-PROHIBITED-GENAIMLTRAINING`, and 
 
 ### 3. robots.txt and tdmrep.json
 
-**3.1** The lane must fetch the robots.txt and tdmprep.json for an origin before fetching any image URLS on that origin
+**3.1** The lane must fetch the robots.txt and tdmrep.json for an origin before fetching any image URLs on that origin
 
-**3.2** The robots.txt and tdmprep.json must be cached for 24 hours (the maximum allowed by RFC 9309)
+**3.2** The robots.txt and tdmrep.json must be cached for 24 hours (the maximum allowed by RFC 9309)
 
-**3.3** To avoid interruptions, we start requesting robots.txt and tdmprep.json again for an origin when the cached version is 23 hours old
+**3.3** To avoid interruptions, we start requesting robots.txt and tdmrep.json again for an origin when the cached version is 23 hours old
 
-**3.4** The lane follows up to 5 redirects when requesting robots.txt and tdmprep.json, including to a different authority. This happens without needing to push any messages to Kafka.
+**3.4** The lane follows up to 5 redirects when requesting robots.txt and tdmrep.json, including to a different authority. This happens without needing to push any messages to Kafka.
 
 **3.5** A redirect chain longer than 5 counts as unreachable.
 
-**3.6** A robots.txt or tdmprep.json fetched after following redirects applies to the original origin.
+**3.6** A robots.txt or tdmrep.json fetched after following redirects applies to the original origin.
 
 **3.7** The lane tries to parse every line of the robots.txt file, and ignores lines it cannot parse
 
@@ -126,9 +126,9 @@ XMP can be `DMI-PROHIBITED-AIMLTRAINING`, `DMI-PROHIBITED-GENAIMLTRAINING`, and 
 
 **3.14** No robots.txt or tdmrep.json means that no restrictions on fetching are applied by that file (there might be signals from other sources)
 
-**3.15** Any other 4xx other than 404 or 410 means a refusal, and is treated as a disallow for the whole origin.
+**3.15** Any 4xx other than 404 or 410 means a refusal and is treated as a disallow for the whole origin.
 
-**3.16** A 429 is treated as unreachable (same behaviour as Google)
+**3.16** A 429 is treated as unreachable (same behavior as Google)
 
 **3.17** A 5xx, a timeout, or a connection error means the origin is unreachable
 
@@ -150,7 +150,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **4.5** The lane does not publish a list of egress IP addresses.
 
-**4.6** The page at https://posthog.com/docs/ai-research/image-fetcher-bot (from the User Agent) should link to this README hosted on github
+**4.6** The page at https://posthog.com/docs/ai-research/image-fetcher-bot (from the User Agent) should link to this README hosted on GitHub
 
 **4.7** The signature covers `@authority` and `signature-agent`.
 
@@ -171,13 +171,13 @@ signing key, `created`, and `expires`.
 
 **5.5** A wait is not a way around any limit (e.g. if a URL was waiting for the pod limit to free up, it must check the per-domain limit and all other limits before resuming)
 
-**5.6** There is no global handling of concurrent request limits. As the kafka topic is partitioned by registrable domain, all concurrent request limited can be handled at the pod level.
+**5.6** There is no global handling of concurrent request limits. As the Kafka topic is partitioned by registrable domain, all concurrent request limits can be handled at the pod level.
 
 **5.7** A Kafka partition rebalance should not cause us to temporarily go over pod-local limits
 
 **5.8** In-flight concurrency limits apply to all external URL fetches (e.g. `robots.txt` files), not just images. It does not apply to internal services like DynamoDB or Kafka.
 
-**5.9** Queued requests do not count towards in-flight limits, only active requests (i.,e. with a socket) do
+**5.9** Queued requests do not count towards in-flight limits. Only active requests, i.e. requests with a socket, count.
 
 **5.10** These are the limits in the system:
 
@@ -197,7 +197,7 @@ signing key, `created`, and `expires`.
 
 ### 6. Smokescreen
 
-**6.1** We must never fetch from an IP that is not globally routable (e.g. if a URL's DNS entrry points to a private IP)
+**6.1** We must never fetch from an IP that is not globally routable (e.g. if a URL's DNS entry points to a private IP)
 
 **6.2** In production deployments, all fetches (of both images and other files like `robots.txt`) must go through Smokescreen
 
@@ -213,7 +213,7 @@ signing key, `created`, and `expires`.
 
 **7.3** Repeated network failures cause an exponential back-off per registrable domain
 
-**7.4** Per-origin delays / back-off state is stored in memory on the pod
+**7.4** Per-origin delays and back-off state are stored in memory on the pod
 
 **7.5** We respect `Crawl-delay` in robots.txt, which sets a minimum interval between two requests to a domain.
 
@@ -221,7 +221,7 @@ signing key, `created`, and `expires`.
 
 **7.7** The lane uses the longer of its own interval and the `Crawl-delay`.
 
-**7.8** A delayed retry must not block processing. A delayed retry goes to the back of the queue for its current batch, and if the delay durations has not passed by the time it reaches the front of the queue, it must instead republish to a delay Kafka topic.
+**7.8** A delayed retry must not block processing. A delayed retry goes to the back of the queue for its current batch, and if the delay has not elapsed by the time it reaches the front of the queue, it must instead republish to a delay Kafka topic.
 
 **7.9** A `Crawl-delay` longer than the pass deadline immediately sends the URL to a delay topic
 
@@ -231,13 +231,13 @@ signing key, `created`, and `expires`.
 
 ### 8. Hop budget
 
-**8.1** Every retry or redirect costs one hop. This includes but is not limited to, network failures, rate limiting (e.g. HTTP 429), a redirect to the same or different registrable domain.
+**8.1** Every retry or redirect costs one hop. This includes but is not limited to network failures, rate limiting (e.g. HTTP 429), and a redirect to the same or different registrable domain.
 
 **8.2** Every URL starts with the default hop budget
 
 **8.3** When URLs are republished back to Kafka, they must also store their current hop budget and the next time it is valid for them to be retried.
 
-**8.4** Explicit refusals (such a denial by `robots.txt` or an HTTP 403/404) are not retried regardless of remaining hop budget.
+**8.4** Explicit refusals (such as a denial by `robots.txt` or an HTTP 403/404) are not retried regardless of remaining hop budget.
 
 **8.5** Retries cannot happen before the allowed time, but they may happen some time after. They should be published to the delay Kafka topic with the smallest delay that is greater than the required delay.
 
@@ -245,9 +245,9 @@ signing key, `created`, and `expires`.
 
 ### 9. Redirects
 
-**9.1** When following a redirect to another registrable-domain, send the URL back to the frontier (e.g. so that per domain limits can be respected for the new domain)
+**9.1** When following a redirect to another registrable domain, send the URL back to the frontier (e.g. so that per domain limits can be respected for the new domain)
 
-**9.2** When following a redirect to the same registrable-domain, handle it within the same Kafka batch.
+**9.2** When following a redirect to the same registrable domain, handle it within the same Kafka batch.
 
 **9.3** After a redirect, all checks must be re-run on the new URL
 
@@ -262,10 +262,10 @@ built from a redirect target matches no recording.
 
 **10.2** Use at-least-once semantics, as duplicates are acceptable for this lane, the downstream image scrub lane, and S3 storage.
 
-**10.3** The offset is committed only when it is durable (i.e. a positive result is written to the downstream kafka topic
+**10.3** The offset is committed only when it is durable (i.e. a positive result is written to the downstream Kafka topic
 and to the crawl history, or a negative result is written to crawl history)
 
-**10.4** An un-parseable message is simply dropped, there is no DLQ
+**10.4** An unparseable message is simply dropped. There is no DLQ.
 
 **10.5** A systematic error like not being able to reach Kafka or DynamoDB should throw. We should not drop messages in
 that scenario.
@@ -300,7 +300,7 @@ TODO this section needs something about Cache-Control and Expires headers
 
 **12.2** An image may be fetched again if 30 days have passed since it was last fetched
 
-**12.3** If there is a stored `ETag` The lane sends `If-None-Match` with the stored `ETag` when it fetches that URL again.
+**12.3** If there is a stored `ETag`, the lane sends `If-None-Match` with the stored `ETag` when it fetches that URL again.
 
 **12.4** If there is a stored `Last-Modified` but no `ETag`, the lane sends `If-Modified-Since` with the stored `Last-Modified`
 
@@ -316,7 +316,7 @@ does not depend on the team.
 
 **13.2** The URL used for the fetch is verbatim the same URL that was seen in a session replay.
 
-**13.3** The key is based on a canonicalised version of the URL, so that similar URLs are folded into one.
+**13.3** The key is based on a canonicalized version of the URL, so that similar URLs are folded into one.
 
 ### 14. HTTP request/response
 
@@ -332,13 +332,13 @@ does not depend on the team.
 
 **14.5** The lane refuses a response where `Content-Length` is over the byte limit
 
-**14.6** The lane refuses a response where the total number of bytes sent is over the bytes limit, as soon as the byte limit is exceeded.
+**14.6** The lane refuses a response as soon as the total number of bytes sent exceeds the byte limit.
 
-**14.7** The byte limits refers to bytes over the wire, which means it can refer to the compressed bytes.
+**14.7** The byte limit applies to bytes over the wire, including compressed bytes.
 
-**14.8** A compressed response should be submitted to the kafka topic still compressed, this lane never decompresses whole responses.
+**14.8** The lane should submit a compressed response to the Kafka topic without decompressing it. The lane never decompresses whole responses.
 
-**14.9** This lane is not responsible for checking any limit on uncompressed size, that happens in the image scrubber
+**14.9** This lane is not responsible for checking any limit on uncompressed size. The image scrubber checks the uncompressed size.
 
 **14.10** The lane accepts these media types and refuses every other one:
 
@@ -355,7 +355,7 @@ does not depend on the team.
 
 ### 15. Crawl history store
 
-**15.1** The crawl history store uses Dynamo DB
+**15.1** The crawl history store uses DynamoDB
 
 **15.2** It stores items with a TTL of 30 days
 
@@ -371,7 +371,7 @@ does not depend on the team.
 
 ## 16. Delay topics
 
-**16.1** As kafka has no concept of delay an individual message for a set amount of time, we instead delay messages by sending them to a delay queue
+**16.1** Kafka cannot delay an individual message for a set amount of time. We delay messages by sending them to a delay queue
 
 **16.2** There are 3 delay queues with 3 different delay times
 
