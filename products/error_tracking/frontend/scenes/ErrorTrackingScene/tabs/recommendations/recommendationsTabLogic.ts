@@ -270,8 +270,15 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                     return
                 }
                 // force=false: just re-pulls enriched meta, no recompute. So we don't mark computing.
-                const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
-                actions.upsertRecommendation(updated)
+                try {
+                    const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
+                    actions.upsertRecommendation(updated)
+                } catch {
+                    // The status change already applied on the server; only re-pulling the enriched
+                    // card failed. Surface it rather than let the rejection escape as an unhandled
+                    // error. The card keeps its current row until the next load or poll reconciles it.
+                    lemonToast.error('Failed to refresh recommendation')
+                }
             } finally {
                 actions.finishIssueMutation(issueId)
             }

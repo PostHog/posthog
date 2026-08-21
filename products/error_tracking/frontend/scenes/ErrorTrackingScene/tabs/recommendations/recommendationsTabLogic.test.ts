@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
@@ -84,6 +86,23 @@ describe('recommendationsTabLogic', () => {
 
         const visible = logic.values.activeRecommendations[0] as LongRunningIssuesRecommendation
         expect(visible.meta.issues.map((i) => i.id)).toEqual(['stays'])
+    })
+
+    // The status update can succeed while re-pulling the enriched card fails (network drop, 5xx).
+    // That refresh rejection must be caught — not escape the listener as an unhandled error — and
+    // the user must get a toast instead of a silent no-op.
+    it('shows a toast and clears pending when the refresh after a successful suppress fails', async () => {
+        logic.actions.setRecommendations([longRunningRecommendation([issue('one')])])
+        jest.spyOn(api.errorTracking, 'updateIssue').mockResolvedValue({} as any)
+        jest.spyOn(api.errorTracking, 'refreshRecommendation').mockRejectedValue(new Error('network'))
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+
+        await expectLogic(logic, () => {
+            logic.actions.suppressIssue('one')
+        }).toDispatchActions(['startIssueMutation', 'finishIssueMutation'])
+
+        expect(toastError).toHaveBeenCalledWith('Failed to refresh recommendation')
+        expect(logic.values.pendingIssueIds.has('one')).toBe(false)
     })
 
     // The button spinner reads from pendingIssueIds; it must clear whether the update succeeds or fails.
