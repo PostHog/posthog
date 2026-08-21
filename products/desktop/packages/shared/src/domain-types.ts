@@ -276,6 +276,11 @@ export interface TaskActivityMarkReadResult {
   unread_count: number;
 }
 
+export interface TaskActivityMarkUnreadResult {
+  marked_unread: number;
+  unread_count: number;
+}
+
 export type TaskRunStatus =
   | "not_started"
   | "queued"

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   isFetchingNextPage: false,
   items: [] as TaskActivityItem[],
   markRead: vi.fn(),
+  markUnread: vi.fn(),
 }));
 
 vi.mock("@posthog/quill", () => ({
@@ -71,6 +72,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead", () => ({
   useMarkTaskActivityRead: () => ({
     mutate: mocks.markRead,
+    isPending: false,
+  }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useMarkTaskActivityUnread", () => ({
+  useMarkTaskActivityUnread: () => ({
+    mutate: mocks.markUnread,
     isPending: false,
   }),
 }));

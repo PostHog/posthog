@@ -1011,6 +1011,8 @@ export type ChannelActionType =
   | "copy_link"
   | "mention_member"
   | "view_activity"
+  | "mark_activity_read"
+  | "mark_activity_unread"
   | "open_mention"
   | "activity_tab_change";
 

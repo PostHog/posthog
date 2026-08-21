@@ -60,6 +60,7 @@ import type {
   SuggestedReviewerWriteEntry,
   Task,
   TaskActivityMarkReadResult,
+  TaskActivityMarkUnreadResult,
   TaskActivityPage,
   TaskActivityReadMarker,
   TaskChannel,
@@ -2930,6 +2931,27 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as TaskActivityMarkReadResult;
+  }
+
+  async markTaskActivityUnread(
+    activities: TaskActivityReadMarker[],
+  ): Promise<TaskActivityMarkUnreadResult> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_activity/mark_unread/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ activities }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to mark task activity unread: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TaskActivityMarkUnreadResult;
   }
 
   async getTaskThreadMessages(taskId: string): Promise<TaskThreadMessage[]> {
