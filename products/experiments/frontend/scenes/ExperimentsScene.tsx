@@ -25,6 +25,24 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
+import { CopyExperimentToProjectModal } from 'scenes/experiments/CopyExperimentToProjectModal'
+import { DuplicateExperimentModal } from 'scenes/experiments/DuplicateExperimentModal'
+import {
+    canArchiveExperiment,
+    confirmArchiveExperiment,
+    confirmDeleteExperiment,
+} from 'scenes/experiments/experimentActions'
+import {
+    EXPERIMENTS_PER_PAGE,
+    ExperimentsFilters,
+    experimentsLogic,
+    getExperimentStatus,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from 'scenes/experiments/experimentsLogic'
+import { ExperimentVelocityStats } from 'scenes/experiments/ExperimentVelocityStats'
+import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -47,27 +65,16 @@ import {
 } from '~/types'
 
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
-
-import { CONCLUSION_DISPLAY_CONFIG } from './constants'
-import { CopyExperimentToProjectModal } from './CopyExperimentToProjectModal'
-import { DuplicateExperimentModal } from './DuplicateExperimentModal'
-import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from './experimentActions'
-import {
-    EXPERIMENTS_PER_PAGE,
-    ExperimentsFilters,
-    experimentsLogic,
-    getExperimentStatus,
-    getShippedVariantKey,
-    isSingleVariantShipped,
-} from './experimentsLogic'
-import { ExperimentsSettings } from './ExperimentsSettings'
-import { ExperimentVelocityStats } from './ExperimentVelocityStats'
-import { StatusTag } from './ExperimentView/StatusTag'
-import { Holdouts } from './Holdouts'
-import { SharedMetrics } from './SharedMetrics/SharedMetrics'
+/**
+ * these scenes are handled as child components. This works fine, but breaks the expectation of scenes
+ * having their own routes.
+ */
+import { ExperimentsHoldoutsScene } from 'products/experiments/frontend/scenes/ExperimentsHoldoutsScene'
+import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
+import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
 
 export const scene: SceneExport = {
-    component: Experiments,
+    component: ExperimentsScene,
     logic: experimentsLogic,
     productKey: ProductKey.EXPERIMENTS,
     emptyState: experimentsEmptyState,
@@ -537,7 +544,7 @@ const ExperimentsTable = ({
     )
 }
 
-export function Experiments(): JSX.Element {
+export function ExperimentsScene(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
@@ -638,9 +645,9 @@ export function Experiments(): JSX.Element {
                     {
                         key: ExperimentsTabs.SharedMetrics,
                         label: 'Shared metrics',
-                        content: <SharedMetrics />,
+                        content: <ExperimentsSharedMetricsScene />,
                     },
-                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <Holdouts /> },
+                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <ExperimentsHoldoutsScene /> },
                     {
                         key: ExperimentsTabs.History,
                         label: 'History',
@@ -649,7 +656,7 @@ export function Experiments(): JSX.Element {
                     {
                         key: ExperimentsTabs.Settings,
                         label: 'Settings',
-                        content: <ExperimentsSettings />,
+                        content: <ExperimentsSettingsScene />,
                     },
                 ]}
             />
@@ -680,3 +687,5 @@ export function Experiments(): JSX.Element {
         </SceneContent>
     )
 }
+
+export default ExperimentsScene
