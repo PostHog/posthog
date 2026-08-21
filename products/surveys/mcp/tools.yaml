@@ -135,8 +135,8 @@ tools:
         title: Get a specific survey by ID.
         description: >
             Get a specific survey by ID. Returns its questions, targeting flag — including current property targeting
-            rules under targeting_flag.filters — and scheduling details. To change targeting, use
-            targeting_flag_filters with survey-update.
+            rules under targeting_flag.filters — and scheduling details. To change targeting, use targeting_flag_filters
+            with survey-update.
         ui_app: survey
     survey-launch:
         operation: surveys_launch
@@ -246,8 +246,8 @@ tools:
                     Update an in-app survey's person, group, or cohort property targeting. Pass rules in
                     groups[].properties[], each with key, value, operator, and an optional type. Use this instead of
                     conditions for property targeting. Complete replacement: fetch the survey first, start from
-                    targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use
-                    this for external_survey forms.
+                    targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this
+                    for external_survey forms.
             translations:
                 description: >
                     Complete replacement survey-level translations object. Do not provide this field unless changing
