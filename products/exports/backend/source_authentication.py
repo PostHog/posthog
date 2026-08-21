@@ -43,6 +43,8 @@ def required_scopes_for_export_target(
     context = export_context or {}
     if context.get("session_recording_id"):
         scopes.append("session_recording:read")
+    if context.get("heatmap_url"):
+        scopes.append("heatmap:read")
     source = context.get("source")
     if source is not None:
         scopes.extend(required_scopes_for_query_payload(source) or ["query:read"])

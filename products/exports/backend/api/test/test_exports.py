@@ -40,6 +40,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
+from products.exports.backend.source_authentication import required_scopes_for_export_target
 from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER
 from products.exports.backend.tasks.image_exporter import export_image
 from products.product_analytics.backend.facade.models import Insight
@@ -77,6 +78,13 @@ class TestExports(APIBaseTest):
         )
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_ROOT_BUCKET).delete()
+
+    def test_heatmap_export_requires_heatmap_scope(self) -> None:
+        assert required_scopes_for_export_target(
+            insight_id=None,
+            dashboard_id=None,
+            export_context={"heatmap_url": "https://example.com/page"},
+        ) == ["export:write", "heatmap:read"]
 
     insight_filter_dict = {
         "events": [{"id": "$pageview"}],
