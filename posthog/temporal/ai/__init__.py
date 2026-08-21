@@ -39,7 +39,7 @@ POSTHOG_CODE_SLACK_WORKFLOWS = [
     PostHogSlackInboxOnboardingWorkflow,
 ]
 
-POSTHOG_CODE_SLACK_ACTIVITIES = [*SLACK_APP_ACTIVITIES, process_slack_app_fork_thread_activity]
+POSTHOG_CODE_SLACK_ACTIVITIES = [*SLACK_APP_ACTIVITIES]
 
 AI_WORKFLOWS = [
     SyncVectorsWorkflow,

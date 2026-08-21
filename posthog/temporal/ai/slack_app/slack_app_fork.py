@@ -46,4 +46,3 @@ class SlackAppForkThreadWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=SLACK_APP_FORK_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-from posthog.temporal.ai.slack_app.types import SlackAppForkThreadInputs
