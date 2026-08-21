@@ -363,6 +363,10 @@ export function QueryWindow({
                         keepCurrentModel: true,
                         metadataQuery: activeQueryText ?? undefined,
                         metadataQueryOffset: activeQueryOffset,
+                        // Set here rather than only where the tab's Monaco model is created: an editor
+                        // that mounts against an existing model never runs that path, and would then
+                        // ask for metadata without the index report.
+                        indexUsage: true,
                         onChange: (v) => {
                             setQueryInput(v ?? '')
                         },
