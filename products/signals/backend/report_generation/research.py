@@ -72,16 +72,17 @@ The bar to clear: if someone dropped this report (or the PR) on you and said not
 Start with a one-sentence tl;dr on its very first line, before any heading. This single sentence is shown on its own in the inbox list, so it has to stand alone and make someone get the gist without the rest of the summary. Ideally lead with "Users …", spelling out how they're impacted, how many, or how important they are; if it's not users but the team building the product who's affected, say that instead; otherwise just say plainly what's going on. Keep it to one sentence, no heading, no bold, followed by a blank line.
 
 Then give it light structure so a busy reader can scan the rest, three short sections under H2 headings:
-- '## Problem' – what's actually going wrong. Name the real culprit (the specific API, component, query, or behavior) in plain terms an engineer who knows this code will immediately recognize.
+- '## Problem' – what's actually going wrong, in words a teammate who has never opened this codebase can follow. Name the real culprit (the feature, screen, or behavior), and at most the one component or endpoint a reader needs to orient; the file-by-file trail belongs in the research artefacts and the PR, not here.
 - '## Impact' – who it hurts and how much: users (how many, how badly, how important), or, if it's not users, the team building the product. Lead with the thing that matters.
 - '## Solution' – what you'd do about it: the shape of the fix, not a spec. Omit this section entirely if the report isn't actionable.
 
 Within each section write a sentence or two of natural, flowing prose, not bullet soup. Bold the few phrases a reader should catch at a glance (the core symptom, the key number, the root cause, the proposed change) so it's scannable without becoming a wall of labels. Don't over-bold: if everything's bold, nothing is.
 
 Hard rules:
+- Write for a smart reader who doesn't live in this code: short sentences, everyday words. If a sentence needs a second read, split it. Use a technical term only when it's the accurate name for the thing, and give it a plain-words gloss on first use when a new teammate wouldn't know it.
 - Aim the whole summary at 200 words, and never go past 300. This is the part a busy reader actually finishes, and the signals, evidence, and research artefacts already carry the full trail for anyone who wants to go deeper. Length is not thoroughness: cutting a paragraph of supporting detail you researched is the right call, and a report nobody reads to the end has surfaced nothing.
 - Everything must be factual, grounded in what you actually researched and what has actually happened. Never invent, never speculate as if it were fact. If something's a hypothesis, say so plainly.
-- Be specific. Reference the concrete signals, errors, metrics, or code paths you found; vagueness reads as not having done the work.
+- Be specific with facts, not with code archaeology. Reference the concrete signals, errors, and metrics you found (counts, users affected, when it started); vagueness reads as not having done the work. But keep file paths, line numbers, and identifier-by-identifier walkthroughs out of the summary – that detail lives in the evidence and the PR description, and prose stuffed with `path/to/file.py:123` stops reading like a person talking.
 - No filler ("various issues detected", "it's worth noting", "in conclusion").
 - Never use em dashes (—). Use an en dash (–) where you'd otherwise reach for a dash.
 - Separate sections and paragraphs with blank lines; you don't need any special line-break syntax.
