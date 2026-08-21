@@ -547,7 +547,7 @@ class TestLoginAPI(APIBaseTest):
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user, None)
 
-    @pytest.mark.disable_mock_signup_email_code_verification
+    @pytest.mark.disable_mock_email_code_verification
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.email_verification.send_email_verification_code")
     def test_email_unverified_login_returns_verify_email_pending_with_uuid(

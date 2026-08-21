@@ -1,5 +1,5 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}{% block section %}
-<p>Welcome to PostHog! To verify your email address, enter this code on the verification page:</p>
+<p>Enter this code to verify your email address:</p>
 
 <div class="mb mt text-center">
     <p style="font-size: 32px; font-weight: 700; letter-spacing: 8px; margin: 0;">{{code}}</p>
@@ -9,5 +9,7 @@
 
 <hr />
 
-<p class="muted">If you didn't create a PostHog account, you can ignore this email.</p>
+<p class="muted">
+    If you didn't {% if action == "email_change" %}request to change your email{% else %}create a PostHog account{% endif %}, you can ignore this email.
+</p>
 {% endblock %} {% block preheader %}{{preheader}}{% endblock %}{% block heading %}Verify your email address.{% endblock %}

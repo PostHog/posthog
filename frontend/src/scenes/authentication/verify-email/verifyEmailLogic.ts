@@ -183,6 +183,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                             token?: string
                             requires_2fa?: boolean
                             requires_login?: boolean
+                            requires_sso?: boolean
                         }>(`api/users/verify_email/`, { token, uuid })
                         actions.setView('success')
                         await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
@@ -197,6 +198,11 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         }
                         if (response.requires_login) {
                             lemonToast.success('Email verified! Log in to continue.')
+                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+                            return { success: true, token, uuid }
+                        }
+                        if (response.requires_sso) {
+                            lemonToast.success('Email verified! Log in with SSO to continue.')
                             router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
                             return { success: true, token, uuid }
                         }
@@ -239,6 +245,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                             success: boolean
                             requires_2fa?: boolean
                             requires_login?: boolean
+                            requires_sso?: boolean
                         }>(`api/users/verify_email/`, { uuid, code })
                         actions.setView('success')
                         await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
@@ -252,6 +259,11 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         }
                         if (response.requires_login) {
                             lemonToast.success('Email verified! Log in to continue.')
+                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+                            return { success: true, uuid }
+                        }
+                        if (response.requires_sso) {
+                            lemonToast.success('Email verified! Log in with SSO to continue.')
                             router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
                             return { success: true, uuid }
                         }

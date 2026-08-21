@@ -492,13 +492,13 @@ def mock_code_based_verifier(request, mocker):
 
 
 @pytest.fixture(autouse=True)
-def mock_signup_email_code_verification(request, mocker):
+def mock_email_code_verification(request, mocker):
     """
-    Keep the pre-existing email-verification tests on the link flow: signup verification sends a
-    6-digit code by default, which would bypass every mock of the link-email sender. Tests covering
-    the code flow opt out with @pytest.mark.disable_mock_signup_email_code_verification.
+    Keep the pre-existing email-verification tests on the link flow: signup and email-change
+    verification send a 6-digit code by default, which would bypass every mock of the link-email
+    sender. Tests covering the code flow opt out with @pytest.mark.disable_mock_email_code_verification.
     """
-    if "disable_mock_signup_email_code_verification" in request.keywords:
+    if "disable_mock_email_code_verification" in request.keywords:
         return
 
     mocker.patch(

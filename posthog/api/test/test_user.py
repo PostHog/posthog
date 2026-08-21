@@ -25,7 +25,7 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
-from posthog.api.email_verification import email_verification_token_generator, signup_email_code_verifier
+from posthog.api.email_verification import email_verification_code_verifier, email_verification_token_generator
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import UserSerializer
 from posthog.constants import AvailableFeature
@@ -3126,7 +3126,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mail.outbox[0].to, ["new-address@posthog.com"])
 
 
-@pytest.mark.disable_mock_signup_email_code_verification
+@pytest.mark.disable_mock_email_code_verification
 class TestEmailVerificationCodeAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
@@ -3134,7 +3134,7 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         cache.clear()
         super().setUp()
         set_instance_setting("EMAIL_HOST", "localhost")
-        signup_email_code_verifier.invalidate(self.user)
+        email_verification_code_verifier.invalidate(self.user)
 
     def _request_code(self) -> str:
         """Trigger a resend and capture the emailed code at the send boundary."""
@@ -3228,20 +3228,25 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         assert f"https://my.posthog.net/verify_email/{self.user.uuid}/" in html_message
 
-    def test_pending_email_change_still_uses_the_token_link(self):
+    def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(self):
         self.user.is_email_verified = True
         self.user.pending_email = "new-address@posthog.com"
         self.user.save()
 
-        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send_code:
-            with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
                 response = self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_send_code.assert_not_called()
-        assert len(mail.outbox) == 1
-        assert mail.outbox[0].to == ["new-address@posthog.com"]
+        code = mock_send.call_args[0][1]
+        assert mock_send.call_args[0][2] == "new-address@posthog.com"
 
-    def test_code_is_not_accepted_for_pending_email_change(self):
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        assert self.user.email == "new-address@posthog.com"
+        assert self.user.pending_email is None
+
+    def test_signup_code_does_not_authorize_an_email_change(self):
         code = self._request_code()
         self.user.is_email_verified = True
         self.user.pending_email = "new-address@posthog.com"
@@ -3252,6 +3257,25 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "invalid_code")
         self.user.refresh_from_db()
         assert self.user.pending_email == "new-address@posthog.com"
+
+    def test_code_dies_when_a_different_pending_address_is_staged(self):
+        self.user.is_email_verified = True
+        self.user.pending_email = "first@posthog.com"
+        self.user.save()
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        code_for_first = mock_send.call_args[0][1]
+
+        self.user.pending_email = "second@posthog.com"
+        self.user.save()
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code_for_first})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+        self.user.refresh_from_db()
+        assert self.user.email != "first@posthog.com"
+        assert self.user.pending_email == "second@posthog.com"
 
 
 class TestUserTwoFactor(APIBaseTest):

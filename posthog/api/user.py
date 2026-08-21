@@ -46,7 +46,11 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
-from posthog.api.email_verification import EmailVerifier, email_verification_token_generator, signup_email_code_verifier
+from posthog.api.email_verification import (
+    EmailVerifier,
+    email_verification_code_verifier,
+    email_verification_token_generator,
+)
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -823,8 +827,13 @@ class UserSerializer(serializers.ModelSerializer):
                 token = email_verification_token_generator.make_token(instance)
             # Send after the transaction commits (never inside the atomic block), pinning the
             # recipient to the captured address so a later pending_email change can't redirect
-            # this token's verification email.
-            EmailVerifier.send_verification_email(instance, token, target_email=new_email)
+            # this verification email. The code path stores that address as the code's target,
+            # so a stale code stops verifying once a different address is staged.
+            if not (
+                EmailVerifier.use_verification_code(instance)
+                and email_verification_code_verifier.send_code(instance, target_email=new_email)
+            ):
+                EmailVerifier.send_verification_email(instance, token, target_email=new_email)
 
         if validated_data.get("notification_settings"):
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
@@ -1175,28 +1184,27 @@ class UserViewSet(
             return Response({"success": True, "requires_login": True})
 
         if code and not token:
-            if not user or user.pending_email:
-                # Codes are only ever issued for signup verification; an email change needs its link.
+            if not user:
                 raise serializers.ValidationError(
                     {"code": ["This verification code is invalid or has expired."]},
                     code="invalid_code",
                 )
-            attempts = signup_email_code_verifier.reserve_attempt(user)
-            if signup_email_code_verifier.attempts_exceeded(attempts):
-                signup_email_code_verifier.invalidate(user)
+            attempts = email_verification_code_verifier.reserve_attempt(user)
+            if email_verification_code_verifier.attempts_exceeded(attempts):
+                email_verification_code_verifier.invalidate(user)
                 raise serializers.ValidationError(
                     {"code": ["Too many incorrect attempts. Request a new code."]},
                     code="too_many_attempts",
                 )
             normalized_code = normalize_verification_code(code)
-            if not re.fullmatch(r"\d{6}", normalized_code) or not signup_email_code_verifier.check_code(
+            if not re.fullmatch(r"\d{6}", normalized_code) or not email_verification_code_verifier.check_code(
                 user, normalized_code
             ):
                 raise serializers.ValidationError(
                     {"code": ["This verification code is invalid or has expired."]},
                     code="invalid_code",
                 )
-            signup_email_code_verifier.invalidate(user)
+            email_verification_code_verifier.invalidate(user)
         elif not user or not token or not EmailVerifier.check_token(user, token):
             raise serializers.ValidationError(
                 {"token": ["This verification token is invalid or has expired."]},
@@ -1281,6 +1289,9 @@ class UserViewSet(
 
         instance.pending_email = None
         instance.save()
+        # The target binding already rejects the staged address's code once pending_email clears;
+        # dropping the state as well keeps no dead code and attempt counter around for the TTL.
+        email_verification_code_verifier.invalidate(instance)
 
         return Response(self.get_serializer(instance=instance).data)
 
