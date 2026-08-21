@@ -21,6 +21,13 @@ Measured locally: two identical batches landing in separate parts read as 6 rows
 | `error-tracking` | `exceptions`               | events      | the event UUID                                                                                  | `USAGE_INGESTION_REPORT_EXCEPTIONS_TEAMS` |
 | `cdp`            | `cdp_billable_invocations` | invocations | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | `USAGE_INGESTION_REPORT_CDP_TEAMS`        |
 | `feature-flags`  | `feature_flag_requests`    | requests    | fresh UUIDv7 per flush                                                                          | `FLAGS_USAGE_INGESTION_TEAMS`             |
+| `ingestion`      | `survey_responses`          | events      | `survey_responses:{event UUID}`                                                                 | `USAGE_INGESTION_REPORT_SURVEYS_TEAMS`    |
+| `warehouse-sources` | `warehouse_rows_synced`  | rows        | `warehouse-sync:{ExternalDataJob ID}`                                                           | `USAGE_INGESTION_REPORT_WAREHOUSE_ROWS_TEAMS` |
+| `batch-exports`  | `batch_export_rows`         | rows        | `batch-export:{BatchExportRun ID}`                                                              | `USAGE_INGESTION_REPORT_BATCH_EXPORTS_TEAMS` |
+| `replay-vision` | `replay_vision_credits`     | credits     | `replay-vision:{observation ID}`                                                                | `USAGE_INGESTION_REPORT_REPLAY_VISION_TEAMS` |
+| `logs`           | `logs_bytes`, `logs_records`| bytes, records | per-flush team and metric identity                                                            | `USAGE_INGESTION_REPORT_LOGS_TEAMS`       |
+| `apm`            | `apm_bytes`, `apm_spans`    | bytes, records | per-flush team and metric identity                                                            | `USAGE_INGESTION_REPORT_APM_TEAMS`        |
+| `session-replay` | `session_replay_recordings` | recordings    | `replay:{session_id}`                                                                          | `USAGE_INGESTION_REPORT_SESSION_REPLAY_TEAMS` |
 
 Each env var is a team list, so a producer rolls out independently: `''` reports nothing, `*` every team, `1,2` those teams.
 Empty is the default everywhere, so nothing reports until it is set.
@@ -179,4 +186,4 @@ FROM billing_usage_records GROUP BY 1, 2 ORDER BY 1, 2
 
 ## What is not reported yet
 
-Session replay, surveys, data warehouse rows synced, batch export rows, logs and APM all still reach billing only through the nightly usage report.
+All current collectors mirror usage into usage-ingestion. Existing billing still reads the nightly usage report.

@@ -147,6 +147,10 @@ export type CommonConfig = BaseServerConfig & {
     USAGE_INGESTION_REPORT_AI_EVENTS_TEAMS: string
     USAGE_INGESTION_REPORT_EXCEPTIONS_TEAMS: string
     USAGE_INGESTION_REPORT_CDP_TEAMS: string
+    USAGE_INGESTION_REPORT_SURVEYS_TEAMS: string
+    USAGE_INGESTION_REPORT_LOGS_TEAMS: string
+    USAGE_INGESTION_REPORT_APM_TEAMS: string
+    USAGE_INGESTION_REPORT_SESSION_REPLAY_TEAMS: string
 
     // Redis
     REDIS_URL: string
@@ -339,6 +343,10 @@ export function getDefaultCommonConfig(): CommonConfig {
         USAGE_INGESTION_REPORT_AI_EVENTS_TEAMS: '',
         USAGE_INGESTION_REPORT_EXCEPTIONS_TEAMS: '',
         USAGE_INGESTION_REPORT_CDP_TEAMS: '',
+        USAGE_INGESTION_REPORT_SURVEYS_TEAMS: '',
+        USAGE_INGESTION_REPORT_LOGS_TEAMS: '',
+        USAGE_INGESTION_REPORT_APM_TEAMS: '',
+        USAGE_INGESTION_REPORT_SESSION_REPLAY_TEAMS: '',
 
         // Redis
         // ok to connect to localhost over plaintext

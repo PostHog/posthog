@@ -9,6 +9,7 @@ import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { isDevEnv } from '~/common/utils/env-utils'
@@ -64,6 +65,7 @@ export interface LogsIngestionConsumerDeps {
      * directly.
      */
     outputs: IngestionOutputs<LogsOutput | LogsDlqOutput | AppMetricsOutput>
+    usageBatch?: UsageRecordBatch
 }
 
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
@@ -1031,11 +1033,30 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
+            const source = this.appSource === 'traces' ? 'apm' : 'logs'
+            const now = Date.now()
+            this.deps.usageBatch?.add(
+                teamId,
+                `${source}_bytes`,
+                `${source}:${teamId}:${now}:bytes`,
+                undefined,
+                stats.bytesAllowed,
+                'bytes'
+            )
+            this.deps.usageBatch?.add(
+                teamId,
+                source === 'apm' ? 'apm_spans' : 'logs_records',
+                `${source}:${teamId}:${now}:records`,
+                undefined,
+                stats.recordsAllowed,
+                'records'
+            )
         }
 
         // Best-effort: don't let metric failures block ingestion
         try {
             await this.appMetricsAggregator.flush()
+            await this.deps.usageBatch?.flush()
         } catch (error) {
             logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
         }

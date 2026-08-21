@@ -387,9 +387,16 @@ export class IngestionConsumer {
     }
 
     private createEventUsageBatch(): () => UsageRecordBatch {
-        const client = createUsageIngestionClient(this.config, 'events')
+        const client = createUsageIngestionClient(this.config, 'events') ?? createUsageIngestionClient(this.config, 'surveys')
         const isTeamEnabled = usageReportTeamMatcher(this.config, 'events')
-        return () => new UsageRecordBatch(client, { unit: 'events', isTeamEnabled })
+        const isSurveyTeamEnabled = usageReportTeamMatcher(this.config, 'surveys')
+        return () =>
+            new UsageRecordBatch(client, {
+                unit: 'events',
+                isTeamEnabled: () => true,
+                isUsageKeyEnabled: (teamId, usageKey) =>
+                    usageKey === 'survey_responses' ? isSurveyTeamEnabled(teamId) : isTeamEnabled(teamId),
+            })
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {

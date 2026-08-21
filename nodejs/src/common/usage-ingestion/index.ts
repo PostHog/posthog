@@ -14,15 +14,23 @@ export type UsageIngestionConfig = Pick<
     | 'USAGE_INGESTION_REPORT_AI_EVENTS_TEAMS'
     | 'USAGE_INGESTION_REPORT_EXCEPTIONS_TEAMS'
     | 'USAGE_INGESTION_REPORT_CDP_TEAMS'
+    | 'USAGE_INGESTION_REPORT_SURVEYS_TEAMS'
+    | 'USAGE_INGESTION_REPORT_LOGS_TEAMS'
+    | 'USAGE_INGESTION_REPORT_APM_TEAMS'
+    | 'USAGE_INGESTION_REPORT_SESSION_REPLAY_TEAMS'
 >
 
-export type UsageReportSite = 'events' | 'ai_events' | 'exceptions' | 'cdp'
+export type UsageReportSite = 'events' | 'ai_events' | 'exceptions' | 'cdp' | 'surveys' | 'logs' | 'apm' | 'session_replay'
 
 const TEAM_MATCHER_KEYS = {
     events: 'USAGE_INGESTION_REPORT_EVENTS_TEAMS',
     ai_events: 'USAGE_INGESTION_REPORT_AI_EVENTS_TEAMS',
     exceptions: 'USAGE_INGESTION_REPORT_EXCEPTIONS_TEAMS',
     cdp: 'USAGE_INGESTION_REPORT_CDP_TEAMS',
+    surveys: 'USAGE_INGESTION_REPORT_SURVEYS_TEAMS',
+    logs: 'USAGE_INGESTION_REPORT_LOGS_TEAMS',
+    apm: 'USAGE_INGESTION_REPORT_APM_TEAMS',
+    session_replay: 'USAGE_INGESTION_REPORT_SESSION_REPLAY_TEAMS',
 } as const
 
 const PRODUCER_IDS = {
@@ -30,6 +38,10 @@ const PRODUCER_IDS = {
     ai_events: 'ai-ingestion',
     exceptions: 'error-tracking',
     cdp: 'cdp',
+    surveys: 'ingestion',
+    logs: 'logs',
+    apm: 'apm',
+    session_replay: 'session-replay',
 } as const
 
 export function usageReportTeamMatcher(config: UsageIngestionConfig, site: UsageReportSite): ValueMatcher<number> {

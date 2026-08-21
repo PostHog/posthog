@@ -3,6 +3,7 @@ import json
 import typing
 import datetime as dt
 import dataclasses
+import asyncio
 
 from django.conf import settings
 
@@ -19,6 +20,7 @@ from temporalio.workflow import ParentClosePolicy, start_child_workflow
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
+from posthog.usage_ingestion.client import UsageRecord, report_usage
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
@@ -353,6 +355,24 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         logger=logger,
         team_id=inputs.team_id,
     )
+
+    if inputs.status == ExternalDataJob.Status.COMPLETED:
+        completed_job = await database_sync_to_async_pool(ExternalDataJob.objects.get)(id=job_id)
+        if completed_job.billable and completed_job.rows_synced:
+            await asyncio.to_thread(
+                report_usage,
+                [
+                    UsageRecord(
+                        record_id=f"warehouse-sync:{completed_job.id}",
+                        producer_id="warehouse-sources",
+                        team_id=completed_job.team_id,
+                        usage_key="warehouse_rows_synced",
+                        unit="rows",
+                        quantity=completed_job.rows_synced,
+                    )
+                ],
+                site="warehouse_rows",
+            )
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",
