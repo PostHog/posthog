@@ -209,6 +209,10 @@ jobs:
                   if [ -n "$DAGSTER_RUN_ID" ]; then
                       gh run download "$DAGSTER_RUN_ID" --pattern "timing_data-Dagster-*" --dir timing_artifacts
                       echo "Downloaded Dagster timing artifacts"
+                      # JUnit too, so the Dagster segment can prune dead nodeids like the others.
+                      # Naming differs from the backend artifacts: junit-results-dagster-N.
+                      gh run download "$DAGSTER_RUN_ID" --pattern "junit-results-dagster-*" --dir junit_artifacts || \
+                          echo "::warning::No Dagster JUnit artifacts found — Dagster runs unscoped"
                   else
                       echo "Skipping Dagster timing artifacts (no suitable run found)"
                   fi
@@ -220,17 +224,37 @@ jobs:
               run: |
                   # Process each segment separately with migration tax correction, then merge.
                   # Core, Temporal, and Products use JUnit for precise carrier detection.
-                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
-                      --segment Core --junit-dir junit_artifacts
-                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
-                      --segment Temporal --junit-dir junit_artifacts
+                  # Scope Core, Temporal, and Dagster to the nodeids their run's JUnit saw run.
+                  # Every shard restores the merged union and refreshes only its own slice, so
+                  # without scoping a deleted or renamed test rides every refresh and never
+                  # leaves these files, and the union merge below keeps inflating sharding
+                  # budgets with dead nodeids. --scope-to-junit hard-fails when JUnit artifacts
+                  # are missing, so retry unscoped to keep the existing behavior.
+                  if ! uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
+                      --segment Core --junit-dir junit_artifacts --scope-to-junit; then
+                      echo "::warning::Scoped Core durations failed, retrying unscoped"
+                      uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
+                          --segment Core --junit-dir junit_artifacts
+                  fi
+                  if ! uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
+                      --segment Temporal --junit-dir junit_artifacts --scope-to-junit; then
+                      echo "::warning::Scoped Temporal durations failed, retrying unscoped"
+                      uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
+                          --segment Temporal --junit-dir junit_artifacts
+                  fi
+                  # Products has its own guarded scoping inside the script (only scopes when the
+                  # JUnit shard set is complete), so no flag here.
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
                       --segment Products --junit-dir junit_artifacts
 
                   # Process Dagster segment if available
                   if [ -n "$DAGSTER_RUN_ID" ]; then
-                      uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/dagster_durations \
-                          --segment Dagster
+                      if ! uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/dagster_durations \
+                          --segment Dagster --junit-dir junit_artifacts --scope-to-junit; then
+                          echo "::warning::Scoped Dagster durations failed, retrying unscoped"
+                          uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/dagster_durations \
+                              --segment Dagster
+                      fi
                       echo "Processed Dagster timing data"
                   fi
 

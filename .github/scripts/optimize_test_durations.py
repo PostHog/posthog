@@ -86,6 +86,7 @@ _JUNIT_ARTIFACT_PREFIX = {
     "CorePOE": "junit-results-backend-core-poe",
     "Temporal": "junit-results-backend-temporal",
     "Products": "product-junit-results",
+    "Dagster": "junit-results-dagster",
 }
 
 
@@ -111,18 +112,34 @@ class JUnitShard:
         Segment match is anchored at the artifact prefix so "Core" doesn't
         accidentally pick up "core-poe" or any future "*-core-*" name, and
         "CorePOE" matches "core-poe" instead of the absent substring "corepoe".
+
+        Re-run attempts upload as `<shard>-attempt<N>` (attempt 1 carries no
+        suffix). When a shard was re-run, only its newest attempt reflects the
+        run's final state, so superseded attempt dirs are dropped here; the
+        newest attempt dir is renamed to the base shard name so downstream
+        shard-set matching sees one entry per shard.
         """
-        shards = []
+        # Collapse re-run attempt dirs: key each shard by its base name and
+        # keep the highest attempt number (attempt 1 is the unsuffixed dir).
+        by_base: dict[str, tuple[int, Path]] = {}
         for shard_dir in sorted(junit_dir.iterdir()):
             if not shard_dir.is_dir():
                 continue
+            match = re.match(r"^(.*?)(?:-attempt(\d+))?$", shard_dir.name.lower())
+            if not match:
+                continue
+            base, attempt_n = match.group(1), int(match.group(2) or 1)
+            if base not in by_base or attempt_n > by_base[base][0]:
+                by_base[base] = (attempt_n, shard_dir)
 
+        shards = []
+        for base, (_attempt_n, shard_dir) in sorted(by_base.items()):
             if segment:
                 artifact_prefix = _JUNIT_ARTIFACT_PREFIX.get(segment, f"junit-results-backend-{segment.lower()}")
                 # Anchor with `\d+$` so the Core prefix doesn't accidentally
                 # eat core-poe-N (which also starts with junit-results-backend-core-).
                 pattern = re.compile(rf"^{re.escape(artifact_prefix)}-\d+$")
-                if not pattern.match(shard_dir.name.lower()):
+                if not pattern.match(base):
                     continue
 
             xml_files = sorted(shard_dir.glob("*.xml"))
@@ -133,7 +150,7 @@ class JUnitShard:
             for xml_file in xml_files:
                 for test_id, call_time in cls._parse_call_times(xml_file).items():
                     call_times[test_id] = max(call_times.get(test_id, 0.0), call_time)
-            shards.append(cls(name=shard_dir.name, call_times=call_times))
+            shards.append(cls(name=base, call_times=call_times))
 
         return shards
 
