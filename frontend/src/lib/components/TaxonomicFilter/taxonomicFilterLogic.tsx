@@ -48,6 +48,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    isKeyOnlyForGroup,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
 import {
@@ -941,6 +942,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.endpointFilters,
                 s.hogQLExpressionComponentProps,
                 s.featureFlags,
+                (_, props) => props.taxonomicGroupTypes,
+                (_, props) => props.selectingKeyOnly,
             ],
             (
                 currentTeam: TeamType,
@@ -976,7 +979,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     globals?: Record<string, any>
                     showBreakdownLabelHint: boolean
                 },
-                featureFlags: Record<string, boolean | string | undefined>
+                featureFlags: Record<string, boolean | string | undefined>,
+                requestedGroupTypes: TaxonomicFilterGroupType[] | undefined,
+                selectingKeyOnly: TaxonomicFilterLogicProps['selectingKeyOnly']
             ): TaxonomicFilterGroup[] => {
                 const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
                     eventNamesWithPrimaryProperties
@@ -1961,7 +1966,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       group: TaxonomicFilterGroupType.EventProperties,
                                   }))
                                 : []),
-                        ],
+                            // Key-only pickers (e.g. column configurators) convert a selection per
+                            // its source group, so a suggestion from a group the caller didn't
+                            // request is unusable there — an event property picked in a sessions
+                            // column picker becomes an expression the sessions table can't resolve.
+                            // Property-filter pickers keep cross-group suggestions: filters are
+                            // polymorphic, so e.g. an Elements suggestion is valid even when only
+                            // event properties were requested.
+                        ].filter(
+                            (option) =>
+                                !isKeyOnlyForGroup(selectingKeyOnly, option.group) ||
+                                !requestedGroupTypes?.length ||
+                                requestedGroupTypes.includes(option.group)
+                        ),
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
                             'name' in item ? (item.name ?? null) : null,
