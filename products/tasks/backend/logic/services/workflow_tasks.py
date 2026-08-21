@@ -302,6 +302,8 @@ def _acknowledge_trigger_message(binding: _SlackBinding) -> None:
         try:
             SlackIntegration(binding.integration).client.reactions_add(
                 channel=thread.channel,
+                # `_resolve_slack_binding` always sets this, but the shared context types
+                # it optional, and the thread is the right target if it ever is not.
                 timestamp=thread.user_message_ts or thread.thread_ts,
                 name=TRIGGER_ACK_EMOJI,
             )

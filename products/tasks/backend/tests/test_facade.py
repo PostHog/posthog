@@ -234,8 +234,8 @@ class TestFacadeReadsAndMappers(TestCase):
         detail = facade.get_task_run_detail(run.id, task.id, self.team.id)
 
         assert detail is not None
-        self.assertEqual(detail.state["initial_prompt_override"], "framed prompt")
-        self.assertNotIn("sandbox_jwt_kid", detail.state)
+        assert detail.state["initial_prompt_override"] == "framed prompt"
+        assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
         task = self._make_task()
