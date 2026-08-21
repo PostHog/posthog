@@ -557,7 +557,7 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                         <EditableTitle report={report} />
                         <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary leading-none select-none">
                             {isStaged ? (
-                                <LemonTag type="highlight">Staged</LemonTag>
+                                <LemonTag type="highlight">Discovered</LemonTag>
                             ) : (
                                 <SignalReportStatusBadge status={report.status} />
                             )}
