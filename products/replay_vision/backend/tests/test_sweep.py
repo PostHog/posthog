@@ -93,10 +93,20 @@ def _wire_batch(mock_query: MagicMock) -> None:
     """
 
     def run_batch(dispatch_limit: int) -> CandidateBatch:
-        fetched = mock_query.return_value.run.return_value or []
+        fetched = mock_query.return_value.run() or []
         return build_candidate_batch(fetched, fetched, dispatch_limit, dispatch_limit)
 
     mock_query.return_value.run_batch.side_effect = run_batch
+
+
+def _wire_deep_batch(mock_deep: MagicMock) -> None:
+    """Same shim for the catch-up pass, whose run_batch takes a scan tag."""
+
+    def run_batch(dispatch_limit: int, *, scan_query_type: str) -> CandidateBatch:
+        fetched = mock_deep.return_value.run() or []
+        return build_candidate_batch(fetched, fetched, dispatch_limit, dispatch_limit)
+
+    mock_deep.return_value.run_batch.side_effect = run_batch
 
 
 @contextmanager
@@ -110,6 +120,7 @@ def _patched_queries() -> Iterator[tuple[MagicMock, MagicMock]]:
         MockQuery.return_value.matches_on_events.return_value = True
         MockDeep.return_value.run.return_value = []
         _wire_batch(MockQuery)
+        _wire_deep_batch(MockDeep)
         yield MockQuery, MockDeep
 
 
@@ -208,6 +219,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = []
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -228,6 +240,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = [candidate_a, candidate_b]
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -262,6 +275,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = [candidate_ok, candidate_stuck]
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -275,6 +289,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = []
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -296,6 +311,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = candidates
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -456,6 +472,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
@@ -723,6 +740,7 @@ class TestFindScannerCandidatesActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
         ) as MockQuery:
+            _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = []
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -802,6 +820,7 @@ class TestFindScannerCandidatesActivity:
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockWindowed,
         ):
+            _wire_batch(MockFast)
             MockFast.return_value.run.return_value = []
             MockWindowed.return_value.run.return_value = primed
             result = find_scanner_candidates_activity(
@@ -826,6 +845,7 @@ class TestFindScannerCandidatesActivity:
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockWindowed,
         ):
+            _wire_batch(MockFast)
             MockFast.return_value.run.return_value = []
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
@@ -849,6 +869,7 @@ class TestFindScannerCandidatesActivity:
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockWindowed,
         ):
+            _wire_batch(MockFast)
             MockFast.return_value.run.return_value = fast
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=2)
@@ -870,6 +891,7 @@ class TestFindScannerCandidatesActivity:
                 "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
             ) as MockWindowed,
         ):
+            _wire_batch(MockFast)
             MockFast.return_value.run.return_value = []
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)

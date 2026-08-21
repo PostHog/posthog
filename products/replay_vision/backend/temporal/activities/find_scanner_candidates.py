@@ -18,6 +18,7 @@ from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
+    DEEP_SWEEP_CANDIDATE_SCAN_QUERY_TYPE,
     DEFAULT_CANDIDATE_LIMIT,
     EXCLUDED_SESSIONS_QUERY_TYPE,
     SWEEP_EVENTS_LOOKBACK,
@@ -354,13 +355,14 @@ def _deep_sweep(
     # Stamped before the query, so a pass that times out still counts against the cadence. Queryset
     # update rather than save(): `updated_at` means "the scanner was edited", which the skip above reads.
     ReplayScanner.objects.filter(pk=scanner.id).update(deep_attempted_at=now)
-    deep_candidates = deep_query.run()
+    batch = deep_query.run_batch(limit, scan_query_type=DEEP_SWEEP_CANDIDATE_SCAN_QUERY_TYPE)
+    deep_candidates = batch.matched
 
-    if len(deep_candidates) == limit:
-        # Filled up, so resume from the last row rather than re-walking. Oldest-first means everything
-        # below it is covered, which is what lets the watermark move at all here.
-        last = deep_candidates[-1]
-        progress = _DeepProgress(swept_through=last.session_end, seen_session_id=last.session_id)
+    if batch.saturated and batch.keyset_end is not None:
+        # More left in this window than the tick could take, so resume from where it stopped rather
+        # than re-walking. Oldest-first means everything below that point is covered, which is what
+        # lets the watermark move at all here.
+        progress = _DeepProgress(swept_through=batch.keyset_end, seen_session_id=batch.keyset_session_id)
     else:
         progress = _DeepProgress(swept_through=window_end)
     if deep_candidates:
