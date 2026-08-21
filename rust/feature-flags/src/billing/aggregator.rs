@@ -81,6 +81,7 @@ use rand::Rng;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
+use crate::billing::usage_reporter::UsageReporter;
 use crate::flags::flag_analytics::{
     current_bucket, get_team_request_key, get_team_request_library_key,
 };
@@ -328,14 +329,17 @@ struct Inner {
     record_count_decide: AtomicU64,
     record_count_flag_definitions: AtomicU64,
     shutdown_signal: Notify,
+    usage_reporter: Option<Arc<UsageReporter>>,
 }
 
 impl Inner {
     fn new(
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
+        usage_reporter: Option<Arc<UsageReporter>>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            usage_reporter,
             config,
             redis,
             pending: Mutex::new(HashMap::new()),
@@ -372,6 +376,15 @@ impl BillingAggregator {
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
     ) -> Arc<Self> {
+        Self::start_with_usage_reporter(redis, config, None)
+    }
+
+    /// As `start`, but also mirrors every credited flush into usage-ingestion.
+    pub fn start_with_usage_reporter(
+        redis: Arc<dyn RedisClient + Send + Sync>,
+        config: BillingAggregatorConfig,
+        usage_reporter: Option<Arc<UsageReporter>>,
+    ) -> Arc<Self> {
         // Fail fast on misconfiguration. A misconfigured FLAGS_BILLING_*
         // env var would otherwise panic the flusher task silently, or silently
         // disable billing — both worse than refusing to boot.
@@ -383,7 +396,7 @@ impl BillingAggregator {
         let max_pending_entries = config.max_pending_entries;
         let per_flush_batch_size = config.per_flush_batch_size;
 
-        let inner = Inner::new(redis, config);
+        let inner = Inner::new(redis, config, usage_reporter);
         let flusher = tokio::spawn(run_flusher(inner.clone()));
         let metrics_sampler = tokio::spawn(run_metrics_sampler(inner.clone()));
 
@@ -518,6 +531,14 @@ impl BillingAggregator {
                 }
             }
         }
+
+        // After the final flush, so the records it just queued are drained rather than
+        // dropped with the runtime.
+        if let Some(reporter) = &self.inner.usage_reporter {
+            reporter
+                .shutdown(self.inner.config.shutdown_flush_timeout)
+                .await;
+        }
     }
 
     #[cfg(test)]
@@ -563,7 +584,7 @@ impl BillingAggregator {
         config: BillingAggregatorConfig,
     ) -> Arc<Self> {
         Arc::new(Self {
-            inner: Inner::new(redis, config),
+            inner: Inner::new(redis, config, None),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         })
@@ -660,6 +681,7 @@ async fn flush_chunk(
             // strand counts already written to Redis under an unincremented
             // `entries_flushed_total`.
             inc(FLAGS_BILLING_ENTRIES_FLUSHED, &[], chunk_counts);
+            report_usage(inner, chunk_entries);
             chunk_entries.clear();
             ChunkOutcome::Ok
         }
@@ -676,6 +698,7 @@ async fn flush_chunk(
             if outcome == FlushOutcome::Applied {
                 *flushed_counts += chunk_counts;
                 inc(FLAGS_BILLING_ENTRIES_FLUSHED, &[], chunk_counts);
+                report_usage(inner, chunk_entries);
                 chunk_entries.clear();
                 // Under `BailOnError` we still need to signal an error so
                 // the caller stops attempting subsequent chunks on a
@@ -710,6 +733,12 @@ async fn flush_chunk(
                 }
             }
         }
+    }
+}
+
+fn report_usage(inner: &Arc<Inner>, chunk_entries: &[(AggregationKey, u64)]) {
+    if let Some(reporter) = &inner.usage_reporter {
+        reporter.report(chunk_entries, now_epoch_ms() as i64);
     }
 }
 
@@ -1186,7 +1215,7 @@ mod tests {
     ) -> (Arc<MockRedisClient>, Arc<BillingAggregator>) {
         let redis = Arc::new(redis);
         let agg = Arc::new(BillingAggregator {
-            inner: Inner::new(redis.clone(), config),
+            inner: Inner::new(redis.clone(), config, None),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         });

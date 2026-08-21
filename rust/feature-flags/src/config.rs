@@ -921,6 +921,15 @@ pub struct Config {
     // comfortably within the pod's `terminationGracePeriodSeconds`.
     #[envconfig(from = "FLAGS_BILLING_SHUTDOWN_FLUSH_TIMEOUT_MS", default = "15000")]
     pub billing_shutdown_flush_timeout_ms: u64,
+
+    // Usage-ingestion mirror. Empty URL or `none` teams disables it, so it
+    // rolls out per team independently of the Redis billing keyspace.
+    #[envconfig(from = "FLAGS_USAGE_INGESTION_URL", default = "")]
+    pub usage_ingestion_url: String,
+    #[envconfig(from = "FLAGS_USAGE_INGESTION_TEAMS", default = "none")]
+    pub usage_ingestion_teams: TeamIdCollection,
+    #[envconfig(from = "FLAGS_USAGE_INGESTION_TIMEOUT_MS", default = "5000")]
+    pub usage_ingestion_timeout_ms: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -1159,6 +1168,9 @@ impl Config {
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
             billing_shutdown_flush_timeout_ms: 15_000,
+            usage_ingestion_url: "".to_string(),
+            usage_ingestion_teams: TeamIdCollection::None,
+            usage_ingestion_timeout_ms: 5_000,
         }
     }
 
