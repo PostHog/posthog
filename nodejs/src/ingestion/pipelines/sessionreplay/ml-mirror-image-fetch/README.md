@@ -67,8 +67,7 @@ Query parameters:
 | `phpsessid`            |               |                                                                  |
 | `q-ak`                 |               | Tencent COS credential                                           |
 | `q-signature`          |               | Tencent COS signature                                            |
-| `s`                    | `*.imgix.net` | Imgix signature                                                  |
-| `s`                    |               | Only when it is the final parameter and is 32 lowercase hex characters |
+| `s=<32-char token>`    |               | Imgix                                                            |
 | `security-token`       |               | Alibaba OSS temporary credential                                 |
 | `session_token`        |               |                                                                  |
 | `sessionid`            |               |                                                                  |
