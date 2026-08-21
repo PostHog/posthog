@@ -5,6 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { githubInstallRequestsLogic } from 'lib/integrations/githubInstallRequestsLogic'
 import { describeGithubLinkError } from 'lib/integrations/githubSetupErrors'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -17,6 +18,7 @@ import {
     usersIntegrationsSlackLinkableWorkspacesRetrieve,
     usersIntegrationsSlackStartCreate,
 } from '~/generated/core/api'
+import type { UserGitHubIntegrationItemApi } from '~/generated/core/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType, UserBasicType } from '../../../types'
@@ -29,6 +31,10 @@ export interface PersonalGitHubIntegration {
     /** The connected user's own GitHub login (distinct from `account`, which is the installation org/user). */
     github_login: string | null
     uses_shared_installation: boolean
+    /** When false, disconnecting also uninstalls the App from GitHub. */
+    installation_shared?: UserGitHubIntegrationItemApi['installation_shared']
+    /** `unavailable` once the App was removed or suspended on GitHub. */
+    installation_status?: UserGitHubIntegrationItemApi['installation_status']
     created_at: string | null
 }
 
@@ -496,7 +502,14 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
                 lemonToast.success('GitHub connected.')
             } else if (params.has('github_link_error')) {
                 writeConnectFromStorage(null)
-                lemonToast.error(describeGithubLinkError(params.get('github_link_error')))
+                const linkError = params.get('github_link_error')
+                if (linkError === 'github_install_pending') {
+                    // Not a failure: GitHub is waiting on an org owner. The install-requests banner carries the state.
+                    lemonToast.info(describeGithubLinkError(linkError))
+                    githubInstallRequestsLogic.findMounted()?.actions.loadInstallRequests()
+                } else {
+                    lemonToast.error(describeGithubLinkError(linkError))
+                }
             }
 
             if (params.has('slack_link_success')) {

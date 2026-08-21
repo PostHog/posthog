@@ -40,12 +40,15 @@ export function IntegrationView({
     })
 
     const errors = (integration.errors && integration.errors?.split(',')) || []
-    const { githubRepositoriesLoading, getGitHubRepositories } = useValues(integrationsLogic)
+    const { githubRepositoriesLoading, getGitHubRepositories, getGitHubRepositoriesTotal } =
+        useValues(integrationsLogic)
     const { loadGitHubRepositories } = useActions(integrationsLogic)
 
     const isGitHub = integration.kind === 'github'
     const repositories = isGitHub ? getGitHubRepositories(integration.id) : []
+    const repositoriesTotal = isGitHub ? getGitHubRepositoriesTotal(integration.id) : null
     const refreshedAtTimestamp = integration.config?.refreshed_at || null
+    const installationUnavailable = isGitHub && integration.installation_status === 'unavailable'
 
     useEffect(() => {
         if (isGitHub) {
@@ -118,6 +121,8 @@ export function IntegrationView({
                                 installationId={integration.config?.installation_id}
                                 accountType={integration.config?.account?.type}
                                 accountName={integration.config?.account?.name}
+                                repositorySelection={integration.config?.repository_selection}
+                                total={repositoriesTotal}
                                 onBeforeManage={
                                     currentTeam?.id
                                         ? async () => {
@@ -142,7 +147,47 @@ export function IntegrationView({
                 {suffix}
             </div>
 
-            {errors.length > 0 ? (
+            {installationUnavailable ? (
+                <div className="p-2">
+                    <LemonBanner type="error">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span>
+                                The PostHog app was removed from GitHub. Remove this connection or reinstall the app.
+                            </span>
+                            <div className="flex gap-2 shrink-0">
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    onClick={() => deleteIntegration(integration.id)}
+                                    disabledReason={restrictedReason}
+                                >
+                                    Remove
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    disableClientSideRouting
+                                    to={api.integrations.authorizeUrl({
+                                        kind: integration.kind,
+                                        next: window.location.pathname,
+                                    })}
+                                    onClick={() =>
+                                        reportIntegrationConnectClicked(
+                                            integration.kind,
+                                            integration.kind,
+                                            'unavailable_banner_reconnect'
+                                        )
+                                    }
+                                    disabledReason={restrictedReason}
+                                >
+                                    Reconnect
+                                </LemonButton>
+                            </div>
+                        </div>
+                    </LemonBanner>
+                </div>
+            ) : errors.length > 0 ? (
                 <div className="p-2">
                     <LemonBanner
                         type="error"
