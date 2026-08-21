@@ -103,9 +103,10 @@ export function GitHubSourceRepositoriesDialog({
     },
   });
 
+  const initialRepoSet = new Set(initialRepos);
   const unchanged =
-    repos.length === initialRepos.length &&
-    repos.every((repo) => initialRepos.includes(repo));
+    repos.length === initialRepoSet.size &&
+    repos.every((repo) => initialRepoSet.has(repo));
 
   return (
     <Dialog

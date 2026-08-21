@@ -122,7 +122,8 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
 
   useEffect(() => {
     if (isLoadingRepos) return;
-    const known = repos.filter((repo) => repositories.includes(repo));
+    const available = new Set(repositories);
+    const known = repos.filter((repo) => available.has(repo));
     if (known.length !== repos.length) {
       setRepos(known);
     }
