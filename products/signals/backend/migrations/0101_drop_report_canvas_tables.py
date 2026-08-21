@@ -2,9 +2,6 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    # Follow-up to the state-only removal in 0100. Runs after a full deploy cycle,
-    # once no code references these tables. IF EXISTS keeps it idempotent under
-    # bin/migrate retries.
     dependencies = [
         ("signals", "0100_remove_signalreportcanvasgeneration_report_and_more"),
     ]
