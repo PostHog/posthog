@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconSearch } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonInput,
     LemonInputSelect,
     LemonModal,
     LemonTable,
@@ -25,6 +26,7 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
     const {
         accountRequests,
         accountRequestsPage,
+        accountRequestsSearch,
         accountRequestsLoading,
         accountRequestsError,
         requestPickerOpen,
@@ -41,6 +43,7 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
         closeRequestPicker,
         setSelectedRequestId,
         setAccountRequestsPage,
+        setAccountRequestsSearch,
         setRequestSearch,
         linkSelectedRequest,
     } = useActions(logic)
@@ -92,7 +95,17 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
 
     return (
         <div className="flex flex-col gap-3" data-attr="account-feature-requests">
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <LemonInput
+                    type="search"
+                    value={accountRequestsSearch}
+                    onChange={setAccountRequestsSearch}
+                    placeholder="Search linked requests"
+                    prefix={<IconSearch />}
+                    size="small"
+                    className="min-w-64"
+                    data-attr="account-feature-requests-search"
+                />
                 <LemonButton
                     type="primary"
                     size="small"
@@ -115,7 +128,11 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
                 columns={columns}
                 rowKey="id"
                 loading={accountRequestsLoading}
-                emptyState="No feature requests linked to this account."
+                emptyState={
+                    accountRequestsSearch.trim()
+                        ? 'No linked feature requests match your search.'
+                        : 'No feature requests linked to this account.'
+                }
                 pagination={{
                     controlled: true,
                     pageSize: ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE,
