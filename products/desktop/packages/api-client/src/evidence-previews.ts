@@ -312,7 +312,22 @@ export function shapeExperimentPreview(
 ): EvidencePreview {
   let detail: string | undefined;
   let status: EvidencePreview["status"];
-  if (experiment.end_date) {
+  // The API's status distinguishes paused and exposure-frozen experiments,
+  // which both still have a start date and no end date, so the date range alone
+  // reads them as "Running". The generated enum is narrower than the backend's
+  // real values, so read the status as a plain string; fall back to the dates
+  // for responses without one.
+  const apiStatus: string | null =
+    typeof experiment.status === "string" ? experiment.status : null;
+  if (apiStatus === "paused" || apiStatus === "exposure_frozen") {
+    status =
+      apiStatus === "paused"
+        ? { label: "Paused", tone: "caution" }
+        : { label: "Exposure frozen", tone: "neutral" };
+    if (experiment.start_date) {
+      detail = `Started ${formatDay(experiment.start_date)}`;
+    }
+  } else if (experiment.end_date) {
     status = { label: "Ended", tone: "neutral" };
     detail = experiment.start_date
       ? `${formatDay(experiment.start_date)} to ${formatDay(experiment.end_date)}`

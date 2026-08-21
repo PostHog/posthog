@@ -130,6 +130,22 @@ describe("evidence preview shaping", () => {
     },
   );
 
+  it.each([
+    ["paused", "Paused", "caution"],
+    ["exposure_frozen", "Exposure frozen", "neutral"],
+  ] as const)(
+    "labels a %s experiment from the API status, not the start date",
+    (apiStatus, label, tone) => {
+      const preview = shapeExperimentPreview({
+        id: 7,
+        name: "Reminder timing",
+        start_date: "2024-01-03T10:00:00Z",
+        status: apiStatus,
+      } as unknown as Schemas.Experiment);
+      expect(preview.status).toEqual({ label, tone });
+    },
+  );
+
   it("humanizes the error issue status", () => {
     const preview = shapeErrorIssuePreview({
       id: "018f",
