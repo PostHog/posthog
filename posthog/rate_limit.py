@@ -1037,6 +1037,30 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_query_{sha_hash}"
 
 
+class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
+    """Mint throttle for the wizard's gateway token.
+
+    Its own namespace, so a mint never spends the wizard query allowance and a
+    gateway flap cannot exhaust the budget the legacy fallback depends on. Keyed
+    on the authenticated user rather than the bearer: OAuth access tokens rotate
+    hourly, and a per-bearer key resets with them while the mint ceiling it
+    protects is shared by every wizard user behind one credential.
+    """
+
+    scope = "wizard_gateway_token"
+
+    def get_rate(self):
+        if settings.DEBUG:
+            return "1000/day"
+        return "120/day"
+
+    def get_cache_key(self, request, view):
+        user = getattr(request, "user", None)
+        ident = str(user.pk) if user is not None and user.is_authenticated else self.get_ident(request)
+        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
+        return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
+
+
 class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):
     """Counts a user's recent wizard cloud RUNS (not requests), excluding failed and cancelled ones.
 

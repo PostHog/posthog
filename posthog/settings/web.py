@@ -1326,6 +1326,10 @@ AI_GATEWAY_TEAM_TIER_OVERRIDES = get_from_env("AI_GATEWAY_TEAM_TIER_OVERRIDES", 
 # which the CLI treats as "stay on the legacy gateway".
 WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
 WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
+# OAuth application client ids allowed to mint. Required: llm_gateway:read is an
+# internal scope stamped on every sandbox and agent token, so the scope alone does
+# not identify the wizard. Empty refuses every mint.
+WIZARD_GATEWAY_CLIENT_IDS = get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", ""))
 WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "50")
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
 

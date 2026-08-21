@@ -34,6 +34,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
     mint_wizard_gateway_token,
+    wizard_gateway_base_url,
     wizard_gateway_configured,
 )
 from posthog.models import Team, User
@@ -43,7 +44,12 @@ from posthog.rate_limit import (
     SetupWizardAuthenticationRateThrottle,
     SetupWizardCloudRunBurstRateThrottle,
     SetupWizardCloudRunSustainedRateThrottle,
+    SetupWizardGatewayTokenRateThrottle,
     SetupWizardQueryRateThrottle,
+)
+from posthog.storage.gateway_credential_cache import (
+    GATEWAY_CREDENTIAL_REQUIRED_SCOPE as RequiredGatewayScope,
+    oauth_credential_authorized,
 )
 from posthog.user_permissions import UserPermissions
 
@@ -394,7 +400,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         methods=["POST"],
         detail=False,
         url_path="gateway_token",
-        throttle_classes=[SetupWizardQueryRateThrottle],
+        throttle_classes=[SetupWizardGatewayTokenRateThrottle],
     )
     def gateway_token(self, request: Request) -> Response:
         """Mint a scoped gateway token for a wizard run against the Go ai-gateway.
@@ -417,19 +423,35 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if not user:
             raise AuthenticationFailed("Invalid access token.")
 
-        # Literal scope check, mirroring the gateway ("*" must not subsume it).
-        # llm_gateway:read is a privileged scope that only reaches a token
-        # through an explicit app scope ceiling (the wizard's own OAuth app),
-        # so this doubles as the application check.
-        if "llm_gateway:read" not in (authenticator.access_token.scopes or []):
+        access_token = authenticator.access_token
+        # The wizard's own OAuth application, by client id. llm_gateway:read is an
+        # internal scope stamped on every sandbox and agent token, so the scope
+        # alone does not say the caller is the wizard, and those tokens run
+        # customer repository content.
+        application = getattr(access_token, "application", None)
+        client_id = getattr(application, "client_id", None)
+        if not client_id or client_id not in settings.WIZARD_GATEWAY_CLIENT_IDS:
+            raise AuthenticationFailed("Access token was not issued to the wizard.")
+
+        # The token's own scope text, matching credential_has_gateway_scope. The
+        # `scopes` property filters through OAUTH2_PROVIDER["SCOPES"], so a
+        # narrowing of that map would silently drop the scope.
+        if RequiredGatewayScope not in (access_token.scope or "").split():
             raise AuthenticationFailed("Access token lacks the gateway scope.")
 
-        scoped_team_ids = authenticator.access_token.scoped_teams or []
+        scoped_team_ids = access_token.scoped_teams or []
         if len(scoped_team_ids) != 1:
             raise exceptions.ValidationError("Access token must be scoped to exactly one team.")
         team = Team.objects.select_related("organization").filter(id=scoped_team_ids[0]).first()
         if team is None:
             raise exceptions.NotFound(ERROR_PROJECT_NOT_FOUND)
+
+        # scoped_teams is frozen at consent, so re-check what it cannot see:
+        # the user is still active, still a member, and still has project
+        # access. The credential projection runs the same check for the same
+        # token class.
+        if not oauth_credential_authorized(access_token, team):
+            raise exceptions.PermissionDenied("Access token is no longer authorized for this project.")
 
         distinct_id = str(user.distinct_id)
         if not posthoganalytics.feature_enabled(
@@ -453,7 +475,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "token": minted["token"],
                 "expires_at": minted["expires_at"],
                 "cap_usd": minted.get("cap_usd"),
-                "gateway_url": settings.WIZARD_GATEWAY_URL,
+                "gateway_url": wizard_gateway_base_url(),
                 # For the CLI's run-metadata blob, so dashboards keep a team
                 # breakdown next to the org-level obo attribution.
                 "team_id": team.id,

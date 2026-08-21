@@ -622,7 +622,8 @@ class SetupWizardCloudRunTests(APIBaseTest):
 
 @override_settings(
     WIZARD_GATEWAY_MINT_KEY="phs_wizard_mint",
-    WIZARD_GATEWAY_URL="https://gateway.us.posthog.com",
+    WIZARD_GATEWAY_URL="https://ai-gateway.us.posthog.com",
+    WIZARD_GATEWAY_CLIENT_IDS=["wizard-client-id"],
 )
 class SetupWizardGatewayTokenTests(APIBaseTest):
     GATEWAY_TOKEN_URL = "/api/wizard/gateway_token"
@@ -633,11 +634,14 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         super().tearDown()
         cache.clear()  # Clears out all DRF throttle data
 
-    def _mock_oauth(self, mock_authentication, scopes=None, scoped_teams=None):
+    def _mock_oauth(self, mock_authentication, scope=None, scoped_teams=None, client_id="wizard-client-id"):
         mock_authenticator = mock_authentication.return_value
         mock_authenticator.authenticate.return_value = (self.user, None)
-        mock_authenticator.access_token.scopes = scopes if scopes is not None else ["llm_gateway:read"]
+        # `scope` is the token's own space-separated text, which is what the
+        # endpoint reads (not DOT's registry-filtered `scopes` dict).
+        mock_authenticator.access_token.scope = "llm_gateway:read" if scope is None else scope
         mock_authenticator.access_token.scoped_teams = scoped_teams if scoped_teams is not None else [self.team.id]
+        mock_authenticator.access_token.application.client_id = client_id
         return mock_authenticator
 
     @override_settings(WIZARD_GATEWAY_MINT_KEY="")
@@ -645,10 +649,11 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_mints_for_scoped_oauth_token(self, mock_authentication, mock_flag, mock_mint):
+    def test_mints_for_scoped_oauth_token(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
         self._mock_oauth(mock_authentication)
 
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
@@ -657,7 +662,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         body = response.json()
         assert body["token"] == "phe_test_token"
         assert body["expires_at"] == self.MINTED["expires_at"]
-        assert body["gateway_url"] == "https://gateway.us.posthog.com"
+        assert body["gateway_url"] == "https://ai-gateway.us.posthog.com"
         assert body["team_id"] == self.team.id
         # The mint pins obo to the org and user to the acting identity.
         assert mock_mint.call_args.kwargs == {
@@ -665,17 +670,50 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             "user": str(self.user.distinct_id),
         }
 
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=False)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_flag_off_is_404(self, mock_authentication, mock_flag):
+    def test_flag_off_is_404(self, mock_authentication, mock_flag, mock_authorized):
         self._mock_oauth(mock_authentication)
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_missing_gateway_scope_is_401(self, mock_authentication):
-        self._mock_oauth(mock_authentication, scopes=["*"])
+        # "*" must not subsume the privileged scope.
+        self._mock_oauth(mock_authentication, scope="*")
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_token_from_another_application_is_401(self, mock_authentication, mock_authorized):
+        # llm_gateway:read is an internal scope carried by every sandbox and agent
+        # token, so the scope alone must not admit a mint.
+        self._mock_oauth(mock_authentication, client_id="sandbox-client-id")
+        response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=False)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_revoked_project_access_is_403(self, mock_authentication, mock_flag, mock_authorized):
+        # scoped_teams is frozen at consent; losing membership or project access
+        # must stop the mint.
+        self._mock_oauth(mock_authentication)
+        response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_unauthenticated_request_is_rejected(self):
+        # No authenticator mock: the real one must refuse a request with no
+        # bearer, on a viewset whose permission_classes is empty.
+        self.client.logout()
+        response = self.client.post(self.GATEWAY_TOKEN_URL)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_session_cookie_alone_is_rejected(self):
+        # APIBaseTest leaves a logged-in session; it must not authorize a mint.
+        response = self.client.post(self.GATEWAY_TOKEN_URL)
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
@@ -688,9 +726,10 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         "posthog.api.wizard.http.mint_wizard_gateway_token",
         side_effect=WizardGatewayMintError("refused"),
     )
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_mint_failure_is_503(self, mock_authentication, mock_flag, mock_mint):
+    def test_mint_failure_is_503(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
         self._mock_oauth(mock_authentication)
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
