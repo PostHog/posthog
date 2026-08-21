@@ -107,7 +107,10 @@ export function normalizeProcessPerson<T extends PipelineEvent | PluginEvent>(ev
  * - Transformations can add properties that become person properties
  * - personInitialAndUTMProperties runs only once, after transformations
  */
-export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
+export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(
+    event: T,
+    options?: { skipIpFallback?: boolean }
+): T {
     event.distinct_id = sanitizeString(String(event.distinct_id))
 
     const properties = event.properties ?? {}
@@ -117,8 +120,10 @@ export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(event: T): 
     if (event['$set_once']) {
         properties['$set_once'] = { ...properties['$set_once'], ...event['$set_once'] }
     }
-    if (!properties['$ip'] && event.ip) {
-        // if $ip wasn't sent with the event, then add what we got from capture
+    if (!properties['$ip'] && event.ip && !options?.skipIpFallback) {
+        // if $ip wasn't sent with the event, then add what we got from capture.
+        // Skipped for historical migrations, where the request IP belongs to the
+        // import machine and would geo-tag every event to its datacenter.
         properties['$ip'] = event.ip
     }
     // For safety while PluginEvent still has an `ip` field
