@@ -8421,6 +8421,20 @@
         },
         "feature_flag": "engineering-analytics"
     },
+    "products-enable": {
+        "description": "Turn PostHog products on for the current project so they start collecting data. Pass one or more of `session_replay`, `error_tracking`, or `conversations`. The server owns each product's setup, applying the primary toggle plus conservative defaults, so this can never weaken privacy settings or change anything else about the project. Safe to call more than once: each product comes back as either `enabled` or `already_enabled`. Turning on `session_replay` flips the server-side recording toggle only. The app still needs a PostHog SDK installed before recordings arrive. Enabling a product starts collecting data and spending quota, so always confirm with the user before calling this.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Enable PostHog products",
+        "title": "Enable PostHog products",
+        "required_scopes": ["product_enablement:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "project-get": {
         "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
         "category": "Core",
