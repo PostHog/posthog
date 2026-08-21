@@ -463,7 +463,15 @@ describe('PostgresPersonRepository', () => {
                 }
             )
 
-            expect(second).toEqual({ success: false, error: 'CreationConflict', distinctIds: ['live-uuid-did-2'] })
+            // The holder owns a different distinct ID, so recovering by distinct ID cannot find
+            // it. Returning it here is what lets the caller resolve instead of raising an error
+            // the pipeline retries until the consumer dies with uncommitted offsets.
+            expect(second).toEqual({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['live-uuid-did-2'],
+                conflictingPerson: expect.objectContaining({ id: first.person.id, uuid }),
+            })
             await expect(repository.fetchPerson(team.id, 'live-uuid-did')).resolves.toMatchObject({
                 version: 0,
                 properties: { a: 1 },
