@@ -262,10 +262,16 @@ function replaceSentinels(pathOnly, paramNames) {
     let template = pathOnly
     const found = new Set()
     for (const name of [...paramNames].sort((a, b) => b.length - a.length)) {
-        const encoded = encodeURIComponent(sentinel(name))
         const plain = sentinel(name)
+        const encoded = encodeURIComponent(plain)
+        // Some builders encode a path segment twice on purpose (the trace scene does, so that
+        // kea-router's pathname decode still leaves one layer for the scene). Match that form
+        // first, or the sentinel survives into the template as a literal `%253Aid`.
+        const doubleEncoded = encodeURIComponent(encoded)
         const before = template
-        template = template.split(encoded).join(`{${name}}`).split(plain).join(`{${name}}`)
+        for (const form of [doubleEncoded, encoded, plain]) {
+            template = template.split(form).join(`{${name}}`)
+        }
         if (template !== before) {
             found.add(name)
         }
