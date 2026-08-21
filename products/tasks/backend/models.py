@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
+from django.utils.functional import Promise
 
 from pydantic import BaseModel
 
@@ -203,6 +204,11 @@ class TaskClientProvenance(models.TextChoices):
     POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
 
 
+def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(Task.OriginProduct.choices)
+
+
 class Task(DeletedMetaFields, models.Model):
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
@@ -253,7 +259,7 @@ class Task(DeletedMetaFields, models.Model):
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
-    origin_product = models.CharField(max_length=20, choices=OriginProduct)
+    origin_product = models.CharField(max_length=20, choices=task_origin_product_choices)
     client_provenance = models.CharField(
         max_length=32,
         choices=TaskClientProvenance,
@@ -1689,7 +1695,7 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # ownership; the loop is still team- and owner-scoped via `team`/`created_by`).
     origin_product = models.CharField(
         max_length=32,
-        choices=Task.OriginProduct.choices,
+        choices=task_origin_product_choices,
         default=Task.OriginProduct.USER_CREATED,
         help_text="Which product or flow created this loop.",
     )
@@ -2383,7 +2389,12 @@ class TaskRun(models.Model):
         properties: dict | None = None,
         event_uuid: str | None = None,
         distinct_id_override: str | None = None,
-    ) -> None:
+    ) -> bool:
+        """Capture an analytics event for this run. Returns False when it never reached capture.
+
+        The exception stays swallowed — no caller wants a failed analytics call to fail their
+        work — but the outcome is reported so callers tracking event loss can count it.
+        """
         try:
             # The override lets the PR webhook attribute pr_merged to the GitHub user who
             # actually merged, rather than the task's assigned user.
@@ -2427,6 +2438,8 @@ class TaskRun(models.Model):
             posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
+            return False
+        return True
 
     def _duration_seconds(self) -> float:
         if self.completed_at and self.created_at:
@@ -2909,7 +2922,7 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     sandbox_id = models.CharField(max_length=255, unique=True, help_text="Provider sandbox id (e.g. Modal object id)")
     origin_product = models.CharField(
         max_length=20,
-        choices=Task.OriginProduct,
+        choices=task_origin_product_choices,
         null=True,
         blank=True,
         help_text="Task origin at provision time, denormalized for per-origin aggregation",

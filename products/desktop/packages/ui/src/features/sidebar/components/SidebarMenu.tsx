@@ -8,7 +8,7 @@ import {
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import { resolveBulkTaskContextMenuIntent } from "@posthog/core/tasks/contextMenuActions";
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import type { Task } from "@posthog/shared/types";
+import type { Task, UserBasic } from "@posthog/shared/types";
 import {
   archiveTasksImperative,
   useArchiveCacheKeys,
@@ -53,6 +53,15 @@ import { TaskListView } from "./TaskListView";
 
 const log = logger.scope("sidebar-menu");
 
+function creatorName(createdBy: UserBasic | null | undefined): string | null {
+  if (!createdBy) return null;
+  const name = [createdBy.first_name, createdBy.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return name || createdBy.email || null;
+}
+
 function SidebarMenuComponent() {
   const hostClient = useHostTRPCClient();
   const archiveCacheKeys = useArchiveCacheKeys();
@@ -87,6 +96,14 @@ function SidebarMenuComponent() {
     () => new Map<string, Task>(allTasks.map((task) => [task.id, task])),
     [allTasks],
   );
+  const creatorNameByTaskId = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const task of allTasks) {
+      const name = creatorName(task.created_by);
+      if (name) names.set(task.id, name);
+    }
+    return names;
+  }, [allTasks]);
 
   const commandCenterCells = useCommandCenterStore((s) => s.cells);
 
@@ -543,6 +560,7 @@ function SidebarMenuComponent() {
               onTaskEditSubmit={handleTaskEditSubmit}
               onTaskEditCancel={handleTaskEditCancel}
               onGroupContextMenu={handleGroupContextMenu}
+              creatorNameByTaskId={creatorNameByTaskId}
               hasMore={sidebarData.hasMore}
             />
           )}
