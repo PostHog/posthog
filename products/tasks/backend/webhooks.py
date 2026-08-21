@@ -5,18 +5,21 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 
 from django.conf import settings
-from django.db import OperationalError, connections, transaction
+from django.db import OperationalError, connections, router, transaction
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.http import HttpResponse
 
 import structlog
 import posthoganalytics
+from social_django.models import UserSocialAuth
 
 from posthog.event_usage import groups
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
@@ -598,9 +601,25 @@ def _pr_payload_properties(payload: dict) -> dict:
 # delivery, not just the analytics event. Bounding it degrades to no attribution instead.
 _ATTRIBUTION_STATEMENT_TIMEOUT_MS = 800
 
-# The lookup reads org/auth models that a ReplicaRouter can route to the read replica, so
-# bound every connection it might touch, not just the default writer.
-_ATTRIBUTION_DB_ALIASES = ("default", "replica")
+# Models the org-member resolver reads. ReplicaRouter only sends a model to the replica when
+# that model is named in READ_REPLICA_OPT_IN, so the set of aliases the lookup can touch is
+# knowable up front.
+_ATTRIBUTION_MODELS = (Team, User, OrganizationMembership, UserSocialAuth, UserIntegration, Integration)
+
+
+def _attribution_db_aliases() -> list[str]:
+    """DB aliases the org-member lookup can actually read from.
+
+    Bounding an alias means opening it, and opening is itself unbounded -- ``postgres_config``
+    sets no ``connect_timeout`` on the main aliases. Reaching for a replica the router would
+    never use could therefore stall the webhook on connection setup before the cap is even
+    installed, which is the exact failure this function exists to prevent. So ask the router
+    instead of assuming.
+    """
+    aliases = ["default"]
+    if "replica" in settings.DATABASES and any(router.db_for_read(model) == "replica" for model in _ATTRIBUTION_MODELS):
+        aliases.append("replica")
+    return aliases
 
 
 def _read_statement_timeout(connection: BaseDatabaseWrapper) -> str | None:
@@ -640,9 +659,7 @@ def _bounded_attribution_lookup() -> Iterator[None]:
     statement_timeout`` there caps the query regardless of read-replica routing.
     """
     with ExitStack() as stack:
-        for alias in _ATTRIBUTION_DB_ALIASES:
-            if alias not in settings.DATABASES:
-                continue
+        for alias in _attribution_db_aliases():
             connection = connections[alias]
             # SET LOCAL dies with the transaction it was set in, so the cap only needs
             # restoring when we are joining a transaction somebody else owns -- a future
@@ -735,12 +752,14 @@ def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid
         reviewer_distinct_id = _resolve_github_login_distinct_id(login, task_run.team_id)
         if reviewer_distinct_id is not None:
             pr_properties["pr_reviewed_by_distinct_id"] = reviewer_distinct_id
-        task_run.capture_event(
+        captured = task_run.capture_event(
             "pr_reviewed",
             {**pr_properties, "pr_source": "task"},
             event_uuid=event_uuid,
             distinct_id_override=reviewer_distinct_id,
         )
+        if not captured:
+            observe_github_webhook_pr_event_dropped(analytics_event="pr_reviewed", reason="capture_exception")
         return
 
     team = _resolve_external_team(payload)
@@ -785,12 +804,14 @@ def _capture_pr_event(
         if analytics_event == "pr_merged":
             merged_by_properties, merger_distinct_id = _merged_by_attribution(payload, task_run.team_id)
             pr_properties = {**pr_properties, **merged_by_properties}
-        task_run.capture_event(
+        captured = task_run.capture_event(
             analytics_event,
             {**pr_properties, "pr_source": "task"},
             event_uuid=event_uuid,
             distinct_id_override=merger_distinct_id,
         )
+        if not captured:
+            observe_github_webhook_pr_event_dropped(analytics_event=analytics_event, reason="capture_exception")
         return
 
     team = _resolve_external_team(payload)

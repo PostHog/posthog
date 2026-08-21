@@ -5,6 +5,7 @@ from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import OperationalError, connection
 from django.test import TestCase
@@ -26,6 +27,7 @@ from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
 from products.tasks.backend.webhooks import (
     _account_type,
+    _attribution_db_aliases,
     _bounded_attribution_lookup,
     _installation_team_ids,
     _task_run_scope_team_ids,
@@ -265,6 +267,25 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(
             _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"}), timeouts
         )
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture", side_effect=RuntimeError("capture down"))
+    def test_task_backed_capture_failure_increments_drop_counter(self, _mock_capture, mock_get_secret):
+        # TaskRun.capture_event swallows the failure, so without a reported outcome the drop
+        # counter would miss the task-backed path entirely — the bulk of the traffic.
+        mock_get_secret.return_value = self.webhook_secret
+        labels = {"analytics_event": "pr_merged", "reason": "capture_exception"}
+        before = _sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels)
+
+        payload = {
+            "action": "closed",
+            "pull_request": {"html_url": "https://github.com/posthog/posthog/pull/123", "merged": True},
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(_sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels), before + 1)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -2068,6 +2089,27 @@ class TestFindSignalImplementationRun(TestCase):
 
         assert found is not None
         assert found.run_id == legitimate.id
+
+
+class TestAttributionDbAliases(TestCase):
+    def _with_replica_configured(self):
+        return self.settings(DATABASES={**settings.DATABASES, "replica": settings.DATABASES["default"]})
+
+    def test_default_only_when_no_replica_is_configured(self):
+        self.assertEqual(_attribution_db_aliases(), ["default"])
+
+    @patch("products.tasks.backend.webhooks.router.db_for_read", return_value="default")
+    def test_skips_a_configured_replica_the_router_would_not_read_from(self, _mock_db_for_read):
+        # Bounding an alias means opening it, and connection setup is itself unbounded (these
+        # aliases carry no connect_timeout), so a replica the router never reads from must not
+        # be dialled just to install a cap on it.
+        with self._with_replica_configured():
+            self.assertEqual(_attribution_db_aliases(), ["default"])
+
+    @patch("products.tasks.backend.webhooks.router.db_for_read", return_value="replica")
+    def test_includes_a_replica_the_router_reads_from(self, _mock_db_for_read):
+        with self._with_replica_configured():
+            self.assertEqual(_attribution_db_aliases(), ["default", "replica"])
 
 
 class TestBoundedAttributionLookup(TestCase):
