@@ -12,8 +12,9 @@ class SurfaceAccessLimit(UUIDModel):
     A limit applies to every member, including admins. Only a future subject-specific limit
     row can widen a limit. A grant cannot.
 
-    No row means the surface has no limit. A row with `resource=None` limits every resource.
+    No row means the surface has no limit. A row with `resource="*"` limits every resource.
     A row that names a resource overrides the wildcard row for that resource.
+    `max_level="none"` removes all access through the surface.
     """
 
     class Surface(models.TextChoices):
@@ -31,7 +32,6 @@ class SurfaceAccessLimit(UUIDModel):
             models.UniqueConstraint(
                 fields=["organization", "surface", "resource"],
                 name="unique_limit_per_org_surface_resource",
-                nulls_distinct=False,
             )
         ]
 
@@ -45,8 +45,9 @@ class SurfaceAccessLimit(UUIDModel):
     )
 
     surface: models.CharField = models.CharField(max_length=32, choices=Surface.choices)
-    # An APIScopeObject name, or None to limit every resource.
-    resource: models.CharField = models.CharField(max_length=64, null=True, blank=True)
+    # An APIScopeObject name, or "*" to limit every resource.
+    ALL_RESOURCES = "*"
+    resource: models.CharField = models.CharField(max_length=64, default=ALL_RESOURCES)
     max_level: models.CharField = models.CharField(max_length=32, choices=MaxLevel.choices)
 
     # Not CreatedMetaFields: its created_by FK carries a real DB constraint on posthog_user,

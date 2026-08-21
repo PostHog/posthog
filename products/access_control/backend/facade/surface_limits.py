@@ -36,9 +36,7 @@ def classify_surface(request: Any) -> str | None:
     return None
 
 
-def limit_denial_for_request(
-    request: Any, organization: "Organization", resource: str | None, writes: bool
-) -> str | None:
+def limit_denial_for_request(request: Any, organization: "Organization", resource: str, writes: bool) -> str | None:
     """The complete surface-limit decision. Returns a user-facing denial message when the
     request's surface is limited below what the action needs. Returns None to allow.
 
@@ -62,22 +60,20 @@ def limit_denial_for_request(
 
 
 def surface_limit(
-    organization: "Organization", surface: str | None, resource: str | None = None
+    organization: "Organization", surface: str, resource: str = SurfaceAccessLimit.ALL_RESOURCES
 ) -> SurfaceAccessLimit.MaxLevel | None:
     """The max level this organization allows through `surface`, or None when the surface has
     no limit.
 
-    A row that names `resource` overrides the wildcard row. Each call makes one query. Callers
-    on hot paths can classify the surface first, because surface=None returns with no query.
+    A row that names `resource` overrides the `"*"` wildcard row. Each call makes one query.
     """
-    if surface is None:
-        return None
+    wildcard = SurfaceAccessLimit.ALL_RESOURCES
     rows = SurfaceAccessLimit.objects.filter(
-        organization=organization, surface=surface, resource__in=[resource, None] if resource else [None]
+        organization=organization, surface=surface, resource__in={resource, wildcard}
     ).values_list("resource", "max_level")
     by_resource = dict(rows)
-    if resource is not None and resource in by_resource:
+    if resource in by_resource:
         return SurfaceAccessLimit.MaxLevel(by_resource[resource])
-    if None in by_resource:
-        return SurfaceAccessLimit.MaxLevel(by_resource[None])
+    if wildcard in by_resource:
+        return SurfaceAccessLimit.MaxLevel(by_resource[wildcard])
     return None

@@ -12,6 +12,7 @@ from typing import Any
 from posthog.permissions import ScopeBasePermission, get_organization_from_view
 
 from products.access_control.backend.facade.surface_limits import classify_surface, limit_denial_for_request
+from products.access_control.backend.models import SurfaceAccessLimit
 
 
 class WithinSurfaceLimits(ScopeBasePermission):
@@ -39,7 +40,7 @@ class WithinSurfaceLimits(ScopeBasePermission):
         denial = limit_denial_for_request(
             request,
             organization,
-            resource=scope_object if scope_object != "INTERNAL" else None,
+            resource=scope_object if scope_object != "INTERNAL" else SurfaceAccessLimit.ALL_RESOURCES,
             writes=any(scope.endswith(":write") for scope in required_scopes),
         )
         if denial is not None:

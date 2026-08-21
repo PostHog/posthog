@@ -23,9 +23,8 @@ class TestSurfaceLimitResolution(BaseTest):
         assert surface_limit(self.organization, "mcp", "feature_flag") == SurfaceAccessLimit.MaxLevel.EDITOR
         assert surface_limit(self.organization, "mcp") == SurfaceAccessLimit.MaxLevel.VIEWER
 
-    def test_no_rows_and_no_surface_mean_unrestricted(self) -> None:
+    def test_no_rows_mean_unrestricted(self) -> None:
         assert surface_limit(self.organization, "mcp", "dashboard") is None
-        assert surface_limit(self.organization, None, "dashboard") is None
 
 
 class TestMCPReadOnlyEnforcement(APIBaseTest):
