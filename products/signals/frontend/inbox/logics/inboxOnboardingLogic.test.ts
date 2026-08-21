@@ -14,6 +14,7 @@ import {
 describe('inboxOnboardingLogic', () => {
     describe('computeOnboardingDecision', () => {
         const base: OnboardingModeInputs = {
+            onboardingSkipped: false,
             isSetupLoaded: true,
             isSelfDrivingSetUp: false,
             areCountsResolved: true,
@@ -60,6 +61,20 @@ describe('inboxOnboardingLogic', () => {
             ],
             // Not set up + nothing in the inbox → full-pane takeover (nothing to block).
             ['not set up, empty inbox', {}, { mode: 'takeover', reason: null }],
+            // Skip wins over the takeover: the user asked for their inbox, so give it to them.
+            ['skipped, would otherwise take over', { onboardingSkipped: true }, { mode: 'none', reason: 'skipped' }],
+            // Skip persists across a fresh mount whose inputs have not settled yet.
+            [
+                'skipped, inputs still loading',
+                { onboardingSkipped: true, isSetupLoaded: false, isWizardStateResolved: false },
+                { mode: 'none', reason: 'skipped' },
+            ],
+            // A team that skipped and later set self-driving up reports that, not a stale "skipped".
+            [
+                'skipped, now set up',
+                { onboardingSkipped: true, isSelfDrivingSetUp: true },
+                { mode: 'none', reason: 'already_set_up' },
+            ],
             // Not set up but work exists → non-blocking banner, so existing work stays accessible.
             ['not set up, with work', { hasExistingWork: true }, { mode: 'banner', reason: null }],
             // A dismissed banner falls back to the normal inbox for the session.

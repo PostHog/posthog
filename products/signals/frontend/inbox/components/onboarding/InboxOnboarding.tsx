@@ -118,6 +118,25 @@ function SelfDrivingCommand({
     )
 }
 
+/**
+ * The takeover's only exit. Without it the welcome page is a dead end: the real tabs are locked and
+ * the wizard runs in a terminal, so a user who is not ready to set self-driving up has no in-page
+ * way to reach their inbox. Skipping drops them to the normal (empty) inbox, where the setup panel
+ * still offers the one command; the choice persists per team.
+ */
+export function SkipForNowButton({ onSkip }: { onSkip: () => void }): JSX.Element {
+    return (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            onClick={onSkip}
+            tooltip="Go to your inbox. You can set up self-driving any time from the setup panel."
+        >
+            Skip for now
+        </LemonButton>
+    )
+}
+
 function Hero(): JSX.Element {
     return (
         <div className="flex flex-col items-start gap-3">
@@ -187,12 +206,17 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
  * report list – a plain centered column (not itself a card) that eases in with a subtle scale + fade.
  */
 export function InboxOnboardingTakeover(): JSX.Element {
+    const { skipOnboarding } = useActions(inboxOnboardingLogic)
+
     useEffect(() => {
         captureInboxWelcomeViewed({ variant: 'control' })
     }, [])
 
     return (
         <div className="InboxOnboardingTakeover mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-12">
+            <div className="flex justify-end">
+                <SkipForNowButton onSkip={() => skipOnboarding('control')} />
+            </div>
             <Hero />
             <CommandCard />
             <div className="flex flex-col gap-7">
