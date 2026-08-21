@@ -1,10 +1,10 @@
-# Customer analytics accounts
+# Customer analytics accounts and feature requests
 
-Customer analytics tracks **accounts** — the companies/organizations a team does business with — plus who owns them (relationships such as CSM or Account executive) and typed custom attributes.
+Customer analytics tracks **accounts**, their owners and custom properties, and the feature requests linked to those accounts.
 
 **Source of truth for account ownership questions** ("who is the CSM of X?", "which accounts does Y own?"): answer them from these tables, not from warehouse CRM columns (`salesforce.*`, `hubspot.*`, ...). Warehouse copies of ownership fields can lag behind reassignments made in PostHog.
 
-Prefer the typed `posthog:accounts-*`, `posthog:account-relationship-definitions-*`, and `posthog:custom-property-definitions-*` MCP tools for writes; use HogQL for reads and aggregations.
+Prefer the typed `posthog:accounts-*`, `posthog:account-relationship-definitions-*`, `posthog:custom-property-definitions-*`, and `posthog:feature-request*` MCP tools for writes. Use HogQL for reads and aggregations.
 
 ## Account (`system.accounts`)
 
@@ -62,6 +62,128 @@ Column | Type | Nullable | Description
 
 - Active assignments are `ended_at IS NULL`; ended rows are kept as history.
 - The role keys in `system.accounts.properties` (`csm`, `account_executive`, `account_owner`) mirror the active assignments and include the user's email; the relationships table has only `user_id`.
+
+## Feature requests
+
+A feature request records a customer need across one or more accounts. Evidence belongs to a specific request and account pair. Product areas categorize requests, and history records each successful save.
+
+The tables apply account access rules. `system.feature_requests` includes a request when the caller can access at least one active linked account. The account links and evidence tables exclude inaccessible and unlinked accounts.
+
+### `system.feature_requests` columns
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key
+`team_id` | integer | NOT NULL | Team this request belongs to
+`title` | varchar(400) | NOT NULL | Customer-facing request title
+`description` | text | NOT NULL | Customer-facing description in Markdown
+`status` | varchar(32) | NOT NULL | `requested`, `planned`, `completed`, `wont_fix`, or `duplicate`
+`priority` | varchar(16) | NULL | `high`, `medium`, `low`, or NULL
+`archived_at` | timestamptz | NULL | When the request was archived. NULL means active
+`archived_by_id` | integer | NULL | User who archived the request
+`version` | integer | NOT NULL | Version used for optimistic concurrency
+`created_by_id` | integer | NULL | User who created the request
+`updated_by_id` | integer | NULL | User who last updated the request
+`created_at` | timestamptz | NOT NULL | When the request was created
+`updated_at` | timestamptz | NOT NULL | When the request was last updated
+
+### `system.feature_request_account_links` columns
+
+One row per active request and account pair visible to the caller.
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key and parent key for evidence
+`team_id` | integer | NOT NULL | Team this link belongs to
+`feature_request_id` | uuid | NOT NULL | Join to `system.feature_requests.id`
+`account_id` | uuid | NOT NULL | Join to `system.accounts.id`
+`created_at` | timestamptz | NOT NULL | When the account was first linked
+`updated_at` | timestamptz | NULL | When the link last changed
+
+### `system.feature_request_evidence` columns
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key
+`team_id` | integer | NOT NULL | Team this evidence belongs to
+`account_link_id` | uuid | NOT NULL | Join to `system.feature_request_account_links.id`
+`summary` | text | NOT NULL | Internal evidence summary
+`customer_quote` | text | NOT NULL | Customer quote
+`source` | varchar(200) | NOT NULL | Free-form source name
+`source_url` | varchar(2000) | NOT NULL | Source URL or an empty string
+`requested_on` | date | NULL | Date the account made the request
+`image_ids` | array(text) | NOT NULL | Uploaded image UUIDs attached to the evidence, in display order
+`created_by_id` | integer | NULL | User who added the evidence
+`updated_by_id` | integer | NULL | User who last updated the evidence
+`created_at` | timestamptz | NOT NULL | When the evidence was added
+`updated_at` | timestamptz | NOT NULL | When the evidence was last updated
+
+### Product area tables
+
+`system.feature_request_product_areas` defines the available areas. `system.feature_request_product_area_links` joins visible requests to those areas.
+
+`system.feature_request_product_areas` column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key
+`team_id` | integer | NOT NULL | Team this area belongs to
+`name` | varchar(200) | NOT NULL | Product area name
+`display_order` | integer | NOT NULL | Selector position. Lower values appear first
+`is_active` | integer | NOT NULL | `1` if editors can select the area, `0` otherwise
+`created_by_id` | integer | NULL | User who created the area
+`updated_by_id` | integer | NULL | User who last updated the area
+`created_at` | timestamptz | NOT NULL | When the area was created
+`updated_at` | timestamptz | NOT NULL | When the area was last updated
+
+`system.feature_request_product_area_links` column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key
+`team_id` | integer | NOT NULL | Team this link belongs to
+`feature_request_id` | uuid | NOT NULL | Join to `system.feature_requests.id`
+`product_area_id` | uuid | NOT NULL | Join to `system.feature_request_product_areas.id`
+`created_at` | timestamptz | NOT NULL | When the area was linked
+
+### `system.feature_request_history` columns
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key
+`team_id` | integer | NOT NULL | Team this history entry belongs to
+`feature_request_id` | uuid | NOT NULL | Join to `system.feature_requests.id`
+`changed_fields` | array(varchar) | NOT NULL | Names of the fields changed in this save. Before and after values are not exposed
+`is_initial` | integer | NOT NULL | `1` for the initial snapshot, `0` otherwise
+`source` | varchar(32) | NOT NULL | System that recorded the change
+`actor_id` | integer | NULL | User who changed the request
+`changed_at` | timestamptz | NOT NULL | When the request changed
+
+### Feature request query patterns
+
+**List active requests and their affected accounts:**
+
+```sql
+SELECT r.id, r.title, r.status, r.priority, a.id AS account_id, a.name AS account_name
+FROM system.feature_requests r
+JOIN system.feature_request_account_links l ON l.feature_request_id = r.id
+JOIN system.accounts a ON a.id = l.account_id
+WHERE r.archived_at IS NULL
+ORDER BY r.updated_at DESC
+```
+
+**Count evidence items by request and account:**
+
+```sql
+SELECT r.title, a.name AS account_name, count(e.id) AS evidence_count
+FROM system.feature_requests r
+JOIN system.feature_request_account_links l ON l.feature_request_id = r.id
+JOIN system.accounts a ON a.id = l.account_id
+LEFT JOIN system.feature_request_evidence e ON e.account_link_id = l.id
+GROUP BY r.id, r.title, a.id, a.name
+ORDER BY evidence_count DESC
+```
+
+**List requests for one product area:**
+
+```sql
+SELECT r.id, r.title, r.status, p.name AS product_area
+FROM system.feature_requests r
+JOIN system.feature_request_product_area_links l ON l.feature_request_id = r.id
+JOIN system.feature_request_product_areas p ON p.id = l.product_area_id
+WHERE p.name ILIKE '%analytics%'
+ORDER BY r.updated_at DESC
+```
 
 ## Custom properties (`system.custom_property_definitions`)
 

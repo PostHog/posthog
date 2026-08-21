@@ -10,6 +10,12 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     "query_wait_timeout",
     "server closed the connection unexpectedly",
     "connection reset by peer",
+    # pgbouncer's report that the backend connection assigned to an in-flight query died before
+    # answering. Same self-healing dropped-connection condition as the closed/reset markers above,
+    # just detected by the pooler rather than by the client. psycopg raises it as ProtocolViolation
+    # (SQLSTATE 08P01), which is too broad to whitelist by class because a genuine protocol
+    # violation is a driver bug that must keep reaching error tracking, so match the message.
+    "server conn crashed?",
     "the database system is starting up",
     "the database system is shutting down",
     # pgbouncer's server_login_retry cooldown: a backend connect attempt failed, so pgbouncer

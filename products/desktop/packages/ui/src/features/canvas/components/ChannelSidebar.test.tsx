@@ -44,6 +44,9 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
 }));
+vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { id: 1, email: "u@posthog.com" } }),
+}));
 vi.mock("@posthog/ui/features/tasks/useTaskMutations", () => ({
   useRenameTask: () => ({ renameTask: vi.fn() }),
 }));
@@ -85,6 +88,8 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     // Not the viewer, so filtering to "Me" leaves nothing.
     authorUuid: "someone-else-uuid",
     templateId: null,
+    repository: null,
+    branch: null,
     task: null,
     ...overrides,
   };

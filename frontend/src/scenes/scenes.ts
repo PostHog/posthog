@@ -146,7 +146,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.HOG_FUNCTION,
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
-    [Scene.QueryPerformance]: { instanceLevel: true, name: 'Query performance' },
+    [Scene.ExperimentsStaffTools]: { instanceLevel: true, name: 'Experiments staff tools' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -680,6 +680,7 @@ export const redirects: Record<
     '/feature-flags/:id': ({ id }) => urls.featureFlag(id),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
+    '/instance/query_performance': urls.experimentsStaffTools(),
     '/me/settings': urls.settings('user'),
     '/new': urls.newTab(),
     '/live-debugger': urls.liveDebugger(),
@@ -704,6 +705,8 @@ export const redirects: Record<
     '/pipeline/sources': urls.sources(),
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
+    // There is no /project/new scene; send typed URLs and old bookmarks to the create-project flow
+    '/project/new': urls.projectCreateFirst(),
     '/project/settings': urls.settings('project'),
     // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
     '/quickstart': urls.default(),
@@ -807,6 +810,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
+    // Must come before the parameterized /experiments/:id route
+    [urls.experimentsStaffTools()]: [Scene.ExperimentsStaffTools, 'experimentsStaffTools'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
@@ -853,7 +858,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webScriptsNew()]: [Scene.DataPipelinesNew, 'webScriptsNew'],
     [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
-    [urls.queryPerformance()]: [Scene.QueryPerformance, 'queryPerformance'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],
