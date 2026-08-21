@@ -1,0 +1,1028 @@
+[
+    {
+        "case_id": "reposel_gen_000_analytics",
+        "signal": {
+            "signal_id": "sig_000",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A barebones implementation of an analytics backend built in rust 🦀\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/analytics"
+    },
+    {
+        "case_id": "reposel_gen_001_awesomemcpservers",
+        "signal": {
+            "signal_id": "sig_001",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A collection of MCP servers.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/awesome-mcp-servers"
+    },
+    {
+        "case_id": "reposel_gen_002_awesomeweb3",
+        "signal": {
+            "signal_id": "sig_002",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A curated list of tools, libs and resources to help you make the web decentralised 🚀\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/awesome-web3"
+    },
+    {
+        "case_id": "reposel_gen_003_calendso",
+        "signal": {
+            "signal_id": "sig_003",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"The open-source Calendly alternative.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/calendso"
+    },
+    {
+        "case_id": "reposel_gen_004_camcs",
+        "signal": {
+            "signal_id": "sig_004",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Repository for lecture notes, content and projects from the Cambridge Computer Science Tripos\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/camcs"
+    },
+    {
+        "case_id": "reposel_gen_005_chatwoot",
+        "signal": {
+            "signal_id": "sig_005",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Open-source customer engagement suite, an alternative to Intercom, Zendesk, Salesforce Service Cloud etc. 🔥💬\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/chatwoot"
+    },
+    {
+        "case_id": "reposel_gen_006_cldatascipnp",
+        "signal": {
+            "signal_id": "sig_006",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Data Science: principles and practice - course materials (2018/2019)\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/cl-datasci-pnp"
+    },
+    {
+        "case_id": "reposel_gen_007_content",
+        "signal": {
+            "signal_id": "sig_007",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Official content for Harvard CS109\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/content"
+    },
+    {
+        "case_id": "reposel_gen_008_cookiephon",
+        "signal": {
+            "signal_id": "sig_008",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Respository for the Cookiephon organization\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/cookiephon"
+    },
+    {
+        "case_id": "reposel_gen_009_deepwalk",
+        "signal": {
+            "signal_id": "sig_009",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Master's thesis on dynamic network embeddings using DeepWalk. Cambridge University in collaboration with DeepMind.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/deepwalk"
+    },
+    {
+        "case_id": "reposel_gen_010_devcontent",
+        "signal": {
+            "signal_id": "sig_010",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A collection of content downloaded for web development purposes\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/dev_content"
+    },
+    {
+        "case_id": "reposel_gen_011_djangoses",
+        "signal": {
+            "signal_id": "sig_011",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A Django email backend for Amazon's Simple Email Service\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/django-ses"
+    },
+    {
+        "case_id": "reposel_gen_012_dynamicnetworkembeddings",
+        "signal": {
+            "signal_id": "sig_012",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Masters thesis on DeepWalk, an algorithm for computing embeddings for dynamic network graphs.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/dynamic-network-embeddings"
+    },
+    {
+        "case_id": "reposel_gen_013_emergent",
+        "signal": {
+            "signal_id": "sig_013",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"An implementation of long term memory and external tools for LLMs\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/emergent"
+    },
+    {
+        "case_id": "reposel_gen_014_exampleamplificationapp",
+        "signal": {
+            "signal_id": "sig_014",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"An example amplification Nest.js app\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/example-amplification-app"
+    },
+    {
+        "case_id": "reposel_gen_015_examples",
+        "signal": {
+            "signal_id": "sig_015",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Enjoy our curated collection of examples and solutions. Use these patterns to build your own robust and scalable applications.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/examples"
+    },
+    {
+        "case_id": "reposel_gen_016_examplesnextprismastarter",
+        "signal": {
+            "signal_id": "sig_016",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"🚀 tRPC starter repo with E2E-testing\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/examples-next-prisma-starter"
+    },
+    {
+        "case_id": "reposel_gen_017_faviconic",
+        "signal": {
+            "signal_id": "sig_017",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"🔍 Find the logo for any website using just the domain. No dependencies!\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/faviconic"
+    },
+    {
+        "case_id": "reposel_gen_018_fc",
+        "signal": {
+            "signal_id": "sig_018",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Ephemeral VMs: Serverless Infrastructure with VM Flexibility\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/fc"
+    },
+    {
+        "case_id": "reposel_gen_019_fider",
+        "signal": {
+            "signal_id": "sig_019",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Open platform to collect and prioritize product feedback\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/fider"
+    },
+    {
+        "case_id": "reposel_gen_020_firestoregoogleappsscript",
+        "signal": {
+            "signal_id": "sig_020",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A Google Apps Script library for accessing Google Cloud Firestore.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/firestoregoogleappsscript"
+    },
+    {
+        "case_id": "reposel_gen_021_githog",
+        "signal": {
+            "signal_id": "sig_021",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"GitHogAI sets up PostHog so that you don't have to 🦔\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/githog"
+    },
+    {
+        "case_id": "reposel_gen_022_ogleappsscriptawesomelist",
+        "signal": {
+            "signal_id": "sig_022",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"The usual list of links to interesting resources for Google Apps Script\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/google-apps-script-awesome-list"
+    },
+    {
+        "case_id": "reposel_gen_023_oglecalendarautoplan",
+        "signal": {
+            "signal_id": "sig_023",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"An automatic week planner that allows you to set preferences to schedule your week and includes helpful time management practices by default.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/google-calendar-autoplan"
+    },
+    {
+        "case_id": "reposel_gen_024_oglecalendarsimpleapi",
+        "signal": {
+            "signal_id": "sig_024",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Pythonic wrapper for the Google Calendar API\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/google-calendar-simple-api"
+    },
+    {
+        "case_id": "reposel_gen_025_intellisheets",
+        "signal": {
+            "signal_id": "sig_025",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Monorepo for IntelliSheets. All code is private and should not be used without explicit written consent from a director of MindfulAI Ltd..\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/intellisheets"
+    },
+    {
+        "case_id": "reposel_gen_026_joshsny",
+        "signal": {
+            "signal_id": "sig_026",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Website for joshsny.com\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/joshsny_old"
+    },
+    {
+        "case_id": "reposel_gen_027_joshuapl",
+        "signal": {
+            "signal_id": "sig_027",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"New Portolio Website\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/joshua.pl"
+    },
+    {
+        "case_id": "reposel_gen_028_tutoring",
+        "signal": {
+            "signal_id": "sig_028",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"JS Tutoring\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": ["joshsny/jstutoring", "joshsny/tutoring"]
+    },
+    {
+        "case_id": "reposel_gen_029_landing",
+        "signal": {
+            "signal_id": "sig_029",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"The landing page for timenavi.io\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/landing"
+    },
+    {
+        "case_id": "reposel_gen_030_langchain",
+        "signal": {
+            "signal_id": "sig_030",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"⚡ Building applications with LLMs through composability ⚡\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": ["joshsny/langchain", "joshsny/langchain-demo"]
+    },
+    {
+        "case_id": "reposel_gen_031_langchain",
+        "signal": {
+            "signal_id": "sig_031",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Langchain Demo\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": ["joshsny/langchain", "joshsny/langchain-demo"]
+    },
+    {
+        "case_id": "reposel_gen_032_maths",
+        "signal": {
+            "signal_id": "sig_032",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Questions, Solutions and Resources for mathematics. Mostly from my time at Cambridge.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/maths"
+    },
+    {
+        "case_id": "reposel_gen_033_mathsexchange",
+        "signal": {
+            "signal_id": "sig_033",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"maths.exchange website\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/maths.exchange"
+    },
+    {
+        "case_id": "reposel_gen_034_mathsservices",
+        "signal": {
+            "signal_id": "sig_034",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Website for JS Tutoring\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/maths.services"
+    },
+    {
+        "case_id": "reposel_gen_035_metamaskextension",
+        "signal": {
+            "signal_id": "sig_035",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \":globe_with_meridians: :electric_plug: The MetaMask browser extension enables browsing Ethereum blockchain enabled websites\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/metamask-extension"
+    },
+    {
+        "case_id": "reposel_gen_036_mindful",
+        "signal": {
+            "signal_id": "sig_036",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Monorepo for MindfulAI. All code is private and should not be used without explicit written consent from a director of MindfulAI Ltd..\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/mindful"
+    },
+    {
+        "case_id": "reposel_gen_037_mindfulwebsite",
+        "signal": {
+            "signal_id": "sig_037",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"MindfulAI website\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/mindful-website"
+    },
+    {
+        "case_id": "reposel_gen_038_mindfullauncher",
+        "signal": {
+            "signal_id": "sig_038",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Lightning fast, open-source, < 200kb Android launcher. Based of Naemar/KISS.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/mindfullauncher"
+    },
+    {
+        "case_id": "reposel_gen_039_nextauth",
+        "signal": {
+            "signal_id": "sig_039",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"NextJS boilerplate for Credentials, Google, and Github authentication built with NextJS 14, Next-Auth v5, PostgreSQL, Prisma, Zod, etc...\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/next-auth-boilerplate"
+    },
+    {
+        "case_id": "reposel_gen_040_nextethereum",
+        "signal": {
+            "signal_id": "sig_040",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A Sign-In With Ethereum Starter for NextJS\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/next-ethereum"
+    },
+    {
+        "case_id": "reposel_gen_041_nextjs",
+        "signal": {
+            "signal_id": "sig_041",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"🚀🎉📚 Boilerplate and Starter for Next.js 15 with App Router and Page Router support, Tailwind CSS 4 and TypeScript ⚡️ Made with developer experience first: Next.js + TypeScript + ESLint + Prettier + Drizzle ORM + Husky + Lint-Staged + Vitest + Testing Library + Playwright + Storybook + Commitlint + VSCode + Netlify + PostCSS + Tailwind CSS ✨\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": ["joshsny/next-js-boilerplate", "joshsny/nextjs-boilerplate", "joshsny/nextjs-template"]
+    },
+    {
+        "case_id": "reposel_gen_042_nextjsstripestarter",
+        "signal": {
+            "signal_id": "sig_042",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A starter for Next.js Stripe built using the Nextjs typescript example\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/nextjs-stripe-starter"
+    },
+    {
+        "case_id": "reposel_gen_043_mindfullanding",
+        "signal": {
+            "signal_id": "sig_043",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A repository for MindfulAI content\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/old-mindful-landing"
+    },
+    {
+        "case_id": "reposel_gen_044_projectsblog",
+        "signal": {
+            "signal_id": "sig_044",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Projects GitHub Page\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/old_projects_blog"
+    },
+    {
+        "case_id": "reposel_gen_045_optical",
+        "signal": {
+            "signal_id": "sig_045",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"On-Chain Analytics\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/optical"
+    },
+    {
+        "case_id": "reposel_gen_046_pilgrim",
+        "signal": {
+            "signal_id": "sig_046",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Analytics\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/pilgrim"
+    },
+    {
+        "case_id": "reposel_gen_047_plugin",
+        "signal": {
+            "signal_id": "sig_047",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Template of ChatGPT plugin - with NextJS\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/plugin-template"
+    },
+    {
+        "case_id": "reposel_gen_048_portfolio",
+        "signal": {
+            "signal_id": "sig_048",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"✨  My portfolio built with Next.js, Tailwind, Prisma, and Vercel.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/portfolio"
+    },
+    {
+        "case_id": "reposel_gen_049_posthog",
+        "signal": {
+            "signal_id": "sig_049",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"🦔 PostHog provides open-source product analytics, session recording, feature flagging and A/B testing that you can self-host.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/posthog"
+    },
+    {
+        "case_id": "reposel_gen_050_privateprojects",
+        "signal": {
+            "signal_id": "sig_050",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Projects that are kept private from the public domain.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/private_projects"
+    },
+    {
+        "case_id": "reposel_gen_051_projects",
+        "signal": {
+            "signal_id": "sig_051",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Home to some of my machine learning and web development projects\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/projects"
+    },
+    {
+        "case_id": "reposel_gen_052_reactwebshare",
+        "signal": {
+            "signal_id": "sig_052",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Tiny web share wrapper with fallback for unsupported browsers\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/react-web-share"
+    },
+    {
+        "case_id": "reposel_gen_053_responseless",
+        "signal": {
+            "signal_id": "sig_053",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Website for responseless.co\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/responseless"
+    },
+    {
+        "case_id": "reposel_gen_054_sanity",
+        "signal": {
+            "signal_id": "sig_054",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"sanity\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/sanity"
+    },
+    {
+        "case_id": "reposel_gen_055_scaffoldeth",
+        "signal": {
+            "signal_id": "sig_055",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"🏗 forkable Ethereum dev stack focused on fast product iterations\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/scaffold-eth"
+    },
+    {
+        "case_id": "reposel_gen_056_servers",
+        "signal": {
+            "signal_id": "sig_056",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Model Context Protocol Servers\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/servers"
+    },
+    {
+        "case_id": "reposel_gen_057_softwareproblems",
+        "signal": {
+            "signal_id": "sig_057",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Fun software problems\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/software-problems"
+    },
+    {
+        "case_id": "reposel_gen_058_soulmategpt",
+        "signal": {
+            "signal_id": "sig_058",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Create an agent from your friend or family and chat with them.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/soulmategpt"
+    },
+    {
+        "case_id": "reposel_gen_059_speedstore",
+        "signal": {
+            "signal_id": "sig_059",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Blazingly fast Properties storage for Google Apps Script ⚡\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/speedstore"
+    },
+    {
+        "case_id": "reposel_gen_060_tablerreact",
+        "signal": {
+            "signal_id": "sig_060",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"React components and demo for the Tabler UI theme.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/tabler-react"
+    },
+    {
+        "case_id": "reposel_gen_061_testrepo",
+        "signal": {
+            "signal_id": "sig_061",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Test\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/test-repo"
+    },
+    {
+        "case_id": "reposel_gen_062_textreminderaddon",
+        "signal": {
+            "signal_id": "sig_062",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"The Text Reminder AddOn\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/textreminder-addon"
+    },
+    {
+        "case_id": "reposel_gen_063_timenavischedule",
+        "signal": {
+            "signal_id": "sig_063",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"TimeNavi Schedule. All rights reserved.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/timenavi-schedule"
+    },
+    {
+        "case_id": "reposel_gen_064_timenavischeduleogimage",
+        "signal": {
+            "signal_id": "sig_064",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Creates og images for TimeNavi Schedule\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/timenavi-schedule-og-image"
+    },
+    {
+        "case_id": "reposel_gen_065_timestampparserplugin",
+        "signal": {
+            "signal_id": "sig_065",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Parse your event timestamps into useful date properties.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/timestamp-parser-plugin"
+    },
+    {
+        "case_id": "reposel_gen_066_tutoring",
+        "signal": {
+            "signal_id": "sig_066",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"JS Tutoring Website\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": ["joshsny/jstutoring", "joshsny/tutoring"]
+    },
+    {
+        "case_id": "reposel_gen_067_tzdatagenerate",
+        "signal": {
+            "signal_id": "sig_067",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Generates the tzdata* family of NPM modules.\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/tzdata-generate"
+    },
+    {
+        "case_id": "reposel_gen_068_unusedsites",
+        "signal": {
+            "signal_id": "sig_068",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"A directory for unused websites\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/unused_sites"
+    },
+    {
+        "case_id": "reposel_gen_069_webapp",
+        "signal": {
+            "signal_id": "sig_069",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Repository for the TimeNavi Webapp built with React\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/webapp"
+    },
+    {
+        "case_id": "reposel_gen_070_website",
+        "signal": {
+            "signal_id": "sig_070",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Personal Website. Notion + NextJS\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/website"
+    },
+    {
+        "case_id": "reposel_gen_071_wedding",
+        "signal": {
+            "signal_id": "sig_071",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Website for wedding\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/wedding"
+    },
+    {
+        "case_id": "reposel_gen_072_weddingphotos",
+        "signal": {
+            "signal_id": "sig_072",
+            "content": "A user reported a problem in one of our connected projects. The affected product is best described as: \"Repository containing our wedding photos\". They hit a bug in its core functionality and we need to find the repository that owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/wedding-photos"
+    },
+    {
+        "case_id": "reposel_gen_073_app",
+        "signal": {
+            "signal_id": "sig_073",
+            "content": "A bug was reported in our TypeScript project known as 'app'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/app"
+    },
+    {
+        "case_id": "reposel_gen_074_blog",
+        "signal": {
+            "signal_id": "sig_074",
+            "content": "A bug was reported in our JavaScript project known as 'blog'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/blog"
+    },
+    {
+        "case_id": "reposel_gen_075_chatanalytics",
+        "signal": {
+            "signal_id": "sig_075",
+            "content": "A bug was reported in our TypeScript project known as 'chatanalytics'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/chatanalytics"
+    },
+    {
+        "case_id": "reposel_gen_076_codehog",
+        "signal": {
+            "signal_id": "sig_076",
+            "content": "A bug was reported in our TypeScript project known as 'codehog'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/codehog"
+    },
+    {
+        "case_id": "reposel_gen_077_commerce",
+        "signal": {
+            "signal_id": "sig_077",
+            "content": "A bug was reported in our TypeScript project known as 'commerce'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/commerce"
+    },
+    {
+        "case_id": "reposel_gen_078_designsystem",
+        "signal": {
+            "signal_id": "sig_078",
+            "content": "A bug was reported in our software project known as 'design-system'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/design-system"
+    },
+    {
+        "case_id": "reposel_gen_079_dexarb",
+        "signal": {
+            "signal_id": "sig_079",
+            "content": "A bug was reported in our Solidity project known as 'dex-arb'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/dex-arb"
+    },
+    {
+        "case_id": "reposel_gen_080_eximo",
+        "signal": {
+            "signal_id": "sig_080",
+            "content": "A bug was reported in our TypeScript project known as 'eximo'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/eximo"
+    },
+    {
+        "case_id": "reposel_gen_081_finance",
+        "signal": {
+            "signal_id": "sig_081",
+            "content": "A bug was reported in our software project known as 'finance'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/finance"
+    },
+    {
+        "case_id": "reposel_gen_082_gasmockglobals",
+        "signal": {
+            "signal_id": "sig_082",
+            "content": "A bug was reported in our TypeScript project known as 'gas-mock-globals'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/gas-mock-globals"
+    },
+    {
+        "case_id": "reposel_gen_083_gasreactboilerplace",
+        "signal": {
+            "signal_id": "sig_083",
+            "content": "A bug was reported in our JavaScript project known as 'gas-react-boilerplace'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/gas-react-boilerplace"
+    },
+    {
+        "case_id": "reposel_gen_084_holywebsite",
+        "signal": {
+            "signal_id": "sig_084",
+            "content": "A bug was reported in our CSS project known as 'holy-website'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/holy-website"
+    },
+    {
+        "case_id": "reposel_gen_085_inboxzero",
+        "signal": {
+            "signal_id": "sig_085",
+            "content": "A bug was reported in our TypeScript project known as 'inboxzero'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/inboxzero"
+    },
+    {
+        "case_id": "reposel_gen_086_keatypegen",
+        "signal": {
+            "signal_id": "sig_086",
+            "content": "A bug was reported in our software project known as 'kea-typegen'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/kea-typegen"
+    },
+    {
+        "case_id": "reposel_gen_087_kg",
+        "signal": {
+            "signal_id": "sig_087",
+            "content": "A bug was reported in our TypeScript project known as 'kg'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/kg"
+    },
+    {
+        "case_id": "reposel_gen_088_langchainjs",
+        "signal": {
+            "signal_id": "sig_088",
+            "content": "A bug was reported in our TypeScript project known as 'langchainjs'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/langchainjs"
+    },
+    {
+        "case_id": "reposel_gen_089_mcp",
+        "signal": {
+            "signal_id": "sig_089",
+            "content": "A bug was reported in our TypeScript project known as 'mcp-demo'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/mcp-demo"
+    },
+    {
+        "case_id": "reposel_gen_090_mindfullandingpage",
+        "signal": {
+            "signal_id": "sig_090",
+            "content": "A bug was reported in our SCSS project known as 'mindful-landing-page'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/mindful-landing-page"
+    },
+    {
+        "case_id": "reposel_gen_091_minimalrustblockchain",
+        "signal": {
+            "signal_id": "sig_091",
+            "content": "A bug was reported in our Rust project known as 'minimal-rust-blockchain'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/minimal-rust-blockchain"
+    },
+    {
+        "case_id": "reposel_gen_092_mlab2",
+        "signal": {
+            "signal_id": "sig_092",
+            "content": "A bug was reported in our software project known as 'mlab2'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/mlab2"
+    },
+    {
+        "case_id": "reposel_gen_093_nestjsblog",
+        "signal": {
+            "signal_id": "sig_093",
+            "content": "A bug was reported in our TypeScript project known as 'nestjs-blog'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/nestjs-blog"
+    },
+    {
+        "case_id": "reposel_gen_094_nextjs",
+        "signal": {
+            "signal_id": "sig_094",
+            "content": "A bug was reported in our TypeScript project known as 'nextjs-boilerplate'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": ["joshsny/next-js-boilerplate", "joshsny/nextjs-boilerplate", "joshsny/nextjs-template"]
+    },
+    {
+        "case_id": "reposel_gen_095_nextjs",
+        "signal": {
+            "signal_id": "sig_095",
+            "content": "A bug was reported in our JavaScript project known as 'nextjs-template'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": ["joshsny/next-js-boilerplate", "joshsny/nextjs-boilerplate", "joshsny/nextjs-template"]
+    },
+    {
+        "case_id": "reposel_gen_096_othersideml",
+        "signal": {
+            "signal_id": "sig_096",
+            "content": "A bug was reported in our Python project known as 'otherside-ml'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/otherside-ml"
+    },
+    {
+        "case_id": "reposel_gen_097_phinterview",
+        "signal": {
+            "signal_id": "sig_097",
+            "content": "A bug was reported in our TypeScript project known as 'ph-interview'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/ph-interview"
+    },
+    {
+        "case_id": "reposel_gen_098_platformsstarterkit",
+        "signal": {
+            "signal_id": "sig_098",
+            "content": "A bug was reported in our TypeScript project known as 'platforms-starter-kit'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/platforms-starter-kit"
+    },
+    {
+        "case_id": "reposel_gen_099_polygondid",
+        "signal": {
+            "signal_id": "sig_099",
+            "content": "A bug was reported in our TypeScript project known as 'polygon-did-example'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/polygon-did-example"
+    },
+    {
+        "case_id": "reposel_gen_100_polygonid",
+        "signal": {
+            "signal_id": "sig_100",
+            "content": "A bug was reported in our TypeScript project known as 'polygon-id'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/polygon-id"
+    },
+    {
+        "case_id": "reposel_gen_101_posthognextjs",
+        "signal": {
+            "signal_id": "sig_101",
+            "content": "A bug was reported in our TypeScript project known as 'posthog-nextjs'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/posthog-nextjs"
+    },
+    {
+        "case_id": "reposel_gen_102_posthogwithflagssdkandnextjs",
+        "signal": {
+            "signal_id": "sig_102",
+            "content": "A bug was reported in our TypeScript project known as 'posthog-with-flags-sdk-and-next-js'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/posthog-with-flags-sdk-and-next-js"
+    },
+    {
+        "case_id": "reposel_gen_103_responsable",
+        "signal": {
+            "signal_id": "sig_103",
+            "content": "A bug was reported in our TypeScript project known as 'responsable'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/responsable"
+    },
+    {
+        "case_id": "reposel_gen_104_scheduling",
+        "signal": {
+            "signal_id": "sig_104",
+            "content": "A bug was reported in our TypeScript project known as 'scheduling'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/scheduling"
+    },
+    {
+        "case_id": "reposel_gen_105_soulmatejs",
+        "signal": {
+            "signal_id": "sig_105",
+            "content": "A bug was reported in our TypeScript project known as 'soulmatejs'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/soulmatejs"
+    },
+    {
+        "case_id": "reposel_gen_106_techspertchallenge",
+        "signal": {
+            "signal_id": "sig_106",
+            "content": "A bug was reported in our Python project known as 'techspert-challenge'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/techspert-challenge"
+    },
+    {
+        "case_id": "reposel_gen_107_testapp",
+        "signal": {
+            "signal_id": "sig_107",
+            "content": "A bug was reported in our TypeScript project known as 'test-app'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/test-app"
+    },
+    {
+        "case_id": "reposel_gen_108_textreminderwebapp",
+        "signal": {
+            "signal_id": "sig_108",
+            "content": "A bug was reported in our HTML project known as 'textreminder-webapp'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/textreminder-webapp"
+    },
+    {
+        "case_id": "reposel_gen_109_tokenstest",
+        "signal": {
+            "signal_id": "sig_109",
+            "content": "A bug was reported in our software project known as 'tokens-test'. Identify which connected repository owns this code.",
+            "source_product": "conversations"
+        },
+        "expected_repository": "joshsny/tokens-test"
+    },
+    {
+        "case_id": "reposel_gen_null_00",
+        "signal": {
+            "signal_id": "sig_null_0",
+            "content": "A customer disputes an invoice and wants a prorated refund escalated to their account manager.",
+            "source_product": "zendesk"
+        },
+        "expect_null": true
+    },
+    {
+        "case_id": "reposel_gen_null_01",
+        "signal": {
+            "signal_id": "sig_null_1",
+            "content": "Sales asks for a custom enterprise contract and updated pricing terms for a prospect.",
+            "source_product": "zendesk"
+        },
+        "expect_null": true
+    },
+    {
+        "case_id": "reposel_gen_null_02",
+        "signal": {
+            "signal_id": "sig_null_2",
+            "content": "Legal needs a copy of our signed DPA and sub-processor list for a security review.",
+            "source_product": "zendesk"
+        },
+        "expect_null": true
+    },
+    {
+        "case_id": "reposel_gen_null_03",
+        "signal": {
+            "signal_id": "sig_null_3",
+            "content": "A user asks to change the billing email on their subscription and re-send the last receipt.",
+            "source_product": "zendesk"
+        },
+        "expect_null": true
+    }
+]

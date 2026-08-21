@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "case_id": "reposel_billing_null",
+    "step": "repo_selection",
+    "meta": { "recorded": "hand-authored golden run; correct null decision" },
+    "turns": [
+        {
+            "index": 0,
+            "label": "initial turn",
+            "model": "RepoSelectionResult",
+            "raw_text": "{\"repository\": null, \"reason\": \"The request is purely about an invoice dispute and a refund SLA — a billing/sales operations question. None of the candidate repositories (a scheduling app, a BaaS platform, a workflow tool, a whiteboard, and two SDKs) own billing operations a developer could change to resolve it.\"}"
+        }
+    ]
+}

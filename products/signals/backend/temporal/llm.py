@@ -89,6 +89,7 @@ async def call_llm(
     system_prompt: str,
     user_prompt: str,
     validate: Callable[[str], T],
+    model: str | None = None,
     thinking: bool = False,
     temperature: Optional[float] = 0.2,
     retries: int = MAX_RETRIES,
@@ -96,7 +97,8 @@ async def call_llm(
     ai_product: Optional[str] = None,
 ) -> T:
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
-    thinking = thinking and MATCHING_MODEL in ANTHROPIC_THINKING_MODELS
+    selected_model = model or MATCHING_MODEL
+    thinking = thinking and selected_model in ANTHROPIC_THINKING_MODELS
     # A call site opts onto the Go ai-gateway by passing ai_product, which both routes it through
     # the gateway-capable client and tags the generation. Without it the call stays on the Python
     # gateway, so each product is switched (and reverted) independently.
@@ -121,7 +123,7 @@ async def call_llm(
         messages.append({"role": "assistant", "content": "{"})
 
     create_kwargs: dict = {
-        "model": MATCHING_MODEL,
+        "model": selected_model,
         "system": system_prompt,
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
