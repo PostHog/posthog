@@ -14,17 +14,27 @@ export function createRecordSessionUsageStep<T extends SessionUsageInput>(
     return function recordSessionUsage(values) {
         for (const value of values) {
             if (value.isNewSession) {
+                const snapshotSource = value.parsedMessage.snapshot_source || 'web'
+                const dimensions = {
+                    snapshot_source: snapshotSource,
+                    ...(value.parsedMessage.snapshot_library
+                        ? { snapshot_library: value.parsedMessage.snapshot_library }
+                        : {}),
+                }
                 usageBatch?.add(
                     value.team.teamId,
                     'session_replay_recordings',
                     `replay:${value.headers.session_id}`,
-                    {
-                        snapshot_source: value.parsedMessage.snapshot_source || 'web',
-                        ...(value.parsedMessage.snapshot_library
-                            ? { snapshot_library: value.parsedMessage.snapshot_library }
-                            : {}),
-                    }
+                    dimensions
                 )
+                if (snapshotSource === 'mobile') {
+                    usageBatch?.add(
+                        value.team.teamId,
+                        'mobile_replay_recordings',
+                        `mobile-replay:${value.headers.session_id}`,
+                        dimensions
+                    )
+                }
             }
         }
         return Promise.resolve(values.map(ok))
