@@ -21,6 +21,7 @@ import { OverflowLaneOverflowRedirect } from '~/ingestion/common/overflow-redire
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
 import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow-strategy'
+import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { IngestionLane, IngestionOverflowMode } from '~/ingestion/config'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -82,6 +83,7 @@ export interface ErrorTrackingConsumerDeps {
     cookielessManager: CookielessManager
     redisPool: GenericPool<Redis>
     personRepository: PersonReadRepository
+    createEventUsageBatch?: () => EventUsageBatch
 }
 
 // Batch processing status - useful for tracking failures (batch sizes already tracked by KafkaConsumer)
@@ -223,6 +225,7 @@ export class ErrorTrackingConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             topHog: this.topHog,
+            createEventUsageBatch: this.deps.createEventUsageBatch,
         })
 
         logger.info('✅', `${this.name} - pipeline initialized`)

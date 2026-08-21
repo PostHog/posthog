@@ -10,6 +10,7 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig, createPersonHogClient } from '~/common/personhog'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
@@ -27,6 +28,7 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
+import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,
@@ -76,6 +78,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    UsageIngestionConfig &
     CookielessServerConfig &
     Pick<
         CommonConfig,
@@ -222,6 +225,11 @@ export class ErrorTrackingServer implements NodeServer {
                     cookielessManager: this.cookielessManager!,
                     redisPool: this.redisPool!,
                     personRepository,
+                    createEventUsageBatch: () =>
+                        new EventUsageBatch(
+                            createUsageIngestionClient(this.config, 'exceptions'),
+                            usageReportTeamMatcher(this.config, 'exceptions')
+                        ),
                 }
             )
             await consumer.start()

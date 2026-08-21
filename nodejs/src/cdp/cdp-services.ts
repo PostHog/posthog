@@ -2,6 +2,7 @@ import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -41,6 +42,7 @@ import { HogInvocationResultsService } from './services/monitoring/hog-invocatio
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
+import { CdpUsageReporterService } from './services/usage/cdp-usage-reporter.service'
 import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from './utils/cdp-fetch'
 import { configureValkeyReads } from './utils/dual-store'
@@ -85,6 +87,7 @@ export interface CdpCoreServices {
     teamWorkflowsConfigService: TeamWorkflowsConfigService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    cdpUsageReporter: CdpUsageReporterService
     capturedEventsService: CapturedEventsService
     /** Per-invocation lifecycle row producer for the new runs/invocations UI + rerun path. */
     hogInvocationResultsService: HogInvocationResultsService
@@ -104,6 +107,7 @@ export type CdpCoreServicesConfig = Pick<
     CommonConfig,
     'REDIS_URL' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE' | 'ENCRYPTION_SALT_KEYS' | 'SITE_URL'
 > &
+    UsageIngestionConfig &
     Pick<
         CdpConfig,
         | 'CDP_REDIS_HOST'
@@ -468,11 +472,16 @@ export function createCdpCoreServices(
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
     // Observer writes to both stores; the read source decides which verdict drives the metric.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow.writer)
+    const cdpUsageReporter = new CdpUsageReporterService(
+        createUsageIngestionClient(config, 'cdp'),
+        usageReportTeamMatcher(config, 'cdp')
+    )
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
         emailValidationService,
-        hogFlowDuplicateObserver
+        hogFlowDuplicateObserver,
+        cdpUsageReporter
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
@@ -507,6 +516,7 @@ export function createCdpCoreServices(
         teamWorkflowsConfigService,
         hogFlowExecutor,
         hogFunctionMonitoringService,
+        cdpUsageReporter,
         capturedEventsService,
         hogInvocationResultsService,
         invocationResultsService,

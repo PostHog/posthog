@@ -43,6 +43,13 @@ import { createPrepareEventStep } from '~/ingestion/common/steps/event-processin
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/event-processing/strip-person-update-properties-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import {
+    createEventUsageBeforeBatchStep,
+    createFlushEventUsageStep,
+    createRecordEventUsageStep,
+} from '~/ingestion/common/steps/usage-records-steps'
+import { resolveAiUsageKey } from '~/ingestion/common/usage-records/billable-events'
+import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogRegistry, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
@@ -84,6 +91,7 @@ export interface AiIngestionPipelineConfig {
     topHog: TopHogRegistry
     aiBlobStore: BlobStore | null
     aiBlobOffloadConfig: OffloadAiBlobsConfig
+    createEventUsageBatch?: () => EventUsageBatch
 }
 
 interface AiIngestionPipelineInput {
@@ -131,6 +139,7 @@ export function createAiIngestionPipeline<
         topHog,
         aiBlobStore,
         aiBlobOffloadConfig,
+        createEventUsageBatch = () => new EventUsageBatch(null, () => false),
     } = config
 
     return (
@@ -141,7 +150,11 @@ export function createAiIngestionPipeline<
             concurrentBatches,
             topHog,
         })
-            .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
+            .beforeBatch((b) =>
+                b
+                    .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))
+                    .pipe(createEventUsageBeforeBatchStep(createEventUsageBatch))
+            )
             // Header-only steps: allow only AI events, apply token restrictions.
             .parseHeaders()
             .pipe(createAllowEventsStep([...AI_EVENT_TYPES]))
@@ -242,6 +255,7 @@ export function createAiIngestionPipeline<
             .pipe(createReadOnlyProcessGroupsStep(groupTypeManager), {
                 retry: { tries: 5, sleepMs: 100, name: 'readonly_process_groups' },
             })
+            .pipe(createRecordEventUsageStep(resolveAiUsageKey))
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
             // Double-write to events + ai_events outputs.
             .pipe(createSplitAiEventsStep())
@@ -267,6 +281,7 @@ export function createAiIngestionPipeline<
             .afterBatch((b) =>
                 b
                     .pipe(createFlushEventFiltersBatchAppMetricsStep())
+                    .pipe(createFlushEventUsageStep())
                     // Drain hog transformer invocation results once per batch.
                     .pipe(createFlushHogTransformerStep(hogTransformer))
             )

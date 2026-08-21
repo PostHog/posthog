@@ -32,6 +32,11 @@ import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-proce
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import { createGroupStoreBeforeBatchStep } from '~/ingestion/common/steps/group-store-batch-step'
 import { createPersonsStoreBeforeBatchStep } from '~/ingestion/common/steps/persons-store-batch-step'
+import {
+    createEventUsageBeforeBatchStep,
+    createFlushEventUsageStep,
+} from '~/ingestion/common/steps/usage-records-steps'
+import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 
@@ -69,6 +74,7 @@ export interface JoinedIngestionPipelineConfig {
      * (`ingestion_api_batch_capacity_rejections_total`).
      */
     concurrentBatches: number
+    createEventUsageBatch?: () => EventUsageBatch
 }
 
 export interface JoinedIngestionPipelineDeps {
@@ -115,6 +121,7 @@ export function createJoinedIngestionPipeline<
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
+        createEventUsageBatch = () => new EventUsageBatch(null, () => false),
     } = config
 
     const {
@@ -179,6 +186,7 @@ export function createJoinedIngestionPipeline<
             .beforeBatch((beforeBatch) =>
                 beforeBatch
                     .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))
+                    .pipe(createEventUsageBeforeBatchStep(createEventUsageBatch))
                     .pipe(createPersonsStoreBeforeBatchStep(personsStore))
                     .pipe(createGroupStoreBeforeBatchStep(groupStore))
             )
@@ -216,6 +224,7 @@ export function createJoinedIngestionPipeline<
                 afterBatch
                     .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
                     .pipe(createFlushEventFiltersBatchAppMetricsStep())
+                    .pipe(createFlushEventUsageStep())
                     .pipe(createFlushHogTransformerStep(hogTransformer))
             )
             .build()
