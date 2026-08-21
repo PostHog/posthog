@@ -9,13 +9,14 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 common-database = { path = "../common/database" }
+common-hypercache = { path = "../common/hypercache" }
 common-kafka = { path = "../common/kafka" }
 common-liveness = { path = "../common/liveness" }
+common-redis = { path = "../common/redis" }
 envconfig = { workspace = true }
 health = { path = "../common/health" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
-moka = { workspace = true }
 rdkafka = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

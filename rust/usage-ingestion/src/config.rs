@@ -6,8 +6,16 @@ pub struct Config {
     pub grpc_address: String,
     #[envconfig(from = "USAGE_INGESTION_METRICS_ADDRESS", default = "0.0.0.0:7144")]
     pub metrics_address: String,
+    #[envconfig(from = "USAGE_INGESTION_TEAM_ORGANIZATION_REDIS_URL")]
+    pub team_organization_redis_url: String,
     #[envconfig(from = "USAGE_INGESTION_DATABASE_URL")]
     pub database_url: String,
+    #[envconfig(from = "OBJECT_STORAGE_BUCKET")]
+    pub object_storage_bucket: String,
+    #[envconfig(from = "OBJECT_STORAGE_REGION", default = "us-east-1")]
+    pub object_storage_region: String,
+    #[envconfig(from = "OBJECT_STORAGE_ENDPOINT")]
+    pub object_storage_endpoint: Option<String>,
     #[envconfig(from = "KAFKA_HOSTS", default = "localhost:9092")]
     pub kafka_hosts: String,
     #[envconfig(from = "KAFKA_TLS", default = "false")]

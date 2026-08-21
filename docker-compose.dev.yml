@@ -707,6 +707,10 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_healthy
+            redis7:
+                condition: service_healthy
+            objectstorage:
+                condition: service_started
         # Keeps a bare `up` from building an image that is not published yet.
         profiles:
             - ingestion
