@@ -4,7 +4,7 @@ import {
   CaretRightIcon,
 } from "@phosphor-icons/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
-import { Button, ButtonGroup } from "@posthog/quill";
+import { Button, ButtonGroup, cn } from "@posthog/quill";
 import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
@@ -20,15 +20,18 @@ import { BrowserTabsDndProvider } from "@posthog/ui/features/browser-tabs/Browse
 import { TabShortcutFallback } from "@posthog/ui/features/browser-tabs/TabShortcutFallback";
 import { useActiveTabIsBlank } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
+import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
 import { ChannelsSidebar } from "@posthog/ui/features/canvas/components/ChannelsSidebar";
 import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
 import {
   FeedbackModal,
   type FeedbackModalMode,
 } from "@posthog/ui/features/canvas/components/FeedbackModal";
+import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useShareLinkInterceptor } from "@posthog/ui/features/canvas/hooks/useShareLinkInterceptor";
 import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
@@ -45,6 +48,7 @@ import { useIntegrations } from "@posthog/ui/features/integrations/useIntegratio
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
+import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -205,9 +209,16 @@ function RootLayout() {
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
+  const { hasSidebar } = useRailSurface();
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
   const sidebarOpen = useSidebarStore((s) => s.open);
+  // On screen, not merely un-collapsed: a destination with no list takes the
+  // column away whatever the open flag says.
+  const sidebarDocked = sidebarOpen && hasSidebar;
+  // The corner belongs to whichever pane starts the framed inset.
+  const framesOwnCorner = channelsLayout ? !sidebarDocked : sidebarDocked;
+
   const toggleSidebar = useSidebarStore((s) => s.toggle);
   const sidebarPeek = useSidebarPeekStore((s) => s.peek);
   // Toggling makes any hover-peek redundant (opening replaces the overlay;
@@ -369,7 +380,9 @@ function RootLayout() {
               // over- or under-shoots; the env var fallback covers hosts
               // without Window Controls Overlay.
               paddingLeft: isMac ? "env(titlebar-area-x, 78px)" : "78px",
-              width: sidebarOpen ? channelsSidebarWidth : undefined,
+              width: sidebarDocked
+                ? channelsSidebarWidth + (channelsLayout ? NAV_RAIL_WIDTH : 0)
+                : undefined,
             }}
           >
             <Flex align="center" gap="2" className="no-drag">
@@ -462,14 +475,25 @@ function RootLayout() {
               }`}
             />
           )}
-          <ChannelsSidebar />
+          {/* Outside the sidebar on purpose: collapsing the sidebar (Cmd+B)
+              must not take the destinations with it. */}
+          {channelsLayout && <NavRail />}
+          {hasSidebar && <ChannelsSidebar />}
           {/* Content sits in a bordered, rounded card inset from the window
-              edges — the framed pane from the design. */}
+              edges — the framed pane from the design. The rounded corner
+              belongs to whichever pane starts the inset: the sidebar when it
+              is docked, this pane when it isn't and the rail holds the edge.
+              Without a rail there is nothing to inset from until the sidebar
+              opens, which is the corner this pane kept before. */}
           <Box flexGrow="1" className="overflow-hidden">
             <Box
-              className={`h-full overflow-hidden border-border border-t border-l bg-background ${
-                sidebarOpen ? "rounded-tl-sm" : ""
-              }`}
+              className={cn(
+                "h-full overflow-hidden border-border border-t bg-background",
+                // A docked sidebar already draws this edge; two owners stack
+                // two 1px lines into one seam.
+                !sidebarDocked && "border-l",
+                framesOwnCorner && "rounded-tl-sm",
+              )}
             >
               <Flex direction="column" height="100%">
                 {/* Inside the framed pane, not the app column: announcements
@@ -502,6 +526,10 @@ function RootLayout() {
             rather than in the switcher, which only exists once a channel is
             already scoped. */}
         <ChannelHotkeys />
+        {/* Renders nothing — owns which space is scoped. The sidebar used to,
+            but the rail can take that column away and the scoping still has to
+            happen. */}
+        <ChannelRouteSync />
         {/* Renders nothing — wires the ⌥↑/⌥↓ task-cycling shortcuts. */}
         <SpaceSwitcher
           tasks={visualTaskOrder}
