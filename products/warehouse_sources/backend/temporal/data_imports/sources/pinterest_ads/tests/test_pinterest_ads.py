@@ -1066,6 +1066,50 @@ class TestIterTargetingAnalyticsRows:
         # Only one batch exists, so a cursor pointing past it leaves nothing to request.
         assert mock_request.call_count == 0
 
+    def test_saves_cursor_under_its_own_kind_so_resume_reads_it_back(self):
+        # The save must tag the cursor with TARGETING_ANALYTICS_RESUME_KIND. Saving the totals kind
+        # instead would make _load_resume_config reject it on resume (kind mismatch), restarting the
+        # fan-out at batch 0 and repeating every API call already made.
+        manager = _make_resume_manager()
+        mock_request = mock.MagicMock(return_value={"data": []})
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids",
+                return_value=["1", "2"],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency",
+                return_value=None,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31")],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"], ["2"]],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request",
+                mock_request,
+            ),
+        ):
+            list(
+                _iter_targeting_analytics_rows(
+                    mock.MagicMock(),
+                    "acc123",
+                    "campaign_targeting_analytics",
+                    manager,
+                    mock.MagicMock(),
+                    False,
+                    None,
+                )
+            )
+
+        assert manager.save_state.call_count >= 1
+        assert manager.save_state.call_args_list[0].args[0].kind == TARGETING_ANALYTICS_RESUME_KIND
+
 
 class TestIterEntityRowsWithoutPagination:
     @mock.patch(

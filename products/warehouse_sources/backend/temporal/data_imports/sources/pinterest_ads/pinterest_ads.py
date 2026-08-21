@@ -386,7 +386,7 @@ def _iter_fanned_out_analytics(
             if next_batch_idx is not None and next_chunk_idx is not None:
                 resumable_source_manager.save_state(
                     PinterestAdsResumeConfig(
-                        kind=ANALYTICS_RESUME_KIND,
+                        kind=resume_kind,
                         batch_index=next_batch_idx,
                         date_chunk_index=next_chunk_idx,
                     )
