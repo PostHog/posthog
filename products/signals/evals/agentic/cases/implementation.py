@@ -8,12 +8,14 @@ _REPOSITORY = "posthog/hedgebox"
 def _case(
     case_id: str,
     issue_prompt: str,
+    judging_notes: str = "",
 ) -> ImplementationCase:
     return ImplementationCase(
         case_id=case_id,
         step="implementation",
         repo=_REPOSITORY,
         issue_prompt=issue_prompt,
+        judging_notes=judging_notes,
     )
 
 
@@ -66,5 +68,37 @@ CASES: list[ImplementationCase] = [
         "impl_hedgebox_header_nav_label",
         "Add an accessible `aria-label` of `Main navigation` to the desktop navigation container in "
         "`src/components/Header.tsx`. Keep the change limited to that component.",
+    ),
+    _case(
+        "impl_hedgebox_download_flow",
+        "Customers report that Download records analytics but never starts a browser download. Fix downloads from "
+        "both the files list and file details page. Use the `/api/files/{id}/download` endpoint, keep the behavior in "
+        "one shared helper, and record `downloaded_file` only after the download has been initiated.",
+        "A strong fix discovers both download handlers, centralizes the browser side effect, preserves file metadata "
+        "in analytics, and does not leave the details button stuck in its processing state.",
+    ),
+    _case(
+        "impl_hedgebox_auth_return_path",
+        "Unauthenticated users who open a file link are sent to login and then lose the file they intended to view. "
+        "Preserve the requested path through login and return there after authentication. Accept only internal paths "
+        "beginning with `/`; reject protocol-relative and absolute URLs, and keep `/files` as the fallback.",
+        "The hook and login page should cooperate on a URL-encoded return path without introducing an open redirect. "
+        "Loading and already-authenticated behavior should remain stable.",
+    ),
+    _case(
+        "impl_hedgebox_bulk_delete",
+        "Bulk delete currently removes selected files immediately and updates state once per file. Ask for one "
+        "confirmation naming the number selected, make no changes when cancelled, then delete the confirmed files in "
+        "one state update, clear the selection, and emit one `deleted_file` event for each removed file.",
+        "The implementation should use the current selected files as one snapshot, avoid calling the single-file state "
+        "handler in a loop, and preserve single-file deletion behavior.",
+    ),
+    _case(
+        "impl_hedgebox_share_feedback",
+        "The Share modal reports a copied link even when the Clipboard API rejects. Make copying asynchronous, show a "
+        "clear success or failure message in the modal, and emit `copied_share_link` only after a successful write. "
+        "Reset stale feedback whenever the modal is reopened.",
+        "A strong fix handles the clipboard promise without an unhandled rejection, exposes accessible feedback, keeps "
+        "the existing share link, and does not count failed copies as successful analytics.",
     ),
 ]

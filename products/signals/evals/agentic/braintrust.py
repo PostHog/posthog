@@ -49,6 +49,18 @@ def decode_scout(output: dict[str, Any]) -> ScoutOutput:
     return ScoutOutput.model_validate(output)
 
 
+def _tool_evidence(raw_log: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": tool.name,
+            "input": tool.input,
+            "output": (tool.output or "")[:2_000],
+            "error": tool.is_error,
+        }
+        for tool in parse_log(raw_log).tools
+    ]
+
+
 class SignalsScorerAdapter(AsyncOnlyScorerMixin, Scorer):
     def __init__(
         self,
@@ -160,11 +172,18 @@ class ResearchSummaryJudge(JudgedScorer):
                 {
                     "signals": [signal.content for signal in case.signals],
                     "expectation": str(case.expected),
+                    "reference_facts": case.judging_notes,
+                    "seeded_data": output.get("seed"),
                 },
                 indent=2,
             ),
             "output": json.dumps(
-                {"title": research.title, "summary": research.summary, "findings": findings},
+                {
+                    "title": research.title,
+                    "summary": research.summary,
+                    "findings": findings,
+                    "tool_calls": _tool_evidence(str(output.get("raw_log", ""))),
+                },
                 indent=2,
             ),
         }
@@ -268,8 +287,16 @@ class ImplementationFixJudge(JudgedScorer):
         if not implementation.diff:
             return Score(name=self._name(), score=0.0, metadata={"reason": "no actual diff captured"})
         return {
-            "expected": json.dumps({"repository": case.repo, "issue": case.issue_prompt}, indent=2),
-            "output": implementation.diff[:12_000],
+            "expected": json.dumps(
+                {"repository": case.repo, "issue": case.issue_prompt, "reference_facts": case.judging_notes}, indent=2
+            ),
+            "output": json.dumps(
+                {
+                    "diff": implementation.diff[:12_000],
+                    "tool_calls": _tool_evidence(implementation.raw_log),
+                },
+                indent=2,
+            ),
         }
 
 
@@ -311,15 +338,6 @@ class ScoutDecisionQualityJudge(JudgedScorer):
         if case is None or not output:
             return Score(name=self._name(), score=0.0, metadata={"reason": "missing case or output"})
         scout = decode_scout(output)
-        tools = [
-            {
-                "name": tool.name,
-                "input": tool.input,
-                "output": (tool.output or "")[:2_000],
-                "error": tool.is_error,
-            }
-            for tool in parse_log(scout.raw_log).tools
-        ]
         return {
             "expected": json.dumps(
                 {
@@ -335,7 +353,7 @@ class ScoutDecisionQualityJudge(JudgedScorer):
                 {
                     **scout.model_dump(mode="json", exclude={"raw_log"}),
                     "seed": output.get("seed"),
-                    "tool_calls": tools,
+                    "tool_calls": _tool_evidence(scout.raw_log),
                 },
                 indent=2,
             ),

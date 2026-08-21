@@ -69,6 +69,11 @@ quality judge. Implementation grades the diff captured from the task log. Scout 
 reports, signals, and scratchpad writes. Scout cases run the canonical scout skills against seeded
 project events and objects.
 
+The deeper research cases add case-specific events to Hedgebox and grade the report against the seeded
+facts and the queries it ran. Implementation includes both small calibration tasks and multi-file product
+flows. The datasets include deceptive controls such as stable conversion under lower volume, denominator
+collapse, and poor Web Vitals with too few samples.
+
 Repository-selection cases use deterministic metadata for public repositories and do not depend on
 an engineer's GitHub account.
 

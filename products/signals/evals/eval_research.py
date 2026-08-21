@@ -4,7 +4,7 @@ from products.signals.evals.agentic.braintrust import ResearchSummaryJudge, deco
 from products.signals.evals.agentic.cases.research import CASES
 from products.signals.evals.agentic.runners import run_research
 from products.signals.evals.agentic.scorers_research import default_research_scorers
-from products.signals.evals.agentic.seeders import seed_research_sessions
+from products.signals.evals.agentic.seeders import seed_research_project
 from products.signals.evals.agentic.suite import run_suite
 
 SUITE_KIND = SuiteKind.SANDBOXED
@@ -20,6 +20,6 @@ async def eval_research(ctx: EvalContext) -> None:
             *deterministic_scorers(default_research_scorers(), CASES, decode_research),
             ResearchSummaryJudge(CASES),
         ],
-        setup=seed_research_sessions,
+        setup=seed_research_project,
         ctx=ctx,
     )

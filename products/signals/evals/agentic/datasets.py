@@ -56,6 +56,9 @@ class ResearchExpectation:
     expect_data_evidence: bool = False
 
 
+ResearchSeed = Literal["checkout_browser_regression", "signup_volume_drop", "upload_retry_cluster"]
+
+
 @dataclass(frozen=True)
 class ResearchCase(EvalCase):
     signals: tuple[SignalSpec, ...] = ()
@@ -63,6 +66,8 @@ class ResearchCase(EvalCase):
     summary: str | None = None
     expected: ResearchExpectation = field(default_factory=ResearchExpectation)
     repo: str | None = None
+    seed: ResearchSeed | None = None
+    judging_notes: str = ""
 
 
 @dataclass(frozen=True)
@@ -84,10 +89,20 @@ class RepoSelectionCase(EvalCase):
 class ImplementationCase(EvalCase):
     repo: str = ""
     issue_prompt: str = ""
+    judging_notes: str = ""
 
 
 ScoutOutcome = Literal["emit_report", "edit_report", "emit_signal", "remember", "no_output"]
-ScoutSeed = Literal["error_burst", "error_low_volume", "funnel_regression", "funnel_denominator_drop"]
+ScoutSeed = Literal[
+    "error_burst",
+    "error_low_volume",
+    "error_stuck_loop",
+    "error_upstream_noise",
+    "funnel_regression",
+    "funnel_denominator_drop",
+    "web_vitals_poor_lcp",
+    "web_vitals_low_sample",
+]
 
 
 @dataclass(frozen=True)

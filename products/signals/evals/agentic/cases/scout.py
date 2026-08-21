@@ -26,6 +26,31 @@ CASES: list[ScoutCase] = [
         expected=ScoutExpectation(expected_outcome=("remember", "no_output")),
     ),
     ScoutCase(
+        case_id="scout_error_stuck_loop",
+        step="scout",
+        skill_name="signals-scout-error-tracking",
+        seed="error_stuck_loop",
+        judging_notes=(
+            "A new UploadFinalizeError fires 2,000 times from two users in two hours. This is a narrow-reach retry "
+            "storm rather than a broad outage, but the fresh volume and localized finalizeUpload stack make a P3 "
+            "report appropriate. It must not be described as affecting 2,000 users."
+        ),
+        expected_query_tools=("query-error-tracking-issues-list", "execute-sql"),
+        expected=ScoutExpectation(expected_outcome="emit_report"),
+    ),
+    ScoutCase(
+        case_id="scout_error_known_upstream_noise",
+        step="scout",
+        skill_name="signals-scout-error-tracking",
+        seed="error_upstream_noise",
+        judging_notes=(
+            "The project has a recurring OpenAI RateLimitError and a noise scratchpad entry identifying the provider "
+            "limit as known upstream behavior. Its recent shape is steady, so the scout should not author a report."
+        ),
+        expected_query_tools=("query-error-tracking-issues-list", "execute-sql"),
+        expected=ScoutExpectation(expected_outcome=("remember", "no_output")),
+    ),
+    ScoutCase(
         case_id="scout_funnel_steady_denominator_regression",
         step="scout",
         skill_name="signals-scout-product-analytics",
@@ -47,6 +72,31 @@ CASES: list[ScoutCase] = [
             "that as a volume or capture problem, so it should remember the result without authoring a report."
         ),
         expected_query_tools=("query-funnel",),
+        expected=ScoutExpectation(expected_outcome=("remember", "no_output")),
+    ),
+    ScoutCase(
+        case_id="scout_web_vitals_standing_poor_lcp",
+        step="scout",
+        skill_name="signals-scout-web-vitals",
+        seed="web_vitals_poor_lcp",
+        judging_notes=(
+            "The /files route has 1,200 seven-day samples, stable traffic, and a p75 LCP above 5 seconds while FCP "
+            "remains good. The canonical absolute threshold and volume gate require one report even though the page "
+            "has been steadily slow rather than newly regressing."
+        ),
+        expected_query_tools=("execute-sql",),
+        expected=ScoutExpectation(expected_outcome="emit_report"),
+    ),
+    ScoutCase(
+        case_id="scout_web_vitals_low_sample_poor_lcp",
+        step="scout",
+        skill_name="signals-scout-web-vitals",
+        seed="web_vitals_low_sample",
+        judging_notes=(
+            "The /files route has only 30 seven-day samples. Its apparent p75 LCP is poor, but the canonical volume "
+            "gate treats that percentile as noise, so the scout should remember or close without a report."
+        ),
+        expected_query_tools=("execute-sql",),
         expected=ScoutExpectation(expected_outcome=("remember", "no_output")),
     ),
 ]

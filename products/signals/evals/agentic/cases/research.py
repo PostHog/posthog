@@ -619,4 +619,121 @@ CASES: list[ResearchCase] = [
             expected_priority=("P3", "P4", None),
         ),
     ),
+    ResearchCase(
+        case_id="research_checkout_browser_regression",
+        step="research",
+        repo=_REPOSITORY,
+        notes="Support and error signals require conversion, segment, and exception evidence to isolate the regression.",
+        seed="checkout_browser_regression",
+        signals=(
+            SignalSpec(
+                signal_id="sig_checkout_support",
+                content=(
+                    "Support has received a cluster of reports that checkout returns to the pricing page instead of "
+                    "completing. Customers mention Safari, but the sample may be biased. Determine reach and likely cause."
+                ),
+                source_product="zendesk",
+                source_type="ticket_cluster",
+                source_id="checkout_redirect_cluster",
+                weight=0.8,
+            ),
+            SignalSpec(
+                signal_id="sig_checkout_exception",
+                content=(
+                    "A fresh CheckoutTokenError says the payment token is missing while creating a checkout session. "
+                    "Establish whether it explains the customer reports."
+                ),
+                source_product="error_tracking",
+                source_type="issue_spiking",
+                source_id="checkout_browser_token_error",
+                weight=1.0,
+            ),
+        ),
+        expected=ResearchExpectation(
+            expected_actionability=("immediately_actionable", "requires_human_input"),
+            expected_priority=("P1", "P2"),
+            expected_already_addressed=False,
+            expect_data_evidence=True,
+        ),
+        judging_notes=(
+            "Six complete daily cohorts contain 80 checkout starts and 56 completions each. The latest complete cohort "
+            "contains 80 starts and 22 completions. The 52 failures are Safari 17.4 CheckoutTokenError events from "
+            "distinct users; Chrome conversion remains at baseline. The report should connect the conversion drop to "
+            "the browser-specific exception without claiming all checkout traffic is broken."
+        ),
+    ),
+    ResearchCase(
+        case_id="research_signup_volume_not_conversion",
+        step="research",
+        repo=_REPOSITORY,
+        notes="A claimed conversion regression is actually an acquisition-volume drop with a stable completion rate.",
+        seed="signup_volume_drop",
+        signals=(
+            SignalSpec(
+                signal_id="sig_signup_conversion_claim",
+                content=(
+                    "The growth team believes the signup form regressed because completed signups fell sharply over the "
+                    "last two days. Verify whether conversion changed and identify the right next investigation."
+                ),
+                source_product="linear",
+                source_type="issue",
+                source_id="signup_conversion_claim",
+                weight=0.7,
+            ),
+        ),
+        expected=ResearchExpectation(
+            expected_actionability=("requires_human_input", "not_actionable"),
+            expected_priority=("P3", "P4", None),
+            expect_data_evidence=True,
+        ),
+        judging_notes=(
+            "For twelve baseline days, signup_started is 100 and signed_up is 60 per day. The latest two complete days "
+            "are 30 starts and 18 completions each, so the 60% conversion rate is unchanged while acquisition volume "
+            "fell 70%. The report should reject the form-regression claim and redirect investigation upstream."
+        ),
+    ),
+    ResearchCase(
+        case_id="research_upload_retry_cluster",
+        step="research",
+        repo=_REPOSITORY,
+        notes="Stable success volume masks a browser-specific retry loop affecting a meaningful subset of users.",
+        seed="upload_retry_cluster",
+        signals=(
+            SignalSpec(
+                signal_id="sig_upload_support",
+                content=(
+                    "Several customers say large uploads stall near completion and work after multiple retries. They do "
+                    "not agree on whether uploads are completely unavailable. Size the issue and find a useful segment."
+                ),
+                source_product="conversations",
+                source_type="ticket_cluster",
+                source_id="upload_retry_reports",
+                weight=0.8,
+            ),
+            SignalSpec(
+                signal_id="sig_upload_session",
+                content=(
+                    "Session review shows repeated clicks on Upload followed by a generic failure toast before a later "
+                    "successful upload."
+                ),
+                source_product="session_replay",
+                source_type="session_problem",
+                source_id=f"{SESSION_IDS[1]}:00:01:10:00:03:40",
+                weight=0.6,
+                extra=_session_extra(SESSION_IDS[1], "Upload retries before success", "failure"),
+            ),
+        ),
+        expected=ResearchExpectation(
+            expected_actionability=("immediately_actionable", "requires_human_input"),
+            expected_priority=("P2", "P3"),
+            expected_already_addressed=False,
+            expect_data_evidence=True,
+        ),
+        judging_notes=(
+            "Daily uploaded_file success volume remains near its baseline. In the latest day, 18 Safari 17.4 users "
+            "generate 90 UploadChunkError events before 16 eventually succeed; other browser segments do not show the "
+            "exception. The report should describe a material browser-specific retry failure, not a total outage or a "
+            "healthy system based only on aggregate success volume."
+        ),
+    ),
 ]

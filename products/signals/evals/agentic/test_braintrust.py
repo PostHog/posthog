@@ -5,10 +5,16 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.evals.agentic.braintrust import (
     ImplementationFixJudge,
     RepositorySelectionJudge,
+    ResearchSummaryJudge,
     SignalsScorerAdapter,
     decode_repo_selection,
 )
-from products.signals.evals.agentic.datasets import ImplementationCase, RepoSelectionCase, RepoSelectionExpectation
+from products.signals.evals.agentic.datasets import (
+    ImplementationCase,
+    RepoSelectionCase,
+    RepoSelectionExpectation,
+    ResearchCase,
+)
 from products.signals.evals.agentic.runners import RepoSelectionOutput
 from products.signals.evals.agentic.scorers_repo_selection import RepoSelectionCorrectnessScorer
 
@@ -43,6 +49,49 @@ def test_implementation_judge_fails_closed_without_captured_diff() -> None:
     assert isinstance(score, Score)
     assert score.score == 0.0
     assert score.metadata["reason"] == "no actual diff captured"
+
+
+def test_research_judge_includes_reference_facts_and_seeded_data() -> None:
+    case = ResearchCase(
+        case_id="research",
+        step="research",
+        judging_notes="Conversion stayed at 60% while entrant volume fell.",
+    )
+    judge = ResearchSummaryJudge([case])
+
+    prepared = judge._prepare(
+        {
+            "title": "Signup volume fell",
+            "summary": "Signup conversion is stable.",
+            "new_artefacts": [],
+            "seed": {"baseline_conversion": 0.6, "latest_conversion": 0.6},
+        },
+        {"case_id": case.case_id},
+    )
+
+    assert isinstance(prepared, dict)
+    assert "Conversion stayed at 60%" in prepared["expected"]
+    assert '"latest_conversion": 0.6' in prepared["expected"]
+
+
+def test_implementation_judge_includes_hidden_acceptance_notes() -> None:
+    case = ImplementationCase(
+        case_id="implementation",
+        step="implementation",
+        repo="posthog/hedgebox",
+        issue_prompt="fix downloads",
+        judging_notes="Both download entry points must use one helper.",
+    )
+    judge = ImplementationFixJudge([case])
+
+    prepared = judge._prepare(
+        {"diff": "diff --git a/src/a.ts b/src/a.ts\n", "raw_log": ""},
+        {"case_id": case.case_id},
+    )
+
+    assert isinstance(prepared, dict)
+    assert "Both download entry points" in prepared["expected"]
+    assert '"diff": "diff --git' in prepared["output"]
 
 
 def test_repository_selection_judge_includes_reference_evidence() -> None:

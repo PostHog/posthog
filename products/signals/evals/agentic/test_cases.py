@@ -24,9 +24,31 @@ def test_sandbox_workflow_cases_use_unauthenticated_public_repositories() -> Non
     assert all(is_public_sandbox_repo(repository) for repository in repositories)
 
 
+def test_research_cases_include_seeded_multisource_scenarios() -> None:
+    seeded = [case for case in RESEARCH_CASES if case.seed]
+
+    assert len(seeded) >= 3
+    assert all(case.judging_notes for case in seeded)
+    assert any(len(case.signals) > 1 for case in seeded)
+
+
+def test_implementation_cases_include_multifile_product_flows() -> None:
+    complex_case_ids = {
+        "impl_hedgebox_download_flow",
+        "impl_hedgebox_auth_return_path",
+        "impl_hedgebox_bulk_delete",
+        "impl_hedgebox_share_feedback",
+    }
+    cases = {case.case_id: case for case in IMPLEMENTATION_CASES}
+
+    assert complex_case_ids <= cases.keys()
+    assert all(cases[case_id].judging_notes for case_id in complex_case_ids)
+
+
 def test_scout_cases_run_canonical_skills_against_seeded_data() -> None:
     canonical = canonical_skill_names()
     assert {case.skill_name for case in SCOUT_CASES} <= canonical
     assert all(case.seed for case in SCOUT_CASES)
     assert all(case.judging_notes for case in SCOUT_CASES)
     assert all(case.expected_query_tools for case in SCOUT_CASES)
+    assert "signals-scout-web-vitals" in {case.skill_name for case in SCOUT_CASES}
