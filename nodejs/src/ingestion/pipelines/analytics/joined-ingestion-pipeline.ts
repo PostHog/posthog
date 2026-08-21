@@ -12,6 +12,7 @@ import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { FeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { FlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { createMergeFoldPlanningStep } from '~/ingestion/common/persons/person-merge-fold'
@@ -36,7 +37,14 @@ import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 
 import { EventSubpipelineConfig, EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
-import { AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from './outputs'
+import {
+    AsyncOutput,
+    EventOutput,
+    FlagEvaluationsOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from './outputs'
 import {
     PostTeamPreprocessingSubpipelineConfig,
     createPostTeamPreprocessingSubpipeline,
@@ -50,6 +58,7 @@ export interface JoinedIngestionPipelineConfig {
     groupsPrefetchEnabled: boolean
     outputs: IngestionOutputs<
         | EventOutput
+        | FlagEvaluationsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -82,6 +91,7 @@ export interface JoinedIngestionPipelineDeps {
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
+    flagEvaluationsService?: FlagEvaluationsService
     teamManager: TeamManager
     cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
@@ -128,6 +138,7 @@ export function createJoinedIngestionPipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
+        flagEvaluationsService,
         teamManager,
         cookielessManager,
         groupTypeManager,
@@ -158,6 +169,7 @@ export function createJoinedIngestionPipeline<
         groupTypeManager,
         hogTransformer,
         topHog: topHogWrapper,
+        flagEvaluationsService,
     }
 
     const mergeFoldPlanningStep = createMergeFoldPlanningStep<EventSubpipelineInput>(perDistinctIdOptions)

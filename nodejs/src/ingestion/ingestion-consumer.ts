@@ -18,6 +18,7 @@ import {
 import {
     AsyncOutput,
     EventOutput,
+    FlagEvaluationsOutput,
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
@@ -56,6 +57,10 @@ import {
     FeatureFlagCalledDedupService,
     createFeatureFlagCalledDedupService,
 } from './common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import {
+    FlagEvaluationsService,
+    createFlagEvaluationsService,
+} from './common/flag-evaluations/flag-evaluations-service'
 import { MainLaneOverflowRedirect } from './common/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
@@ -66,8 +71,12 @@ import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
     // The general server builds the consumer from a config that includes IngestionOutputsConfig; the
-    // merge-events gate reads the topic, so surface it here rather than relying on the runtime shape.
-    Pick<IngestionOutputsConfig, 'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC'>
+    // merge-events gate and the flag-evaluations fork read their topics, so surface them here rather
+    // than relying on the runtime shape.
+    Pick<
+        IngestionOutputsConfig,
+        'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC' | 'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC'
+    >
 
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
@@ -76,6 +85,7 @@ export interface IngestionConsumerDeps {
     featureFlagCalledDedupRedisPool?: RedisPool
     outputs: IngestionOutputs<
         | EventOutput
+        | FlagEvaluationsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -120,6 +130,7 @@ export class IngestionConsumer {
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
     private featureFlagCalledDedupService?: FeatureFlagCalledDedupService
+    private flagEvaluationsService?: FlagEvaluationsService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -213,6 +224,8 @@ export class IngestionConsumer {
             this.deps.featureFlagCalledDedupRedisPool ?? this.deps.redisPool,
             this.config
         )
+
+        this.flagEvaluationsService = createFlagEvaluationsService(this.config)
 
         this.hogTransformer = deps.hogTransformer
 
@@ -310,6 +323,7 @@ export class IngestionConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             featureFlagCalledDedupService: this.featureFlagCalledDedupService,
+            flagEvaluationsService: this.flagEvaluationsService,
             teamManager: this.deps.teamManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,
