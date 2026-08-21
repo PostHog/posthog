@@ -20,12 +20,26 @@ from .scorers import ExitCodeZero, wrap_scorers
 from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
+    from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+
     from .harness.context import EvalContext
+    from .harness.demo_data import SandboxedDemoData
 
 logger = logging.getLogger(__name__)
 
 
-def _get_last_assistant_text(parsed: ParsedLog) -> str:
+async def prepare_sandbox_case(
+    demo_data: SandboxedDemoData,
+    case: SandboxedEvalCase,
+) -> tuple[CustomPromptSandboxContext, dict[str, Any]]:
+    sandbox_context = await asyncio.to_thread(demo_data.make_context, case.name)
+    if case.interaction_origin:
+        sandbox_context = replace(sandbox_context, interaction_origin=case.interaction_origin)
+    seed = await asyncio.to_thread(case.setup, sandbox_context) if case.setup is not None else {}
+    return sandbox_context, seed
+
+
+def get_last_assistant_text(parsed: ParsedLog) -> str:
     """Extract the last assistant message text from the final generation."""
     for gen in reversed(parsed.generations):
         if not gen.output_content:
@@ -37,7 +51,7 @@ def _get_last_assistant_text(parsed: ParsedLog) -> str:
     return ""
 
 
-def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
+def log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
     """Log each conversation message as a child span so Braintrust renders a trace tree.
 
     Uses the same Anthropic-format messages as PostHog trace capture.
@@ -367,15 +381,14 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # The factory does Django ORM work. Django's async-safety
                 # guard rejects sync ORM calls from async contexts, so run it
                 # in a worker thread.
-                sandbox_context = await asyncio.to_thread(self._demo_data.make_context, eval_case.name)
-                if original_case is not None and original_case.interaction_origin:
-                    sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
-                if original_case is not None and original_case.setup is not None:
-                    try:
-                        seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
-                    except Exception:
-                        logger.exception("Setup hook failed for '%s'", eval_case.name)
-                        raise
+                try:
+                    sandbox_context, seed_result = await prepare_sandbox_case(
+                        self._demo_data,
+                        original_case or eval_case,
+                    )
+                except Exception:
+                    logger.exception("Setup hook failed for '%s'", eval_case.name)
+                    raise
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
             try:
@@ -414,8 +427,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
         messages: list[dict[str, Any]] = []
         if result.raw_log:
             parsed = parse_log(result.raw_log, initial_prompt=eval_case.prompt)
-            _log_conversation_spans(hooks, parsed)
-            last_message = _get_last_assistant_text(parsed)
+            log_conversation_spans(hooks, parsed)
+            last_message = get_last_assistant_text(parsed)
             messages = parsed.messages
 
             if self.posthog_client:
