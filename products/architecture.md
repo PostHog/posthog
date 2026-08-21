@@ -146,8 +146,15 @@ Move the code into the owning product.
 The facade function is what the move leaves behind.
 The consumer keeps the orchestration and the ids.
 
+**`apps.get_model` is ratcheted for every product model.**
+`apps.get_model('label', 'Class')` reaches a model through the Django app registry.
+It leaves no import edge, so tach and import-linter cannot see it.
+The scan therefore does not stop at the watched-models allowance on this channel: a reference from outside the owning product to any class on any product's model surface is counted as the disallowed kind `get_model`.
+Test modules stay out of scope, so a core test fixture may keep using the pattern.
+Production code may not add one.
+
 **The ratchet.**
-`products/model_crossing_uses_baseline.txt` records every disallowed use still in the tree: one line for each crossing class, consumer module, kind, and count.
+`products/model_crossing_uses_baseline.txt` records every disallowed use still in the tree: one line for each model class, consumer module, kind, and count.
 A repo-invariant test compares that file against a fresh scan, in both directions.
 A count can go down.
 A count must not go up.
@@ -156,13 +163,14 @@ Run `hogli product:crossings <product>` to see the uses of one product's classes
 Run `hogli product:crossings --all --write-baseline` to record a decrease.
 
 **What the check cannot see.**
-The check reads uses of the class name.
-It does not read two things:
+The check reads uses of the class name, plus `get_model` string references.
+It does not read three things:
 
 - attribute access on an instance the consumer already holds, inside a function body;
-- traversal of a foreign key that the consumer's own model declares.
+- traversal of a foreign key that the consumer's own model declares;
+- a `get_model` call whose app label or model name is a variable.
 
-Both are a declared residual, not permission to add more.
+All three are a declared residual, not permission to add more.
 
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
