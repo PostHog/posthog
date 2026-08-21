@@ -227,6 +227,8 @@ def _parse_funding_status(data: object) -> OrganizationFundingStatus:
     if not isinstance(data, dict):
         raise FundingStatusUnavailable("Billing returned an invalid funding status response")
 
+    if "startup_program_label" not in data:
+        raise FundingStatusUnavailable("Billing returned an invalid startup program label")
     raw_startup_program_label = data.get("startup_program_label")
     if raw_startup_program_label not in (None, "Startup", "YC"):
         raise FundingStatusUnavailable("Billing returned an invalid startup program label")

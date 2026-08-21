@@ -104,6 +104,7 @@ class TestFundingStatusParsing(SimpleTestCase):
                 "invalid_program_label",
                 {"startup_program_label": "Growth", "prepaid_credit_state": "none"},
             ),
+            ("missing_program_label", {"prepaid_credit_state": "none"}),
             ("missing_credit_state", {"startup_program_label": None}),
             (
                 "invalid_credit_state",
