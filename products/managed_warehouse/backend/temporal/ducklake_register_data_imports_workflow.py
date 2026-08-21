@@ -82,6 +82,7 @@ _DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker
 # the original CALL.
 _REGISTER_COPY_START_TO_CLOSE = dt.timedelta(hours=4)
 _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
+_CLEANUP_FINALIZER_PATCH_ID = "ducklake-register-cleanup-finalizer-2026-08"
 
 
 def _register_source_job_update(
@@ -214,6 +215,16 @@ class DuckLakeRegisterDataImportsActivityInputs:
     team_id: int
     job_id: str
     metadata: DuckLakeRegisterDataImportsMetadata
+    # None only for histories recorded before the workflow minted the names;
+    # those fall back to activity-local names (which the workflow cannot clean up).
+    registration_table_names: RegistrationTableNames | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class DuckLakeRegisterCleanupInputs:
+    team_id: int
+    schema_name: str
+    table_names: list[str]
 
 
 class _StalePreparedGenerationError(Exception):
@@ -650,7 +661,7 @@ def _register_prepared_parquet_files(
 ) -> int:
     schema_name = inputs.metadata.ducklake_schema_name
     table_name = inputs.metadata.ducklake_table_name
-    registration_names = _new_registration_table_names()
+    registration_names = inputs.registration_table_names or _new_registration_table_names()
     landing_uri = _generation_scoped_landing_uri(
         inputs.metadata.landing_uri,
         job_id=inputs.job_id,
@@ -766,34 +777,76 @@ def _register_prepared_parquet_files(
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class _RegistrationTableNames:
+class RegistrationTableNames:
     shadow_name: str
     previous_name: str
 
 
-def _new_registration_table_names() -> _RegistrationTableNames:
-    attempt_token = uuid.uuid4().hex
-    return _RegistrationTableNames(
+def registration_table_names_from_token(attempt_token: str) -> RegistrationTableNames:
+    return RegistrationTableNames(
         shadow_name=f"__ph_register_{attempt_token}",
         previous_name=f"__ph_previous_{attempt_token}",
     )
 
 
+def _new_registration_table_names() -> RegistrationTableNames:
+    return registration_table_names_from_token(uuid.uuid4().hex)
+
+
+_CLEANUP_DROP_ATTEMPTS = 3
+_CLEANUP_DROP_RETRY_SECONDS = 2.0
+
+
+def _drop_registration_table(conn: psycopg.Connection, schema_name: str, table_name: str) -> None:
+    conn.execute(
+        psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+            psql.Identifier(schema_name),
+            psql.Identifier(table_name),
+        )
+    )
+
+
 def _cleanup_registration_tables(conn: psycopg.Connection, schema_name: str, table_names: list[str]) -> None:
+    # Best-effort: this runs in the register `finally`, so raising here would mask
+    # the in-flight exception. A table left behind is picked up by the workflow's
+    # cleanup finalizer activity, which retries with a fresh connection.
     for table_name in table_names:
-        try:
-            conn.execute(
-                psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
-                    psql.Identifier(schema_name),
-                    psql.Identifier(table_name),
-                )
-            )
-        except Exception:
-            LOGGER.warning(
-                "Failed to clean up DuckLake registration table",
-                table_name=f"{schema_name}.{table_name}",
-                exc_info=True,
-            )
+        for attempt in range(1, _CLEANUP_DROP_ATTEMPTS + 1):
+            try:
+                _drop_registration_table(conn, schema_name, table_name)
+                break
+            except Exception as error:
+                if attempt == _CLEANUP_DROP_ATTEMPTS:
+                    LOGGER.error(
+                        "Failed to clean up DuckLake registration table; the workflow cleanup finalizer will retry",
+                        table_name=f"{schema_name}.{table_name}",
+                        exc_info=True,
+                    )
+                    capture_exception(error)
+                else:
+                    time.sleep(_CLEANUP_DROP_RETRY_SECONDS * attempt)
+
+
+@activity.defn
+def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanupInputs) -> None:
+    """Drop this attempt's registration tables, however the register activity ended.
+
+    Runs as a workflow-level finalizer so a worker crash, OOM, or activity timeout
+    cannot orphan the shadow/previous tables: the workflow replays and re-schedules
+    this activity until the drops land. Attempt-scoped uuid names plus
+    ``DROP TABLE IF EXISTS`` make it idempotent and collision-free with any other
+    registration attempt.
+    """
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind(schema_name=inputs.schema_name)
+    if not settings.TEST:
+        close_old_connections()
+
+    with _connect_to_duckgres_for_team(inputs.team_id) as conn:
+        setup_duckgres_session(conn, extensions=("ducklake",))
+        for table_name in inputs.table_names:
+            _drop_registration_table(conn, inputs.schema_name, table_name)
+    logger.info("Cleaned up DuckLake registration tables", table_names=inputs.table_names)
 
 
 def _hive_partition_columns(landing_uri: str, landing_paths: list[str]) -> list[str]:
@@ -868,18 +921,55 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                 logger.info("Prepared Parquet generation is stale; nothing to register")
                 return
 
+            # Minting the names in the workflow puts them in history, so the cleanup
+            # finalizer can drop them even when the register activity's process dies
+            # before its own finally runs and leaves the shadow/previous tables behind.
+            registration_table_names: RegistrationTableNames | None = None
+            if workflow.patched(_CLEANUP_FINALIZER_PATCH_ID):
+                registration_table_names = registration_table_names_from_token(workflow.uuid4().hex)
+
             activity_inputs = DuckLakeRegisterDataImportsActivityInputs(
                 team_id=inputs.team_id,
                 job_id=inputs.job_id,
                 metadata=metadata,
+                registration_table_names=registration_table_names,
             )
-            copy_applied = await workflow.execute_activity(
-                copy_and_register_ducklake_data_imports_activity,
-                activity_inputs,
-                start_to_close_timeout=_REGISTER_COPY_START_TO_CLOSE,
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            try:
+                copy_applied = await workflow.execute_activity(
+                    copy_and_register_ducklake_data_imports_activity,
+                    activity_inputs,
+                    start_to_close_timeout=_REGISTER_COPY_START_TO_CLOSE,
+                    heartbeat_timeout=dt.timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            finally:
+                if registration_table_names is not None:
+                    try:
+                        await workflow.execute_activity(
+                            cleanup_ducklake_registration_tables_activity,
+                            DuckLakeRegisterCleanupInputs(
+                                team_id=inputs.team_id,
+                                schema_name=metadata.ducklake_schema_name,
+                                table_names=[
+                                    registration_table_names.shadow_name,
+                                    registration_table_names.previous_name,
+                                ],
+                            ),
+                            start_to_close_timeout=dt.timedelta(minutes=2),
+                            # Patient on purpose: the drops are idempotent and a leaked
+                            # table is permanent, so ~25 minutes of retries rides out a
+                            # duckgres outage (the correlated cause of cleanup failing).
+                            retry_policy=RetryPolicy(
+                                maximum_attempts=10,
+                                initial_interval=dt.timedelta(seconds=5),
+                                backoff_coefficient=2.0,
+                                maximum_interval=dt.timedelta(minutes=5),
+                            ),
+                        )
+                    except Exception:
+                        # Cleanup failure must not mask the register outcome; leftover
+                        # tables are visible via the __ph_register_/__ph_previous_ naming.
+                        logger.exception("DuckLake registration table cleanup failed after retries")
             if not copy_applied:
                 status = "stale"
                 if track_source_job_state:
