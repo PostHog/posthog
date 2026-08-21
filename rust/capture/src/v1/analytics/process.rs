@@ -12,8 +12,9 @@ use super::constants::{
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
     CAPTURE_V1_RATE_LIMITER, DETAIL_AI_BYTE_RATE_LIMITED, DETAIL_AI_EVENT_TOO_BIG,
-    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS, DETAIL_NON_HISTORICAL_DROP,
-    DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
+    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS, DETAIL_NON_AI_EVENT,
+    DETAIL_NON_HISTORICAL_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
+    ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
@@ -25,7 +26,8 @@ use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use super::context::Context;
-use crate::ingestion_warnings::emit_rate_limit_warning;
+use crate::config::CaptureMode;
+use crate::ingestion_warnings::{bounded_detail, emit_rate_limit_warning};
 use crate::router;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
@@ -101,6 +103,10 @@ pub async fn process_batch(
             "import mode dropped non-historical batch"
         );
         return Ok(BatchResponse::build(context, &events));
+    }
+
+    if state.capture_mode == CaptureMode::Ai {
+        drop_non_ai_events(state, context, &mut events);
     }
 
     // Nothing left to process — return 200 with per-event drops.
@@ -825,6 +831,80 @@ async fn apply_restrictions(
                 .increment(1);
         }
     }
+}
+
+/// Drop every event an AI-mode deployment was sent that is not on the AI lane.
+///
+/// capture-ai loads only the AI restriction slice (`Pipeline::for_capture_mode`),
+/// so an analytics, exception, or heatmap event reaching it would ingest
+/// governed by nothing. Refusing it is what keeps "which restrictions apply"
+/// answerable from the event name alone, on every deployment.
+///
+/// Only the offenders are dropped. v1 reports a per-event outcome, so the client
+/// is told exactly which events were refused while the AI events beside them in
+/// the batch still publish; the v0 path on this same deployment rejects the whole
+/// request instead (`CaptureError::NonAiEventOnAiLane`), because its contract has
+/// no way to say less.
+///
+/// Lane membership is the destination `destination_for_event_name` already
+/// assigned, so it follows the same `AI_EVENT_NAMES` allowlist v0 stamps
+/// `DataType::AiEvents` from: an `$ai_`-prefixed name that is not on the
+/// allowlist is dropped here too, as the Node AI pipeline would DLQ it anyway.
+/// The gate runs before quota and restrictions so a refused event spends neither.
+fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
+    let mut dropped: u64 = 0;
+    // Identifiers for the warning, kept only while exactly one event offended.
+    // With several they would be an arbitrary pick, and the count already says
+    // how many there were.
+    let mut single_offender: Option<(String, Uuid)> = None;
+
+    for event in events.iter_mut() {
+        if event.result != EventResult::Ok || event.destination == Destination::AiEvents {
+            continue;
+        }
+        event.result = EventResult::Drop;
+        event.destination = Destination::Drop;
+        event.details = Some(DETAIL_NON_AI_EVENT);
+        dropped += 1;
+        single_offender = match dropped {
+            1 => Some((event.event.event.clone(), event.uuid)),
+            _ => None,
+        };
+    }
+
+    if dropped == 0 {
+        return;
+    }
+
+    metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "non_ai_event").increment(dropped);
+    crate::ctx_log!(
+        Level::WARN,
+        context,
+        dropped_events = dropped,
+        "dropped non-AI events sent to the AI lane"
+    );
+
+    // The same `invalid_ai_event` type the v0 AI endpoint emits for an event
+    // name off the allowlist: identical mistake, so a reader of the v2 warnings
+    // table doesn't have to learn a second vocabulary for it. The event name is
+    // client-controlled and nothing downstream length-limits details, hence the
+    // bound.
+    let mut details = serde_json::Map::new();
+    if let Some((event_name, uuid)) = single_offender {
+        details.insert(
+            "eventName".to_string(),
+            serde_json::json!(bounded_detail(&event_name)),
+        );
+        details.insert("eventUuid".to_string(), serde_json::json!(uuid.to_string()));
+    }
+    emit_request_warning(
+        state.ingestion_warning_emitter.as_deref(),
+        &context.warning_context(),
+        CAPTURE_V1_ANALYTICS,
+        WarningType::InvalidAiEvent,
+        details,
+        dropped,
+    );
 }
 
 /// Whether this event rides the AI lane, independent of where restrictions
