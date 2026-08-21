@@ -57,7 +57,7 @@ vi.mock("../message-editor/useAutoFocusOnTyping", () => ({
 }));
 vi.mock("../settings/settingsStore", () => ({
   useSettingsStore: (selector?: (state: unknown) => unknown) => {
-    const state = { allowBypassPermissions: false, useNewChatThread: false };
+    const state = { allowBypassPermissions: false };
     return selector ? selector(state) : state;
   },
 }));

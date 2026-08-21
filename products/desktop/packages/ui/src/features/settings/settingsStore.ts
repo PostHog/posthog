@@ -263,8 +263,6 @@ interface SettingsStore {
   setTerminalCustomFontFamily: (value: string) => void;
   setTerminalGpuRendering: (enabled: boolean) => void;
 
-  // Conversation thread (new-thread)
-
   // Sidebar
   // Shows a per-repo "Worktrees" dropdown of task-less worktrees a click can
   // start a task in. Opt-in: off by default to keep the sidebar uncluttered.
@@ -496,8 +494,6 @@ export const useSettingsStore = create<SettingsStore>()(
       setTerminalGpuRendering: (enabled) =>
         set({ terminalGpuRendering: enabled }),
 
-      // Conversation thread (new-thread)
-
       // Sidebar
       showSidebarWorktrees: false,
       setShowSidebarWorktrees: (enabled) =>
@@ -632,8 +628,6 @@ export const useSettingsStore = create<SettingsStore>()(
         terminalFont: state.terminalFont,
         terminalCustomFontFamily: state.terminalCustomFontFamily,
         terminalGpuRendering: state.terminalGpuRendering,
-
-        // Conversation thread (new-thread)
 
         // Sidebar
         showSidebarWorktrees: state.showSidebarWorktrees,

@@ -1,11 +1,4 @@
-import {
-  Check,
-  Copy,
-  FileText,
-  Robot,
-  Scroll,
-  SlackLogo,
-} from "@phosphor-icons/react";
+import { Check, Copy, FileText, Robot, Scroll } from "@phosphor-icons/react";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { Box, Flex, IconButton } from "@radix-ui/themes";
@@ -32,7 +25,6 @@ import { collapsePiSkillInvocation } from "./piSkillInvocation";
 interface UserMessageProps {
   content: string;
   timestamp?: number;
-  sourceUrl?: string;
   attachments?: UserMessageAttachment[];
   animate?: boolean;
   /** Task the message belongs to — needed to open the context file tab. */
@@ -59,7 +51,6 @@ function formatTimestamp(ts: number): string {
 export const UserMessage = memo(function UserMessage({
   content,
   timestamp,
-  sourceUrl,
   attachments = [],
   animate = true,
   taskId,
@@ -206,17 +197,6 @@ export const UserMessage = memo(function UserMessage({
             </div>
           )}
         </CollapsibleMessageContent>
-        {sourceUrl && (
-          <a
-            href={sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1.5 inline-flex items-center gap-1 text-[12px] text-gray-10 transition-colors hover:text-gray-12"
-          >
-            <SlackLogo size={12} />
-            <span>View Slack thread</span>
-          </a>
-        )}
         <Box className="absolute top-1 right-1 flex select-none items-center gap-1.5 rounded-md bg-gray-2 py-0.5 pr-1 pl-2 opacity-0 shadow-sm transition-opacity group-hover/msg:opacity-100">
           {timestamp != null && (
             <span aria-hidden className="text-[11px] text-gray-10">

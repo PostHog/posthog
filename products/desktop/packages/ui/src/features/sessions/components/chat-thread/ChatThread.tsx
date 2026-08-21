@@ -60,7 +60,6 @@ import {
   ChatStreamingMarkdown,
 } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { ChatThreadFooter } from "@posthog/ui/features/sessions/components/chat-thread/ChatThreadFooter";
-import { ChatThreadChromeProvider } from "@posthog/ui/features/sessions/components/chat-thread/chatThreadChrome";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-thread/MessageMinimap";
@@ -1136,8 +1135,8 @@ function ThreadScrollBody({
 }) {
   const keyedRows = useMemo(() => keyTurnRows(rows), [rows]);
 
-  // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
-  // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
+  // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the
+  // thread. `@container/thread` makes the thread's own
   // width the query basis for everything inside it — the panel is resizable and splittable, so the
   // viewport says nothing useful about how much room a row actually has.
   return (
@@ -1250,8 +1249,8 @@ const FlatRowView = memo(
  * Reuses the existing parse pipeline (`useConversationItems`) and the non-virtualized
  * `ChatMessageScroller` (`content-visibility: auto`). User + assistant turns render through
  * `ChatMessage`/`ChatBubble` (end-aligned filled / start-aligned ghost) with our own `ChatMarkdown`.
- * Tool calls render as `ChatMarker` — `ChatThreadChromeProvider` flips the shared `ToolRow` chrome
- * to the ChatX primitive, so every tool view is mapped without forking. User messages carry their
+ * Tool calls render as `ChatMarker` through the shared `ToolRow`, so every tool view is mapped
+ * without forking. User messages carry their
  * context chips (`ChatMessageHeader`), file/attachment mentions, and a hover timestamp
  * (`ChatMessageFooter`) — see `UserBubble`.
  */
@@ -1557,50 +1556,48 @@ function ChatThreadRenderer({
       highlighterOptions={DIFFS_HIGHLIGHTER_OPTIONS}
     >
       <SessionTaskIdProvider taskId={taskId}>
-        <ChatThreadChromeProvider value={true}>
-          <ChatMessageScrollerProvider
-            // The windowed body owns following itself (anchorTo end + followOnAppend) — the
-            // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
-            autoScroll={!virtualized}
-            defaultScrollPosition="end"
-            // `scrollEdgeThreshold` is left at the engine's tight default on purpose. The engine
-            // re-enters "following-bottom" on *every* scroll event taken within the band, which
-            // overrides the free-scrolling its own wheel handler just set — so a wide band traps a
-            // reader scrolling up out of the bottom, and streamed content yanks them back each
-            // frame. `ThreadAutoFollow` is what keeps the thread pinned across the band's width;
-            // unlike the engine it only lets go on a real gesture.
-            scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
-          >
-            {virtualized ? (
-              <VirtualThreadScrollBody
+        <ChatMessageScrollerProvider
+          // The windowed body owns following itself (anchorTo end + followOnAppend) — the
+          // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
+          autoScroll={!virtualized}
+          defaultScrollPosition="end"
+          // `scrollEdgeThreshold` is left at the engine's tight default on purpose. The engine
+          // re-enters "following-bottom" on *every* scroll event taken within the band, which
+          // overrides the free-scrolling its own wheel handler just set — so a wide band traps a
+          // reader scrolling up out of the bottom, and streamed content yanks them back each
+          // frame. `ThreadAutoFollow` is what keeps the thread pinned across the band's width;
+          // unlike the engine it only lets go on a real gesture.
+          scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
+        >
+          {virtualized ? (
+            <VirtualThreadScrollBody
+              items={items}
+              flatRows={flatRows}
+              renderRow={renderWindowedRow}
+              onUserInteract={clearKeyboardFocus}
+              footer={footer}
+              renderNav={renderNav}
+              resumeRef={threadResumeRef}
+              olderHistoryCursor={olderHistoryCursor}
+              isLoadingOlderHistory={isLoadingOlderHistory}
+              onLoadOlderHistory={onLoadOlderHistory}
+            />
+          ) : (
+            <>
+              <ThreadScrollBody
+                autoFollowRef={autoFollowRef}
                 items={items}
-                flatRows={flatRows}
-                renderRow={renderWindowedRow}
+                rows={rows}
+                renderItem={renderItem}
+                keyboardFocusedMessageId={keyboardFocusedMessageId}
                 onUserInteract={clearKeyboardFocus}
                 footer={footer}
-                renderNav={renderNav}
-                resumeRef={threadResumeRef}
-                olderHistoryCursor={olderHistoryCursor}
-                isLoadingOlderHistory={isLoadingOlderHistory}
-                onLoadOlderHistory={onLoadOlderHistory}
+                resumeStateRef={threadResumeRef}
               />
-            ) : (
-              <>
-                <ThreadScrollBody
-                  autoFollowRef={autoFollowRef}
-                  items={items}
-                  rows={rows}
-                  renderItem={renderItem}
-                  keyboardFocusedMessageId={keyboardFocusedMessageId}
-                  onUserInteract={clearKeyboardFocus}
-                  footer={footer}
-                  resumeStateRef={threadResumeRef}
-                />
-                {renderNav()}
-              </>
-            )}
-          </ChatMessageScrollerProvider>
-        </ChatThreadChromeProvider>
+              {renderNav()}
+            </>
+          )}
+        </ChatMessageScrollerProvider>
       </SessionTaskIdProvider>
     </WorkerPoolContextProvider>
   );

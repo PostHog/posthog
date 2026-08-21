@@ -112,7 +112,6 @@ interface SessionViewProps {
   isInitializing?: boolean;
   isCloud?: boolean;
   cloudStatus?: TaskRunStatus | null;
-  slackThreadUrl?: string;
   compact?: boolean;
   isActiveSession?: boolean;
   /** Hide the message input and permission UI — log-only view. */
@@ -147,7 +146,6 @@ export function SessionView({
   isInitializing = false,
   isCloud = false,
   cloudStatus = null,
-  slackThreadUrl,
   compact = false,
   isActiveSession = true,
   hideInput = false,
@@ -564,8 +562,6 @@ export function SessionView({
                   repoPath={repoPath}
                   taskId={taskId}
                   task={task}
-                  slackThreadUrl={slackThreadUrl}
-                  scrollX={false}
                 />
                 <Box className="border-gray-4 border-t">
                   <Box
@@ -651,9 +647,6 @@ export function SessionView({
                   repoPath={repoPath}
                   taskId={taskId}
                   task={task}
-                  slackThreadUrl={slackThreadUrl}
-                  compact={compact}
-                  scrollX={false}
                   promptRecallRef={promptRecallRef}
                   olderHistoryCursor={olderHistoryCursor}
                   isLoadingOlderHistory={isLoadingOlderHistory}

@@ -8,9 +8,7 @@ import {
   Globe,
   type Icon,
   MagnifyingGlass,
-  Minus,
   PencilSimple,
-  Plus,
   Terminal,
   Trash,
   Wrench,
@@ -19,7 +17,6 @@ import { cn } from "@posthog/quill";
 import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import { Box, Text } from "@radix-ui/themes";
 import type { CodeToolKind, ToolCall, ToolCallContent } from "../../types";
-import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 
 /** Tool icon by `ToolCall.kind`. Shared by the per-tool views and the tool-group icon strip. */
 export const kindIcons: Record<CodeToolKind, Icon> = {
@@ -61,13 +58,16 @@ export function ToolTitle({
   children: React.ReactNode;
   className?: string;
 }) {
-  // New thread (ChatX marker chrome) uses the muted, truncating title; the legacy thread keeps its
-  // original styling so toggling the chat thread off leaves ConversationView pixel-identical.
-  const chatChrome = useChatThreadChrome();
-  const base = chatChrome
-    ? "text-sm text-muted-foreground truncate min-w-0"
-    : "text-[13px] text-gray-11";
-  return <Text className={cn(base, className)}>{children}</Text>;
+  return (
+    <Text
+      className={cn(
+        "min-w-0 truncate text-muted-foreground text-sm",
+        className,
+      )}
+    >
+      {children}
+    </Text>
+  );
 }
 
 export function StatusIndicators({
@@ -264,64 +264,14 @@ export function LoadingIcon({
   return <IconComponent size={ICON_SIZE} className={className} />;
 }
 
-export function ExpandableIcon({
-  icon: IconComponent,
-  isLoading,
-  isExpandable,
-  isExpanded,
-}: {
-  icon: Icon;
-  isLoading: boolean;
-  isExpandable: boolean;
-  isExpanded: boolean;
-}) {
-  if (isLoading) return <Spinner />;
-  if (!isExpandable) {
-    return <IconComponent size={ICON_SIZE} className={ICON_CLASS} />;
-  }
-  return (
-    <>
-      <IconComponent
-        size={ICON_SIZE}
-        className={`${ICON_CLASS} group-hover:hidden`}
-      />
-      {isExpanded ? (
-        <Minus
-          size={ICON_SIZE}
-          className={`hidden ${ICON_CLASS} group-hover:block`}
-        />
-      ) : (
-        <Plus
-          size={ICON_SIZE}
-          className={`hidden ${ICON_CLASS} group-hover:block`}
-        />
-      )}
-    </>
-  );
-}
-
 export function ContentPre({ children }: { children: React.ReactNode }) {
-  // New thread wraps output in a bordered, muted box (it sits inside a ChatMarker panel); the legacy
-  // thread keeps the original borderless scroll box so ConversationView is unchanged when toggled off.
-  const chatChrome = useChatThreadChrome();
-  if (chatChrome) {
-    return (
-      <Box className="max-h-64 rounded-sm border border-border">
-        <Box className="scroll-mask-2 max-h-64 overflow-auto bg-muted/50 p-3">
-          <pre className="m-0 whitespace-pre-wrap break-all font-mono text-xs">
-            {children}
-          </pre>
-        </Box>
-      </Box>
-    );
-  }
   return (
-    <Box className="scroll-mask-2 max-h-64 overflow-auto px-3 py-2">
-      <Text asChild className="text-[13px] text-gray-11">
-        <pre className="m-0 whitespace-pre-wrap break-all font-mono">
+    <Box className="max-h-64 rounded-sm border border-border">
+      <Box className="scroll-mask-2 max-h-64 overflow-auto bg-muted/50 p-3">
+        <pre className="m-0 whitespace-pre-wrap break-all font-mono text-xs">
           {children}
         </pre>
-      </Text>
+      </Box>
     </Box>
   );
 }

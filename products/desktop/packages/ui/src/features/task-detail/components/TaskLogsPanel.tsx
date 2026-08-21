@@ -93,11 +93,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     onSendPrompt: handleSendPrompt,
   });
 
-  const slackThreadUrl =
-    typeof task.latest_run?.state?.slack_thread_url === "string"
-      ? task.latest_run.state.slack_thread_url
-      : undefined;
-
   useEffect(() => {
     requestFocus(taskId);
   }, [taskId, requestFocus]);
@@ -191,7 +186,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               isInitializing={isInitializing}
               isCloud={isCloud}
               cloudStatus={cloudStatus}
-              slackThreadUrl={slackThreadUrl}
             />
           </ErrorBoundary>
         </Box>

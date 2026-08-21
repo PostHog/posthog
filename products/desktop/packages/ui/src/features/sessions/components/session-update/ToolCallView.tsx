@@ -1,5 +1,4 @@
 import { compactHomePath } from "@posthog/shared";
-import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { ToolRow } from "./ToolRow";
 import {
   ContentPre,
@@ -50,9 +49,6 @@ export function ToolCallView({
     turnComplete,
   );
   const KindIcon = iconForToolCall(toolCall, agentToolName);
-  // New thread drops the input/output divider (ContentPre carries its own border); the legacy thread
-  // keeps it so ConversationView is unchanged when the chat thread is toggled off.
-  const chatChrome = useChatThreadChrome();
 
   const filePath = kind === "read" && locations?.[0]?.path;
   const toolDisplay = agentToolName
@@ -67,12 +63,11 @@ export function ToolCallView({
       ? { ...toolDisplay, value: highlightValue }
       : undefined;
 
-  // New thread reads back in past tense once the tool has finished ("Reading" → "Read"); the legacy
-  // thread keeps the original present-tense prefix so ConversationView is unchanged when toggled off.
+  // Reads back in past tense once the tool has finished ("Reading" → "Read").
   const displayText = specialDisplay
-    ? chatChrome && !isLoading
-      ? specialDisplay.pastPrefix
-      : specialDisplay.prefix
+    ? isLoading
+      ? specialDisplay.prefix
+      : specialDisplay.pastPrefix
     : filePath
       ? `Read ${getFilename(filePath)}`
       : title
@@ -92,14 +87,7 @@ export function ToolCallView({
     fullInput || showOutput ? (
       <>
         {fullInput && <ContentPre>{fullInput}</ContentPre>}
-        {showOutput &&
-          (chatChrome ? (
-            <ContentPre>{output}</ContentPre>
-          ) : (
-            <div className={fullInput ? "border-gray-6 border-t" : undefined}>
-              <ContentPre>{output}</ContentPre>
-            </div>
-          ))}
+        {showOutput && <ContentPre>{output}</ContentPre>}
       </>
     ) : undefined;
 
@@ -117,15 +105,7 @@ export function ToolCallView({
         // `min-w-0 shrink` overrides the title's default `shrink-0`: the input preview is the
         // flexible piece of the header, so it gives way (and truncates) instead of overflowing.
         <ToolTitle className="min-w-0 shrink">
-          <span
-            className={
-              chatChrome
-                ? "font-mono text-primary text-sm"
-                : "font-mono text-accent-11"
-            }
-          >
-            {inputPreview}
-          </span>
+          <span className="font-mono text-primary text-sm">{inputPreview}</span>
         </ToolTitle>
       )}
       {specialDisplay && <ToolTitle>{specialDisplay.suffix}</ToolTitle>}
