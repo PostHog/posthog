@@ -74,6 +74,7 @@ slack_app
 surveys
 tasks
 tracing
+usage_ingestion
 user_interviews
 warehouse_sources_queue
 web_analytics
