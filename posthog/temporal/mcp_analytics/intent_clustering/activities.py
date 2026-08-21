@@ -142,14 +142,15 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                     team, session_ids, lookback_days=inputs.lookback_days
                 )
                 # Cap dominant tools so they can't occupy the whole intent corpus.
-                call_rows, per_tool_cap_report = intent_clustering.cap_per_tool_call_volume(
+                cap_result = intent_clustering.cap_per_tool_call_volume(
                     call_rows, max_calls_per_tool=intent_clustering.MAX_CALLS_PER_TOOL
                 )
-                if per_tool_cap_report:
+                call_rows = cap_result.kept_rows
+                if cap_result.per_tool_report:
                     logger.info(
                         "mcpa.intent_clustering.capped_overrepresented_tools",
                         team_id=inputs.team_id,
-                        per_tool=per_tool_cap_report,
+                        per_tool=cap_result.per_tool_report,
                     )
                 records, calls_by_session, corpus_stats = intent_clustering.build_call_corpus(
                     call_rows, top_n=inputs.top_n

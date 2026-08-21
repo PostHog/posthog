@@ -562,23 +562,23 @@ class TestCapPerToolCallVolume:
 
         rows = [("s1", "exec", "operate", False)] * 100 + [("s2", "query-logs", "tail logs", False)] * 2
 
-        capped_rows, per_tool = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
+        result = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
 
         per_tool_count: dict[str, int] = {}
-        for _, tool, _, _ in capped_rows:
+        for _, tool, _, _ in result.kept_rows:
             per_tool_count[tool] = per_tool_count.get(tool, 0) + 1
         assert per_tool_count["exec"] <= 10
         # low-volume tool is untouched
         assert per_tool_count["query-logs"] == 2
-        assert per_tool["exec"]["dropped"] >= 90
+        assert result.per_tool_report["exec"]["dropped"] >= 90
 
     def test_deterministic_about_which_calls_survive(self) -> None:
         from products.mcp_analytics.backend.intent_clustering import cap_per_tool_call_volume
 
         rows = [("s1", "exec", f"op {i}", False) for i in range(50)]
 
-        first, _ = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
-        second, _ = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
+        first = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
+        second = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
 
         assert first == second
 

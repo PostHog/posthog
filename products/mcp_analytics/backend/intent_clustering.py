@@ -44,6 +44,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -521,17 +522,25 @@ def stratify_session_ids(
     return selected
 
 
+@frozen
+class ToolCallCapResult:
+    """Outcome of ``cap_per_tool_call_volume``: the kept rows plus, for each
+    over-capped tool, how many of its calls were kept vs dropped."""
+
+    kept_rows: list[tuple[str, str, str, bool]]
+    per_tool_report: dict[str, dict[str, int]]
+
+
 def cap_per_tool_call_volume(
     rows: list[tuple[str, str, str, bool]],
     max_calls_per_tool: int,
-) -> tuple[list[tuple[str, str, str, bool]], dict[str, dict[str, int]]]:
+) -> ToolCallCapResult:
     """Down-sample an over-represented tool's raw call rows before attribution.
 
     Row-level (pre-attribution) so intents and LOCF see the capped population.
     Deterministic: keeps an even stride across the tool's rows so the surviving
     calls still span the tool's whole session/intent range rather than a prefix.
-    Returns ``(kept_rows, per_tool_report)`` where each over-capped tool reports
-    how many calls were ``kept`` vs ``dropped``.
+    Each over-capped tool reports how many calls were ``kept`` vs ``dropped``.
     """
     tool_row_indexes: dict[str, list[int]] = defaultdict(list)
     for idx, (_, tool, _, _) in enumerate(rows):
@@ -552,7 +561,7 @@ def cap_per_tool_call_volume(
         report[tool] = {"kept": len(kept), "dropped": total - len(kept)}
 
     kept_rows = [row for idx, row in enumerate(rows) if idx in keep_indexes]
-    return kept_rows, report
+    return ToolCallCapResult(kept_rows=kept_rows, per_tool_report=report)
 
 
 def fetch_tool_descriptions(
