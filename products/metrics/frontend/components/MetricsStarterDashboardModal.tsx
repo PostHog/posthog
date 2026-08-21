@@ -7,7 +7,7 @@ import { metricOptionKey, metricsStarterDashboardLogic } from './metricsStarterD
 export function MetricsStarterDashboardModal(): JSX.Element {
     const {
         isModalOpen,
-        dashboardName,
+        effectiveDashboardName,
         serviceName,
         selectedMetrics,
         services,
@@ -40,7 +40,7 @@ export function MetricsStarterDashboardModal(): JSX.Element {
                         onClick={createDashboard}
                         loading={creating}
                         disabledReason={
-                            !dashboardName.trim()
+                            !effectiveDashboardName.trim()
                                 ? 'Name the dashboard'
                                 : !selectedMetrics.length
                                   ? 'Pick at least one metric'
@@ -55,7 +55,7 @@ export function MetricsStarterDashboardModal(): JSX.Element {
         >
             <div className="flex flex-col gap-3">
                 <LemonInput
-                    value={dashboardName}
+                    value={effectiveDashboardName}
                     onChange={setDashboardName}
                     placeholder="Dashboard name, e.g. Billing worker"
                     autoFocus

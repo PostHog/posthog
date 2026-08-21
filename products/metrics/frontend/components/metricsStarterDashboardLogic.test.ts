@@ -8,7 +8,7 @@ import { initKeaTests } from '~/test/init'
 
 import { metricsAttributeValuesRetrieve, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
 
-import { metricOptionKey, metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
+import { metricOptionKey, metricsStarterDashboardLogic, suggestDashboardName } from './metricsStarterDashboardLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -173,6 +173,35 @@ describe('metricsStarterDashboardLogic', () => {
 
         const [insight] = mockInsightCreate.mock.calls[0]
         expect((insight.query as any).clauses[0].metricType).toBeUndefined()
+    })
+
+    test.each([
+        ['billing-worker', ['billing.queue.depth', 'billing.job.duration'], 'billing metrics for billing-worker'],
+        ['billing-worker', [], 'billing-worker metrics'],
+        ['', ['billing.queue.depth', 'billing.job.duration'], 'billing metrics'],
+        ['', ['billing.queue.depth'], 'billing.queue.depth metrics'],
+        ['', ['billing.queue.depth', 'http.server.duration'], 'Metrics overview'],
+        ['', [], ''],
+    ])('suggests a name for service %p and metrics %p', (serviceName, metricNames, expected) => {
+        expect(suggestDashboardName(serviceName, metricNames)).toEqual(expected)
+    })
+
+    it('creates the dashboard under the suggested name until the user types their own', async () => {
+        logic.actions.openModal()
+        await expectLogic(logic).toDispatchActions(['loadMetricOptionsSuccess'])
+        logic.actions.setServiceName('billing-worker')
+        logic.actions.setSelectedMetrics([metricOptionKey('billing.queue.depth', 'gauge')])
+        expect(logic.values.effectiveDashboardName).toEqual('billing.queue.depth metrics for billing-worker')
+
+        // A typed name is the user's, so later picks must not overwrite it.
+        logic.actions.setDashboardName('Billing worker health')
+        logic.actions.setServiceName('checkout')
+
+        await expectLogic(logic, () => {
+            logic.actions.createDashboard()
+        }).toDispatchActions(['createDashboardSuccess'])
+
+        expect(apiCreateSpy.mock.calls[0][1]).toEqual({ name: 'Billing worker health' })
     })
 
     it('guards against double submission while the create is in flight', async () => {
