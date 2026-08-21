@@ -1140,17 +1140,18 @@ async def repartition_table_in_place(
             # attempt. The classifier needs the distinction (see `_handle_budget_exceeded`).
             e.had_prior_checkpoint = rewrite_checkpoint is not None
             # Checkpoint the half-built temp so the next attempt resumes instead of re-streaming from
-            # row 0. Guard with a claim check first: a superseded zombie must not clobber the newer
-            # claimant's state (the check raises RepartitionSupersededError, which the caller handles
-            # by standing down without recording a failure). Only checkpoint real forward progress.
+            # row 0. Fenced on the claim inside the row lock, like the progress checkpoint above: a
+            # superseded zombie writing here would restore its own claim along with the whole config.
+            # Only checkpoint real forward progress.
             await ensure_claim()
             partial_rows = await _valid_delta_row_count(temp_uri, storage_options)
-            if partial_rows:
-                e.checkpoint_saved = True
+            if partial_rows and claim_token is not None:
                 live_version = await asyncio.to_thread(old_delta.version)
-                await asyncio.to_thread(
-                    schema.set_repartition_rewrite,
-                    {
+                e.checkpoint_saved = await asyncio.to_thread(
+                    save_repartition_checkpoint_if_claimed,
+                    schema,
+                    claim_token=claim_token,
+                    checkpoint={
                         "temp_uri": temp_uri,
                         "rows_written": partial_rows,
                         "target": (e.resolved or rewrite_target).to_dict(),

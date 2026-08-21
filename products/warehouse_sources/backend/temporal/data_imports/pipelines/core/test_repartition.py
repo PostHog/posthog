@@ -1502,6 +1502,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
+            patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved,
             patch.object(
                 repartition_module,
                 "_rewrite_into_temp",
@@ -1517,8 +1518,10 @@ class TestRewriteCheckpointResume:
                     )
                 )
 
-        schema.set_repartition_rewrite.assert_called_once()
-        checkpoint = schema.set_repartition_rewrite.call_args.args[0]
+        saved.assert_called_once()
+        # Fenced on the claim this attempt holds, so a superseded worker cannot write here.
+        assert saved.call_args.kwargs["claim_token"] == "tok"
+        checkpoint = saved.call_args.kwargs["checkpoint"]
         assert checkpoint["rows_written"] == 1
         assert checkpoint["live_version"] == live.version()
         assert checkpoint["target"]["partition_format"] == "day"
