@@ -102,7 +102,18 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                     fullWidth
                                     options={METRIC_TYPE_OPTIONS}
                                     value={config.metricType}
-                                    onChange={(value) => setConfig({ metricType: value as ManualCalculatorMetricType })}
+                                    onChange={(value) => {
+                                        const metricType = value as ManualCalculatorMetricType
+                                        // Switching to funnel reinterprets baselineValue as a conversion rate, so carry
+                                        // the same 100% clamp the baseline input applies. Otherwise a large mean value
+                                        // survives the switch as an out-of-range rate.
+                                        setConfig({
+                                            metricType,
+                                            ...(metricType === 'funnel' && config.baselineValue > 100
+                                                ? { baselineValue: 100 }
+                                                : {}),
+                                        })
+                                    }}
                                 />
                             </div>
 
