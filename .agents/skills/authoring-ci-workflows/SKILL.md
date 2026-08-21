@@ -173,6 +173,8 @@ Measured checkout-step durations, from the GitHub API on real runs:
 
   A sparse working tree does not affect `git merge-base`, `git diff <a>...<b>`, `git log --name-status`, `git ls-tree`, `git ls-files`, or `git show <rev>:<path>` — those read the object database or the index.
   Only commands that compare against the worktree (`git diff HEAD`, `git status`) see the skip-worktree entries.
+  One caveat when `blob:none` is also set: `git show <rev>:<path>` still needs that blob, and a sparse checkout never downloaded it, so the read becomes a lazy fetch that can fail.
+  Name any file a step reads that way in the sparse set — `ci-dagster.yml` does this for `docker-compose.base.yml`, whose contents feed a cache key.
 
 - **`changes` / paths-filter gating jobs:** on `pull_request` the vendored `.github/actions/paths-filter` diffs via the GitHub API and never touches the tree.
   The only reason to check out is that a local action must exist on disk, so sparse-checkout `.github/actions/paths-filter` plus any file the job's own steps read.
