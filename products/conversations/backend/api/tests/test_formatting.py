@@ -374,15 +374,26 @@ class TestSlackFormatting(SimpleTestCase):
         slack_text, _ = rich_content_to_slack_payload({"type": "doc", "content": content}, "")
         assert slack_text == expected
 
-    def test_outbound_blocks_keep_an_authored_blank_line(self) -> None:
-        rich_content = {
-            "type": "doc",
-            "content": [_paragraph("one"), {"type": "paragraph"}, _paragraph("two")],
-        }
+    @parameterized.expand(
+        [
+            # A section runs on from the one before it, so it needs a line ending plus the blank line.
+            ("before_a_paragraph", _paragraph("two"), "\n\n"),
+            ("before_an_image", {"type": "image", "attrs": {"src": "https://e.com/a.png", "alt": "a"}}, "\n\n"),
+            # A preformatted element is its own code box, so the blank line is all it needs.
+            ("before_a_code_block", {"type": "codeBlock", "content": [{"type": "text", "text": "x = 1"}]}, "\n"),
+        ]
+    )
+    def test_outbound_blocks_keep_an_authored_blank_line(
+        self, _name: str, follower: dict, expected_separator: str
+    ) -> None:
+        rich_content = {"type": "doc", "content": [_paragraph("one"), {"type": "paragraph"}, follower]}
 
         _, slack_blocks = rich_content_to_slack_payload(rich_content, "")
         assert slack_blocks is not None
-        assert [el["elements"][0]["text"] for el in slack_blocks[0]["elements"]] == ["one", "\n\n", "two"]
+
+        elements = slack_blocks[0]["elements"]
+        assert len(elements) == 3
+        assert elements[1]["elements"][0]["text"] == expected_separator
 
     @parameterized.expand(
         [

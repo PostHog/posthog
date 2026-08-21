@@ -751,9 +751,24 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
         return None
 
     rich_text_elements: list[JSON] = []
-    # Empty paragraphs are blank lines the author typed. They carry to the next section that has
+    # Empty paragraphs are blank lines the author typed. They carry to the next element that has
     # content, so leading and trailing ones fall away — matching what rich_content_to_markdown strips.
     pending_blank_lines = 0
+
+    def open_next_element(starts_its_own_line: bool) -> None:
+        """Emit the line breaks owed before the next element, then clear the debt.
+
+        Sections run together, so one following another needs an explicit line ending on top of any
+        blank lines. A preformatted element is its own code box and already starts a line, so it
+        needs the blank lines alone.
+        """
+        nonlocal pending_blank_lines
+        newlines = pending_blank_lines if starts_its_own_line else pending_blank_lines + 1
+        if rich_text_elements and newlines:
+            rich_text_elements.append(
+                {"type": "rich_text_section", "elements": [{"type": "text", "text": "\n" * newlines}]}
+            )
+        pending_blank_lines = 0
 
     for node in rich_content.get("content", []):
         node_type = node.get("type")
@@ -777,19 +792,14 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
                     pending_blank_lines += 1
                 continue
 
-            if rich_text_elements:
-                separator = "\n" * (pending_blank_lines + 1)
-                rich_text_elements.append(
-                    {"type": "rich_text_section", "elements": [{"type": "text", "text": separator}]}
-                )
-            pending_blank_lines = 0
+            open_next_element(starts_its_own_line=False)
             rich_text_elements.append({"type": "rich_text_section", "elements": section_elements})
             continue
 
         if node_type == "codeBlock":
             code_text = "".join(child.get("text", "") for child in node.get("content", []))
             if code_text:
-                pending_blank_lines = 0
+                open_next_element(starts_its_own_line=True)
                 rich_text_elements.append(
                     {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code_text}]}
                 )
@@ -798,7 +808,7 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
         if node_type == "image" and include_images:
             src = node.get("attrs", {}).get("src")
             if src:
-                pending_blank_lines = 0
+                open_next_element(starts_its_own_line=False)
                 rich_text_elements.append(
                     {
                         "type": "rich_text_section",
