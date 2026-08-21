@@ -252,10 +252,10 @@ export interface inboxOnboardingLogicValues {
     isWizardStateResolved: boolean
     lastSettledUiState: InboxSettledUiState | null
     lastSettledUiStateByTeam: Record<string, InboxSettledUiState>
-    onboardingSkipped: boolean
-    onboardingSkippedByTeam: Record<string, boolean>
     onboardingDecision: InboxOnboardingDecision
     onboardingMode: InboxOnboardingMode
+    onboardingSkipped: boolean
+    onboardingSkippedByTeam: Record<string, boolean>
     resolvedOnboardingMode: InboxOnboardingMode
     verdictWaitExpired: boolean
 }
@@ -272,12 +272,6 @@ export interface inboxOnboardingLogicActions {
     dismissBanner: () => {
         value: true
     }
-    skipOnboarding: (variant: InboxWelcomeVariant) => {
-        variant: InboxWelcomeVariant
-    }
-    setOnboardingSkipped: (teamId: number) => {
-        teamId: number
-    }
     expireWizardVerdictWait: () => {
         value: true
     }
@@ -290,6 +284,12 @@ export interface inboxOnboardingLogicActions {
     ) => {
         teamId: number
         uiState: InboxSettledUiState
+    }
+    setOnboardingSkipped: (teamId: number) => {
+        teamId: number
+    }
+    skipOnboarding: (variant: InboxWelcomeVariant) => {
+        variant: InboxWelcomeVariant
     }
 }
 
