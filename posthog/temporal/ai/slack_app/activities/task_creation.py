@@ -505,6 +505,7 @@ def create_posthog_code_task_for_repo_activity(
     from posthog.models.integration import Integration, SlackIntegration
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
@@ -714,6 +715,10 @@ def create_posthog_code_task_for_repo_activity(
                 "task_run_id": task_run.id,
                 "mentioning_slack_user_id": slack_user_id,
                 "last_forwarded_ts": initial_watermark,
+                # Decides whether the whole team may read this thread's task, so it is
+                # resolved here — once, against the live conversation — rather than
+                # re-derived on every request that gates on it.
+                "conversation_type": resolve_conversation_type(slack, event, channel),
             },
         )
         # Track the workflow to link Temporal jobs to Slack threads

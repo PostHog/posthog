@@ -12925,7 +12925,12 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
 
 class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
     def _create_run(
-        self, *, origin_product: Task.OriginProduct, artifacts: list[dict] | None = None
+        self,
+        *,
+        origin_product: Task.OriginProduct,
+        artifacts: list[dict] | None = None,
+        conversation_type: str | None = None,
+        with_mapping: bool = False,
     ) -> tuple[Task, TaskRun]:
         creator = self.create_organization_user("thread-starter")
         task = Task.objects.create(
@@ -12942,6 +12947,19 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
             environment=TaskRun.Environment.CLOUD,
             artifacts=artifacts or [],
         )
+        if with_mapping:
+            integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+            SlackThreadTaskMapping.objects.create(
+                team=self.team,
+                integration=integration,
+                slack_workspace_id="T_SLACK",
+                channel="D123" if conversation_type == "im" else "C123",
+                thread_ts="1234.5678",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="U123",
+                conversation_type=conversation_type,
+            )
         return task, run
 
     @parameterized.expand(
@@ -13021,6 +13039,54 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, expected_status)
+
+    # The widened read exists so everyone in a Slack thread can follow the agent's links. A DM
+    # has no such audience, so it must not be widened. The `unclassified` case pins the
+    # fail-open direction the backfill relies on: it leaves every non-DM thread NULL, so a gate
+    # that asked "is this known-shared" instead of "is this known-private" would 404 every
+    # thread that predates the column.
+    @parameterized.expand(
+        [
+            ("dm_thread_hidden", "im", status.HTTP_404_NOT_FOUND),
+            ("public_channel_thread_readable", "public_channel", status.HTTP_200_OK),
+            ("private_channel_thread_readable", "private_channel", status.HTTP_200_OK),
+            ("group_dm_thread_readable", "mpim", status.HTTP_200_OK),
+            ("unclassified_thread_readable", None, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_run_access_by_conversation_type(
+        self,
+        _case_name: str,
+        conversation_type: str | None,
+        expected_status: int,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        task, run = self._create_run(
+            origin_product=Task.OriginProduct.SLACK,
+            conversation_type=conversation_type,
+            with_mapping=True,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, expected_status)
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_cannot_patch_shared_slack_run(self, _mock_publish_stream_state_event: MagicMock) -> None:
+        task, run = self._create_run(
+            origin_product=Task.OriginProduct.SLACK,
+            conversation_type="public_channel",
+            with_mapping=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"marker": "from-teammate"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestModelCatalogueAPI(BaseTaskAPITest):

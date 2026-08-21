@@ -2279,6 +2279,28 @@ def task_run_matches_current_ownership(run_id: str | UUID, task_id: str | UUID, 
     return run is not None and run.matches_task_ownership()
 
 
+def _shared_slack_thread_q() -> Q:
+    """Slack tasks whose thread is not a direct message.
+
+    Phrased as "not private" rather than "is a channel" so a mapping we never classified — a
+    row predating the column, or a lookup Slack refused — keeps the team-wide read access it
+    has today instead of silently narrowing to the thread starter.
+
+    The ``origin_product`` test leads so the subquery is only reached for Slack tasks; every
+    other task short-circuits on an indexed column before touching the mapping table.
+    """
+    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
+        PRIVATE_CONVERSATION_TYPES,
+        SlackThreadTaskMapping,
+    )
+
+    private_thread = SlackThreadTaskMapping.objects.filter(
+        task_id=OuterRef("pk"),
+        conversation_type__in=sorted(PRIVATE_CONVERSATION_TYPES),
+    )
+    return Q(origin_product=Task.OriginProduct.SLACK) & Q(~Exists(private_thread))
+
+
 def task_accessible_for_run_view(
     task_id: str | UUID,
     team_id: int,
@@ -2298,20 +2320,19 @@ def task_accessible_for_run_view(
     Task-bound sandbox callers set ``bypass_visibility`` only after the view verifies that
     the OAuth token's ``sandbox_task_id`` matches this task.
 
-    Slack-originated tasks are readable by the whole team. A Slack thread is multiplayer:
-    every member of the conversation already sees the agent's replies and follows the links
-    in them, so gating those links on the one person who opened the thread makes the reply
-    unusable for everyone else. The task itself is filed in its creator's personal space, so
-    ``task_visibility_q`` alone would hide it. Read-only on purpose — driving the run stays
+    Tasks from a shared Slack conversation are readable by the whole team. Such a thread is
+    multiplayer: every member of the conversation already sees the agent's replies and follows
+    the links in them, so gating those links on the one person who opened the thread makes the
+    reply unusable for everyone else. The task itself is filed in its creator's personal space,
+    so ``task_visibility_q`` alone would hide it. Read-only on purpose — driving the run stays
     with the creator, whose credentials the sandbox runs under.
+
+    Threads from a direct message are excluded: a DM has no audience beyond its author, so
+    there is nobody the widened read is for. See ``PRIVATE_CONVERSATION_TYPES``.
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
     if not bypass_visibility:
-        scope_q = (
-            task_control_q(user_id)
-            if for_control
-            else task_visibility_q(user_id) | Q(origin_product=Task.OriginProduct.SLACK)
-        )
+        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
         task_filter = task_filter.filter(scope_q)
     return task_filter.exists()
 
