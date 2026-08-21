@@ -91,7 +91,7 @@ async fn writes_succeed_again_without_restarting_the_pool(
 
     poison_the_pooled_connection(&pool).await;
 
-    // The write that would have failed with 25006 for the next 30 minutes.
+    // Without the guard this write fails with 25006 until the connection is recycled.
     sqlx::query("INSERT INTO guard_probe (id) VALUES (1)")
         .execute(&pool)
         .await
@@ -144,7 +144,7 @@ async fn without_the_guard_the_poisoned_connection_survives_and_writes_fail(
     pool.close().await;
 }
 
-/// The probe replaces sqlx's ping, so it is now what has to notice a dead socket. Terminating
+/// The probe replaces sqlx's ping, so the probe is what has to notice a dead socket. Terminating
 /// the pooled backend proves the pool still recovers on its own: the probe fails, sqlx discards
 /// the connection, and the caller transparently gets a working replacement.
 #[sqlx::test]

@@ -130,9 +130,9 @@ impl WriterGuard {
 ///
 /// The probe replaces sqlx's ping rather than adding to it: `test_before_acquire` already spends
 /// a round trip per acquire, and `SHOW transaction_read_only` answers the same liveness question
-/// plus whether this server still takes writes. Costing nothing extra is what lets the guard
-/// probe every acquire instead of sampling, so a reader is caught on the next write rather than
-/// after a delay. See `PgPoolOptions::before_acquire` for sqlx's own version of this pattern.
+/// plus whether the server still takes writes. Because it costs no extra round trip, the guard
+/// can probe every acquire, so a reader is caught on the next write.
+/// `PgPoolOptions::before_acquire` documents this pattern.
 ///
 /// `before_acquire` only sees connections from the idle queue, so a freshly opened one reaches
 /// the caller unprobed and is caught on its next acquire. We deliberately do not also probe from
@@ -158,9 +158,9 @@ pub fn install_writer_guard(options: PgPoolOptions, guard: &WriterGuard) -> PgPo
                     return Ok(!guard.record_read_only(Instant::now()));
                 }
 
-                // Postgres only ever reports `on` or `off` here, so anything else means an
-                // assumption broke. Keep the connection — failing writes over a parse surprise
-                // is worse than a stale reader — but count it so it is not silent.
+                // Postgres reports only `on` or `off`, so a third value means an assumption
+                // broke. Keep the connection, because failing writes over a value we cannot
+                // parse is worse than serving a stale reader, but count it so it is not silent.
                 if !read_only.eq_ignore_ascii_case("off") {
                     guard.record_unknown();
                     return Ok(true);
@@ -203,7 +203,6 @@ mod tests {
             assert_eq!(state.rejections_in_window, 0);
         }
 
-        // The full cap is still available to real readers.
         assert!(g.record_read_only(t0));
         assert!(g.record_read_only(t0));
         assert!(!g.record_read_only(t0));

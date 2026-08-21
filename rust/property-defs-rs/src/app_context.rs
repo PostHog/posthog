@@ -44,8 +44,8 @@ impl AppContext {
 }
 
 /// Builds the definition-write pool. Every connection here writes, so the writer guard keeps
-/// the pool off a demoted Aurora reader — a case sqlx's ping cannot see, which is why the guard
-/// replaces that ping rather than adding to it.
+/// the pool off a demoted Aurora reader, which a liveness ping cannot detect. The guard replaces
+/// that ping rather than adding to it.
 async fn build_write_pool(config: &Config) -> Result<PgPool, sqlx::Error> {
     let guard = WriterGuard::new(WriterGuardConfig {
         pool_name: Some(Arc::from("propdefs_write")),
