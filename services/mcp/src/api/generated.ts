@@ -71524,6 +71524,26 @@ export namespace Schemas {
          */
       merge_queue_p90_first_gate_to_merge_seconds_prev: number | null;
       /**
+         * p95 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.
+         * @nullable
+         */
+      merge_queue_p95_first_gate_to_merge_seconds: number | null;
+      /**
+         * The same p95 over the previous window. Null when no queue-landed merges.
+         * @nullable
+         */
+      merge_queue_p95_first_gate_to_merge_seconds_prev: number | null;
+      /**
+         * p99 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.
+         * @nullable
+         */
+      merge_queue_p99_first_gate_to_merge_seconds: number | null;
+      /**
+         * The same p99 over the previous window. Null when no queue-landed merges.
+         * @nullable
+         */
+      merge_queue_p99_first_gate_to_merge_seconds_prev: number | null;
+      /**
          * Mean distinct gate attempts (distinct gate branches, flake-bisection branches collapsed) per queue-landed merge. Null when no queue-landed merges.
          * @nullable
          */
