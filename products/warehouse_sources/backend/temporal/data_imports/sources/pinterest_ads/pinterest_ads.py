@@ -331,7 +331,20 @@ def _iter_fanned_out_analytics(
                 **extra_params,
             }
 
-            data = _make_request(session, url, params)
+            try:
+                data = _make_request(session, url, params)
+            except requests.HTTPError as e:
+                source_logger.exception(
+                    "pinterest_ads_analytics_http_error",
+                    endpoint=endpoint,
+                    url=url,
+                    start_date=chunk_start,
+                    end_date=chunk_end,
+                    status_code=e.response.status_code if e.response is not None else None,
+                )
+                # A single chunk Pinterest won't serve must not abort the whole fan-out. Skip it
+                # without advancing the cursor so it is retried on resume, same as a bad payload.
+                continue
 
             rows = parse_rows(data)
             if rows is None:

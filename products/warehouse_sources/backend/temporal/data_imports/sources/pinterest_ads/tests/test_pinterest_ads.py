@@ -632,6 +632,56 @@ class TestIterAnalyticsRowsFresh:
         # No save_state happens at all: the first chunk failed (skipped), and the second is the final chunk.
         manager.save_state.assert_not_called()
 
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
+    )
+    def test_http_error_skips_chunk_without_aborting(self, mock_request, mock_entity_ids, mock_currency):
+        # A persistent 5xx on one chunk must not abort the whole fan-out: the failed chunk is skipped
+        # and the loop moves on, so the remaining batches and date chunks still import.
+        mock_entity_ids.return_value = ["1", "2"]
+        mock_currency.return_value = None
+        error_response = mock.MagicMock()
+        error_response.status_code = 500
+        mock_request.side_effect = [
+            requests.HTTPError("500 Server Error", response=error_response),
+            [{"CAMPAIGN_ID": "2", "DATE": "2024-01-01"}],
+        ]
+        manager = _make_resume_manager()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31")],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"], ["2"]],
+            ),
+        ):
+            yielded = list(
+                _iter_analytics_rows(
+                    mock.MagicMock(),
+                    "acc123",
+                    "campaign_analytics",
+                    manager,
+                    mock.MagicMock(),
+                    False,
+                    None,
+                )
+            )
+
+        # The second chunk still ran and yielded rows despite the first chunk's 500.
+        assert len(yielded) == 1
+        assert yielded[0][0]["campaign_id"] == "2"
+        # The failed chunk did not advance the cursor, so it is retried on resume.
+        manager.save_state.assert_not_called()
+
 
 class TestIterAnalyticsRowsResume:
     @mock.patch(
