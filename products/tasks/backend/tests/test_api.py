@@ -10445,6 +10445,68 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["cancelled"])
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_side_question(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-btw", "result": {"answer": "It parses JSONL."}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "side_question",
+                "params": {"question": "  what does it do?  "},
+                "id": "req-btw",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["result"]["answer"], "It parses JSONL.")
+        forwarded = mock_post.call_args[1]["json"]
+        self.assertEqual(forwarded["method"], "side_question")
+        self.assertEqual(forwarded["params"]["question"], "what does it do?")
+
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_side_question_requires_code_access(self, mock_post):
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "side_question", "params": {"question": "why?"}, "id": "req-btw"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        mock_post.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_command_side_question_respects_usage_limit(self, mock_gate, mock_post):
+        mock_gate.return_value = OVER_LIMIT
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "side_question", "params": {"question": "why?"}, "id": "req-btw"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        mock_post.assert_not_called()
+
     def test_empty_task_session_returns_read_only_storage_access(self):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
@@ -11135,6 +11197,22 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                         "payload": {"result": "x" * 300_001},
                     },
                 },
+            ),
+            (
+                "side_question_blank_question",
+                {"jsonrpc": "2.0", "method": "side_question", "params": {"question": "   "}},
+            ),
+            (
+                "side_question_empty_question",
+                {"jsonrpc": "2.0", "method": "side_question", "params": {"question": ""}},
+            ),
+            (
+                "side_question_missing_question",
+                {"jsonrpc": "2.0", "method": "side_question", "params": {}},
+            ),
+            (
+                "side_question_oversized_question",
+                {"jsonrpc": "2.0", "method": "side_question", "params": {"question": "x" * 10_001}},
             ),
         ]
     )
@@ -12924,7 +13002,14 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
 
 
 class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
-    def _create_run(self, *, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
+    def _create_run(
+        self,
+        *,
+        origin_product: Task.OriginProduct,
+        artifacts: list[dict] | None = None,
+        conversation_type: str | None = None,
+        with_mapping: bool = False,
+    ) -> tuple[Task, TaskRun]:
         creator = self.create_organization_user("thread-starter")
         task = Task.objects.create(
             team=self.team,
@@ -12938,13 +13023,27 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             environment=TaskRun.Environment.CLOUD,
+            artifacts=artifacts or [],
         )
+        if with_mapping:
+            integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+            SlackThreadTaskMapping.objects.create(
+                team=self.team,
+                integration=integration,
+                slack_workspace_id="T_SLACK",
+                channel="D123" if conversation_type == "im" else "C123",
+                thread_ts="1234.5678",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="U123",
+                conversation_type=conversation_type,
+            )
         return task, run
 
     @parameterized.expand(
         [
             ("teammate_cannot_patch_slack_run", Task.OriginProduct.SLACK, "patch", status.HTTP_404_NOT_FOUND),
-            ("teammate_cannot_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_404_NOT_FOUND),
+            ("teammate_can_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_200_OK),
             (
                 "teammate_cannot_patch_user_created_run",
                 Task.OriginProduct.USER_CREATED,
@@ -12977,6 +13076,95 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
             response = self.client.get(url)
 
         self.assertEqual(response.status_code, expected_status)
+
+    # The agent posts artifact links into the Slack thread, so everyone reading the thread
+    # follows them — not just whoever opened it. Separate from the run-retrieve case above
+    # because this also pins `artifacts_download_by_id` into `_READ_ONLY_ACTIONS`: drop it
+    # from that tuple and the gate flips to the creator-only control predicate.
+    @parameterized.expand(
+        [
+            ("slack_run_artifact", Task.OriginProduct.SLACK, status.HTTP_302_FOUND),
+            ("user_created_run_artifact", Task.OriginProduct.USER_CREATED, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    def test_non_creator_artifact_download_by_origin(
+        self,
+        _case_name: str,
+        origin_product: Task.OriginProduct,
+        expected_status: int,
+        mock_presign: MagicMock,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        mock_presign.return_value = "https://example.com/artifact?sig=123"
+        artifact_id = uuid.uuid4().hex
+        task, run = self._create_run(
+            origin_product=origin_product,
+            artifacts=[
+                {
+                    "id": artifact_id,
+                    "name": "screenshot.png",
+                    "type": "output",
+                    "content_type": "image/png",
+                    "storage_path": "tasks/artifacts/team_1/task_2/run_3/screenshot.png",
+                }
+            ],
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+
+    # The widened read exists so everyone in a Slack thread can follow the agent's links. A DM
+    # has no such audience, so it must not be widened. The `unclassified` case pins the
+    # fail-open direction the backfill relies on: it leaves every non-DM thread NULL, so a gate
+    # that asked "is this known-shared" instead of "is this known-private" would 404 every
+    # thread that predates the column.
+    @parameterized.expand(
+        [
+            ("dm_thread_hidden", "im", status.HTTP_404_NOT_FOUND),
+            ("public_channel_thread_readable", "public_channel", status.HTTP_200_OK),
+            ("private_channel_thread_readable", "private_channel", status.HTTP_200_OK),
+            ("group_dm_thread_readable", "mpim", status.HTTP_200_OK),
+            ("unclassified_thread_readable", None, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_run_access_by_conversation_type(
+        self,
+        _case_name: str,
+        conversation_type: str | None,
+        expected_status: int,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        task, run = self._create_run(
+            origin_product=Task.OriginProduct.SLACK,
+            conversation_type=conversation_type,
+            with_mapping=True,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, expected_status)
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_cannot_patch_shared_slack_run(self, _mock_publish_stream_state_event: MagicMock) -> None:
+        task, run = self._create_run(
+            origin_product=Task.OriginProduct.SLACK,
+            conversation_type="public_channel",
+            with_mapping=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"marker": "from-teammate"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestModelCatalogueAPI(BaseTaskAPITest):

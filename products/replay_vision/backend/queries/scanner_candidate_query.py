@@ -1,6 +1,7 @@
 """Find session recordings a scanner should observe: ended past the watermark and quiet for 35+ minutes."""
 
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -12,6 +13,7 @@ from posthog.schema import RecordingsQuery
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -46,13 +48,29 @@ BACKFILL_CANDIDATE_QUERY_TYPE = "ReplayVisionBackfillCandidateQuery"
 BACKFILL_COUNT_QUERY_TYPE = "ReplayVisionBackfillCountQuery"
 DEEP_SWEEP_CANDIDATE_QUERY_TYPE = "ReplayVisionDeepSweepCandidateQuery"
 SWEEP_CANDIDATE_QUERY_TYPE = "ReplayVisionScannerCandidateQuery"
+SWEEP_CANDIDATE_SCAN_QUERY_TYPE = "ReplayVisionScannerCandidateScanQuery"
 EXCLUDED_SESSIONS_QUERY_TYPE = "ReplayVisionExcludedSessionsQuery"
 BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE = "ReplayVisionBackfillExcludedSessionsQuery"
+
+# The candidate-selection tags the read meter charges the frequent sweep's throttle on. A new
+# selection query that is not listed here spends unmetered and never stretches the cadence. The
+# one-shot priming query is deliberately outside it.
+FAST_SWEEP_QUERY_TYPES = [
+    SWEEP_CANDIDATE_QUERY_TYPE,
+    SWEEP_CANDIDATE_SCAN_QUERY_TYPE,
+    EXCLUDED_SESSIONS_QUERY_TYPE,
+]
 
 SAMPLE_RATE_PRECISION = 10_000
 # Smallest non-zero rate the modulo bucketing can express (one bucket); the API rejects non-zero rates below it.
 MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
 DEFAULT_CANDIDATE_LIMIT = 5_000
+# How many sessions one tick pulls from the replay table before asking the events table about them.
+# The `$session_id` bloom filter stops discriminating once the list gets long: measured against
+# production scanners, a few hundred to a couple of thousand ids prune 4-15x, while ~8k ids prune
+# under 2x. Sized at the top of that band, since a page that is too small pays the events scan's
+# fixed cost again for no extra reach.
+CANDIDATE_SCAN_LIMIT = 2_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
 # Emitted by `emit_observation_event_activity` once an observation succeeds.
@@ -137,6 +155,21 @@ class CandidateSession:
     session_end: dt.datetime
 
 
+@dataclass(frozen=True)
+class CandidateBatch:
+    """What one sweep tick considered and what it will dispatch.
+
+    `keyset_end`/`keyset_session_id` mark the last session the tick *considered*, matched or not, so
+    the watermark moves over ground actually covered rather than over the dispatch list. Advancing it
+    past sessions that were fetched but never evaluated would drop them for good.
+    """
+
+    matched: list[CandidateSession]
+    keyset_end: dt.datetime | None = None
+    keyset_session_id: str = ""
+    saturated: bool = False
+
+
 class ScannerCandidateQuery:
     def __init__(
         self,
@@ -218,10 +251,23 @@ class ScannerCandidateQuery:
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
+        return self._execute(self.get_query(), SWEEP_CANDIDATE_QUERY_TYPE)
+
+    @tracer.start_as_current_span("ScannerCandidateQuery.run_batch")
+    def run_batch(self, dispatch_limit: int) -> CandidateBatch:
+        return run_correlated_batch(
+            build=self.get_query,
+            execute=self._execute,
+            scan_query_type=SWEEP_CANDIDATE_SCAN_QUERY_TYPE,
+            match_query_type=SWEEP_CANDIDATE_QUERY_TYPE,
+            dispatch_limit=dispatch_limit,
+        )
+
+    def _execute(self, query: ast.SelectQuery, query_type: str) -> list[CandidateSession]:
         rows = execute_candidate_query(
-            self.get_query(),
+            query,
             team=self._team,
-            query_type=SWEEP_CANDIDATE_QUERY_TYPE,
+            query_type=query_type,
             max_execution_time_seconds=self._max_execution_time_seconds,
             scanner_id=self._scanner_id,
         )
@@ -263,6 +309,136 @@ class ScannerCandidateQuery:
 
     def _sampling_predicate(self) -> ast.Expr | None:
         return sampling_predicate(self._sampling_rate, self._sampling_salt)
+
+
+def run_correlated_batch(
+    *,
+    build: Callable[[], ast.SelectQuery],
+    execute: Callable[[ast.SelectQuery, str], list[CandidateSession]],
+    scan_query_type: str,
+    match_query_type: str,
+    dispatch_limit: int,
+) -> CandidateBatch:
+    """Name the candidate sessions first, then ask the events table only about those.
+
+    Asking instead which sessions matched anywhere in the lookback makes ClickHouse read the team's
+    whole event volume for that window and then throw nearly all of it away against the few hundred
+    sessions the tick can dispatch. Listing the sessions up front lets the `$session_id` bloom filter
+    prune the scan, which is where the saving comes from.
+    """
+    query = build()
+    predicates = session_in_predicates(query)
+    if not predicates:
+        # No events subquery to correlate against, so splitting would only cost a second round trip.
+        query.limit = ast.Constant(value=dispatch_limit)
+        considered = execute(query, match_query_type)
+        return build_candidate_batch(considered, considered, dispatch_limit, dispatch_limit)
+
+    for predicate in predicates:
+        _drop_event_filter(predicate)
+    query.limit = ast.Constant(value=CANDIDATE_SCAN_LIMIT)
+    considered = execute(query, scan_query_type)
+    if not considered:
+        return CandidateBatch(matched=[])
+
+    matching = build()
+    session_ids = [c.session_id for c in considered]
+    for predicate in session_in_predicates(matching):
+        _restrict_to_sessions(predicate, session_ids)
+    # Also bound the outer query to the page. A filter whose operand is OR can match a session
+    # through a non-event branch, which the subquery restriction never sees; without this the match
+    # set could run past the page the keyset is computed from.
+    _restrict_outer_to_sessions(matching, session_ids)
+    matching.limit = ast.Constant(value=CANDIDATE_SCAN_LIMIT)
+    matched = execute(matching, match_query_type)
+    return build_candidate_batch(considered, matched, dispatch_limit, CANDIDATE_SCAN_LIMIT)
+
+
+def session_in_predicates(query: ast.SelectQuery) -> list[ast.CompareOperation]:
+    """Every `session_id in (events subquery)` predicate the compiled query carries.
+
+    A scanner with test-account filters or event entities compiles to more than one. Restricting only
+    the first leaves the others scanning the whole events window, which costs the entire saving while
+    still returning the right sessions - a silent performance regression, not a visible failure.
+    """
+    inner = query.select_from.table if query.select_from else None
+    if not isinstance(inner, ast.SelectQuery):
+        return []
+    collector = _SessionInCollector()
+    collector.visit(inner.where)
+    return collector.found
+
+
+class _SessionInCollector(TraversingVisitor):
+    """Collects the session-in predicates without descending into the subqueries they carry."""
+
+    def __init__(self) -> None:
+        self.found: list[ast.CompareOperation] = []
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if _is_session_in(node):
+            self.found.append(node)
+            return
+        super().visit_compare_operation(node)
+
+
+def _is_session_in(expr: ast.Expr) -> bool:
+    return (
+        isinstance(expr, ast.CompareOperation)
+        and expr.op in (ast.CompareOperationOp.GlobalIn, ast.CompareOperationOp.In)
+        and isinstance(expr.left, ast.Field)
+        and expr.left.chain[-1] == "session_id"
+        and isinstance(expr.right, ast.SelectQuery)
+    )
+
+
+def _drop_event_filter(predicate: ast.CompareOperation) -> None:
+    """Turn the predicate into a tautology; this pass wants every session in the window."""
+    predicate.op = ast.CompareOperationOp.Eq
+    predicate.left = ast.Constant(value=1)
+    predicate.right = ast.Constant(value=1)
+
+
+def _restrict_to_sessions(predicate: ast.CompareOperation, session_ids: list[str]) -> None:
+    subquery = predicate.right
+    assert isinstance(subquery, ast.SelectQuery)
+    selected = subquery.select[0]
+    session_expr = selected.expr if isinstance(selected, ast.Alias) else selected
+    restriction = ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=session_expr, right=ast.Constant(value=session_ids)
+    )
+    subquery.where = ast.And(exprs=[subquery.where, restriction]) if subquery.where else restriction
+
+
+def _restrict_outer_to_sessions(query: ast.SelectQuery, session_ids: list[str]) -> None:
+    restriction = ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=["sessions", "session_id"]),
+        right=ast.Constant(value=session_ids),
+    )
+    query.where = ast.And(exprs=[query.where, restriction]) if query.where else restriction
+
+
+def build_candidate_batch(
+    considered: list[CandidateSession], matched: list[CandidateSession], dispatch_limit: int, scan_limit: int
+) -> CandidateBatch:
+    if len(matched) > dispatch_limit:
+        # More matches than there is room to dispatch, so the walk stops at the last one that fits:
+        # everything past it is re-considered next tick rather than skipped.
+        matched = matched[:dispatch_limit]
+        last = matched[-1]
+        return CandidateBatch(
+            matched=matched, keyset_end=last.session_end, keyset_session_id=last.session_id, saturated=True
+        )
+    if not considered:
+        return CandidateBatch(matched=matched)
+    last = considered[-1]
+    return CandidateBatch(
+        matched=matched,
+        keyset_end=last.session_end,
+        keyset_session_id=last.session_id,
+        saturated=len(considered) >= scan_limit,
+    )
 
 
 def keyset_order_by(ascending: bool) -> list[ast.OrderExpr]:
@@ -416,10 +592,13 @@ class WindowedCandidateQuery:
 
     @tracer.start_as_current_span("WindowedCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
+        return self._execute(self.get_query(), self._query_type)
+
+    def _execute(self, query: ast.SelectQuery, query_type: str) -> list[CandidateSession]:
         rows = execute_candidate_query(
-            self.get_query(),
+            query,
             team=self._team,
-            query_type=self._query_type,
+            query_type=query_type,
             max_execution_time_seconds=self._max_execution_time_seconds,
             scanner_id=self._scanner_id,
         )

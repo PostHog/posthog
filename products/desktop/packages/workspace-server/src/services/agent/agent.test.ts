@@ -158,6 +158,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
 import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import {
   AgentService,
@@ -1040,10 +1041,14 @@ describe("AgentService", () => {
       ["default", undefined],
       ["overridden", "Generate a canvas."],
     ])(
-      "uses the shared object-reference prompt for a %s session",
+      "uses the shared session guidance for a %s session",
       (_name, systemPromptOverride) => {
-        expect(buildChannelPrompt(systemPromptOverride)).toContain(
-          RICH_OUTPUT_TAGS_PROMPT,
+        const prompt = buildChannelPrompt(systemPromptOverride);
+
+        expect(prompt).toContain(PRODUCT_ENGINEER_PROMPT);
+        expect(prompt).toContain(RICH_OUTPUT_TAGS_PROMPT);
+        expect(prompt.indexOf(PRODUCT_ENGINEER_PROMPT)).toBeLessThan(
+          prompt.indexOf(systemPromptOverride ?? "PostHog context:"),
         );
       },
     );
