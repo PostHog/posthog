@@ -5971,7 +5971,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-owners", editable = "tools/owners" },
-    { name = "posthoganalytics", specifier = "==7.39.2" },
+    { name = "posthoganalytics", specifier = "==7.41.0" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6131,7 +6131,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.39.2"
+version = "7.41.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6139,9 +6139,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/84/83/d56d3750e88d8c74feed0c6accbf0297e5e5e8f38158c48322e16cdbfc40/posthoganalytics-7.39.2.tar.gz", hash = "sha256:a22ab08897451648e113faff1e1417152fc8e58996882b1264357757bea3cd25", size = 430701, upload-time = "2026-08-20T12:50:17.885Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/01/a3/310a880052b6cd53d8144c2dfde7c7983f8acd361ea16ea463a261ad58f5/posthoganalytics-7.41.0.tar.gz", hash = "sha256:ac94ec804fe952f13b67db4527f46f0b8fe37d61d7c22f3642a74827fc3d4e8b", size = 465893, upload-time = "2026-08-21T12:41:24.643Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/8f/199a053f4a47c8c9e5cc32e8f1ceee8961f080c6870b5c5486646eb1bb7f/posthoganalytics-7.39.2-py3-none-any.whl", hash = "sha256:4a7556cdf51f6514eeb9594c52bfdc46a361b614281851e1b47451a924854bbb", size = 510372, upload-time = "2026-08-20T12:50:16.264Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/e9/bd06609de4eedf32163a43be94b66ec01073a5e94468ea1a242c0333c6cf/posthoganalytics-7.41.0-py3-none-any.whl", hash = "sha256:2e5a812123508786948105cada68321e423d9cc78f3ce706fbfa00e44c525c5b", size = 557439, upload-time = "2026-08-21T12:41:23.078Z" },
 ]
 
 [[package]]
