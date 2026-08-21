@@ -1665,9 +1665,7 @@ class TestSavedQuery(APIBaseTest):
 
         bad_query = {"kind": "HogQLQuery", "query": "select missing_column_xyz from events LIMIT 100"}
 
-        with patch(
-            "products.data_warehouse.backend.presentation.views.saved_query.capture_exception"
-        ) as mock_capture:
+        with patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture:
             if method == "post":
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/warehouse_saved_queries/",
