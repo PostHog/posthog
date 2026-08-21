@@ -1115,7 +1115,7 @@
         }
     },
     "canvas-draft-create": {
-        "description": "Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so viewers keep seeing the current version. For a canvas that already has a live version this is the DEFAULT way to save a change — the user previews and promotes it; use canvas-publish-create only for a first version or when the user explicitly asked to make the change live. Returns the draft's `version_id`, its queued build, and `capability_widening` — how the draft's declared capabilities grow the live version's (insights, capture events, inline queries, network origins) — so added access is visible before shipping. Poll canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime capabilities in `project.capabilities`.",
+        "description": "Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so viewers keep seeing the current version. For a canvas that already has a live version this is the DEFAULT way to save a change — the user previews and promotes it; use canvas-publish-create only for a first version or when the user explicitly asked to make the change live. Returns the draft's `version_id`, its queued build, and `capability_widening` — how the draft's declared capabilities grow the live version's (insights, capture events, inline queries, network origins) — so added access is visible before shipping. Poll canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime capabilities in `project.capabilities`. A project that shows PostHog data must make every figure verifiable before staging: an insight-backed metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure exposes the exact query that ran in a modal or collapsed area.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Stage a canvas draft build",
@@ -1227,7 +1227,7 @@
         }
     },
     "canvas-publish-create": {
-        "description": "Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build. Publishing goes live immediately: use it for a canvas's first version, or when the user explicitly asked to make a change live — otherwise stage the change with canvas-draft-create for the user to promote. The project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409 version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. The canvas lives in PostHog, not on disk — this tool is what saves it.",
+        "description": "Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build. Publishing goes live immediately: use it for a canvas's first version, or when the user explicitly asked to make a change live — otherwise stage the change with canvas-draft-create for the user to promote. The project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409 version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. A project that shows PostHog data must make every figure verifiable before publishing: an insight-backed metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure exposes the exact query that ran in a modal or collapsed area. The canvas lives in PostHog, not on disk — this tool is what saves it.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Publish canvas source project",
@@ -4602,7 +4602,7 @@
         }
     },
     "external-data-sources-list": {
-        "description": "Check what external data is already connected before answering any revenue, billing, subscription, CRM, support-ticket, or product-database question — call this first so you JOIN against an existing source instead of telling the user the data isn't available. Lists every configured import source with its type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Each schema is summarized (name, status, sync type/frequency, last sync, error, table name, row count) — column definitions and full sync configuration (incremental field, primary keys, row filters, column selection) are on external-data-schemas-retrieve. To look up a single table's sync status by name use external-data-schemas-list with a search.",
+        "description": "Check what external data is already connected before answering any revenue, billing, subscription, CRM, support-ticket, or product-database question — call this first so you JOIN against an existing source instead of telling the user the data isn't available. Lists every configured import source with its type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Each schema is summarized (name, label, status, sync type, last sync, error, table name, row count) — column definitions and full sync configuration (sync frequency, incremental field, primary keys, row filters, column selection) are on external-data-schemas-retrieve. To look up a single table's sync status by name use external-data-schemas-list with a search.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse sources",
@@ -6321,7 +6321,7 @@
         }
     },
     "llma-evaluation-judge-models": {
-        "description": "List provider+model combinations supported for llm_judge. `provider` is required and must be exactly one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur. Optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for (see llma-provider-key-list).",
+        "description": "List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider` to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur. Optional `key_id` scopes to a key's reachable deployments (mainly azure_openai) and implies that key's provider. The `providers` list in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Call this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a key for (see llma-provider-key-list).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
@@ -6354,7 +6354,7 @@
         "feature": "llm_analytics",
         "summary": "Create evaluation report config",
         "title": "Create evaluation report config",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["evaluation:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6368,7 +6368,7 @@
         "feature": "llm_analytics",
         "summary": "Trigger evaluation report generation",
         "title": "Trigger evaluation report generation",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["evaluation:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -6382,7 +6382,7 @@
         "feature": "llm_analytics",
         "summary": "Get evaluation report config",
         "title": "Get evaluation report config",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["evaluation:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6396,7 +6396,7 @@
         "feature": "llm_analytics",
         "summary": "List evaluation report configs",
         "title": "List evaluation report configs",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["evaluation:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6410,7 +6410,7 @@
         "feature": "llm_analytics",
         "summary": "List evaluation report runs",
         "title": "List evaluation report runs",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["evaluation:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6424,7 +6424,7 @@
         "feature": "llm_analytics",
         "summary": "Update evaluation report config",
         "title": "Update evaluation report config",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["evaluation:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6545,7 +6545,7 @@
         }
     },
     "llma-prompt-get": {
-        "description": "Get a specific LLM prompt by name. Requires `prompt_name`, the prompt's exact name — call\nllma-prompt-list to discover valid names; an unknown or guessed name returns a 404.\nUses the cached endpoint for fast retrieval.\nPass `label` (e.g. 'production') to fetch the version that label currently points to, or `version` for an\nexact version number — not both. With neither, the latest version is returned.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.\nWith full content the response also includes `config`, the JSON object of model parameters or agent\nconfiguration stored with the version (null when the version has none).",
+        "description": "Get a specific LLM prompt by name. Requires `prompt_name`, which takes either the prompt's exact name or\nthe `id` UUID from any llma-prompt-list or llma-prompt-get response. Call llma-prompt-list to discover\nvalid names; a guessed name that matches nothing returns a 404.\nAn id identifies the prompt, not the version it came from, so passing a specific version's id still\nreturns the latest version. Pass `version` or `label` to pin one.\nUses the cached endpoint for fast retrieval.\nPass `label` (e.g. 'production') to fetch the version that label currently points to, or `version` for an\nexact version number — not both. With neither, the latest version is returned.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.\nWith full content the response also includes `config`, the JSON object of model parameters or agent\nconfiguration stored with the version (null when the version has none).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get prompt",
@@ -8420,6 +8420,20 @@
             "readOnlyHint": true
         },
         "feature_flag": "engineering-analytics"
+    },
+    "products-enable": {
+        "description": "Turn PostHog products on for the current project so they start collecting data. Pass one or more of `session_replay`, `error_tracking`, or `conversations`. The server owns each product's setup, applying the primary toggle plus conservative defaults, so this can never weaken privacy settings or change anything else about the project. Safe to call more than once: each product comes back as either `enabled` or `already_enabled`. Turning on `session_replay` flips the server-side recording toggle only. The app still needs a PostHog SDK installed before recordings arrive. Enabling a product starts collecting data and spending quota, so always confirm with the user before calling this.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Enable PostHog products",
+        "title": "Enable PostHog products",
+        "required_scopes": ["product_enablement:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
     },
     "project-get": {
         "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",

@@ -294,6 +294,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    Evaluation = 'evaluation',
     Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',
@@ -7872,6 +7873,7 @@ export interface DataWarehouseActivityRecord {
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
 export type HeatmapStatus = 'processing' | 'completed' | 'failed'
+export type HeatmapSource = 'server' | 'toolbar'
 
 export interface HeatmapScreenshotType {
     id: number

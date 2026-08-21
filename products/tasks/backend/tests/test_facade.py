@@ -905,6 +905,42 @@ class TestFacadeReadsAndMappers(TestCase):
         assert created.latest_run is not None
         self.assertEqual(created.latest_run.task_id, created.task_id)
 
+    @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
+    def test_create_task_names_from_naming_source_keeping_description_bare(self, mock_title):
+        # When a client pastes text (stored as an attachment), it sends the pasted content as
+        # naming_source so the title reads well, while description stays the bare prompt the
+        # agent — and the reload transcript dedup — expect.
+        mock_title.side_effect = lambda text: f"title:{text}"
+        dto = facade.create_task(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            validated_data={
+                "description": "Attached files: pasted-text.txt",
+                "naming_source": "Deploy blocks on a stale lockfile",
+                "origin_product": Task.OriginProduct.USER_CREATED,
+            },
+        )
+        task = Task.objects.get(id=dto.id)
+        self.assertEqual(task.description, "Attached files: pasted-text.txt")
+        self.assertEqual(task.title, "title:Deploy blocks on a stale lockfile")
+        self.assertFalse(task.title_manually_set)
+        mock_title.assert_called_once_with("Deploy blocks on a stale lockfile")
+
+    @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
+    def test_create_task_falls_back_to_description_without_naming_source(self, mock_title):
+        mock_title.side_effect = lambda text: f"title:{text}"
+        dto = facade.create_task(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            validated_data={
+                "description": "Fix the login redirect",
+                "origin_product": Task.OriginProduct.USER_CREATED,
+            },
+        )
+        task = Task.objects.get(id=dto.id)
+        self.assertEqual(task.title, "title:Fix the login redirect")
+        mock_title.assert_called_once_with("Fix the login redirect")
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_persists_dispatch_params_for_reconcile(self, _mock_workflow):
         # The reconciler re-dispatches lost runs from the row alone, so the dispatch params

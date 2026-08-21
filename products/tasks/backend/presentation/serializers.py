@@ -848,6 +848,17 @@ class TaskWriteSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    naming_source = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "Text the server generates the title from instead of `description`. Lets a client whose "
+            "`description` is only an attachment summary (e.g. pasted text stored as a file) supply the "
+            "real content for naming, so `description` (the prompt passed to the agent) stays unchanged. "
+            "Not persisted."
+        ),
+    )
     sandbox_environment_id = serializers.UUIDField(
         required=False,
         default=None,
@@ -3286,12 +3297,17 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "pi/rpc",
         "queue_get",
         "queue_clear",
+        "side_question",
     ]
 
     # Cap on the serialized mcp_response params (docs/CLOUD-MCP-RELAY.md): the relayed JSON-RPC
     # response payload plus envelope must fit in 300 KB. Params are forwarded to the sandbox
     # verbatim and never persisted or captured — they carry data from the user's private systems.
     MAX_MCP_RESPONSE_PARAMS_BYTES = 300_000
+
+    # A side question is forwarded into an agent turn, so its length is the direct lever on
+    # model spend. Generous for a one-shot question, far under the request body cap.
+    MAX_SIDE_QUESTION_CHARS = 10_000
 
     jsonrpc = serializers.ChoiceField(
         choices=["2.0"],
@@ -3358,6 +3374,14 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"params": "user_message requires a non-empty content string, artifact_ids, or both"}
                 )
+        elif method == "side_question":
+            self._require_nonempty_string(params, "question")
+            question = params["question"].strip()
+            if len(question) > self.MAX_SIDE_QUESTION_CHARS:
+                raise serializers.ValidationError(
+                    {"params": f"question must be at most {self.MAX_SIDE_QUESTION_CHARS} characters"}
+                )
+            params["question"] = question
         elif method == "pi/rpc":
             command = params.get("command")
             if not isinstance(command, dict):

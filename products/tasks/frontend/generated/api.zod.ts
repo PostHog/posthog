@@ -1196,6 +1196,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
         channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+        naming_source: zod
+            .string()
+            .optional()
+            .describe(
+                'Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted.'
+            ),
         sandbox_environment_id: zod
             .uuid()
             .nullish()
@@ -2724,7 +2730,7 @@ export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, native Pi RPC commands, and Pi queue operations.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations.
  * @summary Send command to task run
  */
 export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
@@ -2744,12 +2750,13 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
                 'pi/rpc',
                 'queue_get',
                 'queue_clear',
+                'side_question',
             ])
             .describe(
-                '\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response\n\* `pi\/rpc` - pi\/rpc\n\* `queue_get` - queue_get\n\* `queue_clear` - queue_clear'
+                '\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response\n\* `pi\/rpc` - pi\/rpc\n\* `queue_get` - queue_get\n\* `queue_clear` - queue_clear\n\* `side_question` - side_question'
             )
             .describe(
-                'Command method to execute on the agent server\n\n\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response\n\* `pi\/rpc` - pi\/rpc\n\* `queue_get` - queue_get\n\* `queue_clear` - queue_clear'
+                'Command method to execute on the agent server\n\n\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response\n\* `pi\/rpc` - pi\/rpc\n\* `queue_get` - queue_get\n\* `queue_clear` - queue_clear\n\* `side_question` - side_question'
             ),
         params: zod.record(zod.string(), zod.unknown()).optional().describe('Parameters for the command'),
         id: zod.unknown().optional().describe('Optional JSON-RPC request ID (string or number)'),

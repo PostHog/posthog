@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.14.0 — 2026-08-21
+
+### Minor changes
+
+- [7dd3d0f5c27](https://github.com/PostHog/posthog/commit/7dd3d0f5c27b044db02b30ed7af19909010f96a9) With `--release-mode=event`, `sourcemap inject` now adopts a bundler-emitted ECMA-426 debug id (`//# debugId=` comment or the sourcemap's `debugId` field) as the chunk id instead of deriving its own, so one id identifies the chunk across the toolchain. The sourcemap's `debugId` field is preserved on save instead of being renamed to `chunk_id`, a bundler-stamped debug id no longer makes inject skip the mapping adjustment for the injected snippet, and hermes uploads still accept maps that carry only a `debugId`. Behavior change: `sourcemap upload --hermes` now fails with an error when it finds no maps carrying a chunk id or debug id, instead of exiting successfully having uploaded nothing. — Thanks @ablaszkiewicz!
+
 ## 0.13.3 — 2026-08-20
 
 ### Patch changes

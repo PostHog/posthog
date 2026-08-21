@@ -292,7 +292,9 @@ const ExperimentsTable = ({
                     ? dayjs().diff(dayjs(experiment.start_date), 'day')
                     : undefined
 
-                if (remainingDays === undefined || remainingDays === null) {
+                // A negative stored estimate isn't a real duration, so read it as "no estimate"
+                // rather than "~-N days remaining" (records saved before the persist guard can still hold one).
+                if (remainingDays === undefined || remainingDays === null || remainingDays < 0) {
                     return (
                         <Tooltip title="Remaining time will be calculated once the experiment has enough data">
                             <div className="w-full">
