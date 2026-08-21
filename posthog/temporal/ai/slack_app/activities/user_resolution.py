@@ -3,6 +3,8 @@ from temporalio import activity
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionCommandWorkflowInputs
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.slack_messages import post_slack_ephemeral
+
 
 @activity.defn
 @close_db_connections
@@ -15,8 +17,8 @@ def resolve_posthog_code_slack_command_user_activity(
 
     event = inputs.event
     channel = event.get("channel")
-    # Empty anchor posts feedback at the channel root — correct for a slash command outside a thread.
-    thread_ts = event.get("thread_ts") or event.get("ts") or ""
+    # Empty anchor posts feedback at the channel root — correct for a command outside a thread.
+    thread_ts = event.get("thread_ts") or ""
     slack_user_id = event.get("user")
     if not channel or not slack_user_id or not inputs.integration_ids:
         return None
@@ -38,7 +40,8 @@ def resolve_posthog_code_slack_command_user_activity(
         candidate_integrations=candidates,
     )
     if posthog_user is None:
-        SlackIntegration(probe).client.chat_postEphemeral(
+        post_slack_ephemeral(
+            SlackIntegration(probe).client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,

@@ -394,12 +394,16 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             )
             mock_sync_connect.return_value.start_workflow.assert_not_called()
             mock_asyncio_run.assert_called_once()
-            mock_slack_cls.return_value.client.chat_update.assert_called_once()
+            # Resolving by message carries no response_url, so the choice is confirmed with a
+            # fresh ephemeral note rather than by editing the picker.
+            confirmation = mock_slack_cls.return_value.client.chat_postEphemeral.call_args.kwargs
+            assert confirmation["user"] == "U123"
+            assert "posthog/posthog" in confirmation["text"]
         else:
             mock_sync_connect.return_value.get_workflow_handle.assert_not_called()
             mock_sync_connect.return_value.start_workflow.assert_called_once()
             mock_asyncio_run.assert_called_once()
-            mock_slack_cls.return_value.client.chat_update.assert_not_called()
+            mock_slack_cls.return_value.client.chat_postEphemeral.assert_not_called()
 
         pending_picker = _get_pending_repo_picker(
             integration_id=self.posthog_code_integration.id,

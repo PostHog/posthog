@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 from posthog.models.integration import Integration, SlackIntegration
 
+from products.slack_app.backend.services.slack_messages import post_slack_ephemeral
+
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
@@ -27,15 +29,8 @@ def _reply(
     help listing. The answer concerns the caller alone, so the whole surface replies ephemerally
     on both entry points, which is what ``project_*`` already did. On the slash surface nobody
     else saw the question either, so a public answer would arrive with nothing prompting it.
-
-    A command run outside a thread has no anchor, and an empty ``thread_ts`` is not one, so it
-    is omitted to place the reply at channel root.
     """
-    if thread_ts:
-        slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
-        return
-
-    slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, text=text)
+    post_slack_ephemeral(slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
 
 
 def _handle_help(
@@ -274,7 +269,8 @@ def _handle_project_show(
 
     if result.integration is not None:
         target = result.integration
-        slack.client.chat_postEphemeral(
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
@@ -287,7 +283,8 @@ def _handle_project_show(
         return
 
     if not result.candidates:
-        slack.client.chat_postEphemeral(
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
@@ -296,7 +293,8 @@ def _handle_project_show(
         return
 
     lines = format_project_candidate_list(result.candidates)
-    slack.client.chat_postEphemeral(
+    post_slack_ephemeral(
+        slack.client,
         channel=channel,
         user=slack_user_id,
         thread_ts=thread_ts,
@@ -325,7 +323,8 @@ def _handle_project_set(
 
     user = User.objects.get(id=user_id)
     if not user.teams.filter(id=target_team_id).exists():
-        slack.client.chat_postEphemeral(
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
@@ -346,7 +345,8 @@ def _handle_project_set(
             .first()
         )
     if target is None:
-        slack.client.chat_postEphemeral(
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
@@ -359,7 +359,8 @@ def _handle_project_set(
         slack_user_id=slack_user_id,
         defaults={"default_integration": target},
     )
-    slack.client.chat_postEphemeral(
+    post_slack_ephemeral(
+        slack.client,
         channel=channel,
         user=slack_user_id,
         thread_ts=thread_ts,
@@ -394,7 +395,8 @@ def _handle_project_set_workspace(
     from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
     if not is_slack_workspace_admin(slack, integration, slack_user_id):
-        slack.client.chat_postEphemeral(
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
@@ -404,7 +406,8 @@ def _handle_project_set_workspace(
 
     user = User.objects.get(id=user_id)
     if not user.teams.filter(id=target_team_id).exists():
-        slack.client.chat_postEphemeral(
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
@@ -425,7 +428,8 @@ def _handle_project_set_workspace(
             .first()
         )
     if target is None:
-        slack.client.chat_postEphemeral(
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
@@ -438,7 +442,8 @@ def _handle_project_set_workspace(
         slack_user_id=None,
         defaults={"default_integration": target},
     )
-    slack.client.chat_postEphemeral(
+    post_slack_ephemeral(
+        slack.client,
         channel=channel,
         user=slack_user_id,
         thread_ts=thread_ts,

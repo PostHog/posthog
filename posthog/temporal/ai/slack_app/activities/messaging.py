@@ -14,7 +14,7 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, post_slack_thread_reply
 
 logger = structlog.get_logger(__name__)
 
@@ -99,6 +99,7 @@ def _post_connect_personal_github_prompt(
     settings_url: str,
     user_id: int,
     team_id: int,
+    slack_user_id: str | None = None,
     reconnect: bool = False,
 ) -> None:
     """Post the single-button prompt for a task held on an unusable personal GitHub install.
@@ -119,26 +120,28 @@ def _post_connect_personal_github_prompt(
             "the pull request as you. Connect it, then mention me again."
         )
         button_text = "Connect GitHub"
-    post_slack_thread_reply(
-        slack.client,
-        channel=channel,
-        thread_ts=thread_ts,
-        text=text,
-        blocks=[
-            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": button_text, "emoji": True},
-                        "url": settings_url,
-                        "style": "primary",
-                    }
-                ],
-            },
-        ],
-    )
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": button_text, "emoji": True},
+                    "url": settings_url,
+                    "style": "primary",
+                }
+            ],
+        },
+    ]
+    # Only the person being asked to connect can act on the button, and on the command surface
+    # the request that triggered it was theirs alone.
+    if slack_user_id:
+        post_slack_ephemeral(
+            slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text, blocks=blocks
+        )
+    else:
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
     logger.info(
         "slack_app_task_blocked_no_personal_github",
         user_id=user_id,
@@ -196,6 +199,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
     ).exists()
     slack = SlackIntegration(integration)
     settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
+    slack_user_id = inputs.event.get("user")
     _post_connect_personal_github_prompt(
         slack,
         channel=channel,
@@ -203,6 +207,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
         settings_url=settings_url,
         user_id=user_id,
         team_id=integration.team_id,
+        slack_user_id=slack_user_id if isinstance(slack_user_id, str) else None,
         reconnect=has_stale_github,
     )
     return True
@@ -242,12 +247,13 @@ def post_posthog_code_picker_timeout_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    post_slack_thread_reply(
-        slack.client,
-        channel=channel,
-        thread_ts=thread_ts,
-        text="Repository selection expired. Please mention PostHog again to retry.",
-    )
+    text = "Repository selection expired. Please mention PostHog again to retry."
+    # Matches the picker it is expiring: only the person who was asked to choose sees it.
+    if isinstance(slack_user_id, str) and slack_user_id:
+        post_slack_ephemeral(slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
+        return
+
+    post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text)
 
 
 @activity.defn

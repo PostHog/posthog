@@ -9,7 +9,7 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, post_slack_thread_reply
 
 logger = structlog.get_logger(__name__)
 
@@ -75,6 +75,15 @@ def create_posthog_code_routing_rule_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
+    # The rule was requested by one person through a picker only they saw, so its outcome
+    # goes back the same way. Falls back to a thread reply if the event carries no actor.
+    slack_user_id = inputs.event.get("user")
+
+    def reply(text: str) -> None:
+        if isinstance(slack_user_id, str) and slack_user_id:
+            post_slack_ephemeral(slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
+            return
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text)
 
     all_repos = _get_full_repo_names(integration, user_id=user_id)
     matched_repo = _extract_explicit_repo(repository, all_repos)
@@ -85,12 +94,7 @@ def create_posthog_code_routing_rule_activity(
             team_id=integration.team_id,
             user_id=user_id,
         )
-        post_slack_thread_reply(
-            slack.client,
-            channel=channel,
-            thread_ts=thread_ts,
-            text=f"Repository `{repository}` is no longer connected to your account.",
-        )
+        reply(f"Repository `{repository}` is no longer connected to your account.")
         return
 
     current_max = (
@@ -107,12 +111,7 @@ def create_posthog_code_routing_rule_activity(
         priority=max_priority,
         created_by_id=user_id,
     )
-    post_slack_thread_reply(
-        slack.client,
-        channel=channel,
-        thread_ts=thread_ts,
-        text=f"Added rule: {rule_text} → `{matched_repo}`",
-    )
+    reply(f"Added rule: {rule_text} → `{matched_repo}`")
 
 
 @activity.defn
@@ -164,7 +163,8 @@ def handle_posthog_code_slack_mention_command_activity(
                 "This Slack workspace is connected to multiple PostHog projects. "
                 f"Use `{inputs.command_prefix} project <id>` to set a default first, then re-run your command."
             )
-        SlackIntegration(candidates[0]).client.chat_postEphemeral(
+        post_slack_ephemeral(
+            SlackIntegration(candidates[0]).client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
