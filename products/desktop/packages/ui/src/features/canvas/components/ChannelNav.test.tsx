@@ -26,6 +26,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity: vi.fn(),
   navigateToHome: vi.fn(),
   navigateToInbox: vi.fn(),
+  navigateToLoops: vi.fn(),
   navigateToWebsiteCommandCenter: vi.fn(),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
@@ -33,11 +34,47 @@ vi.mock("./ActivityHoverCard", () => ({
   ActivityHoverCard: () => <div>Recent activity card</div>,
 }));
 
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelNav } from "./ChannelNav";
+
+const navLabels = (container: HTMLElement) =>
+  [...container.querySelectorAll("button")].map((button) =>
+    button.getAttribute("aria-label"),
+  );
 
 describe("ChannelNav", () => {
   beforeEach(() => {
     mocks.view = { type: "task-input" };
+    useSidebarStore.setState({ navItemOverrides: {}, navItemOrder: [] });
+  });
+
+  it("keeps Inbox available in the channels navigation", () => {
+    render(<ChannelNav />);
+
+    expect(screen.getByLabelText("Inbox")).toBeEnabled();
+  });
+
+  it("drops an item hidden in the sidebar settings", () => {
+    useSidebarStore.setState({ navItemOverrides: { "command-center": false } });
+
+    render(<ChannelNav />);
+
+    expect(screen.queryByLabelText("Command Center")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Inbox")).toBeInTheDocument();
+  });
+
+  it("follows the order stored by the sidebar settings, after Home", () => {
+    useSidebarStore.setState({ navItemOrder: ["configure", "inbox"] });
+
+    const { container } = render(<ChannelNav />);
+
+    expect(navLabels(container)).toEqual([
+      "Home",
+      "Settings",
+      "Inbox",
+      "Activity",
+      "Command Center",
+    ]);
   });
 
   it("opens recent activity from the bell after the hover delay", async () => {

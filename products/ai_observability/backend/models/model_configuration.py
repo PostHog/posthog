@@ -3,14 +3,14 @@ from django.db import models
 
 from posthog.models.utils import UUIDTModel
 
-from .provider_keys import LLMProvider
+from .provider_keys import llm_provider_choices
 
 
 class LLMModelConfiguration(UUIDTModel):
     """Configuration for LLM model selection, used by evals and other features."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    provider = models.CharField(max_length=50, choices=LLMProvider)
+    provider = models.CharField(max_length=50, choices=llm_provider_choices)
     model = models.CharField(max_length=100)
     provider_key = models.ForeignKey(
         "ai_observability.LLMProviderKey",
