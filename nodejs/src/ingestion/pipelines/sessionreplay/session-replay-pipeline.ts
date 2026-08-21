@@ -182,7 +182,6 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                         .gather()
                         // Mark the surviving new sessions seen, now that every key is durably resolved.
                         .pipeChunk(createMarkSeenStep(sessionTracker))
-                        .pipeChunk(createRecordSessionUsageStep(usageBatch))
                         // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
                         .filterMap(
                             (element) => ({
@@ -230,6 +229,7 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                             ]
                                                         )
                                                     )
+                                                    .pipe(createRecordSessionUsageStep(usageBatch))
                                             )
                                             .gather()
                                     )

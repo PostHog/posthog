@@ -1039,7 +1039,7 @@ export class LogsIngestionConsumer {
                 teamId,
                 `${source}_bytes`,
                 `${source}:${teamId}:${now}:bytes`,
-                undefined,
+                this.appSource === 'logs' ? { retention_days: String(stats.retentionDays) } : undefined,
                 stats.bytesAllowed,
                 'bytes'
             )

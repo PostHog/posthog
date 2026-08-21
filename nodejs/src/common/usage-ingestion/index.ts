@@ -18,9 +18,10 @@ export type UsageIngestionConfig = Pick<
     | 'USAGE_INGESTION_REPORT_LOGS_TEAMS'
     | 'USAGE_INGESTION_REPORT_APM_TEAMS'
     | 'USAGE_INGESTION_REPORT_SESSION_REPLAY_TEAMS'
+    | 'USAGE_INGESTION_REPORT_ENHANCED_PERSONS_TEAMS'
 >
 
-export type UsageReportSite = 'events' | 'ai_events' | 'exceptions' | 'cdp' | 'surveys' | 'logs' | 'apm' | 'session_replay'
+export type UsageReportSite = 'events' | 'ai_events' | 'exceptions' | 'cdp' | 'surveys' | 'logs' | 'apm' | 'session_replay' | 'enhanced_persons'
 
 const TEAM_MATCHER_KEYS = {
     events: 'USAGE_INGESTION_REPORT_EVENTS_TEAMS',
@@ -31,6 +32,7 @@ const TEAM_MATCHER_KEYS = {
     logs: 'USAGE_INGESTION_REPORT_LOGS_TEAMS',
     apm: 'USAGE_INGESTION_REPORT_APM_TEAMS',
     session_replay: 'USAGE_INGESTION_REPORT_SESSION_REPLAY_TEAMS',
+    enhanced_persons: 'USAGE_INGESTION_REPORT_ENHANCED_PERSONS_TEAMS',
 } as const
 
 const PRODUCER_IDS = {
@@ -42,6 +44,7 @@ const PRODUCER_IDS = {
     logs: 'logs',
     apm: 'apm',
     session_replay: 'session-replay',
+    enhanced_persons: 'ingestion',
 } as const
 
 export function usageReportTeamMatcher(config: UsageIngestionConfig, site: UsageReportSite): ValueMatcher<number> {
