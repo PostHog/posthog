@@ -842,6 +842,13 @@ const COUNT_OPERATOR_LABELS: Record<string, string> = {
   exact: "exactly",
 };
 
+// Older cohort builders store aliases the backend resolves to a canonical value.
+// Desktop reads the raw filters blob, so it normalizes them itself. Mirror of
+// BEHAVIORAL_VALUE_ALIASES in posthog/models/property/property.py.
+const BEHAVIORAL_VALUE_ALIASES = new Map<string, string>([
+  ["performed_event_multiple_times", "performed_event_multiple"],
+]);
+
 function describeBehavioralCriterion(criterion: QueryRecord): string | null {
   const event = conciseValue(criterion.key) ?? "an event";
   const window =
@@ -849,7 +856,8 @@ function describeBehavioralCriterion(criterion: QueryRecord): string | null {
       ? ` in the last ${criterion.time_value} ${String(criterion.time_interval)}${criterion.time_value === 1 ? "" : "s"}`
       : "";
   const negated = criterion.negation === true;
-  const kind = String(criterion.value ?? "");
+  const rawKind = String(criterion.value ?? "");
+  const kind = BEHAVIORAL_VALUE_ALIASES.get(rawKind) ?? rawKind;
   if (kind === "performed_event")
     return `${negated ? "Did not complete" : "Completed"} ${event}${window}`;
   if (kind === "performed_event_multiple") {

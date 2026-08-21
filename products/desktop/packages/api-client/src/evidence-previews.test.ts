@@ -371,6 +371,33 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
+  it("renders the legacy multiple-event alias with its count rule", () => {
+    const sections = cohortCriteriaSection({
+      properties: {
+        type: "AND",
+        values: [
+          {
+            type: "AND",
+            values: [
+              {
+                type: "behavioral",
+                value: "performed_event_multiple_times",
+                key: "$pageview",
+                operator: "gte",
+                operator_value: 5,
+                time_value: 30,
+                time_interval: "day",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(sections[0]?.fields[0]?.value).toBe(
+      "Completed $pageview at least 5 times in the last 30 days",
+    );
+  });
+
   it("returns no criteria section for a static or malformed cohort", () => {
     expect(cohortCriteriaSection(undefined)).toEqual([]);
     expect(cohortCriteriaSection({ properties: { values: "junk" } })).toEqual(
