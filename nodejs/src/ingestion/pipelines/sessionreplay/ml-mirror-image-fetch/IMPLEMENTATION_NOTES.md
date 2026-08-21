@@ -12,9 +12,11 @@ Derive one URL HMAC key from the existing ML pseudonymization secret without a t
 
 ## Data-preparation ref attributes
 
-The anonymizer already stores a remote-image ref in `data-anon-image-ref-<attribute>`. The current data-preparation resolver handles `image:` refs that replace an image value directly. It does not recognize `imageurl:` or use a sibling ref attribute to identify the placeholder that it must replace.
+The anonymizer already stores a remote-image ref in `data-anon-image-ref-<attribute>`. The current ref resolver handles `image:` refs that replace an image value directly. It does not recognize `imageurl:` or use a sibling ref attribute to identify the placeholder that it must replace.
 
-Change the resolver to read the sibling attribute and use its suffix as the destination attribute. Remove the sibling attribute after the lookup, including when the image is missing.
+The packed DOM serializer treats an unrecognized `data-*` attribute as model input and tokenizes its value. Without a new removal step, it will tokenize the ref hash.
+
+Resolve the URL ref before rendering and tokenization. Use the sibling attribute's suffix as the destination attribute. Remove the sibling attribute after the lookup, including when the image is missing.
 
 ## Fetcher-to-scrubber record
 
