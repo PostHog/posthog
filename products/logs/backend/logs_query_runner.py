@@ -588,8 +588,10 @@ class LogsQueryRunnerMixin(QueryRunner):
     def __init__(self, query, *args, **kwargs):
         super().__init__(query, *args, **kwargs)
 
+        # Use the runner's own limit_context so an export pages up to the CSV export ceiling.
+        # A hardcoded QUERY context would clamp the paginator to the 50k query cap.
         self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY,
+            limit_context=self.limit_context,
             limit=self.query.limit if self.query.limit else None,
             offset=self.query.offset,
         )

@@ -18,6 +18,7 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery, LogValuesQuery, PropertyGroupFilter
 
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.hogql.errors import QueryError
 
 from posthog.api.documentation import _FallbackSerializer
@@ -81,7 +82,8 @@ __all__ = [
 ]
 
 tracer = trace.get_tracer(__name__)
-LOGS_MAX_EXPORT_ROWS = 10_000
+# Logs exports share the platform CSV export ceiling, the same limit every other CSV export uses.
+LOGS_MAX_EXPORT_ROWS = CSV_EXPORT_LIMIT
 
 
 class DateRangeSerializer(serializers.Serializer):

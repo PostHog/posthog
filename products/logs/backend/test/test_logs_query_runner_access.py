@@ -5,7 +5,7 @@ from rest_framework import status
 
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import CSV_EXPORT_LIMIT, MAX_SELECT_RETURNED_ROWS, LimitContext
 
 from posthog.rbac.user_access_control import UserAccessControlError
 
@@ -21,7 +21,7 @@ def _minimal_query_data() -> dict:
     }
 
 
-def _build_runner(team, limit_context: LimitContext | None = None) -> LogsQueryRunner:
+def _build_runner(team, limit_context: LimitContext | None = None, limit: int | None = None) -> LogsQueryRunner:
     return LogsQueryRunner(
         team=team,
         query=LogsQuery(
@@ -30,6 +30,7 @@ def _build_runner(team, limit_context: LimitContext | None = None) -> LogsQueryR
             severityLevels=[],
             serviceNames=[],
             kind="LogsQuery",
+            limit=limit,
         ),
         limit_context=limit_context,
     )
@@ -75,6 +76,18 @@ class TestLogsQueryRunnerAccess(APIBaseTest):
 
         with self.assertRaises(UserAccessControlError):
             runner.run(user=self.user)
+
+    def test_export_context_pages_past_query_cap(self):
+        """An export must page up to the CSV export ceiling, not the 50k query cap."""
+        runner = _build_runner(self.team, limit_context=LimitContext.EXPORT, limit=CSV_EXPORT_LIMIT)
+
+        assert runner.paginator.limit == CSV_EXPORT_LIMIT
+
+    def test_query_context_clamps_limit_to_query_cap(self):
+        """A user query keeps the 50k ceiling even if it asks for more."""
+        runner = _build_runner(self.team, limit_context=LimitContext.QUERY, limit=CSV_EXPORT_LIMIT)
+
+        assert runner.paginator.limit == MAX_SELECT_RETURNED_ROWS
 
 
 class TestLogsQueryBlockedOnGenericEndpoint(APIBaseTest):
