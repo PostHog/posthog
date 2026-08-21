@@ -334,6 +334,7 @@ EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
 EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = (
     "experiments-retention-metric-events-preaggregation"
 )
+EXPERIMENT_METRIC_EVENT_BREAKDOWNS_FEATURE_FLAG_KEY = "experiment-metric-event-breakdowns"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
