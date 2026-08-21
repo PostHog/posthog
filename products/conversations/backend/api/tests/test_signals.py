@@ -548,7 +548,11 @@ class TestReleaseMailgunDomainOnChannelDelete(BaseTest):
             team.delete()
 
         if expect_release:
-            mock_task.delay.assert_called_once_with(domain="acme.example.com")
+            mock_task.delay.assert_called_once()
+            assert mock_task.delay.call_args.kwargs["domain"] == "acme.example.com"
+            # The task compares this against Mailgun's registration date, so it has to
+            # be the moment of deletion, not whenever a retry happens to run.
+            assert mock_task.delay.call_args.kwargs["deleted_at"]
         else:
             mock_task.delay.assert_not_called()
 
@@ -562,7 +566,7 @@ class TestReleaseMailgunDomainOnChannelDelete(BaseTest):
 
         # The delete completing is the assertion; this proves the failure was actually
         # injected, so the test can't pass by the receiver never firing at all.
-        mock_task.delay.assert_called_once_with(domain="acme.example.com")
+        mock_task.delay.assert_called_once()
 
 
 class TestReleaseMailgunDomainTask(BaseTest):
@@ -594,5 +598,38 @@ class TestReleaseMailgunDomainTask(BaseTest):
             side_effect=MailgunNotConfigured("no key"),
         ) as mock_delete:
             release_mailgun_domain_if_unused("acme.example.com")
+
+        mock_delete.assert_called_once_with("acme.example.com")
+
+    @parameterized.expand(
+        [
+            # A reconnect registers after the channel died, and commits its row later still.
+            # Only the registration date can tell the task the domain is now spoken for.
+            ("registered_after_the_delete", "Sat, 21 Aug 2027 12:00:00 GMT", False),
+            ("registered_before_the_delete", "Wed, 10 Jul 2019 15:10:34 GMT", True),
+        ]
+    )
+    def test_a_reconnects_registration_survives_a_late_running_task(self, _name, created_at, expect_delete):
+        with (
+            patch("products.conversations.backend.tasks.get_domain", return_value={"created_at": created_at}),
+            patch("products.conversations.backend.tasks.delete_domain") as mock_delete,
+        ):
+            release_mailgun_domain_if_unused("acme.example.com", deleted_at="2026-08-21T00:00:00+00:00")
+
+        assert mock_delete.called is expect_delete
+
+    @parameterized.expand(
+        [
+            ("no_created_at", {}),
+            ("unparseable_created_at", {"created_at": "whenever"}),
+            ("domain_absent_from_mailgun", None),
+        ]
+    )
+    def test_an_unreadable_registration_date_still_releases_the_domain(self, _name, mg_domain):
+        with (
+            patch("products.conversations.backend.tasks.get_domain", return_value=mg_domain),
+            patch("products.conversations.backend.tasks.delete_domain") as mock_delete,
+        ):
+            release_mailgun_domain_if_unused("acme.example.com", deleted_at="2026-08-21T00:00:00+00:00")
 
         mock_delete.assert_called_once_with("acme.example.com")

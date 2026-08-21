@@ -6,6 +6,7 @@ from django.db.models import F, Q
 from django.db.models.functions import Greatest
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 
@@ -631,10 +632,13 @@ def release_mailgun_domain_on_channel_delete(sender, instance, **kwargs):
 
     # Capture values for closure (avoid referencing instance in deferred callback)
     domain = instance.domain
+    # Stamped here, not in the task: a retry runs minutes later, and the task needs the
+    # moment the channel died to tell this registration from one a reconnect has since made.
+    deleted_at = timezone.now().isoformat()
 
     def enqueue_release():
         try:
-            cast(Any, release_mailgun_domain_if_unused).delay(domain=domain)
+            cast(Any, release_mailgun_domain_if_unused).delay(domain=domain, deleted_at=deleted_at)
         except Exception:
             # A broker failure here would otherwise escape the caller's atomic block and
             # fail team deletion, which has already committed by this point.
