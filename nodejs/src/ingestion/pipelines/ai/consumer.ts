@@ -16,6 +16,7 @@ import { PersonHogConfig } from '~/common/personhog'
 import { PersonHogClientComponent } from '~/common/personhog/personhog-client-component'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
@@ -31,6 +32,7 @@ import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/common/overfl
 import { RedisOverflowRepositoryComponent } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
 import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow-strategy'
 import { Scope, extend } from '~/ingestion/common/scopes'
+import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
@@ -41,6 +43,7 @@ import { createAiIngestionPipeline } from './pipeline'
 export type AiConsumerConfig = CommonIngestionConsumerConfig &
     IngestionOutputsConfig &
     PersonHogConfig &
+    UsageIngestionConfig &
     Pick<
         IngestionConsumerConfig,
         | 'INGESTION_OVERFLOW_MODE'
@@ -168,6 +171,9 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             `AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY must be a positive integer, got ${uploadMaxConcurrency}`
         )
     }
+    const usageClient = createUsageIngestionClient(config, 'ai_events')
+    const usageTeamMatcher = usageReportTeamMatcher(config, 'ai_events')
+
     const aiBlobOffloadConfig = {
         isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
         minBase64Length: config.AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH,
@@ -203,6 +209,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             topHog: container.topHog,
             aiBlobStore: container.aiBlobStore.store,
             aiBlobOffloadConfig,
+            createEventUsageBatch: () => new EventUsageBatch(usageClient, usageTeamMatcher),
         })
     )
 }

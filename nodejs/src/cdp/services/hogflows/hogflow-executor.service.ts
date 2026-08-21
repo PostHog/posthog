@@ -24,6 +24,7 @@ import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
+import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
@@ -112,7 +113,8 @@ export class HogFlowExecutorService {
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
         emailValidationService: EmailValidationService,
-        duplicateObserver?: HogFlowDuplicateObserverService
+        duplicateObserver?: HogFlowDuplicateObserverService,
+        usageReporter?: CdpUsageReporterService
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
@@ -120,19 +122,22 @@ export class HogFlowExecutorService {
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            'fetch'
+            'fetch',
+            usageReporter
         )
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            'email'
+            'email',
+            usageReporter
         )
         const hogFunctionPushHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            'push'
+            'push',
+            usageReporter
         )
 
         this.actionHandlers = {

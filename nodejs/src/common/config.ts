@@ -137,6 +137,17 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
     PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
 
+    // Usage ingestion gRPC. Each reporting site has its own team matcher:
+    // '' reports nothing, '*' every team, '1,2' those teams, '5%' a sampled share.
+    USAGE_INGESTION_ADDR: string
+    USAGE_INGESTION_TLS: boolean
+    USAGE_INGESTION_TIMEOUT_MS: number
+    USAGE_INGESTION_MAX_BATCH_SIZE: number
+    USAGE_INGESTION_REPORT_EVENTS_TEAMS: string
+    USAGE_INGESTION_REPORT_AI_EVENTS_TEAMS: string
+    USAGE_INGESTION_REPORT_EXCEPTIONS_TEAMS: string
+    USAGE_INGESTION_REPORT_CDP_TEAMS: string
+
     // Redis
     REDIS_URL: string
     INGESTION_REDIS_HOST: string
@@ -318,6 +329,16 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PING_IDLE_CONNECTION: true,
         PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
         PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
+
+        // Usage ingestion gRPC
+        USAGE_INGESTION_ADDR: isDevEnv() ? 'localhost:7143' : '',
+        USAGE_INGESTION_TLS: false,
+        USAGE_INGESTION_TIMEOUT_MS: 5_000,
+        USAGE_INGESTION_MAX_BATCH_SIZE: 500,
+        USAGE_INGESTION_REPORT_EVENTS_TEAMS: '',
+        USAGE_INGESTION_REPORT_AI_EVENTS_TEAMS: '',
+        USAGE_INGESTION_REPORT_EXCEPTIONS_TEAMS: '',
+        USAGE_INGESTION_REPORT_CDP_TEAMS: '',
 
         // Redis
         // ok to connect to localhost over plaintext

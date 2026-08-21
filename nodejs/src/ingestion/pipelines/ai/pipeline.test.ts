@@ -7,6 +7,7 @@ import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUT
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -15,6 +16,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { DisabledOverflowRedirect } from '~/ingestion/common/overflow-redirect/disabled-overflow-redirect'
+import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
@@ -43,6 +45,7 @@ describe('AiIngestionPipeline', () => {
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
     let promiseScheduler: PromiseScheduler
+    let ingestedUsage: UsageRecordInput[]
     let config: AiIngestionPipelineConfig
 
     const team = createTestTeam({ id: 123, api_token: 'token-123' })
@@ -139,6 +142,14 @@ describe('AiIngestionPipeline', () => {
 
         promiseScheduler = new PromiseScheduler()
 
+        ingestedUsage = []
+        const usageClient = {
+            ingest: jest.fn((records: UsageRecordInput[]) => {
+                ingestedUsage.push(...records)
+                return Promise.resolve()
+            }),
+        } as unknown as UsageIngestionClient
+
         const single = (output: string, topic: string) =>
             new SingleIngestionOutput(output, topic, mockKafkaProducer, 'test')
 
@@ -174,7 +185,21 @@ describe('AiIngestionPipeline', () => {
                 maxBlobsPerEvent: 50,
                 uploadMaxConcurrency: 8,
             },
+            createEventUsageBatch: () => new EventUsageBatch(usageClient, () => true),
         }
+    })
+
+    it('reports one ai_events usage record per batch, keyed on the consumed offsets', async () => {
+        await runPipeline([createMessage('$ai_generation'), createMessage('$ai_span')])
+
+        expect(ingestedUsage).toEqual([
+            expect.objectContaining({
+                recordId: 'ai_ingestion:0:0-0:ai_events',
+                teamId: team.id,
+                usageKey: 'ai_events',
+                quantity: 2,
+            }),
+        ])
     })
 
     it('double-writes AI events to both the events and ai_events outputs', async () => {

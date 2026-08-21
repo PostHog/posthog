@@ -305,6 +305,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     count: 1,
                 })
 
+                this.cdpUsageReporter.reportBillableInvocation({
+                    teamId: invocation.teamId,
+                    recordId: `webhook:${invocationId}`,
+                    kind: 'source_webhook',
+                })
+
                 await this.hogflowQueue.queueInvocations([hogFlowInvocation])
             } else {
                 addMetric({

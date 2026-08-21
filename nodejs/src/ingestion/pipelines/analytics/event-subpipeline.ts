@@ -19,6 +19,9 @@ import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processi
 import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-processing/process-personless-step'
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import { createRecordEventUsageStep } from '~/ingestion/common/steps/usage-records-steps'
+import { resolveAnalyticsUsageKey } from '~/ingestion/common/usage-records/billable-events'
+import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
@@ -52,6 +55,7 @@ export interface EventSubpipelineInput {
     headers: EventHeaders
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
+    eventUsageBatch: EventUsageBatch
 }
 
 export interface EventSubpipelineConfig {
@@ -150,6 +154,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             ]),
             { retry: { tries: 5, sleepMs: 100, name: 'process_groups' } }
         )
+        .pipe(createRecordEventUsageStep(resolveAnalyticsUsageKey))
         .pipe(createCreateEventStep(EVENTS_OUTPUT, options.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS))
         .pipe(
             topHog(
