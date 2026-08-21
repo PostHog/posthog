@@ -74,6 +74,22 @@ export function planReportChart(query: unknown): ReportChartPlan {
   const source = isRecord(query.source) ? query.source : null;
   if (query.kind === "InsightVizNode") {
     if (!source) return { kind: "invalid" };
+    // Lifecycle results share the trends series shape, and PostHog draws them
+    // as bars; run them rather than degrade to a link-out card.
+    if (source.kind === "LifecycleQuery") {
+      return { kind: "run", source, render: "bar" };
+    }
+    // Only the step visualization maps onto a categorical bar chart; the
+    // trends and time-to-convert visualizations have different result shapes.
+    if (source.kind === "FunnelsQuery") {
+      const filter = isRecord(source.funnelsFilter)
+        ? source.funnelsFilter
+        : null;
+      const vizType = filter?.funnelVizType;
+      return vizType === undefined || vizType === "steps"
+        ? { kind: "run", source, render: "bar" }
+        : { kind: "open-only" };
+    }
     if (source.kind !== "TrendsQuery" && source.kind !== "StickinessQuery") {
       return { kind: "open-only" };
     }
@@ -483,6 +499,52 @@ function shapeHogQLResponse(
   return asTable(rows, columns);
 }
 
+function funnelStepName(step: QueryNode, index: number): string {
+  if (typeof step.custom_name === "string" && step.custom_name)
+    return step.custom_name;
+  if (typeof step.name === "string" && step.name) return step.name;
+  return `Step ${index + 1}`;
+}
+
+/**
+ * A steps funnel becomes a categorical bar chart: one bar per step, one
+ * series per breakdown. Results arrive either as a flat step list or, with a
+ * breakdown, as one step list per breakdown value.
+ */
+function shapeFunnelsResponse(response: QueryNode): ReportChartData {
+  const results = Array.isArray(response.results) ? response.results : [];
+  const branches: QueryNode[][] = results.every(Array.isArray)
+    ? (results as unknown[][]).map((branch) => branch.filter(isRecord))
+    : [results.filter(isRecord)];
+  const steps = branches[0] ?? [];
+  if (steps.length === 0) return { type: "empty" };
+
+  const labels = steps.map((step, index) => funnelStepName(step, index));
+  const series = branches.slice(0, MAX_SERIES).map((branch, index) => {
+    const breakdown = branch[0]?.breakdown_value;
+    const label = Array.isArray(breakdown)
+      ? breakdown.map(String).join(" · ")
+      : breakdown !== undefined && breakdown !== null && breakdown !== ""
+        ? String(breakdown)
+        : branches.length > 1
+          ? `Series ${index + 1}`
+          : "Users";
+    return {
+      key: `funnel-${index}`,
+      label,
+      data: labels.map((_, step) => asFiniteNumber(branch[step]?.count) ?? 0),
+    };
+  });
+  return {
+    type: "series",
+    render: "bar",
+    labels,
+    series,
+    isTimeSeries: false,
+    interval: "day",
+  };
+}
+
 function asTable(rows: unknown[][], columns: string[]): ReportChartData {
   return { type: "table", columns, rows: rows.slice(0, MAX_TABLE_ROWS) };
 }
@@ -498,9 +560,13 @@ export function shapeReportChartData(
 ): ReportChartData {
   if (
     plan.source.kind === "TrendsQuery" ||
-    plan.source.kind === "StickinessQuery"
+    plan.source.kind === "StickinessQuery" ||
+    plan.source.kind === "LifecycleQuery"
   ) {
     return shapeTrendsResponse(response, plan);
+  }
+  if (plan.source.kind === "FunnelsQuery") {
+    return shapeFunnelsResponse(response);
   }
   return shapeHogQLResponse(response, plan.render);
 }

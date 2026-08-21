@@ -25,8 +25,22 @@ export interface EvidencePreview {
   detail?: string;
   /** Short scannable attributes, e.g. "100% rollout" or "42 clicks". */
   facts?: string[];
-  /** Mini chart of the object's recent activity, oldest point first. */
-  spark?: { points: number[]; render: "line" | "bar" };
+  /**
+   * Mini chart of the object's recent activity, oldest point first. `labels`
+   * carries the bucket dates so a full page can draw a real chart with hover
+   * values; the hover chip's sparkline ignores them.
+   */
+  spark?: { points: number[]; labels?: string[]; render: "line" | "bar" };
+  /**
+   * A titled multi-series time chart (e.g. experiment exposures per variant),
+   * drawn with hover values on full pages; hover chips ignore it.
+   */
+  chart?: {
+    title: string;
+    labels: string[];
+    series: Array<{ label: string; data: number[] }>;
+    render: "line" | "bar";
+  };
   sections?: EvidenceDetailSection[];
   /**
    * A dashboard's tiles, each resolvable to a live insight chart, so a full
@@ -78,12 +92,26 @@ export function dailySparkPoints(rows: unknown[][]): number[] {
   return rows.map((row) => cellNumber(row[1]) ?? 0);
 }
 
+/** (day, count) rows -> the points' bucket dates, oldest first. */
+export function dailySparkLabels(rows: unknown[][]): string[] {
+  return rows.map((row) => String(row[0]));
+}
+
 function count(n: number, noun: string, plural = `${noun}s`): string {
   return `${n.toLocaleString("en-US")} ${n === 1 ? noun : plural}`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+type QueryRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is QueryRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** An "Activity" section from (label, value) pairs, dropping empty values. */
+export function activitySection(
+  fields: Array<[string, string | null | undefined]>,
+): EvidenceDetailSection[] {
+  return detailSection("Activity", fields);
 }
 
 function detailSection(
@@ -110,7 +138,7 @@ function conciseValue(value: unknown): string | null {
   return null;
 }
 
-function formatDay(iso: string): string {
+export function formatDay(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   const sameYear = date.getFullYear() === new Date().getFullYear();
@@ -293,20 +321,42 @@ export function shapeExperimentPreview(
     typeof experiment.conclusion === "string" && experiment.conclusion
       ? humanizeStatus(experiment.conclusion)
       : null;
+  const metricNames = (metrics: unknown): Array<[string, string | null]> =>
+    (Array.isArray(metrics) ? metrics.filter(isRecord) : []).flatMap(
+      (metric, index) => {
+        const name =
+          conciseValue(metric.name) ??
+          (isRecord(metric.source) ? conciseValue(metric.source.name) : null);
+        return name ? [[`Metric ${index + 1}`, name]] : [];
+      },
+    );
+  const savedMetricNames: Array<[string, string | null]> = (
+    experiment.saved_metrics ?? []
+  ).flatMap((metric, index) =>
+    typeof metric.name === "string" && metric.name
+      ? [[`Shared metric ${index + 1}`, metric.name]]
+      : [],
+  );
   return {
     title: experiment.name,
     detail,
     facts,
     sections: [
       ...detailSection("Configuration", [
+        ["Hypothesis", experiment.description || null],
         ["Feature flag", experiment.feature_flag_key],
         ["Variants", variantSplit],
         ["Primary metric", primaryMetric?.name ?? null],
         ["Conclusion", outcome],
+        ["Conclusion notes", experiment.conclusion_comment || null],
         [
           "Created",
           experiment.created_at ? formatDay(experiment.created_at) : null,
         ],
+      ]),
+      ...detailSection("Metrics", [
+        ...metricNames(experiment.metrics),
+        ...savedMetricNames,
       ]),
       ...detailSection(
         "Variants",
@@ -374,6 +424,36 @@ export function shapeEvaluationPreview(
   };
 }
 
+const MAX_CHART_SERIES = 6;
+
+/**
+ * (day, group, count) rows -> one series per group, zero-filled across the
+ * days that appear anywhere in the grid. Days arrive in query order; groups
+ * keep first-seen order.
+ */
+export function pivotDailyGroups(rows: unknown[][]): {
+  labels: string[];
+  series: Array<{ label: string; data: number[] }>;
+} | null {
+  const labels = [...new Set(rows.map((row) => String(row[0])))].sort();
+  const groups = [...new Set(rows.map((row) => String(row[1])))];
+  if (labels.length < 2 || groups.length === 0) return null;
+  const labelIndex = new Map(labels.map((label, i) => [label, i]));
+  const series = groups.slice(0, MAX_CHART_SERIES).map((label) => ({
+    label,
+    data: labels.map(() => 0),
+  }));
+  const seriesByGroup = new Map(series.map((entry) => [entry.label, entry]));
+  for (const row of rows) {
+    const target = seriesByGroup.get(String(row[1]));
+    const position = labelIndex.get(String(row[0]));
+    if (target && position !== undefined) {
+      target.data[position] = cellNumber(row[2]) ?? 0;
+    }
+  }
+  return { labels, series };
+}
+
 /** (variant, unique persons) rows -> "control 12.4K · test 12.1K". */
 export function exposureFact(rows: unknown[][]): string | null {
   const parts = rows
@@ -406,7 +486,10 @@ export function decorateFlagPreview(
     ...preview,
     detail,
     facts,
-    spark: points.length > 1 ? { points, render: "line" } : undefined,
+    spark:
+      points.length > 1
+        ? { points, labels: dailySparkLabels(volumeRows), render: "line" }
+        : undefined,
     sections: [
       ...(preview.sections ?? []),
       ...detailSection("Activity", [
@@ -650,6 +733,120 @@ export function shapeDashboardPreview(
   };
 }
 
+const PROPERTY_OPERATOR_LABELS: Record<string, string> = {
+  exact: "is",
+  is_not: "is not",
+  icontains: "contains",
+  not_icontains: "does not contain",
+  regex: "matches",
+  not_regex: "does not match",
+  gt: "is greater than",
+  gte: "is at least",
+  lt: "is less than",
+  lte: "is at most",
+  is_set: "is set",
+  is_not_set: "is not set",
+};
+
+const COUNT_OPERATOR_LABELS: Record<string, string> = {
+  gte: "at least",
+  lte: "at most",
+  gt: "more than",
+  lt: "fewer than",
+  eq: "exactly",
+  exact: "exactly",
+};
+
+function describeBehavioralCriterion(criterion: QueryRecord): string | null {
+  const event = conciseValue(criterion.key) ?? "an event";
+  const window =
+    typeof criterion.time_value === "number" && criterion.time_interval
+      ? ` in the last ${criterion.time_value} ${String(criterion.time_interval)}${criterion.time_value === 1 ? "" : "s"}`
+      : "";
+  const kind = String(criterion.value ?? "");
+  if (kind === "performed_event") return `Completed ${event}${window}`;
+  if (kind === "performed_event_multiple") {
+    const times = asCount(criterion.operator_value);
+    const operator = COUNT_OPERATOR_LABELS[String(criterion.operator)] ?? "";
+    const bound =
+      times !== null
+        ? ` ${operator ? `${operator} ` : ""}${count(times, "time")}`
+        : " multiple times";
+    return `Completed ${event}${bound}${window}`;
+  }
+  if (kind === "performed_event_first_time")
+    return `Completed ${event} for the first time${window}`;
+  if (kind === "performed_event_regularly")
+    return `Completed ${event} regularly${window}`;
+  if (kind === "performed_event_sequence") {
+    const then = conciseValue(criterion.seq_event);
+    return `Completed ${event}${then ? ` then ${then}` : " in a sequence"}${window}`;
+  }
+  if (kind === "stopped_performing_event") return `Stopped doing ${event}`;
+  if (kind === "restarted_performing_event")
+    return `Returned to doing ${event}`;
+  if (!kind) return null;
+  return `${humanizeStatus(kind)}: ${event}${window}`;
+}
+
+function asCount(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function describeCohortCriterion(criterion: QueryRecord): string | null {
+  const type = String(criterion.type ?? "");
+  if (type === "behavioral") return describeBehavioralCriterion(criterion);
+  if (type === "cohort")
+    return `Is in cohort ${conciseValue(criterion.value) ?? "?"}`;
+  if (type === "static-cohort") return "Is in a static cohort";
+  if (type === "person" || type === "event" || type === "group") {
+    const key = conciseValue(criterion.key);
+    if (!key) return null;
+    const operator =
+      PROPERTY_OPERATOR_LABELS[String(criterion.operator)] ??
+      (criterion.operator
+        ? humanizeStatus(String(criterion.operator)).toLowerCase()
+        : "is");
+    const value = conciseValue(criterion.value);
+    const needsValue = !String(criterion.operator ?? "").includes("is_set");
+    return `${key} ${operator}${needsValue && value ? ` ${value}` : ""}`;
+  }
+  return null;
+}
+
+/**
+ * A dynamic cohort's membership rules as prose, one field per match group.
+ * The filter tree is untrusted JSON, so anything unrecognized is skipped
+ * rather than rendered raw.
+ */
+export function cohortCriteriaSection(
+  filters: unknown,
+): EvidenceDetailSection[] {
+  const properties =
+    isRecord(filters) && isRecord(filters.properties)
+      ? filters.properties
+      : null;
+  const groups = (
+    Array.isArray(properties?.values) ? properties.values : []
+  ).filter(isRecord);
+  const outerAny = properties?.type === "OR";
+  const fields = groups.flatMap((group, index) => {
+    const criteria = (Array.isArray(group.values) ? group.values : [])
+      .filter(isRecord)
+      .map(describeCohortCriterion)
+      .filter((line): line is string => line !== null);
+    if (criteria.length === 0) return [];
+    const joiner = group.type === "OR" ? " or " : " and ";
+    const label =
+      groups.length > 1
+        ? `Group ${index + 1}${outerAny && index > 0 ? " (or)" : ""}`
+        : "Criteria";
+    return [[label, criteria.join(joiner)] as [string, string]];
+  });
+  return detailSection("Membership criteria", fields);
+}
+
 export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
   const detail =
     typeof cohort.count === "number"
@@ -661,28 +858,33 @@ export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
     title: cohort.name || "Untitled cohort",
     detail,
     facts: [type],
-    sections: detailSection("Cohort", [
-      ["Type", type],
-      [
-        "People",
-        typeof cohort.count === "number"
-          ? count(cohort.count, "person", "people")
-          : null,
-      ],
-      [
-        "Last calculated",
-        cohort.last_calculation ? formatDay(cohort.last_calculation) : null,
-      ],
-      ["Calculation state", cohort.is_calculating ? "Calculating" : null],
-      [
-        "Calculation errors",
-        cohort.errors_calculating ? String(cohort.errors_calculating) : null,
-      ],
-      [
-        "Linked experiments",
-        experiments.length ? count(experiments.length, "experiment") : null,
-      ],
-    ]),
+    sections: [
+      ...detailSection("Cohort", [
+        ["Description", cohort.description || null],
+        ["Type", type],
+        [
+          "People",
+          typeof cohort.count === "number"
+            ? count(cohort.count, "person", "people")
+            : null,
+        ],
+        [
+          "Last calculated",
+          cohort.last_calculation ? formatDay(cohort.last_calculation) : null,
+        ],
+        ["Calculation state", cohort.is_calculating ? "Calculating" : null],
+        [
+          "Calculation errors",
+          cohort.errors_calculating ? String(cohort.errors_calculating) : null,
+        ],
+        [
+          "Linked experiments",
+          experiments.length ? count(experiments.length, "experiment") : null,
+        ],
+        ["Created", cohort.created_at ? formatDay(cohort.created_at) : null],
+      ]),
+      ...cohortCriteriaSection(cohort.filters),
+    ],
   };
 }
 

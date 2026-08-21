@@ -53,7 +53,18 @@ describe("reportCharts", () => {
     [{ kind: "SavedInsightNode", shortId: 42 }, "invalid"],
     [{ kind: "SavedInsightNode", shortId: "abc123" }, "saved-insight"],
     [{ kind: "InsightVizNode" }, "invalid"],
-    [{ kind: "InsightVizNode", source: { kind: "FunnelsQuery" } }, "open-only"],
+    [{ kind: "InsightVizNode", source: { kind: "FunnelsQuery" } }, "run"],
+    [
+      {
+        kind: "InsightVizNode",
+        source: {
+          kind: "FunnelsQuery",
+          funnelsFilter: { funnelVizType: "time_to_convert" },
+        },
+      },
+      "open-only",
+    ],
+    [{ kind: "InsightVizNode", source: { kind: "LifecycleQuery" } }, "run"],
     [
       { kind: "InsightVizNode", source: { kind: "RetentionQuery" } },
       "open-only",
@@ -91,6 +102,82 @@ describe("reportCharts", () => {
     [hogqlNode({ display: "ActionsTable" }), "table"],
   ])("planReportChart(%j) picks render %s", (query, render) => {
     expect(runPlan(query).render).toBe(render);
+  });
+
+  it("shapes a lifecycle response into bars, keeping negative statuses", () => {
+    const data = shapeReportChartData(
+      {
+        results: [
+          {
+            label: "new",
+            days: ["2026-08-01", "2026-08-02"],
+            data: [5, 8],
+          },
+          {
+            label: "dormant",
+            days: ["2026-08-01", "2026-08-02"],
+            data: [-3, -6],
+          },
+        ],
+      },
+      runPlan({
+        kind: "InsightVizNode",
+        source: { kind: "LifecycleQuery" },
+      }),
+    );
+    expect(data).toMatchObject({
+      type: "series",
+      render: "bar",
+      labels: ["2026-08-01", "2026-08-02"],
+      series: [
+        { label: "new", data: [5, 8] },
+        { label: "dormant", data: [-3, -6] },
+      ],
+    });
+  });
+
+  it("shapes a steps funnel into one bar per step", () => {
+    const data = shapeReportChartData(
+      {
+        results: [
+          { name: "$pageview", order: 0, count: 120 },
+          { name: "sign up", custom_name: "Signed up", order: 1, count: 45 },
+        ],
+      },
+      runPlan({ kind: "InsightVizNode", source: { kind: "FunnelsQuery" } }),
+    );
+    expect(data).toMatchObject({
+      type: "series",
+      render: "bar",
+      labels: ["$pageview", "Signed up"],
+      series: [{ label: "Users", data: [120, 45] }],
+    });
+  });
+
+  it("shapes a breakdown funnel into one series per breakdown value", () => {
+    const data = shapeReportChartData(
+      {
+        results: [
+          [
+            { name: "$pageview", count: 80, breakdown_value: ["Chrome"] },
+            { name: "sign up", count: 30, breakdown_value: ["Chrome"] },
+          ],
+          [
+            { name: "$pageview", count: 40, breakdown_value: ["Safari"] },
+            { name: "sign up", count: 10, breakdown_value: ["Safari"] },
+          ],
+        ],
+      },
+      runPlan({ kind: "InsightVizNode", source: { kind: "FunnelsQuery" } }),
+    );
+    expect(data).toMatchObject({
+      type: "series",
+      labels: ["$pageview", "sign up"],
+      series: [
+        { label: "Chrome", data: [80, 30] },
+        { label: "Safari", data: [40, 10] },
+      ],
+    });
   });
 
   it("shapes a trends response into a time series", () => {

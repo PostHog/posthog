@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  cohortCriteriaSection,
   compactCount,
   dailySparkPoints,
   decorateFlagPreview,
@@ -7,6 +8,7 @@ import {
   exposureFact,
   gridRows,
   hogqlEscape,
+  pivotDailyGroups,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
@@ -249,6 +251,89 @@ describe("evidence preview shaping", () => {
     ).toBe("Weekly active users");
   });
 
+  it("describes cohort membership criteria as prose, skipping unknown nodes", () => {
+    const sections = cohortCriteriaSection({
+      properties: {
+        type: "OR",
+        values: [
+          {
+            type: "AND",
+            values: [
+              {
+                type: "behavioral",
+                value: "performed_event",
+                key: "$pageview",
+                time_value: 30,
+                time_interval: "day",
+              },
+              {
+                type: "person",
+                key: "email",
+                operator: "icontains",
+                value: "@example.com",
+              },
+            ],
+          },
+          {
+            type: "OR",
+            values: [
+              { type: "mystery", key: "??" },
+              {
+                type: "behavioral",
+                value: "performed_event_multiple",
+                key: "file saved",
+                operator: "gte",
+                operator_value: 3,
+                time_value: 1,
+                time_interval: "week",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(sections).toEqual([
+      {
+        title: "Membership criteria",
+        fields: [
+          {
+            label: "Group 1",
+            value:
+              "Completed $pageview in the last 30 days and email contains @example.com",
+          },
+          {
+            label: "Group 2 (or)",
+            value: "Completed file saved at least 3 times in the last 1 week",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("returns no criteria section for a static or malformed cohort", () => {
+    expect(cohortCriteriaSection(undefined)).toEqual([]);
+    expect(cohortCriteriaSection({ properties: { values: "junk" } })).toEqual(
+      [],
+    );
+  });
+
+  it("pivots (day, group, count) rows into zero-filled series per group", () => {
+    expect(
+      pivotDailyGroups([
+        ["2026-08-02", "control", 4],
+        ["2026-08-01", "control", 2],
+        ["2026-08-01", "test", 3],
+      ]),
+    ).toEqual({
+      labels: ["2026-08-01", "2026-08-02"],
+      series: [
+        { label: "control", data: [2, 4] },
+        { label: "test", data: [3, 0] },
+      ],
+    });
+    expect(pivotDailyGroups([["2026-08-01", "control", 2]])).toBeNull();
+  });
+
   it("describes action match groups in its details", () => {
     const preview = shapeActionPreview({
       id: 42,
@@ -403,6 +488,7 @@ describe("evidence preview shaping", () => {
     expect(preview.facts).toEqual(["Stale", "100% rollout", "2.1M calls (7d)"]);
     expect(preview.spark).toEqual({
       points: [900000, 1200000],
+      labels: ["2024-01-01", "2024-01-02"],
       render: "line",
     });
   });

@@ -72,14 +72,18 @@ import type {
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
+  activitySection,
   compactCount,
+  dailySparkLabels,
   dailySparkPoints,
   decorateFlagPreview,
   decorateSurveyPreview,
   type EvidencePreview,
   exposureFact,
+  formatDay,
   gridRows,
   hogqlEscape,
+  pivotDailyGroups,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
@@ -6136,14 +6140,33 @@ export class PostHogAPIClient {
         const until = experiment.end_date
           ? ` AND timestamp <= parseDateTimeBestEffort('${hogqlEscape(experiment.end_date)}')`
           : "";
-        const exposures = await this.runQuery({
-          kind: "HogQLQuery",
-          query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until} GROUP BY variant ORDER BY variant`,
-        }).catch(() => ({}));
+        const scope = `event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until}`;
+        const [exposures, dailyExposures] = await Promise.all([
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE ${scope} GROUP BY variant ORDER BY variant`,
+          }).catch(() => ({})),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE ${scope} GROUP BY day, variant ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
         const fact = exposureFact(gridRows(exposures));
-        return fact
-          ? { ...preview, facts: [...(preview.facts ?? []), fact] }
-          : preview;
+        // "false" rows are flag evaluations outside the experiment, not a variant.
+        const pivot = pivotDailyGroups(
+          gridRows(dailyExposures).filter((row) => String(row[1]) !== "false"),
+        );
+        return {
+          ...preview,
+          facts: fact ? [...(preview.facts ?? []), fact] : preview.facts,
+          chart: pivot
+            ? {
+                title: "Daily exposed users by variant",
+                ...pivot,
+                render: "line" as const,
+              }
+            : undefined,
+        };
       }
       case "error": {
         // The issue's identity plus its 30-day activity: total events, users
@@ -6173,12 +6196,19 @@ export class PostHogAPIClient {
             `${compactCount(users)} users · ${compactCount(events)} events (30d)`,
           );
         }
-        const points = dailySparkPoints(gridRows(daily));
+        const dailyRows = gridRows(daily);
+        const points = dailySparkPoints(dailyRows);
         return {
           ...preview,
           facts,
           spark:
-            points.length > 1 ? { points, render: "bar" as const } : undefined,
+            points.length > 1
+              ? {
+                  points,
+                  labels: dailySparkLabels(dailyRows),
+                  render: "bar" as const,
+                }
+              : undefined,
         };
       }
       case "event": {
@@ -6196,14 +6226,21 @@ export class PostHogAPIClient {
           query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
         }).catch(() => ({}));
         const preview = shapeEventDefinitionPreview(definition);
-        const points = dailySparkPoints(gridRows(volume));
+        const volumeRows = gridRows(volume);
+        const points = dailySparkPoints(volumeRows);
         const total = points.reduce((sum, value) => sum + value, 0);
         return {
           ...preview,
           facts:
             total > 0 ? [`${compactCount(total)} events (14d)`] : undefined,
           spark:
-            points.length > 1 ? { points, render: "line" as const } : undefined,
+            points.length > 1
+              ? {
+                  points,
+                  labels: dailySparkLabels(volumeRows),
+                  render: "line" as const,
+                }
+              : undefined,
         };
       }
       case "ticket": {
@@ -6286,7 +6323,7 @@ export class PostHogAPIClient {
       }
       case "action": {
         if (numericId === null) return null;
-        const [action, volume] = await Promise.all([
+        const [action, volume, totals] = await Promise.all([
           this.api.get("/api/projects/{project_id}/actions/{id}/", {
             path: { project_id: projectId, id: numericId },
             query: {},
@@ -6295,17 +6332,50 @@ export class PostHogAPIClient {
             kind: "HogQLQuery",
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE matchesAction(${numericId}) AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT count(), uniq(person_id), max(timestamp) FROM events WHERE matchesAction(${numericId}) AND timestamp >= now() - INTERVAL 30 DAY`,
+          }).catch(() => ({})),
         ]);
         const preview = shapeActionPreview(action);
-        const points = dailySparkPoints(gridRows(volume));
+        const volumeRows = gridRows(volume);
+        const points = dailySparkPoints(volumeRows);
         const total = points.reduce((sum, value) => sum + value, 0);
         const facts = [...(preview.facts ?? [])];
         if (total > 0) facts.unshift(`${compactCount(total)} matches (14d)`);
+        const totalsRow = gridRows(totals)[0];
+        const matches30d = totalsRow ? Number(totalsRow[0]) : 0;
+        const users30d = totalsRow ? Number(totalsRow[1]) : 0;
+        const lastSeen =
+          totalsRow && typeof totalsRow[2] === "string" && matches30d > 0
+            ? totalsRow[2]
+            : null;
+        if (users30d > 0) facts.push(`${compactCount(users30d)} users (30d)`);
         return {
           ...preview,
           facts,
           spark:
-            points.length > 1 ? { points, render: "line" as const } : undefined,
+            points.length > 1
+              ? {
+                  points,
+                  labels: dailySparkLabels(volumeRows),
+                  render: "line" as const,
+                }
+              : undefined,
+          sections: [
+            ...activitySection([
+              [
+                "Matches in 30 days",
+                matches30d > 0 ? compactCount(matches30d) : null,
+              ],
+              [
+                "Unique users in 30 days",
+                users30d > 0 ? compactCount(users30d) : null,
+              ],
+              ["Last seen", lastSeen ? formatDay(lastSeen) : null],
+            ]),
+            ...(preview.sections ?? []),
+          ],
         };
       }
       case "eval": {

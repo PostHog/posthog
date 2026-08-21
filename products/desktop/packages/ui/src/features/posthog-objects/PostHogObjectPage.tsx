@@ -10,18 +10,45 @@ import {
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { getObjectKind } from "@posthog/ui/utils/objectKinds";
+import {
+  getObjectKind,
+  POSTHOG_OBJECT_ICON_COLOR,
+} from "@posthog/ui/utils/objectKinds";
 import { PostHogObjectDetails } from "./PostHogObjectDetails";
+
+/** The object's status line and fact chips, as a lede rather than a box. */
+function ObjectLede({ preview }: { preview: EvidenceCardData }) {
+  if (!preview.detail && (preview.facts?.length ?? 0) === 0) return null;
+  return (
+    <div className="flex flex-col gap-2.5">
+      {preview.detail && (
+        <Text size="lg" className="text-muted-foreground leading-relaxed">
+          {preview.detail}
+        </Text>
+      )}
+      {preview.facts && preview.facts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {preview.facts.map((fact) => (
+            <span
+              key={fact}
+              className="rounded-md border border-border bg-muted px-2 py-0.5 text-muted-foreground text-xs"
+            >
+              {fact}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ObjectContent({ preview }: { preview: EvidenceCardData }) {
   // A dashboard is its metrics: render each tile's insight as a live chart
   // and skip the descriptive cards, which only restate what the charts show.
   if (preview.tiles && preview.tiles.length > 0) {
     return (
-      <div className="flex flex-col gap-3">
-        {preview.detail && (
-          <Text className="text-muted-foreground">{preview.detail}</Text>
-        )}
+      <div className="flex flex-col gap-4">
+        <ObjectLede preview={{ ...preview, facts: undefined }} />
         {preview.tiles.map((tile, index) => (
           <MessageChartCard
             key={`${tile.shortId}:${index}`}
@@ -33,26 +60,8 @@ function ObjectContent({ preview }: { preview: EvidenceCardData }) {
     );
   }
   return (
-    <div className="flex flex-col gap-3">
-      {(preview.detail || (preview.facts?.length ?? 0) > 0) && (
-        <div className="rounded-md border border-border bg-card p-4">
-          {preview.detail && (
-            <Text className="text-muted-foreground">{preview.detail}</Text>
-          )}
-          {preview.facts && preview.facts.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {preview.facts.map((fact) => (
-                <span
-                  key={fact}
-                  className="rounded-sm bg-muted px-2 py-1 text-muted-foreground text-xs"
-                >
-                  {fact}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+    <div className="flex flex-col gap-4">
+      <ObjectLede preview={preview} />
       <PostHogObjectDetails preview={preview} />
     </div>
   );
@@ -115,11 +124,11 @@ export function PostHogObjectPage({
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-6 py-7">
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-8 py-8">
         <header className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="mb-2 flex items-center gap-1.5 text-muted-foreground text-xs uppercase tracking-wide">
-              <ObjectIcon size={14} />
+              <ObjectIcon size={14} color={POSTHOG_OBJECT_ICON_COLOR} />
               <span>{object.kindLabel}</span>
               {/* Skip the product when it just restates the kind ("Feature
                   flag · Feature flags"); keep it when it adds context

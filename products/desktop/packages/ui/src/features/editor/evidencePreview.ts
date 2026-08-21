@@ -22,8 +22,15 @@ export interface EvidenceCardData {
   facts?: string[];
   /** Latest value + step change when the result is a single time series. */
   headline?: ChartHeadlineStat | null;
-  /** Mini chart of the primary series. */
-  spark?: { points: number[]; render: "line" | "bar" };
+  /** Mini chart of the primary series; `labels` carries bucket dates. */
+  spark?: { points: number[]; labels?: string[]; render: "line" | "bar" };
+  /** A titled multi-series time chart, drawn with hover values on full pages. */
+  chart?: {
+    title: string;
+    labels: string[];
+    series: Array<{ label: string; data: number[] }>;
+    render: "line" | "bar";
+  };
   sections?: EvidenceDetailSection[];
   /** A dashboard's tiles, each resolvable to a live insight chart. */
   tiles?: Array<{ shortId: string; name: string | null }>;
