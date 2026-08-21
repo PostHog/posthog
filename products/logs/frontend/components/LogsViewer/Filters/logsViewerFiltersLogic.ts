@@ -278,12 +278,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             DEFAULT_UNIVERSAL_GROUP_FILTER as UniversalFiltersGroup,
             {
                 setFilterGroup: (_, { filterGroup }) =>
-                    filterGroup && filterGroup.values ? filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
+                    filterGroup?.values?.length ? filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
                 setFilters: (state, { filters }) =>
-                    foldLegacyColumnFilters(
-                        filters.filterGroup && filters.filterGroup.values ? filters.filterGroup : state,
-                        filters
-                    ),
+                    foldLegacyColumnFilters(filters.filterGroup?.values?.length ? filters.filterGroup : state, filters),
             },
         ],
         openFilterOnInsert: [
@@ -357,7 +354,10 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             actions.setDateRange(newDateRange)
         },
         addFilter: ({ key, value, operator, propertyType }) => {
-            const currentGroup = values.filters.filterGroup.values[0] as UniversalFiltersGroup
+            const currentGroup = (values.filters.filterGroup.values[0] as UniversalFiltersGroup | undefined) ?? {
+                type: FilterLogicalOperator.And,
+                values: [],
+            }
 
             const newGroup: UniversalFiltersGroup = {
                 ...currentGroup,

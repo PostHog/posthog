@@ -134,14 +134,46 @@ describe('logsViewerFiltersLogic', () => {
     })
 
     describe('setFilterGroup fallback', () => {
-        it('falls back to default when given invalid filterGroup', async () => {
-            logic.actions.setFilterGroup(null as any)
+        const DEFAULT_GROUP = {
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.And, values: [] }],
+        }
+
+        // An outer group with no inner group leaves `values[0]` undefined, which used to crash
+        // addFilter. The reducer keeps such a group out of state instead.
+        it.each([
+            ['null', null],
+            ['a group with no inner values', { type: FilterLogicalOperator.And, values: [] }],
+        ])('falls back to default when given %s', async (_label, filterGroup) => {
+            logic.actions.setFilterGroup(filterGroup as any)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.filters.filterGroup).toEqual({
-                type: FilterLogicalOperator.And,
-                values: [{ type: FilterLogicalOperator.And, values: [] }],
-            })
+            expect(logic.values.filters.filterGroup).toEqual(DEFAULT_GROUP)
+        })
+
+        it('keeps existing state when setFilters carries an empty filterGroup', async () => {
+            logic.actions.addFilter('level', 'error')
+            await expectLogic(logic).toFinishAllListeners()
+            const applied = logic.values.filters.filterGroup
+
+            logic.actions.setFilters({ filterGroup: { type: FilterLogicalOperator.And, values: [] } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.filters.filterGroup).toEqual(applied)
+        })
+
+        it('appends a filter without crashing when addFilter runs on the default group', async () => {
+            logic.actions.addFilter('level', 'error')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect((logic.values.filters.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([
+                {
+                    key: 'level',
+                    value: ['error'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.LogAttribute,
+                },
+            ])
         })
     })
 
