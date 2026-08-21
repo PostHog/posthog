@@ -914,10 +914,10 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             if validated_data["kind"] == "stripe":
                 try:
                     stripe_integration = StripeIntegration(instance)
-                    unwritten = stripe_integration.write_posthog_secrets(team_id, request.user)
-                    if unwritten:
+                    publication = stripe_integration.write_posthog_secrets(team_id, request.user)
+                    if publication.unwritten:
                         capture_exception(
-                            Exception(f"Stripe secret store not fully written: {', '.join(unwritten)}"),
+                            Exception(f"Stripe secret store not fully written: {', '.join(publication.unwritten)}"),
                             {"team_id": team_id, "integration_id": instance.id},
                         )
                 except Exception as e:
