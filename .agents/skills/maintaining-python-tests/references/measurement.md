@@ -64,24 +64,28 @@ Useful fields include:
 service_name = 'ci-backend'
 resource_attributes['ci.branch']
 resource_attributes['ci.run_id']
+resource_attributes['ci.run_attempt']
 attributes['test.runner']
 attributes['test.outcome']
 attributes['test.owner_team']
 attributes['test.file']
 attributes['test.file_source']
 attributes['shard.segment']
+attributes['shard.testcase_seconds']
 is_root_span
 duration_nano
 ```
 
 Invoke `/querying-posthog-data` before using `posthog:execute-sql`. Verify the available trace fields before querying them. Use `master` for post-merge impact. Use explicit UTC windows.
 
-### Rank individual pytest tests
+### Rank emitted slow pytest tests
+
+The reporter emits individual test spans only above its configured duration threshold. Use this query to rank the sampled slow-test work, not all pytest work.
 
 ```sql
 SELECT
     name,
-    coalesce(attributes['test.owner_team'], 'unowned') AS owner_team,
+    coalesce(nullIf(attributes['test.owner_team'], ''), 'unowned') AS owner_team,
     count() AS executions,
     round(quantile(0.5)(duration_nano / 1000000000), 3) AS p50_seconds,
     round(quantile(0.95)(duration_nano / 1000000000), 3) AS p95_seconds,
@@ -99,7 +103,7 @@ ORDER BY observed_hours DESC
 LIMIT 50
 ```
 
-Adjust the two-day window only when the sample is too small or includes a known incident.
+Adjust the two-day window only when the sample is too small or includes a known incident. A missing after row can mean the test fell below the reporting threshold, not that it stopped running.
 
 ### Compare a test before and after a merge
 
@@ -134,7 +138,7 @@ GROUP BY period
 ORDER BY period
 ```
 
-Use the exact merge timestamp from GitHub to choose the windows. Confirm that the after window contains runs with the merged code.
+Use the exact merge timestamp from GitHub to choose the windows. Confirm that the after window contains runs with the merged code. This comparison applies only while the test emits a span in both periods.
 
 ### Measure a parameter family per workflow run
 
@@ -142,25 +146,26 @@ Use the exact merge timestamp from GitHub to choose the windows. Confirm that th
 WITH per_run AS (
     SELECT
         resource_attributes['ci.run_id'] AS run_id,
-        sum(duration_nano) / 1000000000 AS call_seconds,
-        uniq(name) AS cases
+        resource_attributes['ci.run_attempt'] AS run_attempt,
+        sum(duration_nano) / 1000000000 AS sampled_seconds,
+        uniq(name) AS sampled_cases
     FROM posthog.trace_spans
     WHERE timestamp >= now() - INTERVAL 2 DAY
       AND service_name = 'ci-backend'
       AND resource_attributes['ci.branch'] = 'master'
       AND attributes['test.outcome'] = 'passed'
       AND name LIKE '%::test_target_family[%]'
-    GROUP BY run_id
+    GROUP BY run_id, run_attempt
 )
 SELECT
-    count() AS runs,
-    round(quantile(0.5)(call_seconds), 2) AS p50_call_seconds_per_run,
-    round(quantile(0.95)(call_seconds), 2) AS p95_call_seconds_per_run,
-    round(avg(cases), 1) AS mean_cases_per_run
+    count() AS attempts,
+    round(quantile(0.5)(sampled_seconds), 2) AS p50_sampled_seconds_per_attempt,
+    round(quantile(0.95)(sampled_seconds), 2) AS p95_sampled_seconds_per_attempt,
+    round(avg(sampled_cases), 1) AS mean_sampled_cases_per_attempt
 FROM per_run
 ```
 
-Check the mean case count. A lower duration is not a valid improvement if fewer cases ran.
+Check the expected case count against the sampled case count. Use this query only when every target case exceeds the reporting threshold. A lower duration is not valid if fewer cases emitted spans.
 
 ### Measure the affected shard
 
@@ -168,54 +173,56 @@ Check the mean case count. A lower duration is not a valid improvement if fewer 
 WITH per_run AS (
     SELECT
         resource_attributes['ci.run_id'] AS run_id,
-        max(duration_nano) / 1000000000 AS slowest_job_seconds,
-        sum(duration_nano) / 1000000000 AS total_job_seconds,
-        count() AS jobs
+        resource_attributes['ci.run_attempt'] AS run_attempt,
+        max(duration_nano) / 1000000000 AS slowest_suite_seconds,
+        sum(duration_nano) / 1000000000 AS total_suite_seconds,
+        count() AS suites
     FROM posthog.trace_spans
     WHERE timestamp >= now() - INTERVAL 2 DAY
       AND service_name = 'ci-backend'
       AND resource_attributes['ci.branch'] = 'master'
       AND is_root_span
       AND attributes['shard.segment'] = '<segment>'
-    GROUP BY run_id
+    GROUP BY run_id, run_attempt
 )
 SELECT
-    count() AS runs,
-    round(quantile(0.5)(slowest_job_seconds), 2) AS p50_slowest_job_seconds,
-    round(quantile(0.95)(slowest_job_seconds), 2) AS p95_slowest_job_seconds,
-    round(quantile(0.5)(total_job_seconds), 2) AS p50_total_job_seconds,
-    round(avg(jobs), 1) AS jobs_per_run
+    count() AS attempts,
+    round(quantile(0.5)(slowest_suite_seconds), 2) AS p50_slowest_suite_seconds,
+    round(quantile(0.95)(slowest_suite_seconds), 2) AS p95_slowest_suite_seconds,
+    round(quantile(0.5)(total_suite_seconds), 2) AS p50_total_suite_seconds,
+    round(avg(suites), 1) AS suites_per_attempt
 FROM per_run
 ```
 
-The slowest job approximates the segment's critical path. The total job seconds approximate runner work.
+The slowest root span approximates the segment's pytest-suite critical path. It excludes checkout, cache restoration, artifact handling, and other GitHub Actions steps.
 
-### Measure total pytest work and the critical job
+### Measure total pytest work and suite wall time
 
 ```sql
 WITH per_run AS (
     SELECT
         resource_attributes['ci.run_id'] AS run_id,
-        sumIf(duration_nano, NOT is_root_span AND attributes['test.runner'] = 'pytest') / 1000000000 AS test_call_seconds,
-        maxIf(duration_nano, is_root_span) / 1000000000 AS critical_job_seconds,
-        uniqIf(trace_id, is_root_span) AS jobs
+        resource_attributes['ci.run_attempt'] AS run_attempt,
+        sumIf(toFloatOrZero(attributes['shard.testcase_seconds']), is_root_span) AS testcase_seconds,
+        maxIf(duration_nano, is_root_span) / 1000000000 AS slowest_suite_seconds,
+        uniqIf(trace_id, is_root_span) AS suites
     FROM posthog.trace_spans
     WHERE timestamp >= now() - INTERVAL 2 DAY
       AND service_name = 'ci-backend'
       AND resource_attributes['ci.branch'] = 'master'
-    GROUP BY run_id
-    HAVING jobs > 0
+    GROUP BY run_id, run_attempt
+    HAVING suites > 0
 )
 SELECT
-    count() AS runs,
-    round(quantile(0.5)(test_call_seconds), 1) AS p50_test_call_seconds,
-    round(quantile(0.95)(test_call_seconds), 1) AS p95_test_call_seconds,
-    round(quantile(0.5)(critical_job_seconds), 1) AS p50_critical_job_seconds,
-    round(quantile(0.95)(critical_job_seconds), 1) AS p95_critical_job_seconds
+    count() AS attempts,
+    round(quantile(0.5)(testcase_seconds), 1) AS p50_testcase_seconds,
+    round(quantile(0.95)(testcase_seconds), 1) AS p95_testcase_seconds,
+    round(quantile(0.5)(slowest_suite_seconds), 1) AS p50_slowest_suite_seconds,
+    round(quantile(0.95)(slowest_suite_seconds), 1) AS p95_slowest_suite_seconds
 FROM per_run
 ```
 
-A lower test-call sum means less compute. A lower critical-job duration means less waiting for that workflow.
+`shard.testcase_seconds` includes every JUnit testcase, including tests below the individual-span threshold. The slowest suite span measures pytest execution, not the complete GitHub Actions job.
 
 ### Measure ownership
 
@@ -223,7 +230,7 @@ A lower test-call sum means less compute. A lower critical-job duration means le
 SELECT
     toDate(timestamp) AS day,
     count() AS test_spans,
-    countIf(attributes['test.owner_team'] IS NULL) AS unowned_spans,
+    countIf(nullIf(attributes['test.owner_team'], '') IS NULL) AS unowned_spans,
     round(100 * unowned_spans / test_spans, 2) AS unowned_percent
 FROM posthog.trace_spans
 WHERE timestamp >= now() - INTERVAL 2 DAY

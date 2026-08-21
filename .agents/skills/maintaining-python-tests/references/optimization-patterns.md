@@ -164,7 +164,7 @@ Reject these results:
 - Call time fell because work moved to setup.
 - One warm run is compared with one cold run.
 - Local wall time is compared with CI call time.
-- The average fell while p95 and critical-path time increased.
+- The average fell while p95 and the slowest-suite time increased.
 - A snapshot was removed without equivalent result assertions.
 - A worker was shared while cases reused mutable IDs.
 - A broad before-and-after window is described as causal.

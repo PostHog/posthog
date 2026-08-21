@@ -1,7 +1,7 @@
 ---
 name: maintaining-python-tests
 description: >
-  Maintains existing pytest and Django test suites without weakening correctness. Use when asked to reduce Python test runtime or CI work, investigate slow pytest families, remove stale migration tests, consolidate repeated setup, improve Python test ownership, or measure whether a test optimization worked after merge. Ranks work by measured cost, applies the writing-tests value gate to existing coverage, preserves distinct behavior cases, validates isolation after shared-fixture changes, and separates CPU work from CI critical-path time. For an intermittent failure, use fixing-flaky-tests instead.
+  Maintains existing pytest and Django test suites without weakening correctness. Use when asked to reduce Python test runtime or CI work, investigate slow pytest families, remove stale migration tests, consolidate repeated setup, improve Python test ownership, or measure whether a test optimization worked after merge. Ranks work by measured cost, applies the writing-tests value gate to existing coverage, preserves distinct behavior cases, validates isolation after shared-fixture changes, and separates testcase work from pytest-suite wall time. For an intermittent failure, use fixing-flaky-tests instead.
 ---
 
 # Maintaining Python tests
@@ -17,7 +17,7 @@ The goal is not a smaller test count. The goal is a suite that catches the same 
 3. **Remove only expired or redundant coverage.** Get explicit approval before deleting a test.
 4. **Share expensive infrastructure, not mutable test state.** Preserve isolation with unique IDs, schemas, tables, topics, or tenants.
 5. **Measure after merge.** Local results prove the mechanism. Fresh master data proves the result in CI.
-6. **Separate CPU work from wall time.** A change can reduce test work without moving the slowest CI shard.
+6. **Separate testcase work from suite wall time.** A change can reduce summed testcase time without moving the slowest pytest suite.
 
 Read [measurement.md](references/measurement.md) before querying timing data or reporting an improvement.
 Read [optimization-patterns.md](references/optimization-patterns.md) when selecting a fix.
@@ -29,7 +29,7 @@ Read [optimization-patterns.md](references/optimization-patterns.md) when select
 Write down the user problem before choosing a test:
 
 - Reduce total test compute.
-- Reduce the critical CI path.
+- Reduce the slowest pytest suite.
 - Remove expired maintenance burden.
 - Restore test ownership.
 - Reduce repeated external-service setup.
@@ -44,9 +44,9 @@ Rank at least three views:
 
 - **Individual tests:** execution count multiplied by duration.
 - **Parameterized families:** all cases under one test function or fixture family.
-- **CI jobs or shards:** root-span wall time and the slowest job per run.
+- **Pytest suites or shards:** root-span wall time and the slowest suite per run attempt.
 
-Use p50 to find steady cost. Use p95 to find contention or tail behavior. Use total observed hours to find repeated medium-cost tests that dominate compute.
+Use p50 to find steady cost. Use p95 to find contention or tail behavior. Use sampled observed hours to find repeated medium-cost tests. Use root-span testcase totals for complete pytest work.
 
 Do not select a target from an old ranking after several fixes merge. Rebuild the ranking first.
 
@@ -165,14 +165,14 @@ Wait for fresh `master` runs that contain the merge commit. Compare equivalent w
 Check all relevant outcomes:
 
 - Exact test p50 and p95.
-- Family call time per workflow run.
-- Slowest affected job per workflow run.
-- Overall pytest call time per workflow run.
-- Critical job wall time.
+- Family sampled time per workflow attempt.
+- Slowest affected suite per workflow attempt.
+- Complete JUnit testcase time per workflow attempt.
+- Slowest pytest-suite wall time.
 - Failure rate and test count.
 - Unowned test-span share when ownership changed.
 
-If CPU work falls but critical-path time stays flat, report both facts. Select the next target from the current slowest shard.
+If summed testcase time falls but suite wall time stays flat, report both facts. Select the next target from the current slowest shard.
 
 If the expected metric does not move, do not declare success from local data. Check whether the cost moved into fixture setup, teardown, or another test.
 
