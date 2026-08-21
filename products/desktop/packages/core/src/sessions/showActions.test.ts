@@ -18,6 +18,14 @@ describe("isShowActionsCall", () => {
     expect(isShowActionsCall(localToolMeta("upload_artifact"))).toBe(false);
     expect(isUploadArtifactCall(localToolMeta("show_actions"))).toBe(false);
   });
+
+  it("ignores a show_actions tool from a different MCP server", () => {
+    const foreign = posthogToolMeta({
+      toolName: "mcp__another-server__show_actions",
+      mcp: { server: "another-server", tool: "show_actions" },
+    });
+    expect(isShowActionsCall(foreign)).toBe(false);
+  });
 });
 
 describe("readShowActions", () => {
