@@ -866,7 +866,9 @@ def _validate_evidence(
         and input.requested_on is None
         and input.evidence_source == "conversation"
     ):
-        raise FeatureRequestValidationError("evidence", "Enter a summary, customer quote, source URL, or image.")
+        raise FeatureRequestValidationError(
+            "evidence", "Enter a summary, customer quote, source URL, image, request date, or change the source."
+        )
     if source_url:
         parsed_url = urlparse(source_url)
         if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
