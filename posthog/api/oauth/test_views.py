@@ -4140,6 +4140,78 @@ class TestOAuthAPI(APIBaseTest):
         )
 
     @freeze_time("2025-01-01 00:00:00")
+    def test_dcr_refresh_token_revoke_leaves_a_concurrently_authorized_grant_alive(self):
+        # RFC 7009 §2.1 scopes a refresh-token revocation to "all access tokens based on the same
+        # authorization grant". A client that re-authorizes while an older session is still open
+        # mints a second grant and then revokes the one it replaced (Claude Code does this on
+        # /mcp reauthenticate), so a (user, application)-wide sweep would delete the credential
+        # the client just started using.
+        self.public_application.is_dcr_client = True
+        self.public_application.save()
+
+        replaced_refresh_token, replaced_access_token = self._authorize_dcr_client()
+        current_refresh_token, current_access_token = self._authorize_dcr_client()
+        self.assertNotEqual(replaced_access_token, current_access_token)
+
+        revoke_response = self.post(
+            "/oauth/revoke/",
+            {
+                "token": replaced_refresh_token,
+                "token_type_hint": "refresh_token",
+                "client_id": self.public_application.client_id,
+            },
+        )
+        self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(token=replaced_access_token).exists())
+        self.assertFalse(OAuthRefreshToken.objects.filter(token=replaced_refresh_token).exists())
+
+        self.assertTrue(
+            OAuthAccessToken.objects.filter(token=current_access_token).exists(),
+            "revoking one grant's refresh token must not delete an access token issued under a "
+            "different authorization grant for the same user and application",
+        )
+        still_refreshable = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": current_refresh_token,
+                "client_id": self.public_application.client_id,
+            },
+        )
+        self.assertEqual(still_refreshable.status_code, status.HTTP_200_OK)
+
+    def _authorize_dcr_client(self) -> tuple[str, str]:
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        return token_response.json()["refresh_token"], token_response.json()["access_token"]
+
+    @freeze_time("2025-01-01 00:00:00")
     def test_dcr_refresh_token_revoke_from_other_client_does_not_sweep_session(self):
         # RFC 7009 §2.1: the server verifies the token was issued to the requesting
         # client. A different dynamic client presenting app A's refresh token must not

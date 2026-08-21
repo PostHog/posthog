@@ -524,6 +524,9 @@ class OAuthAccessToken(AbstractAccessToken):
             # via an index scan instead of a sequential scan. These lookups account for a
             # large share of the server's CPU time; the index removes that hot-path scan.
             models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
+            # `revoke_oauth_token_family` deletes a whole grant's tokens by this column, so without
+            # an index every RFC 7009 revocation sequentially scans the table.
+            models.Index(fields=["token_family"], name="oauthaccesstoken_family_idx"),
         ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
@@ -562,6 +565,16 @@ class OAuthAccessToken(AbstractAccessToken):
         help_text="Optional user-facing label so a user can identify a token (per-device, per-IP, or by purpose).",
     )
 
+    # The authorization grant this token came from, in the sense RFC 7009 section 2.1 uses when it
+    # scopes a revocation to "all access tokens based on the same authorization grant". DOT already
+    # stamps a `token_family` on every refresh token (a fresh UUID per authorization-code exchange,
+    # inherited across rotations), and this column carries the same value onto the access token so a
+    # revoke can find the grant's tokens without walking a FK chain. `source_refresh_token` cannot
+    # serve that purpose: it is a OneToOne, so the non-rotating refresh branch in
+    # `OAuthTokenView._save_bearer_token` has to leave it null for sibling rows to stay addressable.
+    # Null only on rows minted before this column existed.
+    token_family: models.UUIDField = models.UUIDField(null=True, blank=True, editable=False)
+
 
 class OAuthIDToken(AbstractIDToken):
     class Meta(AbstractIDToken.Meta):
@@ -585,6 +598,12 @@ class OAuthRefreshToken(AbstractRefreshToken):
         verbose_name = "OAuth Refresh Token"
         verbose_name_plural = "OAuth Refresh Tokens"
         swappable = "OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL"
+        indexes = [
+            # Both `revoke_oauth_token_family` and DOT's refresh-token reuse protection
+            # (`OAuthValidator.validate_refresh_token`) select a whole family by this column, which
+            # AbstractRefreshToken declares without an index.
+            models.Index(fields=["token_family"], name="oauthrefreshtoken_family_idx"),
+        ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
@@ -776,14 +795,59 @@ def revoke_oauth_session(
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
 
 
+def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
+    """Revoke every token issued under the same authorization grant as `refresh_token`, and
+    nothing beyond it.
+
+    This is the scope RFC 7009 section 2.1 asks for when a client revokes a refresh token: "the
+    authorization server SHOULD also invalidate all access tokens based on the same authorization
+    grant". `token_family` is that grant, so a second, independently authorized session for the
+    same (user, application) keeps working. `revoke_oauth_session`'s wider sweep is for the
+    disconnect flows, where the user asked to end every session with the app.
+
+    Deletes rather than marks revoked, for the reason `revoke_oauth_session` documents: a row
+    marked `revoked` keeps validating for REFRESH_TOKEN_GRACE_PERIOD_SECONDS and then mints a
+    replacement pair.
+
+    Does not touch OAuthGrant, for the reason `revoke_oauth_token_session` documents: a grant is a
+    single-use authorization code consumed at token exchange, not part of an ongoing session.
+    """
+    family = refresh_token.token_family
+    if family is None:
+        # Unreachable for anything `OAuthTokenView._create_refresh_token` minted, which always
+        # stamps a family. A row that predates that still has to be revoked somehow, and an
+        # unattributable token gets the conservative treatment rather than a partial one.
+        revoke_oauth_session(refresh_token=refresh_token)
+        return
+
+    with transaction.atomic():
+        lock_oauth_connection(user_id=refresh_token.user_id, application_id=refresh_token.application_id)
+
+        # Refresh tokens before access tokens, matching revoke_oauth_session: a mid-way failure
+        # must not leave a refresh token live after its access token is gone.
+        OAuthRefreshToken.objects.filter(token_family=family).delete()
+        OAuthAccessToken.objects.filter(
+            Q(token_family=family)
+            # An access token minted before this column existed cannot be attributed to a grant, so
+            # it keeps the old connection-wide treatment rather than surviving a revoke it should
+            # not have survived. Every token minted since carries a family and is therefore never
+            # in this bucket, which is what keeps a concurrently authorized session alive. Drop this
+            # clause once no null-family rows remain (they expire with EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS).
+            | Q(
+                user_id=refresh_token.user_id,
+                application_id=refresh_token.application_id,
+                token_family__isnull=True,
+            )
+        ).delete()
+
+
 def _refresh_token_may_have_untracked_access_tokens(refresh_token: OAuthRefreshToken) -> bool:
     """True for a non-rotating refresh token (DCR/CIMD clients - see
     OAuthTokenView._save_bearer_token in posthog/api/oauth/views.py), which inserts a new,
     unlinked OAuthAccessToken row on every refresh instead of updating one access token in
-    place. Those rows carry no queryable link back to the refresh token that minted them
-    (source_refresh_token is left None specifically so sibling rows stay addressable), so
-    there's no way to enumerate every access token a given non-rotating refresh token could
-    have produced.
+    place. Those rows carry no FK back to the refresh token that minted them
+    (source_refresh_token is left None specifically so sibling rows stay addressable), so they can
+    only be enumerated through the token_family they share with it.
     """
     application = refresh_token.application
     if application.is_dcr_client or application.is_cimd_client:
@@ -827,12 +891,12 @@ def revoke_oauth_token_session(
             access_token.delete()
     elif refresh_token:
         if _refresh_token_may_have_untracked_access_tokens(refresh_token):
-            # A leaked non-rotating refresh token can have minted any number of access
-            # tokens with no durable link back to it (see
-            # _refresh_token_may_have_untracked_access_tokens), so a per-token revoke can't
-            # guarantee all of them are caught. Fall back to the same (user, application)
-            # sweep revoke_token already uses for this exact case via RFC 7009.
-            revoke_oauth_session(refresh_token=refresh_token)
+            # A leaked non-rotating refresh token can have minted any number of access tokens that
+            # no FK reaches (see _refresh_token_may_have_untracked_access_tokens), so a per-token
+            # revoke can't guarantee all of them are caught. token_family does reach them, and the
+            # grant the leaked token belongs to is the widest scope a single leaked credential is
+            # evidence about.
+            revoke_oauth_token_family(refresh_token)
             return
         # Revoke before deleting the linked access token(s), in one transaction, so a
         # mid-way failure can't leave this refresh token live (and able to mint a new

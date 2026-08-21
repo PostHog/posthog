@@ -68,7 +68,7 @@ from posthog.models.oauth import (
     OAuthRefreshToken,
     TokenEndpointAuthMethod,
     lock_oauth_connection,
-    revoke_oauth_session,
+    revoke_oauth_token_family,
 )
 from posthog.scopes import (
     ALWAYS_ALLOWED_SCOPES,
@@ -785,7 +785,8 @@ class OAuthValidator(OAuth2Validator):
 
         # Take the connection lock before `super()`, which is where DOT opens its transaction and
         # locks the refresh-token row: acquiring in the other order would deadlock against
-        # `revoke_oauth_session`, which takes this lock and then writes those same rows.
+        # the revocation helpers in posthog/models/oauth.py, which take this lock and then write
+        # those same rows.
         with transaction.atomic():
             lock_oauth_connection(
                 user_id=presented_refresh_token.user_id,
@@ -851,34 +852,39 @@ class OAuthValidator(OAuth2Validator):
 
     def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
         """
-        Sweep the full ``(user, application)`` access-token family when a
-        non-rotating refresh token is revoked via RFC 7009.
+        Revoke the presented refresh token's whole authorization grant, per RFC
+        7009 §2.1: "the authorization server SHOULD also invalidate all access
+        tokens based on the same authorization grant".
 
-        Upstream's ``RefreshToken.revoke()`` only deletes the AT linked via the
+        Upstream's ``RefreshToken.revoke()`` reaches only the AT linked via the
         OneToOne ``RefreshToken.access_token`` FK. Refresh-issued rows from our
         non-rotating ``_save_bearer_token`` branch carry
-        ``source_refresh_token=None`` so they would survive that path and stay
-        valid until expiry. ``revoke_oauth_session`` deletes by
-        ``(user, application)``, which is the same semantics the UI revoke flow
-        in ``connected_apps`` uses.
+        ``source_refresh_token=None``, so they survive that path and stay valid
+        until expiry. ``revoke_oauth_token_family`` deletes by ``token_family``
+        instead, which reaches those rows and stops at the grant boundary.
+
+        Stopping there is the point. A client that re-authorizes while an older
+        session is open (Claude Code does this on ``/mcp`` reauthenticate) mints
+        a new grant and then revokes the one it replaced, so a
+        ``(user, application)`` sweep would delete the credential the client is
+        actively using.
 
         ``token_type_hint`` is OPTIONAL per RFC 7009 §2.1 and the server MUST
         fall back to searching all token types when the hint doesn't locate the
-        token. We always probe the refresh-token table so the sweep fires for
+        token. We always probe the refresh-token table so the revoke fires for
         omitted, ``refresh_token``, and (incorrect) ``access_token`` hints
         alike; a single indexed lookup is cheap and the cost of getting this
         wrong is leaving compromised tokens valid.
 
-        The sweep only fires when the presented token belongs to the
-        authenticated client (RFC 7009 §2.1: the server verifies the token was
-        issued to the requesting client). Without that binding, any dynamic
-        client that learned another app's refresh token could revoke that
-        app's entire ``(user, application)`` session instead of just the one
-        token upstream would revoke.
+        It only fires when the presented token belongs to the authenticated
+        client (RFC 7009 §2.1: the server verifies the token was issued to the
+        requesting client). Without that binding, any dynamic client that
+        learned another app's refresh token could revoke that app's grant
+        instead of just the one token upstream would revoke.
         """
         rt = OAuthRefreshToken.objects.filter(token=token, revoked__isnull=True).first()
         if rt and self._is_dynamic_client(request) and rt.application_id == getattr(request.client, "pk", None):
-            revoke_oauth_session(refresh_token=rt)
+            revoke_oauth_token_family(rt)
             return
         return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
 
@@ -971,6 +977,11 @@ class OAuthValidator(OAuth2Validator):
             request, access_token=None, grant=None, refresh_token=scope_refresh_token
         )
 
+        # A refresh stays in the presented token's family; a true authorization-code exchange opens
+        # a new one. `_create_refresh_token` reads the value back off the access token, so the
+        # family is minted in exactly one place per grant.
+        token_family = refresh_token.token_family if refresh_token is not None else uuid.uuid4()
+
         return OAuthAccessToken.objects.create(
             user=request.user,
             scope=token.get("scope", None),
@@ -979,6 +990,7 @@ class OAuthValidator(OAuth2Validator):
             id_token=id_token,
             application=request.client,
             source_refresh_token=source_refresh_token,
+            token_family=token_family,
             scoped_teams=scoped_teams,
             scoped_organizations=scoped_organizations,
             impersonated_by_id=self._get_impersonator_id(request, refresh_token=source_refresh_token),
@@ -1011,7 +1023,10 @@ class OAuthValidator(OAuth2Validator):
         if previous_refresh_token:
             token_family = previous_refresh_token.token_family
         else:
-            token_family = uuid.uuid4()
+            # `_create_access_token` ran first and already opened the family for this grant. Minting
+            # a second UUID here (upstream's behavior) would put the pair's two halves in different
+            # families, so a family-scoped revoke would only reach one of them.
+            token_family = access_token.token_family if access_token else uuid.uuid4()
 
         scoped_teams, scoped_organizations = self._get_scoped_teams_and_organizations(
             request, access_token=None, grant=None, refresh_token=previous_refresh_token
