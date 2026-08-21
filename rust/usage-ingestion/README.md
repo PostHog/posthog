@@ -10,6 +10,10 @@ is the tenant-billing stream, which is exact, idempotent, and retained
 indefinitely. Cost and resource metering gets its own RPC, topic, and table
 rather than sharing these — see `.context/usage-ingestion-implementation-plan.md`.
 
+The RPC acknowledges only after Kafka confirms every record. Producers must call
+it asynchronously, outside request-critical paths, and retry an unavailable response
+with the same record identity and event timestamp.
+
 Run it in the local Docker stack with:
 
 ```sh
@@ -41,6 +45,9 @@ The producer and the ClickHouse Kafka engine table must name the same cluster:
 the table takes it from `CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION`,
 and the service takes its topic from `USAGE_INGESTION_TOPIC`.
 
+The endpoint relies on an in-cluster network boundary while it is being validated.
+Before it is exposed beyond trusted callers, it must authenticate the calling service.
+
 Partition count can be raised later without risk, which is not true of an
 ordered stream.
 ClickHouse deduplicates by record identity and picks a winner by
@@ -70,11 +77,9 @@ The service reads the same topic from `USAGE_INGESTION_TOPIC`.
 flox activate -- bash -c 'cd rust && cargo test -p usage-ingestion -- --ignored --nocapture'
 ```
 
-`tests/e2e.rs` checks that a retried record collapses to one canonical row.
-It also pins a semantic gap: `ReplacingMergeTree(event_timestamp)` keeps the
-whole winning row, so a later event timestamp replaces the first `inserted_at`
-rather than preserving it.
-Anything that needs first-seen time has to derive it at read time.
+`tests/e2e.rs` checks that a retry with the original event timestamp collapses
+to one canonical row. A correction must use a new version, and any correction
+that moves event time becomes a distinct billable row.
 
 ### Load test
 

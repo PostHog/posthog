@@ -12,6 +12,8 @@ common-database = { path = "../common/database" }
 common-kafka = { path = "../common/kafka" }
 common-liveness = { path = "../common/liveness" }
 envconfig = { workspace = true }
+health = { path = "../common/health" }
+metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 moka = { workspace = true }
 rdkafka = { workspace = true }

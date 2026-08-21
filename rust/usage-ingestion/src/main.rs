@@ -1,11 +1,12 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
-use common_liveness::SyncLivenessReporter;
 use envconfig::Envconfig;
+use health::HealthRegistry;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -16,15 +17,6 @@ use usage_ingestion::config::Config;
 use usage_ingestion::resolver::PostgresOrganizationResolver;
 use usage_ingestion::service::UsageIngestionService;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIngestionServer;
-
-#[derive(Clone)]
-struct ProcessLiveness;
-
-impl SyncLivenessReporter for ProcessLiveness {
-    fn report_healthy(&self) {}
-
-    fn report_unhealthy(&self) {}
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -56,7 +48,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kafka_client_id: "usage-ingestion".to_string(),
         ..Default::default()
     };
-    let producer = create_kafka_producer(&kafka_config, ProcessLiveness).await?;
+    let health = Arc::new(HealthRegistry::new("usage-ingestion"));
+    let producer_liveness = health
+        .register("kafka_producer".to_string(), Duration::from_secs(30))
+        .await;
+    let producer = create_kafka_producer(&kafka_config, producer_liveness).await?;
     let service = UsageIngestionService::new(
         producer,
         resolver,
@@ -66,9 +62,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let metrics_handle = PrometheusBuilder::new().install_recorder()?;
     let metrics_address = config.metrics_address.clone();
+    let health_for_routes = health.clone();
     tokio::spawn(async move {
         let router = Router::new()
-            .route("/_readiness", get(|| async { "ok" }))
+            .route(
+                "/_readiness",
+                get(move || {
+                    let health = health_for_routes.clone();
+                    async move { health.get_status() }
+                }),
+            )
             .route("/_liveness", get(|| async { "ok" }))
             .route(
                 "/metrics",
@@ -83,6 +86,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     tracing::info!(address = %config.grpc_address, "Starting usage-ingestion gRPC service");
+    // This listener is limited to trusted in-cluster callers. Add authenticated caller identity
+    // before exposing it beyond that boundary because records affect tenant billing.
     Server::builder()
         .add_service(UsageIngestionServer::new(service))
         .serve(config.grpc_address.parse()?)

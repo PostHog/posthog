@@ -22,7 +22,7 @@ pub trait OrganizationResolver: Send + Sync {
 }
 
 pub struct PostgresOrganizationResolver {
-    cache: Cache<i64, Uuid>,
+    cache: Cache<i64, Option<Uuid>>,
     database: PgPool,
 }
 
@@ -44,17 +44,22 @@ impl OrganizationResolver for PostgresOrganizationResolver {
             return Err(ResolveError::InvalidTeamId);
         }
         if let Some(organization_id) = self.cache.get(&team_id).await {
-            return Ok(organization_id);
+            metrics::counter!("usage_ingestion_organization_resolver_cache_lookups_total", "result" => "hit")
+                .increment(1);
+            return organization_id.ok_or(ResolveError::Missing);
         }
+        metrics::counter!("usage_ingestion_organization_resolver_cache_lookups_total", "result" => "miss")
+            .increment(1);
 
+        // A short TTL bounds stale attribution after a project moves organizations while avoiding
+        // a PostgreSQL lookup for every invalid or repeated record.
         let organization_id = sqlx::query_scalar::<_, Uuid>(
             "SELECT organization_id FROM posthog_team WHERE id = $1 AND organization_id IS NOT NULL",
         )
         .bind(team_id)
         .fetch_optional(&self.database)
-        .await?
-        .ok_or(ResolveError::Missing)?;
+        .await?;
         self.cache.insert(team_id, organization_id).await;
-        Ok(organization_id)
+        organization_id.ok_or(ResolveError::Missing)
     }
 }

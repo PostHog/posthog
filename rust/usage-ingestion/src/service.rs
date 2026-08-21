@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use chrono::Utc;
 use common_kafka::kafka_producer::{
@@ -102,6 +103,7 @@ impl UsageIngestion for UsageIngestionService {
                 })
         });
         let payloads = payloads.collect::<Result<Vec<_>, _>>()?;
+        let producer_started_at = Instant::now();
         let results = send_keyed_payloads_to_kafka_with_encoding(
             &self.producer,
             &self.topic,
@@ -109,6 +111,8 @@ impl UsageIngestion for UsageIngestionService {
             payloads,
         )
         .await;
+        metrics::histogram!("usage_ingestion_kafka_delivery_seconds")
+            .record(producer_started_at.elapsed().as_secs_f64());
         if results.iter().any(Result::is_err) {
             return Err(Status::unavailable(
                 "Kafka did not confirm every usage record; retry with the same record IDs",
