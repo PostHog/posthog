@@ -2389,7 +2389,12 @@ class TaskRun(models.Model):
         properties: dict | None = None,
         event_uuid: str | None = None,
         distinct_id_override: str | None = None,
-    ) -> None:
+    ) -> bool:
+        """Capture an analytics event for this run. Returns False when it never reached capture.
+
+        The exception stays swallowed — no caller wants a failed analytics call to fail their
+        work — but the outcome is reported so callers tracking event loss can count it.
+        """
         try:
             # The override lets the PR webhook attribute pr_merged to the GitHub user who
             # actually merged, rather than the task's assigned user.
@@ -2433,6 +2438,8 @@ class TaskRun(models.Model):
             posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
+            return False
+        return True
 
     def _duration_seconds(self) -> float:
         if self.completed_at and self.created_at:
