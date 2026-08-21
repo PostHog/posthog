@@ -186,6 +186,24 @@ case "$RS_SVC" in
     export POSTHOG_API_KEY="${CYMBAL_NOTIFICATIONS_POSTHOG_API_KEY:-phc_localposthogprojecttoken}"
     export POSTHOG_ENDPOINT="${CYMBAL_NOTIFICATIONS_POSTHOG_ENDPOINT:-http://localhost:3307}"
     export TEMPORAL_HOST="${TEMPORAL_HOST:-temporal}"
+    export TEMPORAL_PORT="${TEMPORAL_PORT:-7233}"
+    export TEMPORAL_NAMESPACE="${TEMPORAL_NAMESPACE:-default}"
+    # The local Temporal serves plaintext gRPC, so there is no client certificate
+    # to present and TEMPORAL_CLIENT_CERT/KEY stay unset.
+    #
+    # Django derives its Fernet key by left-padding a short SECRET_KEY with NUL
+    # bytes (posthog/temporal/common/codec.py, _resize_key), and the local default
+    # is 31 bytes. The Rust client takes the first 32 bytes and rejects anything
+    # shorter, so pad it the same way here. Both sides accept the base64: prefix,
+    # and both then read the same 32 bytes, so the Python workers can decrypt the
+    # payloads this service writes.
+    if [ -z "${TEMPORAL_SECRET_KEY:-}" ]; then
+      TEMPORAL_SECRET_KEY="base64:$(
+        POSTHOG_SECRET_KEY="${SECRET_KEY:-<randomly generated secret key>}" python3 -c \
+          'import base64, os; k = os.environ["POSTHOG_SECRET_KEY"].encode(); print(base64.b64encode((b"\0" * max(32 - len(k), 0) + k)[:32]).decode())'
+      )"
+    fi
+    export TEMPORAL_SECRET_KEY
     ;;
 
   embedding-worker)

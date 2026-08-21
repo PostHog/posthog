@@ -38,6 +38,36 @@ pub struct TemporalClientConfig {
     pub identity: String,
 }
 
+impl TemporalClientConfig {
+    /// mTLS settings, or `None` for a plaintext connection.
+    ///
+    /// Temporal Cloud requires a client certificate. The Temporal in the local
+    /// dev stack serves plaintext gRPC and has no certificate to offer, which is
+    /// also how the Python workers connect to it. An empty cert and key therefore
+    /// mean "connect in the clear" rather than "misconfigured". Supplying only
+    /// one of the pair is a real mistake, so it is still rejected.
+    fn tls_options(&self) -> Result<Option<TlsOptions>, TemporalClientError> {
+        match (self.client_cert.is_empty(), self.client_key.is_empty()) {
+            (true, true) => Ok(None),
+            (true, false) => Err(TemporalClientError::MissingConfig("TEMPORAL_CLIENT_CERT")),
+            (false, true) => Err(TemporalClientError::MissingConfig("TEMPORAL_CLIENT_KEY")),
+            (false, false) => Ok(Some(TlsOptions {
+                server_root_ca_cert: self
+                    .server_root_ca_cert
+                    .as_ref()
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.as_bytes().to_vec()),
+                domain: Some(self.host.clone()),
+                client_tls_options: Some(ClientTlsOptions {
+                    client_cert: self.client_cert.as_bytes().to_vec(),
+                    client_private_key: self.client_key.as_bytes().to_vec(),
+                }),
+                server_cert_verifier: None,
+            })),
+        }
+    }
+}
+
 /// Options that identify and route one workflow execution.
 #[derive(Clone, Debug)]
 pub struct StartWorkflowOptions {
@@ -114,29 +144,24 @@ impl TemporalWorkflowClient {
     pub async fn connect(config: TemporalClientConfig) -> Result<Self, TemporalClientError> {
         require_config("TEMPORAL_HOST", &config.host)?;
         require_config("TEMPORAL_NAMESPACE", &config.namespace)?;
-        require_config("TEMPORAL_CLIENT_CERT", &config.client_cert)?;
-        require_config("TEMPORAL_CLIENT_KEY", &config.client_key)?;
         require_config("TEMPORAL_SECRET_KEY", &config.payload_encryption_key)?;
         require_config("identity", &config.identity)?;
 
-        let target = url::Url::parse(&format!("https://{}:{}", config.host, config.port))?;
-        let tls_options = TlsOptions {
-            server_root_ca_cert: config
-                .server_root_ca_cert
-                .as_ref()
-                .filter(|value| !value.is_empty())
-                .map(|value| value.as_bytes().to_vec()),
-            domain: Some(config.host.clone()),
-            client_tls_options: Some(ClientTlsOptions {
-                client_cert: config.client_cert.as_bytes().to_vec(),
-                client_private_key: config.client_key.as_bytes().to_vec(),
-            }),
-            server_cert_verifier: None,
+        let tls = config.tls_options()?;
+        let scheme = if tls.is_some() { "https" } else { "http" };
+        let target = url::Url::parse(&format!("{scheme}://{}:{}", config.host, config.port))?;
+
+        // The builder is typestate-based, so `tls_options` changes its type and the
+        // two arms cannot share one binding.
+        let connection_options = match tls {
+            Some(tls) => ConnectionOptions::new(target)
+                .identity(config.identity.clone())
+                .tls_options(tls)
+                .build(),
+            None => ConnectionOptions::new(target)
+                .identity(config.identity.clone())
+                .build(),
         };
-        let connection_options = ConnectionOptions::new(target)
-            .identity(config.identity.clone())
-            .tls_options(tls_options)
-            .build();
         let connection = Connection::connect(connection_options).await?;
         let client = Client::new(connection, ClientOptions::new(config.namespace).build())?;
 
@@ -315,6 +340,36 @@ mod tests {
     struct TestInput<'a> {
         team_id: i32,
         name: &'a str,
+    }
+
+    fn config(client_cert: &str, client_key: &str) -> TemporalClientConfig {
+        TemporalClientConfig {
+            host: "temporal".to_string(),
+            port: 7233,
+            namespace: "default".to_string(),
+            client_cert: client_cert.to_string(),
+            client_key: client_key.to_string(),
+            server_root_ca_cert: None,
+            payload_encryption_key: "key".to_string(),
+            identity: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn tls_is_used_only_when_both_halves_of_the_keypair_are_present() {
+        assert!(config("", "").tls_options().unwrap().is_none());
+        assert!(config("cert", "key").tls_options().unwrap().is_some());
+
+        for (cert, key, missing) in [
+            ("cert", "", "TEMPORAL_CLIENT_KEY"),
+            ("", "key", "TEMPORAL_CLIENT_CERT"),
+        ] {
+            let error = config(cert, key).tls_options().unwrap_err();
+            assert!(
+                matches!(error, TemporalClientError::MissingConfig(name) if name == missing),
+                "expected {missing}, got {error}"
+            );
+        }
     }
 
     fn options() -> StartWorkflowOptions {
