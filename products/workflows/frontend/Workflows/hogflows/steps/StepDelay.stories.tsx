@@ -3,6 +3,8 @@ import { Node } from '@xyflow/react'
 import { BindLogic, useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
@@ -15,6 +17,10 @@ const LOGIC_PROPS: WorkflowLogicProps = { id: 'new' }
 const meta: Meta<typeof StepDelayConfiguration> = {
     title: 'Products/Workflows/Steps/Delay',
     component: StepDelayConfiguration,
+    parameters: {
+        // The stories show the panel an author sees once the date mode is rolled out
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_DELAY_UNTIL_DATE],
+    },
 }
 export default meta
 
