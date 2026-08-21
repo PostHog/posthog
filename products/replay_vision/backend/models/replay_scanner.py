@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
+from django.utils.functional import Promise
 
 from posthog.models.utils import UUIDModel
 
@@ -45,6 +46,11 @@ class ScannerModel(models.TextChoices):
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
     GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash"
     GEMINI_3_7_FLASH = "gemini-3.7-flash", "Gemini 3.7 Flash"
+
+
+def scanner_model_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(ScannerModel.choices)
 
 
 class ScannerOrigin(models.TextChoices):
@@ -113,7 +119,7 @@ class ReplayScanner(UUIDModel):
     )
 
     provider = models.CharField(max_length=32, choices=ScannerProvider.choices, default=ScannerProvider.GOOGLE)
-    model = models.CharField(max_length=64, choices=ScannerModel.choices)
+    model = models.CharField(max_length=64, choices=scanner_model_choices)
 
     enabled = models.BooleanField(
         default=True,
@@ -167,6 +173,11 @@ class ReplayScanner(UUIDModel):
         null=True,
         blank=True,
         help_text="When the deep pass last started; its cadence gates on this rather than on progress, so a cut-short pass still waits out its interval.",
+    )
+    primed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the one-off priming pass over recent recordings ran; null until the first sweep primes the scanner.",
     )
     sweep_read_bytes_by_hour = models.JSONField(
         null=True,

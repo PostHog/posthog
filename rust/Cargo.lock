@@ -2235,12 +2235,14 @@ dependencies = [
  "limiters",
  "metrics",
  "opentelemetry-proto 0.29.0",
+ "prometheus-rw-proto",
  "prost 0.13.5",
  "rdkafka",
  "serde",
  "serde_derive",
  "serde_json",
  "siphasher 1.0.2",
+ "snap",
  "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
@@ -3380,6 +3382,7 @@ dependencies = [
  "proguard",
  "rand 0.8.5",
  "rdkafka",
+ "redis",
  "regex",
  "reqwest 0.12.28",
  "rustls 0.23.37",
@@ -6055,6 +6058,15 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "ingestion-worker-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "tonic 0.12.3",
+ "tonic-build 0.12.3",
 ]
 
 [[package]]
@@ -9189,6 +9201,14 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "watto",
+]
+
+[[package]]
+name = "prometheus-rw-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "tonic-build 0.12.3",
 ]
 
 [[package]]
