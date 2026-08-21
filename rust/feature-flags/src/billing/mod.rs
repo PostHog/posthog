@@ -7,6 +7,8 @@
 
 pub mod aggregator;
 pub mod limiters;
+pub mod usage_reporter;
 
 pub use aggregator::{AggregationKey, BillingAggregator, BillingAggregatorConfig};
 pub use limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
+pub use usage_reporter::UsageReporter;
