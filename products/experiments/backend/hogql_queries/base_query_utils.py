@@ -25,7 +25,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.trends.aggregation_operations import ALLOWED_SESSION_MATH_PROPERTIES
@@ -36,6 +36,7 @@ from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     aggregation_needs_numeric_input,
     build_aggregation_call,
+    contains_aggregation,
     extract_aggregation_and_inner_expr,
 )
 from products.experiments.backend.models.experiment import Experiment
@@ -154,7 +155,7 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
                 # left in it (a compound expression like sum(a) / count(), or a nested
                 # aggregate) would generate invalid SQL and fail in ClickHouse with
                 # NOT_AN_AGGREGATE. Reject it with an actionable error instead.
-                if has_aggregation(inner_expr):
+                if contains_aggregation(inner_expr):
                     raise ValidationError(
                         "HogQL metric expressions must be a single aggregation, e.g. sum(properties.revenue). "
                         "Compound expressions like sum(a) / count() are not supported."
@@ -166,7 +167,7 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             tag_contains_user_hogql()
             parsed = parse_expr(metric_property)
             # Same constraint as math_hogql above: this is a per-row value expression.
-            if has_aggregation(parsed):
+            if contains_aggregation(parsed):
                 raise ValidationError(
                     "Data warehouse metric properties cannot contain aggregate functions; "
                     "reference a column or a per-row expression instead."
