@@ -151,6 +151,42 @@ describe('buildToolDomainsBlock', () => {
         expect(result).toContain('- feature-flag')
     })
 
+    it('trims lifecycle and capability actions from singleton domains', () => {
+        const trailingActions = [
+            'archive',
+            'calculate',
+            'copy',
+            'discard',
+            'duplicate',
+            'edit',
+            'emit',
+            'enable',
+            'end',
+            'freeze',
+            'launch',
+            'patch',
+            'pause',
+            'publish',
+            'record',
+            'reset',
+            'restore',
+            'resume',
+            'ship',
+            'show',
+            'test',
+            'unarchive',
+            'unfreeze',
+        ]
+        const tools = trailingActions.map((action, index) => ({
+            name: `resource${index}-${action}`,
+            category: 'Test',
+        }))
+
+        expect(buildToolDomainsCompact(tools).split('|')).toEqual(
+            trailingActions.map((_, index) => `resource${index}`).sort()
+        )
+    })
+
     it('should return empty string for empty array', () => {
         expect(buildToolDomainsBlock([])).toBe('')
     })
@@ -182,10 +218,10 @@ describe('buildToolDomainsCompact', () => {
         const tools = [
             ...Array.from({ length: 10 }, (_, i) => ({ name: `scout-config-${i}`, category: 'Signals' })),
             ...Array.from({ length: 10 }, (_, i) => ({ name: `scout-notes-${i}`, category: 'Signals' })),
-            ...Array.from({ length: 10 }, (_, i) => ({ name: `scout-record-${i}`, category: 'Signals' })),
+            ...Array.from({ length: 10 }, (_, i) => ({ name: `scout-history-${i}`, category: 'Signals' })),
             { name: 'survey-create', category: 'Surveys' },
         ]
-        expect(buildToolDomainsCompact(tools)).toBe('scout-config|scout-notes|scout-record|survey')
+        expect(buildToolDomainsCompact(tools)).toBe('scout-config|scout-history|scout-notes|survey')
 
         const budgeted = buildToolDomainsCompact(tools, 20)
         expect(budgeted).toBe('scout|survey')
