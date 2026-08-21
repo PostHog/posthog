@@ -244,6 +244,33 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0][1] == "cohort_member@example.com"
 
+    @parameterized.expand(
+        [
+            # (name, query, LIMIT that a wrongly pushed-down limit+offset+1 would print in the inner subquery)
+            ("aggregate", "SELECT count() FROM persons", "LIMIT 101"),
+            ("distinct", "SELECT DISTINCT is_identified FROM persons LIMIT 2", "LIMIT 3"),
+        ]
+    )
+    def test_v2_aggregate_and_distinct_do_not_push_limit_down(self, _name, query, pushed_down_limit):
+        response = execute_hogql_query(query, self.team, modifiers=self._v2_modifiers(), pretty=False)
+        assert response.clickhouse is not None
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
+        assert pushed_down_limit not in response.clickhouse
+
+    @parameterized.expand([("v2", True), ("default", False)])
+    def test_count_over_persons_is_not_capped_by_limit(self, _name, pin_v2):
+        for i in range(3):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"count_person_{i}"])
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT count() FROM persons LIMIT 1",
+            self.team,
+            modifiers=self._v2_modifiers() if pin_v2 else None,
+            pretty=False,
+        )
+        assert response.results[0][0] == 3
+
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):
     person_properties = {"$initial_referring_domain": "https://google.com"}
