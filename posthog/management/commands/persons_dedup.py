@@ -224,21 +224,26 @@ WITH dups AS (
     FROM unnest(%(uuids)s::uuid[]) AS t(uuid)
 ),"""
 
-# The duplicate uuids in one slice of the uuid space. This is the only statement that scans
-# for duplicates, so paging costs no extra scanning: the slices tile the team's range once.
+# The duplicate uuids in one slice of the uuid space, which the statements below then start
+# from. Slicing trades total work for a bounded snapshot, so it is off by default:
 #
-# Slicing the range rather than LIMITing the group count is what bounds how long a snapshot is
-# held. A LIMIT bounds only the rows returned, so on a team whose duplicates are sparse a single
-# page would scan almost the whole team to fill its quota.
+#   Slicing bounds how long any one snapshot is held, and slices the range rather than LIMITing
+#   the group count because a LIMIT bounds only the rows returned, so on a team whose duplicates
+#   are sparse one page would scan almost the whole team to fill its quota.
+#
+#   It costs extra index probes. Unsliced, one scan both finds the duplicate groups and feeds
+#   the member subqueries; sliced, each slice's statements have to locate their rows again, at
+#   roughly one index probe per duplicate group. On a team with millions of them that is hours
+#   of probing. Worse, once a slice carries enough uuids the planner abandons the probes for a
+#   sequential scan of the whole partition, which holds every team that hashes to it.
 #
 # Balanced because person uuids are UUIDv5, so their leading bytes are hash output and spread
-# evenly (nodejs/src/ingestion/common/persons/person-uuid.ts). Slicing on uuid is exact because
+# evenly (nodejs/src/ingestion/common/persons/person-uuid.ts). Exact because
 # posthog_person.uuid is immutable in production, so a group falls in one slice for all time.
 # Do not slice on posthog_persondistinctid.person_id, which the claim path rewrites.
 #
 # A sliced total is a sum over snapshots rather than a census at one instant. The only group it
-# can miss is one created after its slice was read, which a single-statement census misses just
-# as readily once it has started.
+# can miss is one created after its slice was read, which a single-statement census misses too.
 SLICE_UUIDS_SQL = """
 SELECT uuid FROM posthog_person
 WHERE team_id = %(team)s AND uuid >= %(lo)s AND uuid <= %(hi)s
@@ -820,8 +825,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--census-slices",
             type=int,
-            default=64,
-            help="split the duplicate census into this many uuid slices so no snapshot is held for the whole team (1 disables)",
+            default=1,
+            help=(
+                "split the duplicate census into this many uuid slices to bound how long any one "
+                "snapshot is held. Costs extra index probes proportional to the number of duplicate "
+                "groups, so it is opt-in; see the comment on SLICE_UUIDS_SQL"
+            ),
         )
         parser.add_argument(
             "--require-no-orphans",
