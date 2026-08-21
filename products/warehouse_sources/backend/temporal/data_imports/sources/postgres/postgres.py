@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
+    BinaryColumnReporter,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
@@ -1700,6 +1701,21 @@ class RangeAsStringLoader(Loader):
         return bytes(data).decode("utf-8")
 
 
+class NetworkAsStringLoader(Loader):
+    """Load PostgreSQL inet/cidr values as their string representation.
+
+    psycopg's default loaders convert these to `ipaddress.IPv4Address`/`IPv4Network`
+    (and IPv6 counterparts) objects. `PostgreSQLColumn.to_arrow_field` maps `inet`/`cidr`
+    to `pa.string()` via the default case, so pyarrow rejects those objects with
+    "Expected bytes, got a '...' object" when building the column array.
+    """
+
+    def load(self, data):
+        if data is None:
+            return None
+        return bytes(data).decode("utf-8")
+
+
 class SafeDateLoader(Loader):
     """Load PostgreSQL dates, handling edge cases beyond Python's date range.
 
@@ -3306,6 +3322,7 @@ def postgres_source(
                 time.sleep(min(2 * setup_connection_dropped_errors, 30))
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
+        binary_reporter = BinaryColumnReporter(logger)
         arrow_schema = table.to_arrow_schema()
         if xmin_bounds is not None:
             # The forced `_ph_xmin` projection isn't part of the discovered columns, so add it to
@@ -3359,6 +3376,8 @@ def postgres_source(
                 connection.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
                 connection.adapters.register_loader("time", SafeTimeLoader)
                 connection.adapters.register_loader("timetz", SafeTimetzLoader)
+                connection.adapters.register_loader("inet", NetworkAsStringLoader)
+                connection.adapters.register_loader("cidr", NetworkAsStringLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)
@@ -3477,6 +3496,8 @@ def postgres_source(
                             yield table_from_iterator(
                                 (dict(zip(column_names, row)) for row in rows),
                                 restrict_schema_to_columns(arrow_schema, column_names),
+                                primary_keys=primary_keys,
+                                binary_reporter=binary_reporter,
                             )
 
                             successive_errors = 0
@@ -3607,6 +3628,8 @@ def postgres_source(
                     incremental_field=incremental_field,
                     incremental_field_type=incremental_field_type,
                     db_incremental_field_last_value=db_incremental_field_last_value,
+                    primary_keys=primary_keys,
+                    binary_reporter=binary_reporter,
                 )
                 return
 
@@ -3641,6 +3664,8 @@ def postgres_source(
                     logger=logger,
                     using_read_replica=using_read_replica,
                     is_connection_dropped=_is_connection_dropped_error,
+                    primary_keys=primary_keys,
+                    binary_reporter=binary_reporter,
                 )
                 return
 
@@ -3685,7 +3710,9 @@ def postgres_source(
 
                                 dicts = [dict(zip(column_names, row)) for row in rows]
                                 del rows
-                                yield table_from_iterator(iter(dicts), read_schema)
+                                yield table_from_iterator(
+                                    iter(dicts), read_schema, primary_keys=primary_keys, binary_reporter=binary_reporter
+                                )
                                 offset += len(dicts)
                     return
                 except psycopg.errors.SerializationFailure as e:

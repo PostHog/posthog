@@ -95,6 +95,7 @@ import { GitActionMessage } from "@posthog/ui/features/sessions/components/GitAc
 import { GitActionResult } from "@posthog/ui/features/sessions/components/GitActionResult";
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
+import { isPlanItem } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
 import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
@@ -245,7 +246,7 @@ function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
   return run;
 }
 
-function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
+export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
   const out: ThreadItem[] = [];
   // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
   // items interleaved with either.
@@ -269,6 +270,14 @@ function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
+      // A plan presented for approval renders as the full PlanApprovalView
+      // card — folded into a "N tool calls" chip, the plan the user is being
+      // asked to approve is invisible. Same exemption as buildThreadGroups.
+      if (isPlanItem(item)) {
+        flush();
+        out.push(item);
+        continue;
+      }
       buffer.push(item);
       toolCount++;
     } else if (isInvisibleItem(item) || isThoughtItem(item)) {

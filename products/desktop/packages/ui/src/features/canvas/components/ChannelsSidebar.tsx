@@ -1,9 +1,6 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
-import {
-  PROJECT_BLUEBIRD_FLAG,
-  REPORT_CANVAS_INBOX_FLAG,
-} from "@posthog/shared";
+import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
@@ -15,7 +12,6 @@ import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChanne
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
-import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
   clearKeepListForRoute,
@@ -27,6 +23,7 @@ import {
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu";
 import { SidebarNavSection } from "@posthog/ui/features/sidebar/components/SidebarNavSection";
@@ -113,11 +110,6 @@ function ChannelPanes({
   );
 }
 export function ChannelsSidebar() {
-  const reportCanvasesEnabled = useFeatureFlag(
-    REPORT_CANVAS_INBOX_FLAG,
-    import.meta.env.DEV,
-  );
-  useReportSpace(reportCanvasesEnabled);
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
   const isResizing = useChannelsSidebarStore((state) => state.isResizing);
@@ -250,6 +242,7 @@ export function ChannelsSidebar() {
       onPeekEnter={beginSidebarPeek}
       onPeekLeave={() => endSidebarPeek()}
       onPeekDismiss={cancelSidebarPeek}
+      resizeTooltip={<NavResizeTooltip />}
     >
       {/* One preview card for every row in here — the channel's own list and
           the space tree both draw their rows as triggers on it. */}

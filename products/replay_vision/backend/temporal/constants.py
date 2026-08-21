@@ -84,6 +84,12 @@ DEEP_SPEND_WINDOW_DAYS = 8
 # would double the per-scanner ceiling this throttling exists to hold.
 DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY = 100 * 1024**3
 
+# One-off priming pass for a scanner that has never been swept: a few recent recordings scanned on
+# the first sweep tick, so the scanner has observations to show without waiting for new sessions.
+PRIMING_LOOKBACK = dt.timedelta(hours=24)
+PRIMING_SCAN_SESSIONS = 3
+PRIMING_MAX_EXECUTION_SECONDS = 30
+
 # Rolling 24h ClickHouse read budget per scanner. Above it, sweeps stretch their effective cadence
 # proportionally (skipped ticks batch into the next executed one, so no sessions are missed).
 # Sized an order of magnitude above the healthy post-optimization p95 so only pathological

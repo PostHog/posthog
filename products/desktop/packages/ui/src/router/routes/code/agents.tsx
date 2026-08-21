@@ -1,4 +1,3 @@
-import { AgentBuilderDockLayout } from "@posthog/ui/features/agent-applications/agent-builder/AgentBuilderDockLayout";
 import {
   AppPageSkeleton,
   withRouteSkeleton,
@@ -11,9 +10,5 @@ export const Route = createFileRoute("/code/agents")({
 });
 
 function AgentsLayout() {
-  return (
-    <AgentBuilderDockLayout>
-      <Outlet />
-    </AgentBuilderDockLayout>
-  );
+  return <Outlet />;
 }

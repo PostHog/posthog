@@ -157,6 +157,12 @@ export interface ItemBuilder {
   /** Runs that emitted `_posthog/run_started`; until then the setup card's
    *  "agent" step stays in_progress rather than completing at HTTP-boot time. */
   runStartedRunIds: Set<string>;
+  /** Plans recovered from `_posthog/permission_request` frames, keyed by
+   *  toolCallId. A sandbox agent that read the plan from a plan file sends the
+   *  ExitPlanMode tool_call plan-less — the plan travels only inside the
+   *  permission request — and the resolving tool_call_update replays the raw
+   *  plan-less input, so the plan is re-applied after every merge. */
+  recoveredPlans: Map<string, string>;
 }
 
 export function createItemBuilder(): ItemBuilder {
@@ -174,6 +180,7 @@ export function createItemBuilder(): ItemBuilder {
     lastActivityAt: null,
     isBackgroundTurnActive: false,
     runStartedRunIds: new Set(),
+    recoveredPlans: new Map(),
   };
 }
 
@@ -186,6 +193,36 @@ function noteActivity(b: ItemBuilder, ts: number) {
 }
 
 const TERMINAL_TOOL_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+/** The plan markdown carried by an ExitPlanMode-shaped input, or undefined. */
+function recoveredPlanOf(rawInput: unknown): string | undefined {
+  const plan = (rawInput as { plan?: unknown } | null | undefined)?.plan;
+  return typeof plan === "string" && plan.trim() ? plan : undefined;
+}
+
+function toolCallCarriesPlan(toolCall: ToolCall): boolean {
+  if (recoveredPlanOf(toolCall.rawInput)) return true;
+  return (toolCall.content ?? []).some((item) => {
+    const record = item as {
+      content?: { type?: string; text?: string };
+    } | null;
+    return record?.content?.type === "text" && !!record.content.text?.trim();
+  });
+}
+
+/** Fold a recovered plan into `toolCallId`'s call unless it already carries
+ *  one (an inline plan always wins). Mutates the registered ToolCall, so an
+ *  already-pushed item reflects it. */
+function applyRecoveredPlan(b: ItemBuilder, toolCallId: string): void {
+  const plan = b.recoveredPlans.get(toolCallId);
+  if (!plan) return;
+  const toolCall = b.currentTurn?.toolCalls.get(toolCallId);
+  if (!toolCall || toolCallCarriesPlan(toolCall)) return;
+  toolCall.rawInput = {
+    ...(toolCall.rawInput as Record<string, unknown> | null | undefined),
+    plan,
+  };
+}
 
 function isTerminalToolStatus(status: string | null | undefined): boolean {
   return status != null && TERMINAL_TOOL_STATUSES.has(status);
@@ -692,6 +729,27 @@ function handleNotification(
   // products are surfaced as a persistent, de-duplicated bar above the composer
   // (see accumulateSessionResources / SessionResourcesBar).
 
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.PERMISSION_REQUEST)) {
+    // Permission frames persist in the run log, so recovering the plan here
+    // also covers reloads and historical replays — unlike the pending
+    // permission in the session store, which is dropped once answered.
+    const toolCall = (
+      msg.params as
+        | { toolCall?: { toolCallId?: unknown; rawInput?: unknown } }
+        | undefined
+    )?.toolCall;
+    const plan = recoveredPlanOf(toolCall?.rawInput);
+    if (
+      typeof toolCall?.toolCallId === "string" &&
+      toolCall.toolCallId &&
+      plan
+    ) {
+      b.recoveredPlans.set(toolCall.toolCallId, plan);
+      applyRecoveredPlan(b, toolCall.toolCallId);
+    }
+    return;
+  }
+
   if (
     isNotification(msg.method, POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_STARTED)
   ) {
@@ -1150,6 +1208,7 @@ function processSessionUpdate(
           pushItem(b, toolCall, ts);
         }
       }
+      applyRecoveredPlan(b, update.toolCallId);
       break;
     }
 
@@ -1164,6 +1223,7 @@ function processSessionUpdate(
         if (!wasTerminal && isTerminalToolStatus(existing.status)) {
           b.completedToolCallCount++;
         }
+        applyRecoveredPlan(b, update.toolCallId);
       }
       break;
     }
