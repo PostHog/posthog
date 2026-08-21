@@ -27,7 +27,7 @@ function StatStrip({
       {stats.slice(0, 8).map((stat) => (
         <div
           key={stat.label}
-          className="rounded-lg border border-border bg-card px-3.5 py-2.5"
+          className="rounded-lg border border-border bg-card px-3.5 py-2"
         >
           <div className="truncate text-[11px] text-muted-foreground">
             {stat.label}

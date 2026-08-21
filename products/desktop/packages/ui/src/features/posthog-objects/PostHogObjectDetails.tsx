@@ -51,12 +51,49 @@ function DailySeriesChart({
   );
 }
 
+function CardTitle({ children }: { children: string }) {
+  return (
+    <Text
+      variant="muted"
+      className="block text-[11px] uppercase tracking-wider"
+    >
+      {children}
+    </Text>
+  );
+}
+
+type Section = NonNullable<EvidencePreview["sections"]>[number];
+
+/**
+ * A card holding one fact is chrome, not content: append single-field
+ * sections onto the last real card (or combine them when nothing else
+ * exists), so no field pays for a full card of its own.
+ */
+function foldSections(sections: Section[]): Section[] {
+  const multi = sections.filter((section) => section.fields.length > 1);
+  const single = sections.filter((section) => section.fields.length === 1);
+  if (single.length === 0) return sections;
+  if (multi.length === 0) {
+    return [
+      { title: sections[0].title, fields: single.flatMap((s) => s.fields) },
+    ];
+  }
+  return multi.map((section, index) =>
+    index === multi.length - 1
+      ? {
+          ...section,
+          fields: [...section.fields, ...single.flatMap((s) => s.fields)],
+        }
+      : section,
+  );
+}
+
 export function PostHogObjectDetails({
   preview,
 }: {
   preview: EvidencePreview;
 }) {
-  const sections = preview.sections ?? [];
+  const sections = foldSections(preview.sections ?? []);
   const showActivity = preview.spark && preview.spark.points.length > 1;
   const chart = preview.chart;
 
@@ -66,15 +103,8 @@ export function PostHogObjectDetails({
     <div className="flex flex-col gap-3">
       {showActivity && preview.spark && (
         <Card size="sm">
-          <CardContent className="p-4">
-            <Text
-              size="xs"
-              weight="medium"
-              variant="muted"
-              className="uppercase tracking-wide"
-            >
-              Activity
-            </Text>
+          <CardContent>
+            <CardTitle>Activity</CardTitle>
             {preview.spark.labels &&
             preview.spark.labels.length === preview.spark.points.length ? (
               <DailySeriesChart
@@ -93,15 +123,8 @@ export function PostHogObjectDetails({
       )}
       {chart && (
         <Card size="sm">
-          <CardContent className="p-4">
-            <Text
-              size="xs"
-              weight="medium"
-              variant="muted"
-              className="uppercase tracking-wide"
-            >
-              {chart.title}
-            </Text>
+          <CardContent>
+            <CardTitle>{chart.title}</CardTitle>
             <DailySeriesChart
               labels={chart.labels}
               series={chart.series}
@@ -112,22 +135,18 @@ export function PostHogObjectDetails({
       )}
       {sections.map((section) => (
         <Card key={section.title} size="sm">
-          <CardContent className="p-4">
-            <Text
-              size="xs"
-              weight="medium"
-              variant="muted"
-              className="uppercase tracking-wide"
-            >
-              {section.title}
-            </Text>
-            <dl className="mt-3 grid gap-x-8 gap-y-4 sm:grid-cols-2">
-              {section.fields.map((field) => (
-                <div key={field.label} className="min-w-0">
-                  <dt className="text-muted-foreground text-xs">
+          <CardContent>
+            <CardTitle>{section.title}</CardTitle>
+            <dl className="mt-2.5 flex flex-col">
+              {section.fields.map((field, index) => (
+                <div
+                  key={`${field.label}:${index}`}
+                  className="flex items-baseline gap-4 py-[5px]"
+                >
+                  <dt className="w-40 shrink-0 text-muted-foreground text-xs">
                     {field.label}
                   </dt>
-                  <dd className="mt-1 break-words text-sm tabular-nums leading-relaxed">
+                  <dd className="min-w-0 break-words font-medium text-[13px] text-foreground tabular-nums leading-snug">
                     {field.value}
                   </dd>
                 </div>

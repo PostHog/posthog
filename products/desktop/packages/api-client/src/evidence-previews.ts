@@ -273,7 +273,14 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
           "Release conditions",
           groups.length ? count(groups.length, "condition") : "All users",
         ],
-        ["Evaluation runtime", stringValue(flag.evaluation_runtime)],
+        [
+          "Evaluation runtime",
+          flag.evaluation_runtime === "all"
+            ? "All runtimes"
+            : flag.evaluation_runtime
+              ? humanizeStatus(String(flag.evaluation_runtime))
+              : null,
+        ],
         [
           "Experience continuity",
           flag.ensure_experience_continuity === null ||
@@ -554,7 +561,6 @@ export function decorateFlagPreview(
       ...(preview.sections ?? []),
       ...detailSection("Activity", [
         ["Calls in 7 days", total > 0 ? compactCount(total) : null],
-        ["Staleness", status?.status ? humanizeStatus(status.status) : null],
       ]),
     ],
   };
