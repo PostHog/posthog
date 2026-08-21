@@ -334,6 +334,50 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    export interface ConversationMessageSender {
+      /** Display name of the message sender. */
+      readonly name: string;
+      /**
+         * Email address of the message sender, when available.
+         * @nullable
+         */
+      readonly email: string | null;
+      /**
+         * UUID of the matched PostHog person, when available.
+         * @nullable
+         */
+      readonly person_id: string | null;
+      /**
+         * Distinct ID of the sender, when available.
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+    }
+
+    /**
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound
+     */
+    export type EmailThreadMessageDirectionEnum = typeof EmailThreadMessageDirectionEnum[keyof typeof EmailThreadMessageDirectionEnum];
+
+
+    export const EmailThreadMessageDirectionEnum = {
+      Inbound: 'inbound',
+      Outbound: 'outbound',
+    } as const;
+
+    export interface ConversationMessageSummary {
+      /** Sender of the message. */
+      readonly sender: ConversationMessageSender;
+      /** Timestamp from the message source. */
+      readonly sent_at: string;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+    }
+
     /**
      * * `internal` - Internal
      * * `customer` - Customer
@@ -356,6 +400,11 @@ export namespace Schemas {
        * * `internal` - Internal
        * * `customer` - Customer */
       readonly kind: EmailThreadParticipantKindEnum;
+      /**
+         * UUID of the matched PostHog person for a customer participant, when available.
+         * @nullable
+         */
+      readonly person_id: string | null;
     }
 
     export interface AccountEmailThread {
@@ -370,11 +419,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly first_message_at: string | null;
+      /** Sender, timestamp, and direction of the first captured message, when available. */
+      readonly first_message: ConversationMessageSummary | null;
       /**
          * Source timestamp of the latest captured message.
          * @nullable
          */
       readonly last_message_at: string | null;
+      /** Sender, timestamp, and direction of the latest captured message, when available. */
+      readonly last_message: ConversationMessageSummary | null;
       /** Number of captured messages in the thread. */
       readonly message_count: number;
       /** Participants included in the email thread. */
@@ -387,18 +440,6 @@ export namespace Schemas {
       /** Email address from the email header. */
       readonly email: string;
     }
-
-    /**
-     * * `inbound` - Inbound
-     * * `outbound` - Outbound
-     */
-    export type EmailThreadMessageDirectionEnum = typeof EmailThreadMessageDirectionEnum[keyof typeof EmailThreadMessageDirectionEnum];
-
-
-    export const EmailThreadMessageDirectionEnum = {
-      Inbound: 'inbound',
-      Outbound: 'outbound',
-    } as const;
 
     export interface AccountEmailThreadMessage {
       /** UUID of the captured email message. */
@@ -573,6 +614,24 @@ export namespace Schemas {
       definition: string;
       /** PostHog user id of the assignee. Must be a member of the account's organization. */
       user: number;
+    }
+
+    export interface AccountSupportTicketMessage {
+      /** UUID of the support ticket message. */
+      readonly id: string;
+      /** Plain-text message content. */
+      readonly content: string;
+      /** Display name of the message author. */
+      readonly author_name: string;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+      /** Whether the message is an internal note hidden from the customer. */
+      readonly is_private: boolean;
+      /** When the message was created. */
+      readonly created_at: string;
     }
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
@@ -39893,6 +39952,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `server` - Server
+     * * `toolbar` - Toolbar
+     */
+    export type HeatmapScreenshotResponseSourceEnum = typeof HeatmapScreenshotResponseSourceEnum[keyof typeof HeatmapScreenshotResponseSourceEnum];
+
+
+    export const HeatmapScreenshotResponseSourceEnum = {
+      Server: 'server',
+      Toolbar: 'toolbar',
+    } as const;
+
+    /**
      * * `processing` - Processing
      * * `completed` - Completed
      * * `failed` - Failed
@@ -39938,13 +40009,18 @@ export namespace Schemas {
          */
       data_url?: string | null;
       /** Viewport widths (CSS pixels) the screenshot is rendered at. */
-      target_widths?: unknown;
+      readonly target_widths: readonly number[];
       /** Render mode: 'screenshot', 'iframe', or 'recording'.
        *
        * * `screenshot` - Screenshot
        * * `iframe` - Iframe
        * * `recording` - Recording */
       type?: HeatmapType;
+      /** How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).
+       *
+       * * `server` - Server
+       * * `toolbar` - Toolbar */
+      readonly source: HeatmapScreenshotResponseSourceEnum;
       /** Screenshot generation status: 'processing', 'completed', or 'failed'.
        *
        * * `processing` - Processing
@@ -50740,6 +50816,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: AccountRelationshipDefinition[];
+    }
+
+    export interface PaginatedAccountSupportTicketMessageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountSupportTicketMessage[];
     }
 
     export interface PaginatedActionList {
@@ -72434,6 +72519,39 @@ export namespace Schemas {
       output_fields: OutputField[];
     }
 
+    export interface SavedHeatmapCaptureRequest {
+      /** Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap. */
+      image?: string;
+      /**
+         * Viewport width (CSS pixels) the single 'image' was captured at.
+         * @minimum 100
+         * @maximum 3000
+         */
+      width?: number;
+      /**
+         * One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single toolbar capture cover the same viewport widths the server renders. At most 16 widths.
+         * @maxItems 16
+         */
+      images?: string[];
+      /**
+         * Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'.
+         * @maxItems 16
+         * @items.minimum 100
+         * @items.maximum 3000
+         */
+      widths?: number[];
+      /**
+         * Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.
+         * @maxLength 2000
+         */
+      url: string;
+      /**
+         * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
+         * @maxLength 400
+         */
+      name?: string;
+    }
+
     export interface SavedHeatmapListResponse {
       results: HeatmapScreenshotResponse[];
       /** Total number of saved heatmaps matching the filters. */
@@ -78979,8 +79097,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_message_text: string | null;
+      /** Sender, timestamp, and direction of the latest public message, when available. */
+      readonly last_message: ConversationMessageSummary | null;
       /** Absolute URL to open this ticket in the app. */
       readonly deep_link: string;
+      /** When the ticket conversation started. */
+      readonly created_at: string;
+      /** Display name of the customer who started the ticket. */
+      readonly started_by: string;
+      /** Distinct ID of the customer who started the ticket. */
+      readonly distinct_id: string;
     }
 
     /**
@@ -80474,6 +80600,7 @@ export namespace Schemas {
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
+     * * `side_question` - side_question
      */
     export type TaskRunCommandRequestMethodEnum = typeof TaskRunCommandRequestMethodEnum[keyof typeof TaskRunCommandRequestMethodEnum];
 
@@ -80488,6 +80615,7 @@ export namespace Schemas {
       PiRpc: 'pi/rpc',
       QueueGet: 'queue_get',
       QueueClear: 'queue_clear',
+      SideQuestion: 'side_question',
     } as const;
 
     /**
@@ -80508,7 +80636,8 @@ export namespace Schemas {
        * * `mcp_response` - mcp_response
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
-       * * `queue_clear` - queue_clear */
+       * * `queue_clear` - queue_clear
+       * * `side_question` - side_question */
       method: TaskRunCommandRequestMethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
@@ -85792,6 +85921,17 @@ export namespace Schemas {
     };
 
     export type AccountsSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AccountsSupportTicketMessagesListParams = {
     /**
      * Number of results to return per page.
      */
