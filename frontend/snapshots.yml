@@ -8012,6 +8012,22 @@ snapshots:
         hash: v1.k794b7964.4985b07e9f0062954fa68380bc57ba975141f437e96ac938c8025540aae5d92b.Pae87mHyCuaDYoeU92NuOV9zJx0hqar1R0vunkOZUN0
     scenes-app-web-analytics-achievements--weekly-only-arm--light:
         hash: v1.k794b7964.eb042d165752cd9ff0145ee3b49f0769671244ca00e931c8ece93ec0d01a9a6f.YlQzVwE6qBKZs4cKyA1-lYowaxlhGEGt_K4jt076OSE
+    scenes-app-web-analytics-livemetricscharts--bot-events-per-minute--dark:
+        hash: v1.k794b7964.933ca8aa37de16e55b07b9be45e8784e14b6a9aa8d7119882340e8858c5f9afd.FWPAiDTJNN-96zh7GPc5h6lH7TSlCDPeLmG0lk3YW1I
+    scenes-app-web-analytics-livemetricscharts--bot-events-per-minute--light:
+        hash: v1.k794b7964.b026ad99544543fc46459d993e36d5450173711f13d8efea7fbccd2bf59e5e20.FnclOOQkdMOJf-fhSlnCKHzR0drwp3r9GozjGi22bMI
+    scenes-app-web-analytics-livemetricscharts--bot-events-per-minute-empty--dark:
+        hash: v1.k794b7964.0f3f85eb2624dab32b6e46fd7ace5246b00c0e23a264f56f9a7a2ed18e4f0659.oS1LTtURs6vcnL4-VrAtTlqHy_K1aaHo22z5EflgKEQ
+    scenes-app-web-analytics-livemetricscharts--bot-events-per-minute-empty--light:
+        hash: v1.k794b7964.ec0a8bf5cf882099981eb42eaafd52daed15226eb7291a006e6ff18c036411a4.tvmPwBcjwTzkHHWAd7voscgvw9heIHMvmmFom51jRL8
+    scenes-app-web-analytics-livemetricscharts--users-per-minute--dark:
+        hash: v1.k794b7964.f5d634b07ca821b44d493642e9f3d35d89d283d7edb81d4841003413a06dc896.Z8kWif_FhEfgOxpuCRyYf0naTJaxtAlAd3FVn24WrTU
+    scenes-app-web-analytics-livemetricscharts--users-per-minute--light:
+        hash: v1.k794b7964.16ec36d77cb82cbd35386ef43e317b2e8f88f2c068a49ad5a1f096d76279588f.QRZYQWvtCJA84hln5hLC9sDlurTikeaJPFjMgKUVT_c
+    scenes-app-web-analytics-livemetricscharts--users-per-minute-empty--dark:
+        hash: v1.k794b7964.0673d34d6bf0b4fd471c62fbcece324dd1fbb6180a6a37e7ffffee639f57e209.oEb2yD3dty7AG4d_62ypUf61Dhc28FYVFs9oMzUyRlw
+    scenes-app-web-analytics-livemetricscharts--users-per-minute-empty--light:
+        hash: v1.k794b7964.08f6363b9b1efb601ef2b7fb5e28f46c8c6726f861d927c6e994213085e666d3.BdfZOIp9Rfr_MYCMTsHW6qmhKUH_Z4u1S2beLgY0eqs
     scenes-app-web-analytics-pageperformancemetriccard--decrease--dark:
         hash: v1.k794b7964.3f63a6ca6c96ecfa8d06124b4e18d56a38607bf556f3b1047b2b53e0ce65a11a.LCU961p9dYD1lX1bB0gN9D0HEmO_UHdHkRE9dduvuas
     scenes-app-web-analytics-pageperformancemetriccard--decrease--light:
