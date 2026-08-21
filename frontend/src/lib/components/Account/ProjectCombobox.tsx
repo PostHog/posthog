@@ -188,7 +188,7 @@ export function ProjectCombobox(): JSX.Element | null {
                         <ButtonPrimitive
                             menuItem
                             data-attr="new-project-button"
-                            tooltip="Create a new project"
+                            tooltip={projectCreationForbiddenReason || 'Create a new project'}
                             tooltipPlacement="right"
                             className="shrink-0"
                             disabled={!!projectCreationForbiddenReason}
