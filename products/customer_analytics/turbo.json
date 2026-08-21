@@ -10,7 +10,9 @@
                 "backend/max_tools.py",
                 "backend/models/team_customer_analytics_config.py",
                 "backend/tasks/**",
-                "backend/temporal/**"
+                "backend/temporal/**",
+                "backend/models/**",
+                "backend/migrations/**"
             ],
             "outputs": [],
             "cache": true

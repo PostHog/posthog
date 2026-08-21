@@ -815,10 +815,10 @@ class IsolationChainCheck(ProductCheck):
         if has_narrowed and status.uncovered_model_surface:
             surface_globs = ", ".join(location_input_glob(p) for p in status.uncovered_model_surface)
             result.issues.append(
-                "turbo.json narrows contract-check inputs but omits the watched-models surface "
-                f"{', '.join(status.uncovered_model_surface)} — the facade hands out model classes under the "
-                f"watched-models allowance, so a change there would skip the Django suite. Add the matching "
-                f"input(s) ({surface_globs})"
+                "turbo.json narrows contract-check inputs but omits the model surface "
+                f"{', '.join(status.uncovered_model_surface)} — a model is reachable without an import "
+                "(apps.get_model, migrations, admin), so a model or migration change must re-run the Django "
+                f"suite. Add the matching input(s) ({surface_globs})"
             )
 
         # Earned but not turned on: a fully sealed, eligible product that already carries
