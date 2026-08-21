@@ -49,14 +49,21 @@ export function GitHubSourceRepositoriesDialog({
   const [repos, setRepos] = useState<string[]>(initialRepos);
   const [searchQuery, setSearchQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const { repositories, isLoadingRepos } = useRepositoryIntegration();
+  const { repositories, isLoadingRepos, getIntegrationIdForRepo } =
+    useRepositoryIntegration();
+  // A source syncs through one GitHub installation, and editing repos can't change it. Scope the
+  // picker to that installation so it never offers repos the source's credential can't reach; the
+  // source's stored repos all resolve to the same integration, so the first one identifies it.
+  const sourceIntegrationId = initialRepos[0]
+    ? getIntegrationIdForRepo(initialRepos[0])
+    : undefined;
   const {
     repositories: visibleRepositories,
     isPending: visibleRepositoriesLoading,
     isFetchingMore,
     hasMore,
     loadMore,
-  } = useGithubRepositories(searchQuery, pickerOpen);
+  } = useGithubRepositories(searchQuery, pickerOpen, sourceIntegrationId);
 
   const save = useMutation({
     mutationFn: async () => {
