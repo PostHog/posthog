@@ -79,7 +79,9 @@ tools:
             capture events, inline queries, network origins) — so added access is visible before shipping. Poll
             canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve
             passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime
-            capabilities in `project.capabilities`.
+            capabilities in `project.capabilities`. A project that shows PostHog data must make every figure verifiable
+            before staging: an insight-backed metric links its saved insight (ph.openExternal with a URL from
+            generate-app-url); an ad-hoc ph.query figure exposes the exact query that ran in a modal or collapsed area.
         param_overrides:
             id:
                 description: ID of the canvas to stage a draft for.
@@ -256,8 +258,11 @@ tools:
             `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409
             version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish
             against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare
-            the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. The
-            canvas lives in PostHog, not on disk — this tool is what saves it.
+            the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. A
+            project that shows PostHog data must make every figure verifiable before publishing: an insight-backed
+            metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure
+            exposes the exact query that ran in a modal or collapsed area. The canvas lives in PostHog, not on disk —
+            this tool is what saves it.
         param_overrides:
             id:
                 description: ID of the canvas whose source to publish.
