@@ -3392,6 +3392,30 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
 
     @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_on_unmapped_region_returns_empty(self, mock_region: MagicMock) -> None:
+        """A region with no internal team mapping (e.g. the hosted DEV environment)
+        returns no credits rather than raising.
+
+        These queries read events from PostHog's *own* internal project, which only
+        exists on the US and EU clouds; any other region has nothing to aggregate.
+        Raising takes down the entire usage report - Celery task and Temporal
+        workflow alike - for every other metric too.
+        """
+        from posthog.tasks.usage_report import (
+            get_teams_with_ai_credits_used_in_period,
+            get_teams_with_posthog_code_credits_used_in_period,
+        )
+
+        mock_region.return_value = "DEV"
+        self._setup_teams()
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        assert get_teams_with_ai_credits_used_in_period(period_start, period_end) == []
+        assert get_teams_with_posthog_code_credits_used_in_period(period_start, period_end) == []
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_billable_tools(self, mock_region: MagicMock) -> None:
         """Test that generations with non-search tools are billed correctly."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
