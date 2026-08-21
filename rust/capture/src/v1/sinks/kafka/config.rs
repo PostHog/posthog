@@ -97,33 +97,20 @@ pub struct Config {
 
     // -- Topics --
     //
-    // Which of these a deployment must actually set depends on its capture
-    // mode, so the parse accepts them absent and [`Config::validate`] decides;
-    // see [`Config::reachable_topics`]. An unset topic is an empty string,
-    // which `topic_for` resolves to `None` rather than to a topic named "".
-    /// Required on the analytics modes; unreachable on the AI lane.
-    #[envconfig(default = "")]
-    pub topic_main: String,
-    /// Required on the analytics modes; unreachable on the AI lane.
-    #[envconfig(default = "")]
-    pub topic_historical: String,
-    /// Required on the analytics modes; unreachable on the AI lane.
-    #[envconfig(default = "")]
-    pub topic_overflow: String,
+    // The optional ones are only reachable on the analytics modes, so whether
+    // absence is an error depends on the deployment's capture mode and is
+    // decided by [`Config::validate`] via [`Config::reachable_topics`].
+    pub topic_main: Option<String>,
+    pub topic_historical: Option<String>,
+    pub topic_overflow: Option<String>,
     /// Required on every mode: a `redirect_to_dlq` restriction applies to every
     /// pipeline's slice, the AI one included.
     pub topic_dlq: String,
 
     // -- Non-analytics topics --
-    /// Required on the analytics modes; unreachable on the AI lane.
-    #[envconfig(default = "")]
-    pub topic_exception: String,
-    /// Required on the analytics modes; unreachable on the AI lane.
-    #[envconfig(default = "")]
-    pub topic_heatmap: String,
-    /// Required on the analytics modes; unreachable on the AI lane.
-    #[envconfig(default = "")]
-    pub topic_client_ingestion_warning: String,
+    pub topic_exception: Option<String>,
+    pub topic_heatmap: Option<String>,
+    pub topic_client_ingestion_warning: Option<String>,
 
     /// Dedicated topic for `$ai_*` events. Not meant to be set via per-sink
     /// env: setup injects the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` into
@@ -142,23 +129,16 @@ const VALID_COMPRESSION: &[&str] = &["none", "gzip", "snappy", "lz4", "zstd"];
 
 impl Config {
     /// Every topic this deployment's pipeline can route an event to, paired
-    /// with the env var that sets it. `validate` refuses to boot when one of
-    /// them is unset, so a misrouted event fails at startup rather than at
-    /// first produce.
+    /// with the env var that sets it, so `validate` can refuse to boot with one
+    /// missing instead of failing at first produce.
     ///
-    /// The set is mode-dependent because the reachable destinations are.
-    /// `Destination` is assigned from the event name, so an analytics
-    /// deployment can reach every lane. `CaptureMode::Ai` serves only the AI
-    /// endpoints, and the v1 pipeline's non-AI gate drops anything off the AI
-    /// lane before the sink sees it, leaving the AI topics plus the two places
-    /// a restriction can still send an AI event: the DLQ, and a custom topic,
-    /// which carries its own name on the event. Requiring the analytics topics
-    /// there would make capture-ai invent six topic names to satisfy a parse
-    /// it never reads.
-    ///
-    /// `CaptureMode::Recordings` registers no v1 route at all, so nothing is
-    /// reachable; it is grouped with Ai rather than given an empty arm of its
-    /// own, since both are "not an analytics deployment".
+    /// An analytics deployment can reach every lane, since `Destination` is
+    /// assigned from the event name. `CaptureMode::Ai` drops non-AI events
+    /// before the sink sees them, leaving the AI topics plus the two places a
+    /// restriction can still send an AI event: the DLQ, and a custom topic,
+    /// which carries its own name on the event. `CaptureMode::Recordings`
+    /// registers no v1 route at all; it is grouped with Ai because both are
+    /// "not an analytics deployment".
     fn reachable_topics(&self, capture_mode: CaptureMode) -> Vec<(&'static str, &str)> {
         let mut topics = vec![
             ("TOPIC_DLQ", self.topic_dlq.as_str()),
@@ -166,14 +146,28 @@ impl Config {
         ];
         match capture_mode {
             CaptureMode::Events | CaptureMode::Import => topics.extend([
-                ("TOPIC_MAIN", self.topic_main.as_str()),
-                ("TOPIC_HISTORICAL", self.topic_historical.as_str()),
-                ("TOPIC_OVERFLOW", self.topic_overflow.as_str()),
-                ("TOPIC_EXCEPTION", self.topic_exception.as_str()),
-                ("TOPIC_HEATMAP", self.topic_heatmap.as_str()),
+                ("TOPIC_MAIN", self.topic_main.as_deref().unwrap_or_default()),
+                (
+                    "TOPIC_HISTORICAL",
+                    self.topic_historical.as_deref().unwrap_or_default(),
+                ),
+                (
+                    "TOPIC_OVERFLOW",
+                    self.topic_overflow.as_deref().unwrap_or_default(),
+                ),
+                (
+                    "TOPIC_EXCEPTION",
+                    self.topic_exception.as_deref().unwrap_or_default(),
+                ),
+                (
+                    "TOPIC_HEATMAP",
+                    self.topic_heatmap.as_deref().unwrap_or_default(),
+                ),
                 (
                     "TOPIC_CLIENT_INGESTION_WARNING",
-                    self.topic_client_ingestion_warning.as_str(),
+                    self.topic_client_ingestion_warning
+                        .as_deref()
+                        .unwrap_or_default(),
                 ),
             ]),
             CaptureMode::Ai | CaptureMode::Recordings => {}
@@ -229,20 +223,25 @@ impl Config {
 
     /// Resolve which topic to use for the given destination on this sink.
     ///
-    /// An unset topic reads back as an empty string, and `None` is what the
-    /// sink already handles by skipping the event, so unset resolves to `None`
-    /// rather than to a topic named "" that every produce would then reject.
-    /// A deployment reaching this on a destination it routes to would have
-    /// failed [`Config::validate`] at boot.
+    /// A destination whose topic is unset or empty resolves to `None`, which
+    /// the sink handles by skipping the event. A deployment reaching that on a
+    /// destination it routes to would have failed [`Config::validate`] at boot.
     pub fn topic_for<'a>(&'a self, dest: &'a Destination) -> Option<&'a str> {
         let topic: &str = match dest {
-            Destination::AnalyticsMain => &self.topic_main,
-            Destination::AnalyticsHistorical => &self.topic_historical,
-            Destination::Overflow => &self.topic_overflow,
+            Destination::AnalyticsMain => self.topic_main.as_deref().unwrap_or_default(),
+            Destination::AnalyticsHistorical => {
+                self.topic_historical.as_deref().unwrap_or_default()
+            }
+            Destination::Overflow => self.topic_overflow.as_deref().unwrap_or_default(),
             Destination::Dlq => &self.topic_dlq,
-            Destination::ExceptionErrorTracking => &self.topic_exception,
-            Destination::HeatmapMain => &self.topic_heatmap,
-            Destination::ClientIngestionWarning => &self.topic_client_ingestion_warning,
+            Destination::ExceptionErrorTracking => {
+                self.topic_exception.as_deref().unwrap_or_default()
+            }
+            Destination::HeatmapMain => self.topic_heatmap.as_deref().unwrap_or_default(),
+            Destination::ClientIngestionWarning => self
+                .topic_client_ingestion_warning
+                .as_deref()
+                .unwrap_or_default(),
             Destination::AiEvents => &self.topic_ai,
             Destination::AiEventsOverflow => self.topic_ai_overflow.as_deref().unwrap_or_default(),
             Destination::Custom(t) => t.as_str(),
@@ -334,7 +333,7 @@ mod tests {
         assert_eq!(cfg.retry_backoff_max_ms, 2000);
         assert_eq!(cfg.socket_send_buffer_bytes, 65536);
         assert_eq!(cfg.socket_receive_buffer_bytes, 65536);
-        assert_eq!(cfg.topic_main, "events_main");
+        assert_eq!(cfg.topic_main.as_deref(), Some("events_main"));
     }
 
     #[test]
@@ -475,15 +474,15 @@ mod tests {
     // -- mode-aware topic completeness --
 
     /// Blank each analytics topic in turn: the modes that can route to it must
-    /// refuse to boot, and the AI lane — which drops every non-AI event before
-    /// the sink — must not care. The error names the env var to set.
+    /// refuse to boot, and the AI lane, which drops every non-AI event before
+    /// the sink, must not care. The error names the env var to set.
     #[rstest]
-    #[case("TOPIC_MAIN", |c: &mut Config| c.topic_main.clear())]
-    #[case("TOPIC_HISTORICAL", |c: &mut Config| c.topic_historical.clear())]
-    #[case("TOPIC_OVERFLOW", |c: &mut Config| c.topic_overflow.clear())]
-    #[case("TOPIC_EXCEPTION", |c: &mut Config| c.topic_exception.clear())]
-    #[case("TOPIC_HEATMAP", |c: &mut Config| c.topic_heatmap.clear())]
-    #[case("TOPIC_CLIENT_INGESTION_WARNING", |c: &mut Config| c.topic_client_ingestion_warning.clear())]
+    #[case("TOPIC_MAIN", |c: &mut Config| c.topic_main = None)]
+    #[case("TOPIC_HISTORICAL", |c: &mut Config| c.topic_historical = None)]
+    #[case("TOPIC_OVERFLOW", |c: &mut Config| c.topic_overflow = None)]
+    #[case("TOPIC_EXCEPTION", |c: &mut Config| c.topic_exception = None)]
+    #[case("TOPIC_HEATMAP", |c: &mut Config| c.topic_heatmap = None)]
+    #[case("TOPIC_CLIENT_INGESTION_WARNING", |c: &mut Config| c.topic_client_ingestion_warning = None)]
     fn analytics_topics_are_required_only_where_reachable(
         #[case] env_key: &str,
         #[case] blank: fn(&mut Config),
@@ -530,12 +529,13 @@ mod tests {
         }
     }
 
-    /// An unset topic must resolve to `None` — the arm the sink already skips
-    /// — rather than to a topic named "", which every produce would reject.
+    /// An explicitly empty topic must resolve like an unset one, to the `None`
+    /// arm the sink already skips, not to a topic named "" that every produce
+    /// would reject.
     #[test]
-    fn unset_topic_resolves_to_no_topic() {
+    fn empty_topic_resolves_to_no_topic() {
         let mut cfg = valid_config();
-        cfg.topic_main.clear();
+        cfg.topic_main = Some(String::new());
         assert_eq!(cfg.topic_for(&Destination::AnalyticsMain), None);
     }
 

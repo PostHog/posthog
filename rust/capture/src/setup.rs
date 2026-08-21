@@ -529,8 +529,7 @@ fn create_v1_sink_router(
 
     // After the injection above, so the topic completeness check sees the
     // values the sinks will actually produce to rather than the per-sink env
-    // parse. Which topics a deployment must have wired depends on its capture
-    // mode: capture-ai never routes to the analytics lanes.
+    // parse.
     sinks_cfg
         .validate(config.capture_mode)
         .context("v1 sink config validation failed")?;

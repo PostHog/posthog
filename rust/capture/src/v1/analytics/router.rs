@@ -20,7 +20,7 @@ pub fn routes() -> Router<State> {
 }
 
 /// The AI lane's v1 endpoint. Same handler, same request and response
-/// contract, same middleware — only the path differs, so the ingress can send
+/// contract, same middleware; only the path differs, so the ingress can send
 /// v1 AI traffic to capture-ai, which produces straight to the AI topic and
 /// applies its own `AI_MAX_EVENT_BYTES` ceiling.
 ///
@@ -28,8 +28,8 @@ pub fn routes() -> Router<State> {
 /// pipeline (gateway provenance, the llm_events quota exemption, `Pipeline::Ai`
 /// restrictions, the per-event size ceiling, the byte-rate limiter, and the
 /// `Destination::AiEvents` lane itself) keys off the event name, not the path.
-/// What the path decides is which deployment answers, which
-/// `crate::router` gates on the capture mode.
+/// What the path decides is which deployment answers, which `crate::router`
+/// gates on the capture mode.
 pub fn ai_routes() -> Router<State> {
     Router::new()
         .route(

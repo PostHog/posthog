@@ -838,19 +838,11 @@ async fn apply_restrictions(
 /// capture-ai loads only the AI restriction slice (`Pipeline::for_capture_mode`),
 /// so an analytics, exception, or heatmap event reaching it would ingest
 /// governed by nothing. Refusing it is what keeps "which restrictions apply"
-/// answerable from the event name alone, on every deployment.
-///
-/// Only the offenders are dropped. v1 reports a per-event outcome, so the client
-/// is told exactly which events were refused while the AI events beside them in
-/// the batch still publish; the v0 path on this same deployment rejects the whole
-/// request instead (`CaptureError::NonAiEventOnAiLane`), because its contract has
-/// no way to say less.
-///
-/// Lane membership is the destination `destination_for_event_name` already
-/// assigned, so it follows the same `AI_EVENT_NAMES` allowlist v0 stamps
-/// `DataType::AiEvents` from: an `$ai_`-prefixed name that is not on the
-/// allowlist is dropped here too, as the Node AI pipeline would DLQ it anyway.
-/// The gate runs before quota and restrictions so a refused event spends neither.
+/// answerable from the event name alone, on every deployment. Only the
+/// offenders drop, since v1 reports per-event outcomes; the v0 path on this
+/// deployment rejects the whole request (`CaptureError::NonAiEventOnAiLane`)
+/// because its contract has no way to say less. The gate runs before quota and
+/// restrictions so a refused event spends neither.
 fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
     let mut dropped: u64 = 0;
     // Identifiers for the warning, kept only while exactly one event offended.
@@ -886,9 +878,7 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
 
     // The same `invalid_ai_event` type the v0 AI endpoint emits for an event
     // name off the allowlist: identical mistake, so a reader of the v2 warnings
-    // table doesn't have to learn a second vocabulary for it. The event name is
-    // client-controlled and nothing downstream length-limits details, hence the
-    // bound.
+    // table doesn't have to learn a second vocabulary for it.
     let mut details = serde_json::Map::new();
     if let Some((event_name, uuid)) = single_offender {
         details.insert(
@@ -4408,10 +4398,6 @@ mod tests {
         }
     }
 
-    /// The gate is per-event, not per-batch: an AI event sent alongside
-    /// analytics ones still publishes, and each offender is named in the
-    /// response. This is what separates it from the v0 path on the same
-    /// deployment, which refuses the whole request.
     #[tokio::test]
     async fn ai_mode_drops_non_ai_events_and_publishes_the_rest() {
         let ts = TestStateBuilder::new()
@@ -4447,7 +4433,7 @@ mod tests {
     }
 
     /// Lane membership is the `AI_EVENT_NAMES` allowlist, so an `$ai_`-prefixed
-    /// name that is not on it is dropped like any other non-AI event — the Node
+    /// name that is not on it is dropped like any other non-AI event; the Node
     /// AI pipeline would DLQ it anyway.
     #[rstest::rstest]
     #[case::allowlisted("$ai_generation", EventResult::Ok)]
@@ -4476,9 +4462,8 @@ mod tests {
         }
     }
 
-    /// The control: the same non-AI events on an analytics deployment are
-    /// untouched, so the gate is genuinely mode-scoped rather than a change to
-    /// how the shared pipeline treats these names.
+    /// The control proving the gate is mode-scoped, not a change to how the
+    /// shared pipeline treats these names.
     #[tokio::test]
     async fn events_mode_leaves_non_ai_events_alone() {
         let ts = TestStateBuilder::new().build();
@@ -4499,9 +4484,6 @@ mod tests {
             .with_records(|records| assert_eq!(records.len(), 3));
     }
 
-    /// Each gated event raises the `invalid_ai_event` warning the v0 AI endpoint
-    /// already emits for an event name off the allowlist, so the project owner
-    /// sees one vocabulary for the mistake across both pipelines.
     #[tokio::test]
     async fn ai_mode_non_ai_drop_emits_the_invalid_ai_event_warning() {
         let collector = Arc::new(CollectingEmitter::new());
@@ -4531,7 +4513,7 @@ mod tests {
     }
 
     /// With several offenders the identifiers would be an arbitrary pick, so
-    /// only the count rides along — the same rule the validation-drop warnings
+    /// only the count rides along, the same rule the validation-drop warnings
     /// follow.
     #[tokio::test]
     async fn ai_mode_several_non_ai_drops_report_a_count_without_identifiers() {

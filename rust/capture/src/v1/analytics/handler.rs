@@ -110,7 +110,7 @@ pub async fn handle_request(
 /// could not be `&'static`; matching it back against the registered set is what
 /// keeps the label a fixed-cardinality literal no matter what the client sent.
 /// An unknown pattern means a route was registered without being listed, which
-/// is a bug rather than client input — falling back keeps the request served,
+/// is a bug rather than client input, so falling back keeps the request served
 /// and the warning says where to look.
 fn pin_static_path(matched: &str) -> &'static str {
     match CAPTURE_V1_PATHS.iter().find(|p| **p == matched) {

@@ -481,13 +481,11 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         // which capture-ai no longer loads.
         CaptureMode::Ai | CaptureMode::Recordings => false,
     };
-    // `/i/v1/ai/events` is the v1 contract on the AI lane, and capture-ai is the
-    // only deployment that can serve it. It produces to the AI topic directly
-    // and applies its own `AI_MAX_EVENT_BYTES` ceiling, and the handler's
-    // non-AI-event gate is written for a deployment that loads only the AI
-    // restriction slice — on an analytics deployment that gate would drop the
-    // ordinary events those paths exist to accept.
     let serves_v1_ai_events = match capture_mode {
+        // `/i/v1/ai/events` belongs to capture-ai the way the v0 AI paths do:
+        // that deployment produces straight to the AI topic and sizes its
+        // ceilings for AI events. See `v1::analytics::router::ai_routes` for
+        // why the shared handler needs no AI-specific branch.
         CaptureMode::Ai => true,
         CaptureMode::Events | CaptureMode::Import | CaptureMode::Recordings => false,
     };

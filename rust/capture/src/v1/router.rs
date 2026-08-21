@@ -30,10 +30,9 @@ pub struct RouterConfig {
     pub serves_ai_events: bool,
 }
 
-/// Builds the v1 router for whichever endpoints this deployment mounts. Which
-/// ones those are is decided by capture mode in `crate::router`, which owns the
-/// route-to-deployment split for every path capture serves; this only assembles
-/// what it was told to.
+/// Builds the v1 router for the endpoints this deployment mounts. The choice
+/// is made per capture mode in `crate::router`, which owns the
+/// route-to-deployment split for every path capture serves.
 pub fn router(cfg: RouterConfig) -> Router<State> {
     // v1 endpoints are POST-only; preflight is answered by the CORS layer.
     let cors = CorsLayer::new()
