@@ -239,7 +239,7 @@ export function WorkflowsTable(): JSX.Element {
                             forceParams={{
                                 appSource: 'hog_flow',
                                 appSourceId: id,
-                                metricName: ['triggered'],
+                                metricName: ['triggered', 'failed'],
                                 breakdownBy: 'metric_name',
                                 interval: 'day',
                                 dateFrom: '-7d',
