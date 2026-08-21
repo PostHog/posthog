@@ -57,7 +57,7 @@ _active_recorder: contextvars.ContextVar[_Recorder | None] = contextvars.Context
 )
 
 
-@dataclass
+@dataclass(frozen=False)
 class _FakeRef:
     """Stand-in for a ``Task`` / ``TaskRun`` row: replay only ever reads ``.id``."""
 
@@ -178,7 +178,7 @@ class ReplayMultiTurnSession:
 # ── Recording ──────────────────────────────────────────────────────────────────────
 
 
-@dataclass
+@dataclass(frozen=False)
 class _Recorder:
     case_id: str
     step: str

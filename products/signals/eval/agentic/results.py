@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from products.signals.eval.agentic.scoring import Score
 
 
-@dataclass
+@dataclass(frozen=False)
 class CaseResult:
     """The outcome of running and scoring one eval case."""
 
@@ -47,7 +47,7 @@ class CaseResult:
         return sum(s.value * s.weight for s in graded) / total_weight
 
 
-@dataclass
+@dataclass(frozen=False)
 class SuiteResult:
     """All case results for one step's eval run."""
 

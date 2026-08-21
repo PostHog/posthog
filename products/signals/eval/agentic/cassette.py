@@ -29,7 +29,7 @@ def prompt_fingerprint(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
 
 
-@dataclass
+@dataclass(frozen=False)
 class RecordedTurn:
     """One agent turn: the raw end-turn text and what it was expected to validate as.
 
@@ -55,7 +55,7 @@ class RecordedTurn:
         )
 
 
-@dataclass
+@dataclass(frozen=False)
 class Cassette:
     """An ordered recording of the agent turns for one task run."""
 

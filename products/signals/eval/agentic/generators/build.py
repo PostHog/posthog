@@ -262,19 +262,16 @@ def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
     # 1) Data-grounded from real error-tracking issues (dedupe names).
     section_start = len(cases)
     try:
-        from products.error_tracking.backend.models import ErrorTrackingIssue  # noqa: PLC0415
+        from products.error_tracking.backend.facade import list_issues  # noqa: PLC0415
 
         names: list[str] = []
         seen: set[str] = set()
-        for n in (
-            ErrorTrackingIssue.objects.filter(team_id=team_id)
-            .exclude(name__isnull=True)
-            .values_list("name", flat=True)
-            .order_by("name")
-        ):
+        for issue in sorted(list_issues(team_id), key=lambda issue: issue.name or ""):
+            n = issue.name
             key = (n or "").strip().lower()
             if key and key not in seen:
                 seen.add(key)
+                assert n is not None
                 names.append(n)
         for i, name in enumerate(names):
             tok = _fresh_token(name)

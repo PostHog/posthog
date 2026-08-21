@@ -296,7 +296,9 @@ class RepoSelectionRunner:
     @contextmanager
     def _capture_candidates(self, shown: dict[str, list[str]]) -> Iterator[None]:
         """Capture the eligible candidate list a live record run shows the agent, for the cassette meta."""
-        from products.tasks.backend.logic.repo_selection import agent as rs_agent  # noqa: PLC0415
+        import importlib  # noqa: PLC0415
+
+        rs_agent = importlib.import_module("products.tasks.backend.logic.repo_selection.agent")
 
         real_candidates = rs_agent._list_candidate_repos
         real_eligible = rs_agent._list_eligible_full_names

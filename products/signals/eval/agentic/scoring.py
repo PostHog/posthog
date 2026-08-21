@@ -33,7 +33,7 @@ class ScoreType(str, Enum):
     NUMERIC = "numeric"
 
 
-@dataclass
+@dataclass(frozen=False)
 class Score:
     """A single graded dimension of a step output.
 
@@ -95,7 +95,7 @@ class Scorer(Protocol):
     async def score(self, case: EvalCase, output: Any, ctx: ScoringContext) -> list[Score]: ...
 
 
-@dataclass
+@dataclass(frozen=False)
 class ScoringContext:
     """Ambient dependencies a scorer may use.
 
@@ -110,7 +110,7 @@ class ScoringContext:
     extra: dict[str, Any] | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class JudgeVerdict:
     """Structured result of an LLM-as-judge call."""
 

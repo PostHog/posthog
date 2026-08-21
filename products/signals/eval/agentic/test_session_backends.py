@@ -177,9 +177,12 @@ def test_recording_session_records_each_structured_turn_once_and_round_trips():
 
 
 def test_inject_session_patches_and_restores_all_sites():
+    import importlib  # noqa: PLC0415
+
     import products.tasks.backend.facade.agents as facade_agents  # noqa: PLC0415
     import products.signals.backend.custom_agent.base as ca_base  # noqa: PLC0415
-    import products.tasks.backend.logic.repo_selection.agent as rs_agent  # noqa: PLC0415
+
+    rs_agent = importlib.import_module("products.tasks.backend.logic.repo_selection.agent")
 
     original_facade = facade_agents.MultiTurnSession
     original_base = ca_base.MultiTurnSession
