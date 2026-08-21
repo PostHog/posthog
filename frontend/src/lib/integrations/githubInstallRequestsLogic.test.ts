@@ -106,6 +106,29 @@ describe('githubInstallRequestsLogic', () => {
         expect(logic.cache.disposables.registry.has('poll')).toBe(false)
     })
 
+    it('retries on the interval when the first load fails', async () => {
+        useMocks({
+            get: {
+                '/api/users/@me/integrations/github/install_requests/': () => {
+                    listCalls += 1
+                    return listCalls === 1
+                        ? [500, { detail: 'Server error.' }]
+                        : [200, { results: [pendingRequest], install_url: null }]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        logic.mount()
+        logic.actions.startPolling()
+
+        await expectLogic(logic).toDispatchActions(['loadInstallRequestsFailure'])
+        expect(logic.cache.disposables.registry.has('poll')).toBe(true)
+
+        jest.advanceTimersByTime(15_000)
+        await expectLogic(logic).toDispatchActions(['loadInstallRequestsSuccess'])
+        expect(logic.values.pendingInstallRequests.map((r) => r.id)).toEqual([pendingRequest.id])
+    })
+
     it('reloads after dismissing, and treats an already-deleted request as dismissed', async () => {
         results = [pendingRequest]
         logic.mount()

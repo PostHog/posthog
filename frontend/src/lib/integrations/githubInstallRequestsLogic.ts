@@ -146,7 +146,11 @@ export const githubInstallRequestsLogic = kea<githubInstallRequestsLogicType>([
     }),
     listeners(({ actions, values, cache }) => {
         const reconcilePolling = (): void => {
-            const shouldPoll = values.pollingSubscribers > 0 && values.hasPendingInstallRequests
+            // A response that never loaded also keeps the timer armed, so a failed first load retries
+            // instead of hiding the banner for the rest of the mount.
+            const shouldPoll =
+                values.pollingSubscribers > 0 &&
+                (values.hasPendingInstallRequests || values.installRequestsResponse === null)
             if (shouldPoll && !cache.disposables.registry.has('poll')) {
                 cache.disposables.add(() => {
                     const pollTimer = window.setInterval(
@@ -160,14 +164,12 @@ export const githubInstallRequestsLogic = kea<githubInstallRequestsLogicType>([
             }
         }
         return {
-            startPolling: () => {
-                if (values.pollingSubscribers === 1) {
-                    actions.loadInstallRequests()
-                }
-                reconcilePolling()
-            },
+            // `afterMount` is the only initial load — the banner is the only consumer that mounts this
+            // logic, so a first subscriber always arrives at a logic that just ran it.
+            startPolling: reconcilePolling,
             stopPolling: reconcilePolling,
             loadInstallRequestsSuccess: reconcilePolling,
+            loadInstallRequestsFailure: reconcilePolling,
             dismissInstallRequest: async ({ id }) => {
                 try {
                     await usersIntegrationsGithubInstallRequestsDestroy('@me', id)
