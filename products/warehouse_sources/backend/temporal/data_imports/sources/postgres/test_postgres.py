@@ -66,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     SSL_REQUIRED_AFTER_DATE,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
+    NetworkAsStringLoader,
     PostgresDiscoveredSchema,
     PostgresImplementation,
     PostgreSQLColumn,
@@ -5925,6 +5926,24 @@ class TestRangeAsStringLoader:
 
     def test_loads_unbounded_range(self, loader):
         assert loader.load(b"[,10)") == "[,10)"
+
+
+class TestNetworkAsStringLoader:
+    @pytest.fixture
+    def loader(self):
+        return NetworkAsStringLoader(oid=869)
+
+    def test_loads_inet_address(self, loader):
+        assert loader.load(b"192.168.1.1") == "192.168.1.1"
+
+    def test_loads_cidr_network(self, loader):
+        assert loader.load(b"192.168.1.0/24") == "192.168.1.0/24"
+
+    def test_loads_ipv6(self, loader):
+        assert loader.load(b"::1") == "::1"
+
+    def test_none_returns_none(self, loader):
+        assert loader.load(None) is None
 
 
 class TestSSLRequiredAfterDate:
