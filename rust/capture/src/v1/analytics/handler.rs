@@ -4,7 +4,7 @@ use axum::http::{header, HeaderMap, Method};
 use axum::response::IntoResponse;
 use axum_client_ip::InsecureClientIp;
 
-use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATH_TRAILING};
+use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATHS};
 use super::context::Context;
 use super::types::Batch;
 use tracing::Level;
@@ -21,14 +21,7 @@ pub async fn handle_request(
     path: MatchedPath,
     body: Body,
 ) -> Result<axum::response::Response, v1::Error> {
-    let static_path: &'static str = match path.as_str() {
-        CAPTURE_V1_PATH => CAPTURE_V1_PATH,
-        CAPTURE_V1_PATH_TRAILING => CAPTURE_V1_PATH_TRAILING,
-        other => {
-            tracing::warn!(path = other, "unexpected matched path");
-            CAPTURE_V1_PATH
-        }
-    };
+    let static_path = pin_static_path(path.as_str());
     let mut context = Context::new(
         &headers,
         &ip,
@@ -106,6 +99,25 @@ pub async fn handle_request(
         Err(err) => {
             log_stat_error!(err, &context);
             Err(err)
+        }
+    }
+}
+
+/// Resolve a matched route pattern to its `&'static str`, which the Context
+/// carries into every metric and warning this request emits.
+///
+/// `MatchedPath` borrows from the request, so a label taken straight from it
+/// could not be `&'static`; matching it back against the registered set is what
+/// keeps the label a fixed-cardinality literal no matter what the client sent.
+/// An unknown pattern means a route was registered without being listed, which
+/// is a bug rather than client input — falling back keeps the request served,
+/// and the warning says where to look.
+fn pin_static_path(matched: &str) -> &'static str {
+    match CAPTURE_V1_PATHS.iter().find(|p| **p == matched) {
+        Some(path) => path,
+        None => {
+            tracing::warn!(path = matched, "unexpected matched path");
+            CAPTURE_V1_PATH
         }
     }
 }

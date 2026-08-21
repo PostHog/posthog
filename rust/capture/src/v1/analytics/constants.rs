@@ -18,6 +18,25 @@ pub const CAPTURE_V1_PATH: &str = "/i/v1/analytics/events";
 /// Trailing-slash variant registered so both URL forms resolve to the same handler.
 pub(super) const CAPTURE_V1_PATH_TRAILING: &str = "/i/v1/analytics/events/";
 
+/// Primary route path for the v1 endpoint on the AI lane. Served only by
+/// `CaptureMode::Ai`, which produces straight to the AI topic and carries its
+/// own per-event size ceiling; see `crate::router` for the mode gating.
+pub const CAPTURE_V1_AI_PATH: &str = "/i/v1/ai/events";
+
+/// Trailing-slash variant registered so both URL forms resolve to the same handler.
+pub(super) const CAPTURE_V1_AI_PATH_TRAILING: &str = "/i/v1/ai/events/";
+
+/// Every path the v1 batch handler serves, in the order the handler pins a
+/// matched path back to its `&'static str`. `MatchedPath` hands back the route
+/// pattern the router registered, so a hit here is exact rather than a prefix
+/// match, and the pinned value rides on as a metrics and warning label.
+pub(super) const CAPTURE_V1_PATHS: &[&str] = &[
+    CAPTURE_V1_PATH,
+    CAPTURE_V1_PATH_TRAILING,
+    CAPTURE_V1_AI_PATH,
+    CAPTURE_V1_AI_PATH_TRAILING,
+];
+
 // ---------------------------------------------------------------------------
 // Metrics keys
 // ---------------------------------------------------------------------------
