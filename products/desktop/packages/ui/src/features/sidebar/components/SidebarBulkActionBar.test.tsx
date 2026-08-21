@@ -24,6 +24,7 @@ function makeActions(
       {
         id: "c1",
         name: "support",
+        description: "",
         channelType: "public",
         starred: false,
         repositories: [],

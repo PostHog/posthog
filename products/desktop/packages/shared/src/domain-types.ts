@@ -123,6 +123,8 @@ export interface ProvisionedTaskChannels {
 export interface TaskChannel {
   id: string;
   name: string;
+  /** Short human-written summary (≤200 chars) shown in the space's empty area. */
+  description?: string;
   channel_type: "public" | "personal";
   starred: boolean;
   github_integration?: number | null;

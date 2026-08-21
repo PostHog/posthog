@@ -637,7 +637,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         items: channels.map((channel) => ({
           id: `channel-${channel.id}`,
           label: channel.name,
-          keywords: "space channel",
+          detail: channel.description || undefined,
+          // Include the description so searching what a space is about finds it.
+          keywords: `space channel ${channel.description}`,
           icon: channelGlyph(channel.name, {
             personal: channel.channelType === "personal",
             size: 12,

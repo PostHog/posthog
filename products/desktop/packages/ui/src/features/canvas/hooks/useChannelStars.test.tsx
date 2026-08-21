@@ -33,6 +33,7 @@ function channel(id: string, name: string, starred = false): Channel {
   return {
     id,
     name,
+    description: "",
     channelType: "public",
     starred,
     repositories: [],
