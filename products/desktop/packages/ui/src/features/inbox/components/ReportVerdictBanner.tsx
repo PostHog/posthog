@@ -2,7 +2,12 @@ import { ArrowSquareOutIcon, GitPullRequestIcon } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import {
+  deriveReportVerdict,
+  type ReportVerdictTone,
+} from "@posthog/core/inbox/reportVerdict";
+import {
   Button,
+  cn,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -27,18 +32,25 @@ const isMac =
 // Same sizing as PrDecisionBlock: the decision is the page's one ask.
 const BIG_BUTTON = "h-9 gap-2 px-4 text-[13px]";
 
-interface ReportDecisionSectionProps {
+const TONE_CLASS: Record<ReportVerdictTone, string> = {
+  decision: "border-(--amber-6) bg-(--amber-2)",
+  danger: "border-(--red-6) bg-(--red-2)",
+  progress: "border-(--gray-5) bg-(--gray-1)",
+  info: "border-(--gray-5) bg-(--gray-1)",
+};
+
+interface ReportVerdictBannerProps {
   report: SignalReport;
 }
 
 /**
- * The decision block for a report without a merged-in PR view: continue the
- * existing implementation task when one is live, otherwise start one. Sits
- * directly under the summary so reading the report ends at its ask.
+ * The report's verdict, stated before the prose: what state it is in, what it
+ * asks of the reader, and the action that answers the ask (start the PR, or
+ * continue the one in flight). Replaces the old decision block that sat below
+ * the summary, where the ask arrived only after the wall of text.
  */
-export function ReportDecisionSection({ report }: ReportDecisionSectionProps) {
+export function ReportVerdictBanner({ report }: ReportVerdictBannerProps) {
   const canCreatePr = canCreateImplementationPr(report);
-  const isResolved = report.status === "resolved";
   const { data: artefactsResp } = useInboxReportArtefacts(report.id);
   const cloudRepository = extractRepoSelectionRepository(
     artefactsResp?.results,
@@ -58,6 +70,8 @@ export function ReportDecisionSection({ report }: ReportDecisionSectionProps) {
     report.implementation_pr_url ??
     (continuableTask ? getTaskPrUrl(continuableTask) : null);
   const hasExistingPr = !!existingPrUrl || !!continuableTask;
+
+  const verdict = deriveReportVerdict(report, { hasExistingPr });
 
   const fireAction = useReportActionTracker(report);
   const openTask = useOpenTask();
@@ -88,52 +102,55 @@ export function ReportDecisionSection({ report }: ReportDecisionSectionProps) {
     void openTask(continuableTask);
   }, [continuableTask, fireAction, openTask]);
 
-  if (isResolved || (!canCreatePr && !hasExistingPr)) {
-    return null;
-  }
+  const showActions =
+    report.status === "ready" && (hasExistingPr || canCreatePr);
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-(--gray-5) bg-(--gray-1) p-4">
-      {hasExistingPr ? (
-        <>
-          <span className="text-[13px] text-gray-11">
-            This report already has implementation work in flight. Continue it
-            to keep work on the same branch.
-          </span>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Button
-              type="button"
-              variant="primary"
-              disabled={isCreatingPr || !continuableTask}
-              onClick={handleContinuePr}
-              className={BIG_BUTTON}
-            >
-              {reportTasksLoading && !continuableTask ? (
-                <Spinner />
-              ) : (
-                <GitPullRequestIcon size={15} />
-              )}
-              Continue existing PR
-            </Button>
-            {existingPrUrl && (
-              <a
-                href={existingPrUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-(--accent-11) text-[12px] hover:underline"
+    <div
+      className={cn(
+        "flex flex-col gap-3 rounded-lg border p-4",
+        TONE_CLASS[verdict.tone],
+      )}
+    >
+      <div className="flex flex-col gap-1">
+        <span className="flex items-center gap-2 font-semibold text-[14px] text-gray-12">
+          {verdict.tone === "progress" && <Spinner />}
+          {verdict.title}
+        </span>
+        <span className="text-[13px] text-gray-11">{verdict.body}</span>
+      </div>
+
+      {showActions && (
+        <div className="flex flex-wrap items-center gap-2.5">
+          {hasExistingPr ? (
+            <>
+              <Button
+                type="button"
+                variant="primary"
+                disabled={isCreatingPr || !continuableTask}
+                onClick={handleContinuePr}
+                className={BIG_BUTTON}
               >
-                <ArrowSquareOutIcon size={12} />
-                View PR on GitHub
-              </a>
-            )}
-          </div>
-        </>
-      ) : (
-        <>
-          <span className="text-[13px] text-gray-11">
-            Ready to implement. The agent opens a pull request from this report.
-          </span>
-          <div className="flex flex-wrap items-center gap-2.5">
+                {reportTasksLoading && !continuableTask ? (
+                  <Spinner />
+                ) : (
+                  <GitPullRequestIcon size={15} />
+                )}
+                Continue existing PR
+              </Button>
+              {existingPrUrl && (
+                <a
+                  href={existingPrUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-(--accent-11) text-[12px] hover:underline"
+                >
+                  <ArrowSquareOutIcon size={12} />
+                  View PR on GitHub
+                </a>
+              )}
+            </>
+          ) : (
             <Popover
               open={prOpen}
               onOpenChange={(next) => {
@@ -197,8 +214,8 @@ export function ReportDecisionSection({ report }: ReportDecisionSectionProps) {
                 </div>
               </PopoverContent>
             </Popover>
-          </div>
-        </>
+          )}
+        </div>
       )}
     </div>
   );
