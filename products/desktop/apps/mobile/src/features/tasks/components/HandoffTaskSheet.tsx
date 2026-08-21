@@ -26,6 +26,9 @@ interface HandoffTaskSheetProps {
   visible: boolean;
   task: Task;
   onClose: () => void;
+  // The detail screen holds its own task/session state that a handoff makes
+  // stale (and may revoke access to), so the host leaves the screen on success.
+  onHandedOff: () => void;
 }
 
 function MemberRow({
@@ -67,6 +70,7 @@ export function HandoffTaskSheet({
   visible,
   task,
   onClose,
+  onHandedOff,
 }: HandoffTaskSheetProps) {
   const { bottom, sheetContentTop } = useScreenInsets();
   const themeColors = useThemeColors();
@@ -110,7 +114,7 @@ export function HandoffTaskSheet({
     handoffTask(
       { taskId: task.id, userId: selected.id },
       {
-        onSuccess: onClose,
+        onSuccess: onHandedOff,
         onError: () => {
           Alert.alert(
             "Couldn't hand off",

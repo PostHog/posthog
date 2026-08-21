@@ -5,11 +5,14 @@ import { Pressable } from "react-native";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { handoffMutate, membersRef, currentUserRef } = vi.hoisted(() => ({
-  handoffMutate: vi.fn(),
-  membersRef: { current: [] as UserBasic[] },
-  currentUserRef: { current: { id: 1 } as { id: number } | undefined },
-}));
+const { handoffMutate, onHandedOff, membersRef, currentUserRef } = vi.hoisted(
+  () => ({
+    handoffMutate: vi.fn(),
+    onHandedOff: vi.fn(),
+    membersRef: { current: [] as UserBasic[] },
+    currentUserRef: { current: { id: 1 } as { id: number } | undefined },
+  }),
+);
 
 // The global react-native mock renders Modal through a DOM portal that is a
 // no-op under the node test env, so its children never mount. Substitute plain
@@ -124,6 +127,7 @@ function render(task: Task = TASK): ReactTestRenderer {
         visible: true,
         task,
         onClose: vi.fn(),
+        onHandedOff,
       }),
     );
   });
@@ -135,6 +139,10 @@ let HandoffTaskSheet: typeof import("./HandoffTaskSheet").HandoffTaskSheet;
 describe("HandoffTaskSheet", () => {
   beforeEach(async () => {
     handoffMutate.mockReset();
+    handoffMutate.mockImplementation(
+      (_vars, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
+    );
+    onHandedOff.mockReset();
     membersRef.current = [
       member(1, "me@example.com", "Me"),
       member(2, "alice@example.com", "Alice"),
@@ -168,6 +176,7 @@ describe("HandoffTaskSheet", () => {
       { taskId: "task-1", userId: 2 },
       expect.anything(),
     );
+    expect(onHandedOff).toHaveBeenCalled();
   });
 
   it("warns that the requester can lose access", () => {

@@ -935,6 +935,10 @@ export default function TaskDetailScreen() {
           visible={handoffOpen}
           task={task}
           onClose={() => setHandoffOpen(false)}
+          onHandedOff={() => {
+            setHandoffOpen(false);
+            if (router.canGoBack()) router.back();
+          }}
         />
       ) : null}
     </View>
