@@ -14,6 +14,8 @@ import secrets
 from collections.abc import Callable
 from typing import cast
 
+from django.db import transaction
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -110,43 +112,47 @@ class ProductEnablementViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer = ProductEnablementSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        team = self.team
-        before = team.__dict__.copy()
-        touched: set[str] = set()
-        # dict.fromkeys dedupes while preserving the caller's order.
-        results = {
-            product: RECIPES[product](team, touched) for product in dict.fromkeys(serializer.validated_data["products"])
-        }
+        # Lock the row for the read-modify-write: the recipes only write a companion default when the
+        # field is unset, so a stale read would let this clobber a concurrent admin's stricter config.
+        with transaction.atomic():
+            team = Team.objects.select_for_update().get(pk=self.team.pk)
+            before = team.__dict__.copy()
+            touched: set[str] = set()
+            # dict.fromkeys dedupes while preserving the caller's order.
+            results = {
+                product: RECIPES[product](team, touched)
+                for product in dict.fromkeys(serializer.validated_data["products"])
+            }
 
-        # conversations is admin-only on the normal Team-update API; replicate that gate so this endpoint
-        # can't be a bypass (error_tracking + the replay opt-in stay member-safe).
-        admin_fields = (touched - SERVER_DEFAULT_FIELDS) & TEAM_CONFIG_ADMIN_FIELDS_SET
-        if admin_fields:
-            level = self.user_permissions.team(team).effective_membership_level
-            if level is None or level < OrganizationMembership.Level.ADMIN:
-                raise PermissionDenied(
-                    "Only project admins can enable products that change these settings: "
-                    + ", ".join(sorted(admin_fields))
+            # conversations is admin-only on the normal Team-update API; replicate that gate so this endpoint
+            # can't be a bypass (error_tracking + the replay opt-in stay member-safe).
+            admin_fields = (touched - SERVER_DEFAULT_FIELDS) & TEAM_CONFIG_ADMIN_FIELDS_SET
+            if admin_fields:
+                level = self.user_permissions.team(team).effective_membership_level
+                if level is None or level < OrganizationMembership.Level.ADMIN:
+                    raise PermissionDenied(
+                        "Only project admins can enable products that change these settings: "
+                        + ", ".join(sorted(admin_fields))
+                    )
+
+            if touched:
+                team.save(update_fields=sorted(touched))
+                # Audit the enable like the Team-update API does; drop conversations_settings so the
+                # minted widget token never lands in the activity log.
+                changes = [
+                    change
+                    for change in dict_changes_between("Team", before, team.__dict__, use_field_exclusions=True)
+                    if change.field != "conversations_settings"
+                ]
+                log_activity(
+                    organization_id=team.organization_id,
+                    team_id=team.pk,
+                    user=cast(User, request.user),
+                    was_impersonated=is_impersonated(request),
+                    scope="Team",
+                    item_id=team.pk,
+                    activity="updated",
+                    detail=Detail(name=str(team.name), changes=changes),
                 )
-
-        if touched:
-            team.save(update_fields=sorted(touched))
-            # Audit the enable like the Team-update API does; drop conversations_settings so the
-            # minted widget token never lands in the activity log.
-            changes = [
-                change
-                for change in dict_changes_between("Team", before, team.__dict__, use_field_exclusions=True)
-                if change.field != "conversations_settings"
-            ]
-            log_activity(
-                organization_id=team.organization_id,
-                team_id=team.pk,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated(request),
-                scope="Team",
-                item_id=team.pk,
-                activity="updated",
-                detail=Detail(name=str(team.name), changes=changes),
-            )
 
         return Response({"results": results}, status=status.HTTP_200_OK)
