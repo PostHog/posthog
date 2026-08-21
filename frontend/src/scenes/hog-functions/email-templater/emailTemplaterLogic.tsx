@@ -570,9 +570,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                 const finalValues: EmailTemplate = {
                     ...formValues,
-                    html: ['native_email', 'native_email_template'].includes(props.type)
-                        ? htmlData.html
-                        : escapeHTMLStringCurlies(htmlData.html),
+                    html: finalizeExportedHtml(htmlData.html, props.type),
                     text: textData.text,
                     design: htmlData.design,
                 }
@@ -650,9 +648,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             cache.lastLoadedExternalDesign = null
             props.onChange({
                 ...values.emailTemplate,
-                html: ['native_email', 'native_email_template'].includes(props.type)
-                    ? htmlData.html
-                    : escapeHTMLStringCurlies(htmlData.html),
+                html: finalizeExportedHtml(htmlData.html, props.type),
                 text: textData.text,
                 design: htmlData.design,
             })
@@ -742,9 +738,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         cache.lastLoadedExternalDesign = null
                         props.onChange({
                             ...values.emailTemplate,
-                            html: ['native_email', 'native_email_template'].includes(props.type)
-                                ? htmlData.html
-                                : escapeHTMLStringCurlies(htmlData.html),
+                            html: finalizeExportedHtml(htmlData.html, props.type),
                             text: textData.text,
                             design: htmlData.design,
                         })
@@ -780,9 +774,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                     emailContent = {
                         ...currentValues,
-                        html: ['native_email', 'native_email_template'].includes(props.type)
-                            ? htmlData.html
-                            : escapeHTMLStringCurlies(htmlData.html),
+                        html: finalizeExportedHtml(htmlData.html, props.type),
                         text: textData.text,
                         design: htmlData.design,
                     }
@@ -950,4 +942,25 @@ function escapeHTMLStringCurlies(htmlString: string): string {
 
     const serializer = new XMLSerializer()
     return serializer.serializeToString(doc)
+}
+
+// Unlayer percent-encodes a merge tag it treats as a URL, so a tag dropped into a link href
+// exports as `{{%20unsubscribe_url%20}}`. Liquid can't read the encoded form and the link renders
+// broken. Decode the escapes inside the braces so the tag works.
+export function decodeMergeTagEncoding(html: string): string {
+    if (!html.includes('%')) {
+        return html
+    }
+    return html.replace(/\{\{([^{}]*%[^{}]*)\}\}/g, (match, inner: string) => {
+        try {
+            return `{{${decodeURIComponent(inner)}}}`
+        } catch {
+            return match
+        }
+    })
+}
+
+function finalizeExportedHtml(html: string, type: EmailTemplaterType): string {
+    const decoded = decodeMergeTagEncoding(html)
+    return ['native_email', 'native_email_template'].includes(type) ? decoded : escapeHTMLStringCurlies(decoded)
 }

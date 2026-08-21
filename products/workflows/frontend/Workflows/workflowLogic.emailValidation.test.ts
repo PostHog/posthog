@@ -10,7 +10,10 @@ const WORKFLOW_ID = 'wf-email-validation-1'
 const EMAIL_NODE_ID = 'email_node'
 const ADDED_EMAIL_NODE_ID = 'email_node_2'
 
-const makeEmailAction = (fromValue: any): Extract<HogFlowAction, { type: 'function_email' }> => ({
+const makeEmailAction = (
+    fromValue: any,
+    emailOverrides?: Record<string, any>
+): Extract<HogFlowAction, { type: 'function_email' }> => ({
     id: EMAIL_NODE_ID,
     type: 'function_email',
     name: 'Send email',
@@ -27,6 +30,7 @@ const makeEmailAction = (fromValue: any): Extract<HogFlowAction, { type: 'functi
                     subject: 'Hello',
                     html: '<p>Hello</p>',
                     text: 'Hello',
+                    ...emailOverrides,
                 },
                 templating: 'liquid',
             },
@@ -34,7 +38,7 @@ const makeEmailAction = (fromValue: any): Extract<HogFlowAction, { type: 'functi
     },
 })
 
-const makeWorkflow = (fromValue: any): HogFlow => ({
+const makeWorkflow = (fromValue: any, emailOverrides?: Record<string, any>): HogFlow => ({
     id: WORKFLOW_ID,
     name: 'Email validation test',
     actions: [
@@ -47,7 +51,7 @@ const makeWorkflow = (fromValue: any): HogFlow => ({
             updated_at: 0,
             config: { type: 'event', filters: {} },
         },
-        makeEmailAction(fromValue),
+        makeEmailAction(fromValue, emailOverrides),
         {
             id: 'exit_node',
             type: 'exit',
@@ -270,6 +274,51 @@ describe('workflowLogic email step "from" validation', () => {
         // The generic input validator also joins the sub-fields into `errors.email`; it must be
         // stripped so nothing renders under the whole input.
         expect(result?.errors.email).toBeUndefined()
+    })
+
+    it('flags an undefined bare merge tag in the body once a save is attempted', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(
+                    { integrationId: 42 },
+                    { html: '<p>Hi {{first_name}}</p>' }
+                ),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        logic.actions.saveWorkflowPartial({ status: 'active' })
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.valid).toBe(false)
+        expect(result?.emailErrors?.body).toContain("isn't a known variable")
+    })
+
+    it.each([
+        ['a person property is fully addressed', '<p>Hi {{ person.properties.first_name }}</p>'],
+        ['a special merge tag is used', '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>'],
+        ['the template assigns the variable itself', "<p>{% assign greeting = 'Hi' %}{{ greeting }}</p>"],
+    ])('does not flag the body when %s', async (_name, html) => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }, { html }),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        logic.actions.saveWorkflowPartial({ status: 'active' })
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.valid).toBe(true)
+        expect(result?.emailErrors).toBeUndefined()
     })
 
     it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {

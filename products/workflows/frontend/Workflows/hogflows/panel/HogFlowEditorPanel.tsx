@@ -17,6 +17,7 @@ import { HogFlowEditorPanelMetrics } from './HogFlowEditorPanelMetrics'
 import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
 import { EmailActionTestContent } from './testing/HogFlowEditorNotificationPanelTest'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
+import { validationBadgeReasons } from './validationBadge'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
     const { selectedNode, mode, selectedNodeCanBeDeleted, workflow } = useValues(hogFlowEditorLogic)
@@ -42,6 +43,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
     const Step = useHogFlowStep(selectedNode?.data)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
+    const badgeReasons = validationBadgeReasons(validationResult)
 
     return (
         <div
@@ -85,8 +87,16 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                             <Tooltip title={selectedNode.data.name}>
                                 <span className="font-semibold truncate">{selectedNode.data.name}</span>
                             </Tooltip>
-                            {validationResult?.valid === false && (
-                                <Tooltip title="Some fields need attention">
+                            {badgeReasons.length > 0 && (
+                                <Tooltip
+                                    title={
+                                        <div className="flex flex-col gap-1">
+                                            {badgeReasons.map((reason, i) => (
+                                                <span key={i}>{reason}</span>
+                                            ))}
+                                        </div>
+                                    }
+                                >
                                     <div>
                                         <LemonBadge status="warning" size="small" content="!" />
                                     </div>

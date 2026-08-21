@@ -4,6 +4,11 @@ type JSONTemplate = Parameters<Editor['loadDesign']>[0]
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10
 
+// Merge tags that resolve on their own, with no property access. Every other value must be a
+// person property (`person.properties[...]`). Shared so the tag picker and the validators agree
+// on which bare `{{ name }}` references are real.
+export const SPECIAL_MERGE_TAGS = ['unsubscribe_url', 'unsubscribe_url_one_click'] as const
+
 // Native email senders: integrationIds enables stable per-run rotation, while the optional
 // templated overrides vary the visible sender. The runtime rejects an override address that
 // is not on the selected integration's verified domain.
