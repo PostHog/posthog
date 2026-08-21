@@ -7,10 +7,13 @@ import {
 import {
   ANY_SOURCE,
   type ChannelItemFilters,
+  type ChannelItemGrouping,
   type ChannelItemModel,
   type ChannelItemSort,
+  channelItemSortEvent,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
+  DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
   filterChannelItems,
   groupChannelItems,
@@ -35,6 +38,7 @@ import {
   TabsTrigger,
 } from "@posthog/quill";
 import { LOOPS_FLAG } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
@@ -54,6 +58,7 @@ import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
 import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
@@ -66,6 +71,7 @@ import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSele
 import { usePinDrag } from "@posthog/ui/features/sidebar/usePinDrag";
 import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
+import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "framer-motion";
@@ -101,6 +107,9 @@ function RecentSectionHeader({
   onClearFilters,
   sort,
   onSortChange,
+  grouping,
+  onGroupingChange,
+  onEditAppearance,
   sources,
   showCreatedBy,
   showRunFilters,
@@ -120,6 +129,9 @@ function RecentSectionHeader({
   onClearFilters: () => void;
   sort: ChannelItemSort;
   onSortChange: (sort: ChannelItemSort) => void;
+  grouping: ChannelItemGrouping;
+  onGroupingChange: (grouping: ChannelItemGrouping) => void;
+  onEditAppearance: () => void;
   sources: readonly string[];
   /** False in #me, where every session is yours and the filter says nothing. */
   showCreatedBy: boolean;
@@ -171,6 +183,9 @@ function RecentSectionHeader({
           onClearFilters={onClearFilters}
           sort={sort}
           onSortChange={onSortChange}
+          grouping={grouping}
+          onGroupingChange={onGroupingChange}
+          onEditAppearance={onEditAppearance}
           sources={sources}
           showCreatedBy={showCreatedBy}
           showRunFilters={showRunFilters}
@@ -311,6 +326,23 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     DEFAULT_CHANNEL_ITEM_FILTERS,
   );
   const [sort, setSort] = useState<ChannelItemSort>(DEFAULT_CHANNEL_ITEM_SORT);
+  const [rawGrouping, setGrouping] = useState<ChannelItemGrouping>(
+    DEFAULT_CHANNEL_ITEM_GROUPING,
+  );
+  // Canvases carry no repository, so grouping by one would file the whole tab
+  // under a single heading. Neutralised as well as hidden, the way the run
+  // filters above are.
+  const grouping = tab === "canvas" ? "date" : rawGrouping;
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const changeGrouping = (next: ChannelItemGrouping) => {
+    if (next === grouping) return;
+    setGrouping(next);
+    track(ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED, {
+      group_by: next,
+      sort_by: channelItemSortEvent(sort),
+      surface: "space",
+    });
+  };
   // Every session in #me is yours, so the author filter has nothing to sort by.
   // The state survives a space switch, so the value is neutralised here as well
   // as hidden — otherwise "Other people" carried in from a shared space would
@@ -386,8 +418,8 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // midnight even when the list itself hasn't changed for hours.
   const dayStart = useLocalDayStart();
   const sections = useMemo(
-    () => groupChannelItems(recentItems, sort, new Date(dayStart)),
-    [recentItems, sort, dayStart],
+    () => groupChannelItems(recentItems, sort, new Date(dayStart), grouping),
+    [recentItems, sort, dayStart, grouping],
   );
 
   const pinnedSection = sections.find(
@@ -721,6 +753,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
               sort={sort}
               onSortChange={setSort}
+              grouping={grouping}
+              onGroupingChange={changeGrouping}
+              onEditAppearance={() => setAppearanceOpen(true)}
               sources={sources}
               showCreatedBy={!isPersonalChannel}
               showRunFilters={tab === "task"}
@@ -805,6 +840,13 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           y={pinDrag.previewY}
         />
       ) : null}
+      {/* The list owns the dialog, as it owns every other piece of this
+          surface's state; the menu only asks for it to open. */}
+      <EditListItemAppearanceDialog
+        surface="space"
+        open={appearanceOpen}
+        onOpenChange={setAppearanceOpen}
+      />
     </div>
   );
 }
