@@ -15,6 +15,7 @@ import {
   type TaskRunArtifact,
 } from "@posthog/shared";
 import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import { PRODUCT_ENGINEER_PROMPT_VERSION } from "@posthog/shared/product-engineer-prompt";
 import { Hono } from "hono";
 import { z } from "zod/v4";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
@@ -559,6 +560,7 @@ export class PiAgentServer {
           ? JSON.stringify([task.repository])
           : null,
       task_runtime_adapter: "pi",
+      product_engineer_prompt_version: PRODUCT_ENGINEER_PROMPT_VERSION,
       task_sandbox_environment_id:
         typeof runState?.sandbox_environment_id === "string"
           ? runState.sandbox_environment_id

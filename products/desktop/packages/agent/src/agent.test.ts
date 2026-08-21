@@ -1,3 +1,4 @@
+import { PRODUCT_ENGINEER_PROMPT_VERSION } from "@posthog/shared/product-engineer-prompt";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AcpConnectionConfig } from "./adapters/acp-connection";
 
@@ -120,6 +121,9 @@ describe("Agent", () => {
     );
     expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
       "x-posthog-property-task_execution_environment: local",
+    );
+    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
+      `x-posthog-property-product_engineer_prompt_version: ${PRODUCT_ENGINEER_PROMPT_VERSION}`,
     );
   });
 

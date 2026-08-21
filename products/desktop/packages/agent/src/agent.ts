@@ -3,6 +3,7 @@ import {
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
+import { PRODUCT_ENGINEER_PROMPT_VERSION } from "@posthog/shared/product-engineer-prompt";
 import {
   createAcpConnection,
   type InProcessAcpConnection,
@@ -103,6 +104,7 @@ export class Agent {
                 ? JSON.stringify([task.repository])
                 : null,
             task_runtime_adapter: options.adapter ?? "claude",
+            product_engineer_prompt_version: PRODUCT_ENGINEER_PROMPT_VERSION,
             task_execution_environment: "local" as const,
           };
 
