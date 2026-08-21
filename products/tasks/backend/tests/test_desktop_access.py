@@ -218,24 +218,31 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(blocked_response.json(), {"allowed": False, "reason": "startup_plan"})
 
     @patch("products.tasks.backend.presentation.views.api.tasks_access.has_loops_access", return_value=True)
-    @patch("products.tasks.backend.access._get_funding_status")
-    def test_legacy_endpoint_returns_boolean_and_reason(self, mock_funding, _mock_loops) -> None:
-        mock_funding.return_value = OrganizationFundingStatus(
-            startup_program_label=None,
-            prepaid_credit_state=PrepaidCreditState.ACTIVE,
-        )
+    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=True)
+    def test_legacy_endpoint_preserves_feature_flag_access(self, _mock_legacy_flag, _mock_loops) -> None:
+        response = self.client.get("/api/code/invites/check-access/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"has_access": True, "has_loops_access": True})
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_access.has_loops_access", return_value=False)
+    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=False)
+    def test_legacy_endpoint_preserves_invite_access(self, _mock_legacy_flag, _mock_loops) -> None:
+        invite = CodeInvite.objects.create(code="ENDPOINTCODE", max_redemptions=1, is_active=True)
+        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
 
         response = self.client.get("/api/code/invites/check-access/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {
-                "has_access": False,
-                "reason": "prepaid_credits",
-                "has_loops_access": True,
-            },
-        )
+        self.assertEqual(response.json(), {"has_access": True, "has_loops_access": False})
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_access.has_loops_access", return_value=False)
+    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=False)
+    def test_legacy_endpoint_preserves_denial(self, _mock_legacy_flag, _mock_loops) -> None:
+        response = self.client.get("/api/code/invites/check-access/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"has_access": False, "has_loops_access": False})
 
     @patch(
         "products.tasks.backend.presentation.views.desktop_access.get_desktop_access_decision",

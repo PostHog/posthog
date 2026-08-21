@@ -45599,13 +45599,8 @@ export namespace Schemas {
     }
 
     export interface LegacyDesktopAccessResponse {
-      /** Whether the selected project can use PostHog Desktop. */
+      /** Whether the user has legacy PostHog Desktop access. */
       has_access: boolean;
-      /** Why Desktop access is blocked, or null when access is allowed.
-       *
-       * * `startup_plan` - startup_plan
-       * * `prepaid_credits` - prepaid_credits */
-      reason: DesktopAccessReasonEnum | null;
       /** Whether the independent Loops feature is enabled. */
       has_loops_access: boolean;
     }

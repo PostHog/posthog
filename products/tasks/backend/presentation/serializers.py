@@ -922,12 +922,7 @@ class DesktopAccessResponseSerializer(serializers.Serializer):
 
 
 class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
-    has_access = serializers.BooleanField(help_text="Whether the selected project can use PostHog Desktop.")
-    reason = serializers.ChoiceField(
-        choices=DESKTOP_ACCESS_REASON_CHOICES,
-        allow_null=True,
-        help_text="Why Desktop access is blocked, or null when access is allowed.",
-    )
+    has_access = serializers.BooleanField(help_text="Whether the user has legacy PostHog Desktop access.")
     has_loops_access = serializers.BooleanField(help_text="Whether the independent Loops feature is enabled.")
 
 

@@ -7,6 +7,18 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface LegacyDesktopAccessResponseApi {
+    /** Whether the user has legacy PostHog Desktop access. */
+    has_access: boolean
+    /** Whether the independent Loops feature is enabled. */
+    has_loops_access: boolean
+}
+
+export interface CodeInviteRedeemRequestApi {
+    /** @maxLength 50 */
+    code: string
+}
+
 /**
  * * `startup_plan` - startup_plan
  * * `prepaid_credits` - prepaid_credits
@@ -17,18 +29,6 @@ export const DesktopAccessReasonEnumApi = {
     StartupPlan: 'startup_plan',
     PrepaidCredits: 'prepaid_credits',
 } as const
-
-export interface LegacyDesktopAccessResponseApi {
-    /** Whether the selected project can use PostHog Desktop. */
-    has_access: boolean
-    /** Why Desktop access is blocked, or null when access is allowed.
-     *
-     * * `startup_plan` - startup_plan
-     * * `prepaid_credits` - prepaid_credits */
-    reason: DesktopAccessReasonEnumApi | null
-    /** Whether the independent Loops feature is enabled. */
-    has_loops_access: boolean
-}
 
 /**
  * * `burst` - burst
@@ -68,11 +68,6 @@ export interface TaskRunErrorResponseApi {
     reset_at?: string
     /** Whether the team is on a Pro plan (drives the upgrade-prompt copy) */
     is_pro?: boolean
-}
-
-export interface CodeInviteRedeemRequestApi {
-    /** @maxLength 50 */
-    code: string
 }
 
 export interface ComputeRateCardApi {

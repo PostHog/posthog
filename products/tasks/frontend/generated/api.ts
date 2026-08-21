@@ -153,7 +153,7 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
 }
 
 /**
- * Check whether the authenticated user's selected project can use PostHog Desktop and Loops.
+ * Check whether the authenticated user has legacy PostHog Desktop access and Loops access.
  * @summary Check access
  */
 export const codeInvitesCheckAccessRetrieve = async (
@@ -170,8 +170,8 @@ export const getCodeInvitesRedeemCreateUrl = () => {
 }
 
 /**
- * Record a legacy PostHog Desktop invite-code redemption. Redemptions no longer grant access.
- * @summary Redeem legacy invite code
+ * Redeem a PostHog Desktop invite code to enable legacy access.
+ * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreate = async (
     codeInviteRedeemRequestApi: CodeInviteRedeemRequestApi,

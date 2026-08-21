@@ -3494,7 +3494,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
 @extend_schema(tags=["code-invites"])
 class CodeInviteViewSet(viewsets.ViewSet):
-    """Compatibility API for released clients that still send Desktop invite codes."""
+    """API for redeeming PostHog Desktop invite codes."""
 
     authentication_classes = [
         SessionAuthentication,
@@ -3523,8 +3523,8 @@ class CodeInviteViewSet(viewsets.ViewSet):
                 description="Invalid or expired invite code",
             ),
         },
-        summary="Redeem legacy invite code",
-        description="Record a legacy PostHog Desktop invite-code redemption. Redemptions no longer grant access.",
+        summary="Redeem invite code",
+        description="Redeem a PostHog Desktop invite code to enable legacy access.",
     )
     @action(detail=False, methods=["post"], url_path="redeem")
     def redeem(self, request, **kwargs):
@@ -3544,49 +3544,17 @@ class CodeInviteViewSet(viewsets.ViewSet):
         return Response({"success": True})
 
     @extend_schema(
-        responses={
-            200: OpenApiResponse(response=LegacyDesktopAccessResponseSerializer),
-            503: OpenApiResponse(response=TaskRunErrorResponseSerializer),
-        },
+        responses={200: OpenApiResponse(response=LegacyDesktopAccessResponseSerializer)},
         summary="Check access",
-        description="Check whether the authenticated user's selected project can use PostHog Desktop and Loops.",
+        description="Check whether the authenticated user has legacy PostHog Desktop access and Loops access.",
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
-        team = getattr(request.user, "team", None)
-        if team is None:
-            return Response(
-                TaskRunErrorResponseSerializer(
-                    {
-                        "type": "service_unavailable",
-                        "code": "desktop_access_unavailable",
-                        "error": "We couldn't verify PostHog Desktop access. Try again.",
-                    }
-                ).data,
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        try:
-            decision = tasks_access.get_desktop_access_decision(request.user, team.organization)
-        except tasks_access.DesktopAccessResolutionError:
-            return Response(
-                TaskRunErrorResponseSerializer(
-                    {
-                        "type": "service_unavailable",
-                        "code": "desktop_access_unavailable",
-                        "error": "We couldn't verify PostHog Desktop access. Try again.",
-                    }
-                ).data,
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        reason = decision.reason.value if decision.reason is not None else None
         return Response(
             LegacyDesktopAccessResponseSerializer(
                 {
-                    "reason": reason,
-                    "has_access": decision.allowed,
-                    "has_loops_access": tasks_access.has_loops_access(request.user, team),
+                    "has_access": tasks_access.has_tasks_access(request.user),
+                    "has_loops_access": tasks_access.has_loops_access(request.user),
                 }
             ).data
         )
