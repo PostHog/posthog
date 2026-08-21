@@ -40,6 +40,7 @@ import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
+import { mainFocusUrl } from './mainFocusUrl'
 import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { SandboxComposerSurfaces, Thread } from './Thread'
@@ -120,12 +121,11 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const isNewView = effectivePhaiView === 'new'
     const headerBackDisabled = isNewView ? !panelCanGoBack : backButtonDisabled
 
-    // The new view's panel runs tasks, not Max conversations, so `conversationId` is always null there.
-    // Without the panel's open task the link would fall back to an empty `/ai` rather than the open run.
-    const activeTaskId = isNewView ? panelActiveCreation?.taskId : undefined
-    const mainFocusUrl = activeTaskId
-        ? urls.taskDetail(activeTaskId)
-        : urls.ai((isNewView ? null : conversationId) ?? undefined)
+    const openAsMainFocusUrl = mainFocusUrl({
+        isNewView,
+        activeTaskId: panelActiveCreation?.taskId,
+        conversationId,
+    })
 
     const content = !isMaxAvailable ? (
         <MaxNotConfigured />
@@ -230,7 +230,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                     buttonProps={{
                         iconOnly: true,
                     }}
-                    to={mainFocusUrl}
+                    to={openAsMainFocusUrl}
                     onClick={() => {
                         closeSidePanel()
                     }}
