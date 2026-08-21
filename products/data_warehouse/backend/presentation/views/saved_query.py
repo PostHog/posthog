@@ -29,6 +29,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -870,6 +871,11 @@ class DataWarehouseSavedQuerySerializer(
                     view.set_columns(columns)
 
                 view.external_tables = view.s3_tables
+            except (ExposedCHQueryError, ExposedHogQLError) as e:
+                # Expected query errors, for example an unresolved column. Return the message to
+                # the user and skip error tracking. These are user mistakes, not bugs.
+                logger.warning("Failed to retrieve types for view %s: %s", view.name, e)
+                raise serializers.ValidationError(f"Failed to retrieve types for view: {e}")
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
@@ -1071,6 +1077,11 @@ class DataWarehouseSavedQuerySerializer(
                     view.external_tables = view.s3_tables
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
+                except (ExposedCHQueryError, ExposedHogQLError) as e:
+                    # Expected query errors, for example an unresolved column. Return the message to
+                    # the user and skip error tracking. These are user mistakes, not bugs.
+                    logger.warning("Failed to retrieve types for view %s: %s", view.name, e)
+                    raise serializers.ValidationError(f"Failed to retrieve types for view: {e}")
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to retrieve types for view %s", view.name)
