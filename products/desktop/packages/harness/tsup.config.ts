@@ -182,11 +182,6 @@ export default defineConfig({
       await copyOmnibusSkills("dist/extensions/product-engineer/skills");
     }
     await cp(
-      "src/extensions/product-engineer/prompts",
-      "dist/extensions/product-engineer/prompts",
-      { recursive: true },
-    );
-    await cp(
       "src/extensions/workflow/skills",
       "dist/extensions/workflow/skills",
       { recursive: true },

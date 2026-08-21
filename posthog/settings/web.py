@@ -574,6 +574,8 @@ SPECTACULAR_SETTINGS = {
         "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
         "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
         "ScoutConfigNetworkAccessEnum": "products.signals.backend.models.SignalScoutConfig.NetworkAccess",
+        # `source_product` names the same choice set on several signals components, so pin one name.
+        "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
@@ -1289,6 +1291,7 @@ TOOLBAR_OAUTH_SCOPES = [
     "product_tour:read",
     "product_tour:write",
     "heatmap:read",
+    "heatmap:write",
     "element:read",
     "uploaded_media:write",
     "survey:read",
