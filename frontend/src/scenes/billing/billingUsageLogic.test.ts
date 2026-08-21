@@ -1,4 +1,20 @@
-import { BillingUsageResponse, BillingUsageResponseBreakdownType, convertDesktopUsageSeries } from './billingUsageLogic'
+import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { billingLogic } from 'scenes/billing/billingLogic'
+
+import { billingJson } from '~/mocks/fixtures/_billing'
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import {
+    BILLING_USAGE_QUERY_TOO_LARGE_CODE,
+    BillingUsageResponse,
+    BillingUsageResponseBreakdownType,
+    convertDesktopUsageSeries,
+    getBillingUsageError,
+    billingUsageLogic,
+} from './billingUsageLogic'
 
 const series = (label: string, usageType: string, data: number[]): BillingUsageResponse['results'][number] => ({
     id: 1,
@@ -56,5 +72,68 @@ describe('convertDesktopUsageSeries', () => {
             label: 'my-project::PostHog Desktop token spend (USD)',
             data: [12.34],
         })
+    })
+})
+
+describe('getBillingUsageError', () => {
+    it('preserves the actionable query-size error', () => {
+        expect(
+            getBillingUsageError({
+                code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
+                detail: 'Select a product.',
+            })
+        ).toEqual({
+            code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
+            detail: 'Select a product.',
+        })
+    })
+
+    it('ignores errors without the expected API shape', () => {
+        expect(getBillingUsageError(new Error('request failed'))).toBeNull()
+        expect(getBillingUsageError({ code: BILLING_USAGE_QUERY_TOO_LARGE_CODE })).toBeNull()
+    })
+})
+
+describe('billingUsageLogic loader', () => {
+    let logic: ReturnType<typeof billingUsageLogic.build>
+    let toastErrorSpy: jest.SpyInstance
+
+    beforeEach(() => {
+        initKeaTests()
+        toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        toastErrorSpy.mockRestore()
+    })
+
+    it('handles query-size errors without failing the loader', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [200, billingJson],
+                '/api/billing/usage/': () => [
+                    400,
+                    { code: BILLING_USAGE_QUERY_TOO_LARGE_CODE, detail: 'Select a product.' },
+                ],
+            },
+        })
+
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+        logic = billingUsageLogic()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadBillingUsageSuccess'])
+            .toNotHaveDispatchedActions(['loadBillingUsageFailure'])
+            .toFinishAllListeners()
+
+        expect(logic.values.billingUsageError).toEqual({
+            code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
+            detail: 'Select a product.',
+        })
+        expect(toastErrorSpy).not.toHaveBeenCalled()
     })
 })

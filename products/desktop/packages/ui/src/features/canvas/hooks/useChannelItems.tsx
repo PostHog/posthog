@@ -3,9 +3,9 @@ import {
   type ChannelItemModel,
   type ChannelItemOwner,
   type ChannelSessionFacts,
+  type ChannelWorkspaceFacts,
 } from "@posthog/core/canvas/channelItems";
 import { formatBulkResult } from "@posthog/core/sidebar/selection";
-import type { WorkspaceMode } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -85,14 +85,21 @@ export function useChannelItems(channelId: string): {
         needsInputTaskIds.add(taskId);
       }
     }
-    const workspaceModeByTaskId = new Map<string, WorkspaceMode>();
+    const workspaceByTaskId = new Map<string, ChannelWorkspaceFacts>();
     for (const [taskId, workspace] of Object.entries(workspaces ?? {})) {
-      if (workspace.mode) workspaceModeByTaskId.set(taskId, workspace.mode);
+      workspaceByTaskId.set(taskId, {
+        mode: workspace.mode,
+        folderPath: workspace.folderPath,
+        isScratch: workspace.isScratch,
+        // The linked branch wins: a worktree's own branch is where the work is
+        // only until it is linked to the branch the PR is on.
+        branch: workspace.linkedBranch ?? workspace.branchName ?? undefined,
+      });
     }
     return {
       needsInputTaskIds,
       viewedTimestamps: timestamps,
-      workspaceModeByTaskId,
+      workspaceByTaskId,
     };
   }, [sessions, timestamps, workspaces]);
 

@@ -44,6 +44,9 @@ tools:
     metrics-attributes-retrieve:
         operation: metrics_attributes_retrieve
         enabled: false
+    metrics-explain-create:
+        operation: metrics_explain_create
+        enabled: false
     metrics-has-metrics-retrieve:
         operation: metrics_has_metrics_retrieve
         enabled: false
