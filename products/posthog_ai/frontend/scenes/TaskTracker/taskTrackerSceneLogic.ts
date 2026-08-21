@@ -11,7 +11,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
-    type CodeInviteAccessResponseApi,
+    type LegacyDesktopAccessResponseApi,
     type ModelChoiceApi,
     OriginProductEnumApi,
     ReasoningEffortEnumApi,
@@ -134,7 +134,7 @@ export interface taskTrackerSceneLogicValues {
     overrideHeadlines: string[] | null // welcomeOverrideLogic
     activeSuggestionGroup: SuggestionGroup | null
     consentBlocked: boolean
-    desktopAccess: CodeInviteAccessResponseApi | null
+    desktopAccess: LegacyDesktopAccessResponseApi | null
     desktopAccessLoading: boolean
     displayHeadline: string
     hasDesktopAccess: boolean
@@ -335,10 +335,10 @@ export interface taskTrackerSceneLogicActions {
         errorObject?: any
     }
     loadDesktopAccessSuccess: (
-        desktopAccess: CodeInviteAccessResponseApi,
+        desktopAccess: LegacyDesktopAccessResponseApi,
         payload?: any
     ) => {
-        desktopAccess: CodeInviteAccessResponseApi
+        desktopAccess: LegacyDesktopAccessResponseApi
         payload?: any
     }
     maybeAutoSelectIntegration: () => {
@@ -380,7 +380,7 @@ export interface taskTrackerSceneLogicActions {
 export interface taskTrackerSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        hasDesktopAccess: (desktopAccess: any) => boolean
+        hasDesktopAccess: (desktopAccess: LegacyDesktopAccessResponseApi | null) => boolean
         displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number) => string
     }
 }
@@ -518,7 +518,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
     loaders({
         desktopAccess: [
-            null as CodeInviteAccessResponseApi | null,
+            null as LegacyDesktopAccessResponseApi | null,
             {
                 loadDesktopAccess: async () => codeInvitesCheckAccessRetrieve(),
             },
@@ -528,7 +528,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     selectors({
         hasDesktopAccess: [
             (s) => [s.desktopAccess],
-            (desktopAccess: CodeInviteAccessResponseApi | null): boolean => desktopAccess?.has_access ?? false,
+            (desktopAccess: LegacyDesktopAccessResponseApi | null): boolean => desktopAccess?.has_access ?? false,
         ],
         // Contextual headlines registered by the active scene (welcomeOverrideLogic) win over the
         // generic defaults; the seed keeps the pick stable across re-renders.
