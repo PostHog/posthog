@@ -315,41 +315,6 @@ class TaskRunArtifactMetadataField(serializers.JSONField):
     pass
 
 
-class TaskRunPostHogReferenceMetadataSerializer(serializers.Serializer):
-    reference_type = serializers.ChoiceField(
-        choices=["posthog_object"],
-        help_text="Reference metadata type. posthog_object identifies a live PostHog object.",
-    )
-    object_kind = serializers.ChoiceField(
-        choices=POSTHOG_OBJECT_KIND_CHOICES,
-        help_text="PostHog object kind used to resolve the reference.",
-    )
-    object_id = serializers.CharField(
-        max_length=16384,
-        help_text="Exact PostHog object identifier, flag key, event name, or SQL query.",
-    )
-    source_message_ids = serializers.ListField(
-        child=serializers.CharField(max_length=255),
-        max_length=100,
-        help_text="Completed assistant message identifiers that referenced the object.",
-    )
-    occurrence_count = serializers.IntegerField(
-        min_value=1,
-        help_text="Number of distinct completed assistant messages that referenced the object.",
-    )
-
-
-@extend_schema_field(
-    PolymorphicProxySerializer(
-        component_name="TaskRunArtifactMetadata",
-        serializers=[TaskRunSkillBundleMetadataSerializer, TaskRunPostHogReferenceMetadataSerializer],
-        resource_type_field_name=None,
-    )
-)
-class TaskRunArtifactMetadataField(serializers.JSONField):
-    pass
-
-
 def validate_task_run_artifact_metadata(attrs: dict[str, Any]) -> dict[str, Any]:
     artifact_type = attrs.get("type")
     metadata = attrs.get("metadata")
