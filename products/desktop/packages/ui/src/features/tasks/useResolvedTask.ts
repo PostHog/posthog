@@ -11,15 +11,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 /**
- * Turn a task id into something renderable, and count that as a view.
- *
- * The list copy and the cache stand in until the detail fetch lands, so a task
- * opened from a place that already knows about it renders immediately instead
- * of flashing a skeleton. Freshness decides between them rather than arrival
- * order — a poll can hand back an older run than the one already on screen.
- *
- * Returns undefined while there is nothing to draw yet; the caller decides
- * whether that means a skeleton or an empty state.
+ * Turn a task id into something renderable, and count that as a view. The list
+ * copy and the cache stand in until the detail fetch lands; freshness picks
+ * between them, because a poll can hand back an older run than the one already
+ * on screen.
  */
 export function useResolvedTask(taskId: string | undefined): Task | undefined {
   const { data: tasks } = useTasks();

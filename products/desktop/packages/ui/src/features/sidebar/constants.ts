@@ -10,12 +10,8 @@ export const SIDEBAR_MIN_WIDTH = 240;
  */
 export const CHANNELS_SIDEBAR_MIN_WIDTH = 272;
 
-/**
- * The nav rail beside the channels sidebar: one `size="icon"` button plus the
- * rail's padding. It sits outside the sidebar, so anything measuring from the
- * window's left edge (the title bar strip, the sidebar's hover-peek zone) has
- * to add it.
- */
+/** Sits outside the sidebar, so anything measuring from the window's left edge
+ *  has to add it. */
 export const NAV_RAIL_WIDTH = 44;
 
 export const CUSTOMIZABLE_NAV_ITEMS = [

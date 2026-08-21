@@ -11,12 +11,9 @@ import { useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
 /**
- * Renders nothing — owns which space the app is scoped to.
- *
- * That is a fact about the route, not about the sidebar, and the sidebar is not
- * always drawn: the rail's whole-screen destinations take its column away. Kept
- * inside it, the scoping stopped happening on exactly those screens. Mounted
- * from the shell alongside the other headless owners, it runs wherever you are.
+ * Renders nothing — owns which space the app is scoped to. Lives outside the
+ * sidebar because the rail can take that column away, and the scoping still
+ * has to happen.
  */
 export function ChannelRouteSync() {
   const channelsLayout = useChannelsLayout();

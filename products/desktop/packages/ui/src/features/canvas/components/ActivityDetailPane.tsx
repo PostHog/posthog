@@ -12,11 +12,7 @@ import { TaskDetail } from "@posthog/ui/features/task-detail/components/TaskDeta
 import { useResolvedTask } from "@posthog/ui/features/tasks/useResolvedTask";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 
-/**
- * What the Activity destination shows beside its feed. The feed picks a row and
- * this renders that row's task, without a route: Activity is a place you read
- * from, and navigating to the task would take the feed off the screen.
- */
+/** What the Activity destination shows beside its feed. */
 export function ActivityDetailPane() {
   const selected = useActivityDetailStore((s) => s.selected);
   const task = useResolvedTask(selected?.taskId);

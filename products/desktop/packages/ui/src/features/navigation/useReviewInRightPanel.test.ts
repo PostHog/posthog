@@ -31,9 +31,7 @@ describe("useReviewInRightPanel", () => {
     expect(renderHook(() => useReviewInRightPanel()).result.current).toBe(true);
   });
 
-  // The regression: Activity reads a task into the pane without routing to it,
-  // so there is no channel in the URL. Asking the route for one left the task
-  // view drawing a diff the panel was already drawing.
+  // The regression: no channel in the URL left both surfaces drawing the diff.
   it("hands it over for a task read from the activity feed too", () => {
     useNavRailStore.setState({ pane: "activity" });
     useActivityDetailStore.setState({

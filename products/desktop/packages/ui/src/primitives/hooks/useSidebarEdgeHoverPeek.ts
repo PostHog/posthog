@@ -32,9 +32,8 @@ interface UseSidebarEdgeHoverPeekOptions {
   peeked: boolean;
   side: "left" | "right";
   width: number;
-  // Distance from the window edge to the panel's own edge. Chrome pinned
-  // outside the panel (the nav rail) owns those pixels, so the reveal zone
-  // starts past it rather than on top of its buttons.
+  // Distance from the window edge to the panel's own. Chrome pinned outside
+  // the panel owns those pixels.
   offset?: number;
   onReveal: () => void;
   onClose: () => void;

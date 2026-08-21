@@ -8,13 +8,8 @@ export interface ActiveSession {
 }
 
 /**
- * Which session the chrome around the content pane is about.
- *
- * The route names it everywhere except Activity, which reads a task into the
- * pane without routing to it — so the title row's actions, the right panel and
- * the mention rules would all be pointed at whatever screen Activity is
- * covering. Resolving that here keeps the exception in one place instead of
- * restating it at every consumer.
+ * Which session the chrome around the content pane is about. The route names it
+ * everywhere except Activity, which reads a task into the pane without routing.
  */
 export function useActiveSession(): ActiveSession {
   const { showsActivityDetail } = useRailSurface();

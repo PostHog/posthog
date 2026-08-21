@@ -79,11 +79,7 @@ export function ActivityRow({
    */
   blockedTaskIds: ReadonlySet<string>;
   surface?: "activity" | "activity_panel";
-  /**
-   * What opening the row means on this surface. The row marks read, asks for
-   * the comment to be focused, and hands over — where it goes next is the
-   * feed's business, not the row's.
-   */
+  /** Where the row goes is the feed's business, not the row's. */
   onActivate: (item: TaskActivityItem) => void;
   isSelected?: boolean;
   compact?: boolean;

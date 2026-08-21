@@ -7,13 +7,8 @@ import {
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
 
-/**
- * Where a feed row goes when it is opened on a surface that navigates.
- *
- * Every activity surface except the rail's docked feed ends up here — the feed
- * reads its row in the pane beside it instead, which is why the row itself
- * hands activation out rather than deciding.
- */
+/** Where a feed row goes on a surface that navigates. The rail's docked feed
+ *  reads its row in place instead, so the row hands activation out. */
 export function openActivityItem(item: TaskActivityItem): void {
   const { channelId } = item;
 

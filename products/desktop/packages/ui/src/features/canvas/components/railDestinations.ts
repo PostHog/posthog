@@ -40,28 +40,9 @@ export interface RailDestination {
   pane: NavRailPane;
   label: string;
   analyticsId: SidebarNavItem;
-  // Not phosphor's `Icon`: that is the forwardRef shape, and LoopIcon (a plain
-  // wrapper over RepeatIcon) does not have it.
   Icon: ComponentType<IconProps>;
-  /**
-   * The app views that belong here, so a deep link, a back button or a ⌘1-9
-   * jump lights the entry the rail would have. Everything not claimed belongs
-   * to Spaces — a channel, a task and a new-task screen are all reached
-   * through its tree.
-   */
   viewTypes: readonly AppViewType[];
-  /**
-   * What picking it does beyond selecting the pane. Spaces and Activity draw
-   * into the content pane the /website layout owns; from inside that tree they
-   * move nothing, which is what lets Spaces put you back on the screen
-   * Activity was covering.
-   */
   onPick?: (ctx: { inWebsiteTree: boolean }) => void;
-  /**
-   * The id this destination is customized under, when it is one a user can
-   * hide or reorder from the sidebar settings. Home and Spaces are not: they
-   * own the column beside the rail, so hiding them would strand it.
-   */
   customizableId?: CustomizableNavItemId;
   shortcut?: string;
   count?: (counts: RailCounts) => number;
@@ -69,14 +50,6 @@ export interface RailDestination {
   enabled?: (flags: { loops: boolean }) => boolean;
 }
 
-/**
- * Every destination the rail offers, top to bottom.
- *
- * One table rather than one JSX block each: the entries differ only in these
- * fields, and written out longhand the pane comparison appeared twice per item
- * and the route mapping had to be maintained as a second, separate switch that
- * could silently disagree with it.
- */
 export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   {
     pane: "home",
@@ -91,11 +64,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Spaces",
     analyticsId: "spaces",
     Icon: SquaresFourIcon,
-    // Everything unclaimed lands here, so the tree needs no view types of its
-    // own — see `paneForView`.
     viewTypes: [],
-    // Always the list, even from inside a space: this is the entry to the
-    // tree, and the space you were in stays scoped behind it.
     onPick: showChannelList,
   },
   {
@@ -105,8 +74,6 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     analyticsId: "activity",
     Icon: BellIcon,
     viewTypes: ["activity"],
-    // Inbox and Loops still live in /code. Picked from there, Activity would
-    // have nowhere to draw — a dead feed beside the screen you were on.
     onPick: ({ inWebsiteTree }) => {
       if (!inWebsiteTree) navigateToActivity();
     },
@@ -141,8 +108,6 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     analyticsId: "loops",
     Icon: LoopIcon,
     viewTypes: ["loops"],
-    // Wrapped, not passed bare: it takes an options object, and handing it the
-    // pick context would read as options it never meant to receive.
     onPick: () => navigateToLoops(),
     enabled: (flags) => flags.loops,
   },
@@ -159,14 +124,8 @@ export function paneForView(viewType: AppViewType): NavRailPane {
   return PANE_BY_VIEW_TYPE.get(viewType) ?? "spaces";
 }
 
-/**
- * The destinations to draw, in order, for a given set of user preferences.
- *
- * Hiding and reordering are the sidebar settings' feature, and the rail honors
- * both. It keeps its own default sequence rather than the shared
- * `orderedNavItems`, whose adjacency rule pins Activity below Inbox — the rail
- * puts Activity first. A stored drag order still wins over either.
- */
+// Deliberately not the shared `orderedNavItems`: its adjacency rule pins
+// Activity below Inbox, and the rail puts Activity first.
 export function visibleRailDestinations({
   overrides,
   order,
@@ -197,7 +156,6 @@ export function visibleRailDestinations({
         (rank.get(a.customizableId as CustomizableNavItemId) ?? 0) -
         (rank.get(b.customizableId as CustomizableNavItemId) ?? 0),
     );
-  // Only the customizable entries move; the pinned ones keep their slots.
   const result = [...shown];
   positions.forEach((position, i) => {
     result[position] = reordered[i];

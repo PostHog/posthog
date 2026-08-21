@@ -30,23 +30,14 @@ import {
 } from "./activityFeed";
 
 interface ActivityFeedListProps {
-  /**
-   * What opening a row does. Defaults to navigating to it; the rail's Activity
-   * pane reads it into the pane beside the feed instead, because routing away
-   * would take the feed off the screen you are reading it from.
-   */
   onActivate?: (item: TaskActivityItem) => void;
-  /** Called after a row is opened — the popover uses it to close itself. */
   onOpened?: () => void;
   selectedId?: string;
   className?: string;
 }
 
-/**
- * The activity feed's header and scrolling list, without any chrome of its own.
- * The rail's sidebar pane and the code layout's hover card both draw it, so the
- * mark-all-read affordance and the unreads filter can't drift between them.
- */
+/** The feed's header and scrolling list, drawn by both the rail's pane and the
+ *  code layout's hover card. */
 export function ActivityFeedList({
   onActivate = openActivityItem,
   onOpened,

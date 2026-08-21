@@ -357,8 +357,8 @@ export function WebsiteLayout() {
   const channelId = params.channelId;
   const dashboardId = params.dashboardId;
 
-  // Activity reads a task into this pane without routing to it, so the session
-  // this chrome is about is not always the one in the URL.
+  // Activity reads a task into this pane without routing, so the session is
+  // not always the one in the URL.
   const { showsActivityDetail } = useRailSurface();
   const { taskId, channelId: taskChannelId } = useActiveSession();
 

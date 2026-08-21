@@ -40,9 +40,7 @@ interface ResizableSidebarProps {
   // What the resize grip says once the pointer has rested on it. Defaults to
   // the bare "Resize"; a panel with a shortcut of its own passes that too.
   resizeTooltip?: React.ReactNode;
-  // Off when the child draws its own frame. Two owners of the same edge stack
-  // two 1px lines into one thick seam, and a child with a rounded corner needs
-  // to own the whole outline for the curve to meet its sides.
+  // Off when the child draws its own frame; two owners of an edge double it.
   drawEdge?: boolean;
 }
 

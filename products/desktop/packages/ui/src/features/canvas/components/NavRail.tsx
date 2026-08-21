@@ -65,10 +65,6 @@ function NavIcon({
 }) {
   return (
     <Tooltip>
-      {/* quill's Button, with the sidebar's selected-row treatment — the same
-          `data-selected` pairing the channel rows use, so the rail and the list
-          beside it read as one control set in either theme. `relative` is for
-          the count badge, which pins to the button's corner. */}
       <TooltipTrigger
         render={
           <Button
@@ -99,10 +95,6 @@ interface NavButtonProps extends ComponentPropsWithRef<"button"> {
   badge?: ReactNode;
 }
 
-// Same quill Button as NavIcon above — this variant only exists because the
-// Activity entry is a Popover trigger, so it needs to forward the trigger's
-// props and ref. Hand-rolling the button here left it a size larger than its
-// neighbours.
 function NavButton({
   icon,
   label,
@@ -153,13 +145,7 @@ function ActivityHoverPopover({ trigger }: { trigger: ReactElement }) {
   );
 }
 
-/**
- * The bell, with a peek at the feed on hover.
- *
- * The card is for reading the feed from wherever you are without giving up the
- * screen you are on. Once Activity is the destination the feed is already
- * beside you, so hovering its own entry would only cover it with a copy.
- */
+// No peek once Activity is the destination: the feed is already beside you.
 function ActivityNavItem({
   isActive,
   badge,
@@ -184,15 +170,8 @@ function ActivityNavItem({
 }
 
 /**
- * The app's leftmost column: every destination as an icon, with the project
- * menu at its foot.
- *
- * It sits outside the resizable sidebar, so collapsing that sidebar leaves the
- * destinations reachable. Two of them own the column to the rail's right:
- * Spaces draws the channel tree, Activity draws the feed. Both are view state
- * rather than routes — picking them must not take you off the screen you are
- * on — so they set the pane and navigate nothing. The rest are whole-screen
- * destinations: they route, and the column collapses away.
+ * The app's leftmost column. Sits outside the resizable sidebar, so collapsing
+ * that sidebar leaves the destinations reachable.
  */
 export function NavRail() {
   const view = useAppView();
@@ -214,8 +193,6 @@ export function NavRail() {
   const inWebsiteTree = useRouterState({
     select: (s) => s.location.pathname.startsWith("/website"),
   });
-  // Hiding and reordering nav items is a sidebar setting; the rail is one of
-  // the two shells that honors it.
   const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
   const navItemOrder = useSidebarStore((s) => s.navItemOrder);
   const destinations = visibleRailDestinations({
@@ -225,8 +202,6 @@ export function NavRail() {
   });
   const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
 
-  // Selecting the destination is the whole interaction; what it does beyond
-  // that is the destination's own business.
   const pick =
     ({ pane, analyticsId, onPick }: RailDestination) =>
     () => {
@@ -239,20 +214,16 @@ export function NavRail() {
       onPick?.({ inWebsiteTree });
     };
 
-  // Follow the route, but only when the route itself changes: Spaces and
-  // Activity deliberately leave the URL alone, and re-deriving on every render
-  // would snap the pane straight back to whatever screen is behind them.
+  // Deps are the route, not every render: Spaces and Activity leave the URL
+  // alone, and re-deriving would snap the pane back to the screen behind them.
   const routePane = paneForView(view.type);
   useEffect(() => {
     setRailPane(routePane);
   }, [routePane, setRailPane]);
 
   return (
-    // One provider for the rail: once any tooltip is up, moving to its
-    // neighbour reveals that one immediately instead of serving the warm-up
-    // delay again. Per-tooltip providers (the old primitive mounted its own)
-    // cannot do that — the skip window is provider state, and isolated
-    // providers never share it.
+    // One provider for the whole rail: the tooltip skip window is provider
+    // state, so isolated providers never share it.
     <TooltipProvider delay={400}>
       <div
         className="flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
@@ -292,8 +263,6 @@ export function NavRail() {
             />
           );
         })}
-        {/* The foot of the rail: what you reach for, rather than where you
-            are. Neither owns a pane, so neither is ever lit. */}
         <div className="mt-auto flex flex-col items-center gap-1.5">
           {settingsVisible && (
             <NavIcon

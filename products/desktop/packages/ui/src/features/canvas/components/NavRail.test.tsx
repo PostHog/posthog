@@ -153,8 +153,6 @@ describe("NavRail", () => {
     expect(screen.queryByText("Recent activity card")).not.toBeInTheDocument();
   });
 
-  // Hiding and reordering nav items is a sidebar setting shared with the code
-  // layout's nav; the rail is the other shell that has to honor it.
   it("drops an item hidden in the sidebar settings", () => {
     useSidebarStore.setState({ navItemOverrides: { "command-center": false } });
     render(<NavRail />);

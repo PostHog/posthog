@@ -3,15 +3,9 @@ import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/T
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 
 /**
- * The title row above the content pane: whatever the screen below pushed into
- * the header store, plus the session's actions.
- *
- * It subscribes to that store itself rather than letting the layout do it. The
- * layout renders the screen that writes the store, so a subscription up there
- * makes every title change re-render the writer — a loop waiting for one
- * unstable value inside it. Reading it here, the writes land on a leaf.
- *
- * Renders nothing when there is neither a title nor actions to carry.
+ * The title row above the content pane. Subscribes to the header store itself:
+ * the layout renders the screen that writes that store, so subscribing up there
+ * makes every title write re-render the writer.
  */
 export function SpaceHeaderRow({ task }: { task?: Task }) {
   const content = useHeaderStore((s) => s.content);

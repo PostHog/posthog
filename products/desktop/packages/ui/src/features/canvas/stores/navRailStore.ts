@@ -1,13 +1,8 @@
 import { create } from "zustand";
 
 /**
- * Which rail destination is selected, and therefore what the column beside the
- * rail shows.
- *
- * Only two destinations own that column: Spaces draws the channel tree (and the
- * channel you slide into from it), Activity draws the feed. The rest are
- * whole-screen destinations with no list of their own, so the column collapses
- * away and the content pane takes its width.
+ * Which rail destination is selected. Only Spaces and Activity own the column
+ * beside the rail; the rest are whole-screen and collapse it away.
  */
 export type NavRailPane =
   | "home"
@@ -33,7 +28,6 @@ export const useNavRailStore = create<NavRailState>()((set) => ({
   setPane: (pane) => set({ pane }),
 }));
 
-/** Put the channel tree back in the column — every channel entry point calls this. */
 export function showSpacesRailPane(): void {
   useNavRailStore.getState().setPane("spaces");
 }

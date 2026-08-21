@@ -143,9 +143,7 @@ export function ChannelsSidebar() {
     peeked: peek,
     side: "left",
     width,
-    // The rail holds the window's left edge under the layout, so the peek
-    // strip starts where the rail ends — hovering a rail button is not a
-    // request to slide the sidebar out.
+    // Hovering a rail button is not a request to slide the sidebar out.
     offset: channelsLayout ? NAV_RAIL_WIDTH : 0,
     onReveal: beginSidebarPeek,
     onClose: () => endSidebarPeek(),
@@ -185,9 +183,7 @@ export function ChannelsSidebar() {
 
   const archivedTaskIds = useArchivedTaskIds();
 
-  // Which space is scoped, and the slide that follows a route into it, are
-  // owned by ChannelRouteSync — this column is not always drawn, and the
-  // scoping has to happen either way.
+  // Scoping lives in ChannelRouteSync: this column is not always drawn.
   const { currentChannelId } = useCurrentChannel({ enabled: channelsLayout });
 
   // Browsing the list is view state, not navigation: you stay in the channel
@@ -221,10 +217,8 @@ export function ChannelsSidebar() {
         <div
           className={cn(
             "flex h-full flex-col bg-chrome",
-            // The rail holds the window edge, so this column is what the
-            // framed inset starts on, and it owns the whole outline: the
-            // curve has to meet its own sides, and a second owner of any one
-            // edge (the rail, the sidebar box) doubles that line.
+            // This column starts the framed inset, so it owns the whole
+            // outline: a second owner of any edge doubles that line.
             channelsLayout &&
               "rounded-tl-lg border-border border-t border-r border-l",
           )}

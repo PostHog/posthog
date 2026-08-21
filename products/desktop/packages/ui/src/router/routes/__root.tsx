@@ -213,14 +213,10 @@ function RootLayout() {
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
   const sidebarOpen = useSidebarStore((s) => s.open);
-  // Whether a column is actually on screen, not whether the user has one open:
-  // a destination with no list takes the column away whatever the open flag
-  // says, and the frame follows what is drawn.
+  // On screen, not merely un-collapsed: a destination with no list takes the
+  // column away whatever the open flag says.
   const sidebarDocked = sidebarOpen && hasSidebar;
-  // The rounded corner belongs to whichever pane starts the framed inset: the
-  // sidebar when it is docked, this pane when it isn't and the rail holds the
-  // window edge. Without a rail there is nothing to inset from until the
-  // sidebar opens, which is the corner this pane kept before.
+  // The corner belongs to whichever pane starts the framed inset.
   const framesOwnCorner = channelsLayout ? !sidebarDocked : sidebarDocked;
 
   const toggleSidebar = useSidebarStore((s) => s.toggle);
@@ -384,8 +380,6 @@ function RootLayout() {
               // over- or under-shoots; the env var fallback covers hosts
               // without Window Controls Overlay.
               paddingLeft: isMac ? "env(titlebar-area-x, 78px)" : "78px",
-              // Matches the rail plus the sidebar, so the search bar beside it
-              // starts flush with the content pane.
               width: sidebarDocked
                 ? channelsSidebarWidth + (channelsLayout ? NAV_RAIL_WIDTH : 0)
                 : undefined,
@@ -495,8 +489,8 @@ function RootLayout() {
             <Box
               className={cn(
                 "h-full overflow-hidden border-border border-t bg-background",
-                // A docked sidebar already draws this edge, so drawing it again
-                // here stacks two 1px lines into one thick seam.
+                // A docked sidebar already draws this edge; two owners stack
+                // two 1px lines into one seam.
                 !sidebarDocked && "border-l",
                 framesOwnCorner && "rounded-tl-sm",
               )}

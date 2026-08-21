@@ -87,12 +87,8 @@ vi.mock("@posthog/ui/router/routeSkeletons", () => ({
   TaskDetailSkeleton: () => <div>skeleton</div>,
 }));
 
-// Stands in for the real task view, which cannot be imported here (its module
-// graph reaches the workspace client). What matters is the shape it shares with
-// the real one: it publishes the title row through the header store, and it
-// derives that row from the task it was handed. The task identity is
-// deliberately unstable, the way a live query's is mid-refetch — which is what
-// turns a subscription in the wrong place into a runaway.
+// Stands in for the real task view, which cannot be imported here. The task
+// identity is deliberately unstable, the way a live query's is mid-refetch.
 let taskDetailRenders = 0;
 vi.mock("@posthog/ui/features/task-detail/components/TaskDetail", () => ({
   TaskDetail: ({
@@ -131,8 +127,7 @@ describe("SpaceHeaderRow", () => {
         <WebsiteLayout />
       </QueryClientProvider>,
     );
-    // If the layout subscribes to the header store again, every title write
-    // re-renders the screen that wrote it and this blows React's update depth.
+    // A layout that subscribes to the header store blows the update depth here.
     expect(taskDetailRenders).toBeLessThan(20);
   });
 });

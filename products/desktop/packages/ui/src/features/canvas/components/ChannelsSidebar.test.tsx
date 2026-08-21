@@ -97,9 +97,7 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelRouteSync } from "./ChannelRouteSync";
 import { ChannelsSidebar } from "./ChannelsSidebar";
 
-// The shell mounts the route-scoping owner beside the column; this harness
-// mounts the same pair, because most of what the column shows is downstream of
-// which space the route scoped.
+// The same pair the shell mounts: the column's contents follow the scoped space.
 function renderSidebar() {
   return render(
     <Theme>

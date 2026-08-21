@@ -58,11 +58,6 @@ import { Avatar, Box } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 
 interface ProjectSwitcherProps {
-  /**
-   * `row` is the full-width row the sidebar draws. `icon` is the rail's square
-   * trigger: the same menu, reduced to the project's initials because the rail
-   * has no room for a name.
-   */
   appearance?: "row" | "icon";
 }
 
@@ -239,12 +234,10 @@ export function ProjectSwitcher({
       />
 
       <DropdownMenuContent
-        // The rail trigger sits at the foot of the rail, so its menu anchors
-        // to that bottom edge and grows upward.
         align={isIcon ? "end" : "start"}
         side={isIcon ? "right" : "bottom"}
         // The rail trigger is one icon wide, so anchor-width would squeeze the
-        // menu to nothing; only the sidebar row is wide enough to match.
+        // menu to nothing.
         className={
           isIcon
             ? "w-64 pt-0"
