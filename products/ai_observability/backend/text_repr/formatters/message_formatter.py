@@ -218,17 +218,26 @@ def format_single_tool_call(name: str, args: Any) -> str:
     return f"{name}()"
 
 
-def format_tool_calls(tool_calls: list[ToolCall]) -> list[str]:
-    """Format tool calls for display."""
+def format_tool_calls(tool_calls: list[Any]) -> list[str]:
+    """Format tool calls for display.
+
+    Typed as `list[Any]` because recorded tool calls do not always match the `ToolCall` shape;
+    some SDKs write a bare string, which the loop handles rather than crashing on `.get`.
+    """
     lines: list[str] = []
     lines.append(f"Tool calls: {len(tool_calls)}")
 
     for tc in tool_calls:
+        if not isinstance(tc, dict):
+            lines.append(f"  - {tc}")
+            continue
+
         # Handle both OpenAI format (function: {name, arguments})
         # and LangChain format (name, args)
-        if tc.get("function"):
-            name = tc["function"].get("name", "unknown")
-            args = tc["function"].get("arguments", "")
+        function = tc.get("function")
+        if isinstance(function, dict):
+            name = function.get("name", "unknown")
+            args = function.get("arguments", "")
         else:
             name = tc.get("name", "unknown")
             args = tc.get("args", "")

@@ -509,14 +509,18 @@ def cast_assistant_query(
         raise ValueError(f"Unsupported query type: {query.kind}")
 
 
-def build_insight_url(team: Team, id: str) -> str:
-    """Build the URL for an insight."""
-    return f"/project/{team.id}/insights/{id}"
+def build_insight_url(id: str) -> str:
+    """Build the URL for an insight.
+
+    Unprefixed by `/project/<id>`: these URLs are handed to the model, which is instructed to omit
+    that prefix, and the app resolves them against the project the user is already in.
+    """
+    return f"/insights/{id}"
 
 
-def build_dashboard_url(team: Team, id: int) -> str:
-    """Build the URL for a dashboard."""
-    return f"/project/{team.id}/dashboard/{id}"
+def build_dashboard_url(id: int) -> str:
+    """Build the URL for a dashboard. Unprefixed, for the same reason as `build_insight_url`."""
+    return f"/dashboard/{id}"
 
 
 def extract_stream_update(update: Any) -> Any:

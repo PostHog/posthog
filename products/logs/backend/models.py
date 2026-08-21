@@ -54,12 +54,12 @@ DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
 ]
 
 
-# Default log attribute keys whose values hold the PostHog session ID. `posthogSessionId`
-# is the key the posthog-js / posthog-react-native SDKs auto-attach to every log they
-# emit (see https://posthog.com/docs/logs/link-session-replay). Ordered: detection checks
-# keys in list order and the first match wins. Customers whose pipeline emits the session
-# ID under different keys can override via the `logs_config` endpoint.
-DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ["posthogSessionId"]
+# Default log attribute keys whose values hold the PostHog session ID. `sessionId` is what
+# the posthog-js / posthog-react-native SDKs emit and what
+# https://posthog.com/docs/logs/link-session-replay tells backends to send. Ordered:
+# detection checks keys in list order and the first match wins. Customers whose pipeline
+# emits the session ID under different keys can override via the `logs_config` endpoint.
+DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ["sessionId"]
 
 
 def default_logs_session_id_attribute_keys() -> list[str]:
@@ -98,6 +98,8 @@ class TeamLogsConfig(models.Model):
     logs_session_id_attribute_keys = ArrayField(
         models.CharField(max_length=200),
         default=default_logs_session_id_attribute_keys,
+        # Stale relative to the default above; aligning it needs a migration and Django
+        # applies `default` first, so this is never observed.
         db_default=Value("{posthogSessionId}"),
     )
 

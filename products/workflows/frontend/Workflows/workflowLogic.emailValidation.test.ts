@@ -204,10 +204,20 @@ describe('workflowLogic email step "from" validation', () => {
         expect(result?.errors.email).toBeUndefined()
     })
 
-    it('does not flag a "from" error when an integration sender has been picked', async () => {
+    it.each([
+        [
+            'one sender with valid templated overrides',
+            {
+                integrationId: 42,
+                email: '{{ event.properties.sender_email }}',
+                name: 'Community team',
+            },
+        ],
+        ['a sender rotation', { integrationId: 42, integrationIds: [42, 43, 44] }],
+    ])('does not flag a "from" error when %s has been picked', async (_name, fromValue) => {
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(fromValue),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
         })
@@ -219,6 +229,28 @@ describe('workflowLogic email step "from" validation', () => {
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
         expect(result?.emailErrors).toBeUndefined()
         expect(result?.valid).toBe(true)
+    })
+
+    it('flags a broken Liquid template in the custom sender fields once a save is attempted', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({
+                    integrationId: 42,
+                    email: '{{ event.properties.sender',
+                }),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        logic.actions.saveWorkflowPartial({ status: 'active' })
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.valid).toBe(false)
+        expect(result?.emailErrors?.from).toContain('Liquid template error')
     })
 
     it('keeps the step invalid after templates load (generic validator must not resurface a blob)', async () => {

@@ -67,7 +67,6 @@ def allow_persons_orm():
 PERSONS_DB_MODELS = {
     "person",
     "persondistinctid",
-    "personlessdistinctid",
     "personoverridemapping",
     "personoverride",
     "pendingpersonoverride",

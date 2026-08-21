@@ -4,7 +4,9 @@ from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowI
 
 
 def test_coerce_returns_dataclass_unchanged():
-    inputs = PostHogCodeSlackMentionWorkflowInputs(event={"ts": "1.2"}, integration_id=7, slack_team_id="T1")
+    inputs = PostHogCodeSlackMentionWorkflowInputs(
+        event={"ts": "1.2"}, integration_id=7, slack_team_id="T1", user_id=42
+    )
     assert coerce_mention_workflow_inputs(inputs) is inputs
 
 
@@ -23,7 +25,7 @@ def test_coerce_rebuilds_dataclass_from_dict():
 def test_coerce_drops_unknown_keys_from_dict():
     # A newer sender's extra field must not blow up an older activity mid-deploy.
     coerced = coerce_mention_workflow_inputs(
-        {"event": {}, "integration_id": 1, "slack_team_id": "T1", "some_future_field": "x"}
+        {"event": {}, "integration_id": 1, "slack_team_id": "T1", "user_id": 42, "some_future_field": "x"}
     )
     assert coerced.integration_id == 1
 

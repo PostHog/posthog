@@ -12,6 +12,7 @@ export type AppViewType =
   | "task-input"
   | "folder-settings"
   | "activity"
+  | "home"
   | "inbox"
   | "agents"
   | "loops"
@@ -64,6 +65,8 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "folder-settings", folderId: last.params.folderId };
     case "/website/activity":
       return { type: "activity" };
+    case "/website/home":
+      return { type: "home" };
     case "/code/inbox":
       return { type: "inbox" };
     case "/code/agents":

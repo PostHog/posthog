@@ -1,4 +1,7 @@
+import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+
 import {
+    canNudgeToSubscribe,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     selectedDaysToDayPickerLabel,
@@ -155,5 +158,18 @@ describe('getAiSubscriptionGate', () => {
         ],
     ] as const)('%s', (_label, overrides, expected) => {
         expect(getAiSubscriptionGate({ ...base, ...overrides })).toMatchObject(expected)
+    })
+})
+
+describe('canNudgeToSubscribe', () => {
+    // isFreeTierCreateAtLimit fails open on an unknown count so the form still renders. The nudge
+    // wants the opposite, so the null case is decided here rather than left to that helper.
+    it.each([
+        ['a paid plan is nudged whatever the free-tier count says', true, null, true],
+        ['free tier with room left is nudged', false, 0, true],
+        ['free tier at the limit is not nudged', false, SubscriptionFreeTierLimit.COUNT, false],
+        ['an unknown count is not nudged', false, null, false],
+    ] as const)('%s', (_label, hasSubscriptionsFeature, freeTierSubscriptionCount, expected) => {
+        expect(canNudgeToSubscribe(hasSubscriptionsFeature, freeTierSubscriptionCount)).toBe(expected)
     })
 })

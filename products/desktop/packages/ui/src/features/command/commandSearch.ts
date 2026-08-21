@@ -1,5 +1,19 @@
 import type { CommandSection } from "@posthog/ui/features/command/useSearchSections";
 
+export const RECENT_COMMAND_LIMIT = 5;
+
+export function addRecentCommand<T extends { id: string }>(
+  recentCommands: T[],
+  command: T,
+): T[] {
+  return [
+    command,
+    ...recentCommands.filter(
+      (recentCommand) => recentCommand.id !== command.id,
+    ),
+  ].slice(0, RECENT_COMMAND_LIMIT);
+}
+
 export function matchesCommandSearch(
   command: { label: string; keywords?: string },
   query: string,

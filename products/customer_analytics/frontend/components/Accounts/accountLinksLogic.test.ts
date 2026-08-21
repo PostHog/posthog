@@ -34,6 +34,7 @@ const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
     },
     tags: [],
     notebooks: [],
+    ignored_at: null,
     created_at: '2026-01-01T00:00:00Z',
     created_by: null,
     updated_at: '2026-01-01T00:00:00Z',

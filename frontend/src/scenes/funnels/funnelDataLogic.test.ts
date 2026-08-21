@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import timekeeper from 'timekeeper'
 
+import { FunnelLayout } from 'lib/constants'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -78,6 +79,25 @@ describe('funnelDataLogic', () => {
             })
         })
 
+        it('with layout but missing funnel viz type', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    layout: FunnelLayout.horizontal,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
+                isStepsFunnel: true,
+                isTimeToConvertFunnel: false,
+                isTrendsFunnel: false,
+            })
+        })
+
         it('for steps viz', async () => {
             const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
@@ -132,6 +152,34 @@ describe('funnelDataLogic', () => {
                 isStepsFunnel: false,
                 isTimeToConvertFunnel: false,
                 isTrendsFunnel: true,
+            })
+        })
+
+        // Saved funnels can carry a funnelsFilter with no viz type. Without a resolved default the
+        // conversion rate label and the detailed results table disappear.
+        it.each([
+            ['no funnelsFilter', {}, FunnelVizType.Steps],
+            [
+                'a funnelsFilter without a viz type',
+                { funnelsFilter: { funnelWindowInterval: 14 } },
+                FunnelVizType.Steps,
+            ],
+            [
+                'an explicit viz type',
+                { funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert } },
+                FunnelVizType.TimeToConvert,
+            ],
+        ])('resolves the viz type for %s', async (_name, queryPatch, expected) => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                ...queryPatch,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                funnelVizType: expected,
             })
         })
     })

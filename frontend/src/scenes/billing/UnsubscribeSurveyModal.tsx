@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { SurveyEventProperties } from 'posthog-js'
 import { useState } from 'react'
 
+import * as heartPng from '@posthog/brand/hoggies/png/heart'
 import {
     LemonBanner,
     LemonButton,
@@ -16,7 +17,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { HeartHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -32,6 +33,8 @@ import {
     isPlatformAndSupportAddon,
     randomizeReasons,
 } from './billingProductLogic'
+
+const HedgehogHeart = pngHoggie(heartPng)
 
 export const UnsubscribeSurveyModal = ({
     product,
@@ -84,7 +87,7 @@ export const UnsubscribeSurveyModal = ({
                 <h3 className="text-lg mb-2">How about now? Was that enough hedgehogs?</h3>
                 <p className="text-secondary mb-4">Look at all these adorable hedgehogs dancing just for you! 🦔✨</p>
                 <div className="flex justify-center items-center">
-                    <HeartHog width="100" height="100" />
+                    <HedgehogHeart width="100" height="100" />
                 </div>
             </div>
             <div className="flex gap-2 justify-center">

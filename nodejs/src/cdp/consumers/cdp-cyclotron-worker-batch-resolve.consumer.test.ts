@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -121,7 +123,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
         beforeEach(() => {
             queueAppMetrics = jest.fn()
-            bulkCreateAndCheckIn = jest.fn().mockResolvedValue(undefined)
+            bulkCreateAndCheckIn = jest.fn().mockResolvedValue({ newJobIds: [] })
             release = jest.fn().mockResolvedValue(undefined)
             // Masking itself is covered by hog-masker.service.test.ts; stubbing the partition
             // here is what lets each case fix which runs are masked and assert how the consumer
@@ -229,6 +231,66 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(producedRows()).toHaveLength(0)
             expect(release).toHaveBeenCalledTimes(1)
             expect(triggeredMetrics()).toHaveLength(0)
+        })
+
+        it('terminates the resolver instead of scheduling another page when the check-in is refused by a cancel', async () => {
+            // The engine refuses the page when a cancel flag landed mid-build: nothing
+            // committed, so the queued running rows and mask claims must be undone (these
+            // children will never run) and the resolver must terminate, not retry.
+            bulkCreateAndCheckIn.mockResolvedValue({ newJobIds: [], cancelRequested: true })
+            const cancel = jest.fn().mockResolvedValue(undefined)
+            const reschedule = jest.fn()
+            Object.assign(consumer, {
+                hogFunctionMonitoringService: {
+                    queueAppMetrics,
+                    queueLogs: jest.fn(),
+                    flush: jest.fn().mockResolvedValue(undefined),
+                },
+            })
+
+            await (consumer as any).processOnePage({ bulkCreateAndCheckIn, reschedule, cancel }, state)
+            await rowsService.flush()
+
+            expect(producedRows()).toHaveLength(0)
+            expect(release).toHaveBeenCalledTimes(1)
+            expect(triggeredMetrics()).toHaveLength(0)
+            expect(cancel).toHaveBeenCalledTimes(1)
+            expect(reschedule).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('cancel-flagged resolver jobs', () => {
+        it('terminates on dequeue without fetching a page, even when the state is unparseable', async () => {
+            const getBlastRadiusPersons = jest.fn()
+            const queueLogs = jest.fn()
+            const flush = jest.fn().mockResolvedValue(undefined)
+            const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
+            Object.assign(consumer, {
+                hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
+                hogFunctionMonitoringService: { queueLogs, flush },
+            })
+            const cancel = jest.fn().mockResolvedValue(undefined)
+            const job = {
+                id: 'job-1',
+                teamId: team.id,
+                functionId: hogFlow.id,
+                parentRunId: 'batch-job-1',
+                cancelRequestedAt: DateTime.now(),
+                // Unparseable on purpose: the cancel must not depend on state surviving
+                // schema drift across deploys.
+                state: Buffer.from('not json'),
+                cancel,
+            }
+
+            await (consumer as any).processResolverJob(job)
+
+            expect(cancel).toHaveBeenCalledTimes(1)
+            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            // The stop is visible on the batch run's log stream, keyed by parent run id.
+            expect(queueLogs).toHaveBeenCalledTimes(1)
+            const [logs] = queueLogs.mock.calls[0]
+            expect(logs[0].log_source_id).toEqual('batch-job-1')
+            expect(flush).toHaveBeenCalled()
         })
     })
 })

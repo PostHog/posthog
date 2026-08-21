@@ -14,7 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.canny.cann
     canny_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import (
+    CANNY_API_VERSION_V1,
+    CANNY_API_VERSION_V2,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
@@ -73,8 +77,35 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _source(endpoint: str, manager: mock.MagicMock, api_key: str = "k"):
-    return canny_source(api_key=api_key, endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+def _source(endpoint: str, manager: mock.MagicMock, api_key: str = "k", api_version: str = CANNY_API_VERSION_V1):
+    return canny_source(
+        api_key=api_key,
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+        api_version=api_version,
+    )
+
+
+def _cursor_page(key: str, ids: list[str], cursor: str | None, has_next: bool) -> Response:
+    return _response({key: [{"id": i} for i in ids], "cursor": cursor, "hasNextPage": has_next})
+
+
+def _capture(session: mock.MagicMock, responses: list[Response]) -> tuple[list[str], list[dict[str, Any]]]:
+    """Like ``_wire`` but also snapshots each request's URL, so v2 path dispatch can be asserted."""
+    session.headers = {}
+    urls: list[str] = []
+    bodies: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        urls.append(request.url)
+        bodies.append(dict(request.json or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return urls, bodies
 
 
 class TestCannyBodyAuth:
@@ -304,3 +335,81 @@ class TestCannySource:
         # Every Canny object carries a stable `created` timestamp we partition on.
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created"]
+
+
+class TestV2CursorPagination:
+    # Canny's v2 wire is cursor-paginated and keys records per endpoint: users and companies keep
+    # their named keys, comments uses the generic `items`.
+    V2_ENDPOINTS = [("companies", "companies"), ("comments", "items"), ("users", "users")]
+
+    @pytest.mark.parametrize(("endpoint", "data_key"), V2_ENDPOINTS)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_cursor_paginates_reads_v2_key_and_hits_v2_path(self, MockSession, endpoint: str, data_key: str) -> None:
+        session = MockSession.return_value
+        urls, bodies = _capture(
+            session,
+            [
+                _cursor_page(data_key, ["a", "b"], cursor="cur-1", has_next=True),
+                _cursor_page(data_key, ["c"], cursor=None, has_next=False),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source(endpoint, manager, api_version=CANNY_API_VERSION_V2))
+
+        assert [r["id"] for r in rows] == ["a", "b", "c"]
+        assert all(url == f"https://canny.io/api/v2/{endpoint}/list" for url in urls)
+        # limit rides every request; the cursor is absent on the first and forwarded on the next.
+        assert bodies[0].get("limit") == PAGE_SIZE
+        assert "cursor" not in bodies[0]
+        assert bodies[1].get("cursor") == "cur-1"
+        # The non-terminal page checkpoints its cursor so a crash resumes rather than restarts.
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [CannyResumeConfig(cursor="cur-1")]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_seeds_cursor_from_saved_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        _, bodies = _capture(session, [_cursor_page("companies", ["x"], cursor=None, has_next=False)])
+
+        manager = _make_manager(CannyResumeConfig(cursor="cur-99"))
+        rows = _rows(_source("companies", manager, api_version=CANNY_API_VERSION_V2))
+
+        assert bodies[0].get("cursor") == "cur-99"
+        assert [r["id"] for r in rows] == ["x"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_error_body_on_v2_raises_http_error(self, MockSession) -> None:
+        session = MockSession.return_value
+        _capture(session, [_response({"error": "invalid API key"})])
+
+        with pytest.raises(requests.HTTPError, match="invalid API key"):
+            _rows(_source("companies", _make_manager(), api_version=CANNY_API_VERSION_V2))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_v2_pin_keeps_non_v2_endpoint_on_v1_skip_wire(self, MockSession) -> None:
+        # posts has no v2 implementation, so a v2-pinned source must still request the v1 path with
+        # skip/limit pagination — never a guessed /v2/posts/list that would 404.
+        session = MockSession.return_value
+        urls, bodies = _capture(session, [_page("posts", ["p1"], has_more=False)])
+
+        rows = _rows(_source("posts", _make_manager(), api_version=CANNY_API_VERSION_V2))
+
+        assert urls == ["https://canny.io/api/v1/posts/list"]
+        assert bodies[0].get("skip") == 0
+        assert bodies[0].get("limit") == PAGE_SIZE
+        assert [r["id"] for r in rows] == ["p1"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_v1_pin_keeps_v2_capable_endpoint_on_v1_wire(self, MockSession) -> None:
+        # A v1-pinned companies source stays byte-for-byte on the v1 skip/limit path and `companies`
+        # key, unaffected by the new default.
+        session = MockSession.return_value
+        urls, bodies = _capture(session, [_page("companies", ["c1"], has_more=False)])
+
+        rows = _rows(_source("companies", _make_manager(), api_version=CANNY_API_VERSION_V1))
+
+        assert urls == ["https://canny.io/api/v1/companies/list"]
+        assert bodies[0].get("skip") == 0
+        assert "cursor" not in bodies[0]
+        assert [r["id"] for r in rows] == ["c1"]
