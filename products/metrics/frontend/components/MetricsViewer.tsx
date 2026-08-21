@@ -274,10 +274,10 @@ export const MetricsViewer = (): JSX.Element => {
                             disabledReason={metricsViewerDisabledReason}
                         />
                         <LemonSwitch
-                            label="Live"
+                            label="Auto-refresh"
                             checked={liveRefresh}
                             onChange={setLiveRefresh}
-                            tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
+                            tooltip={`Refreshes every ${LIVE_REFRESH_MS / 1000}s`}
                             bordered
                             data-attr="metrics-viewer-live-toggle"
                             disabledReason={metricsViewerDisabledReason}
