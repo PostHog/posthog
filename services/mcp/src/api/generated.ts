@@ -17303,6 +17303,13 @@ export namespace Schemas {
       StaleVersion: 'stale_version',
     } as const;
 
+    export interface CodeInviteAccessResponse {
+      /** Whether the user can access PostHog Desktop. */
+      has_access: boolean;
+      /** Whether the user can access Loops. */
+      has_loops_access: boolean;
+    }
+
     export interface CodeInviteRedeemRequest {
       /** @maxLength 50 */
       code: string;

@@ -7,6 +7,13 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface CodeInviteAccessResponseApi {
+    /** Whether the user can access PostHog Desktop. */
+    has_access: boolean
+    /** Whether the user can access Loops. */
+    has_loops_access: boolean
+}
+
 export interface CodeInviteRedeemRequestApi {
     /** @maxLength 50 */
     code: string

@@ -96,6 +96,7 @@ from products.tasks.backend.facade.streams import (
     run_uses_dedicated_stream,
 )
 from products.tasks.backend.presentation.serializers import (
+    CodeInviteAccessResponseSerializer,
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
     ModelCatalogueResponseSerializer,
@@ -3376,19 +3377,19 @@ class CodeInviteViewSet(viewsets.ViewSet):
         return Response({"success": True})
 
     @extend_schema(
-        responses={
-            200: OpenApiResponse(description="Access check result"),
-        },
+        responses={200: CodeInviteAccessResponseSerializer},
         summary="Check access",
         description="Check whether the authenticated user has access to PostHog Desktop and to Loops.",
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
         return Response(
-            {
-                "has_access": tasks_access.has_tasks_access(request.user),
-                "has_loops_access": tasks_access.has_loops_access(request.user),
-            }
+            CodeInviteAccessResponseSerializer(
+                {
+                    "has_access": tasks_access.has_tasks_access(request.user),
+                    "has_loops_access": tasks_access.has_loops_access(request.user),
+                }
+            ).data
         )
 
 
