@@ -27,6 +27,9 @@ The gRPC endpoint listens on port 7143 and metrics/readiness on port 7144.
 PostgreSQL is the source of truth. The service retains successful team-to-
 organization lookups in its process-local cache for five minutes.
 
+When `DEBUG` is set, the service writes readable, colorized logs for local
+development. It uses structured JSON logs otherwise.
+
 ## Where it runs
 
 | Resource | Placement |
