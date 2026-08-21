@@ -4,11 +4,9 @@ The [README](./README.md) is the normative specification. This file lists change
 
 ## Global URL refs
 
-The current URL ref has the form `imageurl:<pseudo-team>:<hash>`. The hash uses a key derived for one team. The crawl-history key also contains the team pseudonym.
+The mirror URL collector, Kafka parser, and crawl-history key now use the global URL ref from requirement 13.5. Inline image refs remain team-specific. Shared Rust and Node fixtures pin the key derivation and ref format.
 
-Change the URL collector, Kafka record parser, crawl-history key, image scrubber, S3 storage, and data-preparation lookup to use the global URL ref from requirement 13.5. Inline image refs can remain team-specific.
-
-Derive one URL HMAC key from the existing ML pseudonymization secret without a team input. Pin the derivation from requirement 13.5 and the resulting test vectors in the shared Rust and Node fixtures before changing either producer.
+Change the image scrubber, S3 storage, and data-preparation lookup to use the same global ref.
 
 ## Data-preparation ref attributes
 

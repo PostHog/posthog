@@ -209,7 +209,7 @@ export class UrlFetchConsumer {
         if (candidates.length === 0) {
             return []
         }
-        const keys = candidates.map((candidate) => crawlHistoryKey(candidate.pseudoTeam, candidate.urlHash))
+        const keys = candidates.map((candidate) => crawlHistoryKey(candidate.ref))
         let result
         try {
             result = await this.crawlHistory.read(keys, nowMs)
@@ -273,7 +273,7 @@ export class UrlFetchConsumer {
      * from fetching.
      */
     private async recordFetched(candidates: FetchCandidate[], nowMs: number): Promise<void> {
-        const keys = candidates.map((candidate) => crawlHistoryKey(candidate.pseudoTeam, candidate.urlHash))
+        const keys = candidates.map((candidate) => crawlHistoryKey(candidate.ref))
         let failed: Set<number>
         try {
             failed = (await this.crawlHistory.record(keys, nowMs, this.options.seenTtlSeconds)).failed

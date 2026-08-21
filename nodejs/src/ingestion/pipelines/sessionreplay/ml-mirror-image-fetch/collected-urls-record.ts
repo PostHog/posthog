@@ -13,6 +13,7 @@ const MAX_URL_LENGTH = 2048
  * request fan-out and the in-memory candidate set both scale with this value.
  */
 const MAX_URLS_PER_RECORD = 640
+const PSEUDO_TEAM_RE = /^[0-9a-f]{32}$/
 
 export interface FetchCandidate {
     ref: string
@@ -72,7 +73,12 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
         return { ok: false, reason: 'unsupported_version' }
     }
     const { pseudoTeam, capturedAtMs, urls, hopsRemaining, notBeforeMs } = parsed
-    if (typeof pseudoTeam !== 'string' || !pseudoTeam || typeof capturedAtMs !== 'number' || !Array.isArray(urls)) {
+    if (
+        typeof pseudoTeam !== 'string' ||
+        !PSEUDO_TEAM_RE.test(pseudoTeam) ||
+        typeof capturedAtMs !== 'number' ||
+        !Array.isArray(urls)
+    ) {
         return { ok: false, reason: 'malformed' }
     }
     // Finite, not merely a number: JSON carries `-1e400`, which parses to -Infinity and would reach

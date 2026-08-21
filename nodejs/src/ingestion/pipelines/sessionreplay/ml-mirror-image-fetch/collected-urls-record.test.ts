@@ -12,6 +12,31 @@ function body(fields: string): Buffer {
 
 describe('parseCollectedUrlsRecord', () => {
     it.each([
+        ['raw team name', 'team'],
+        ['uppercase value', 'A'.repeat(32)],
+        ['short value', 'a'.repeat(31)],
+        ['long value', 'a'.repeat(33)],
+        ['oversized value', 'a'.repeat(2048)],
+    ])('refuses a %s as the transport pseudonym for a global ref', (_name, pseudoTeam) => {
+        const value = Buffer.from(
+            JSON.stringify({
+                v: 1,
+                pseudoTeam,
+                capturedAtMs: 1700000000000,
+                urls: [
+                    {
+                        ref: `imageurl:${HASH}`,
+                        url: 'https://cdn.example.com/a.png',
+                        host: 'cdn.example.com',
+                    },
+                ],
+            })
+        )
+
+        expect(parseCollectedUrlsRecord(value, 'example.com')).toEqual({ ok: false, reason: 'malformed' })
+    })
+
+    it.each([
         ['a magnitude no double can hold', '"capturedAtMs":-1e400'],
         ['a positive one', '"capturedAtMs":1e400'],
     ])('refuses %s rather than passing a non-finite timestamp on', (_name, fields) => {

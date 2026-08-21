@@ -62,7 +62,8 @@ export type MlMirrorConfig = {
      * This flag is separate from the collection flag, because the two steps have different risks.
      * Collection changes only the mirrored data. A produce puts original, unscrubbed URLs onto a
      * Kafka topic, so the fetch topic is as sensitive as the raw replay topic. Turn this flag on
-     * only after the topic exists with the retention that section 2.5 of the plan gives it.
+     * only after the topic exists with the required retention and every fetch consumer accepts the
+     * current ref format. The disabled default lets consumer support deploy before producers change.
      *
      * The flag does nothing unless SESSION_RECORDING_ML_URL_COLLECTION_ENABLED is also on, because
      * the anonymizer collects no URLs until then.

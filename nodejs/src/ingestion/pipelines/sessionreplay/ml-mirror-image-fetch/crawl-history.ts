@@ -1,7 +1,13 @@
+import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
+
 const CRAWL_HISTORY_PREFIX = 'imgfetch:seen'
 
-export function crawlHistoryKey(pseudoTeam: string, urlHash: string): string {
-    return `${CRAWL_HISTORY_PREFIX}:${pseudoTeam}:${urlHash}`
+export function crawlHistoryKey(ref: string): string {
+    const parsed = parseImageRef(ref)
+    if (parsed?.source === 'url' && parsed.pseudoTeam) {
+        return `${CRAWL_HISTORY_PREFIX}:${parsed.pseudoTeam}:${parsed.hash}`
+    }
+    return ref
 }
 
 export interface CrawlHistoryReadResult {
