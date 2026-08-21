@@ -2362,6 +2362,39 @@ export class PostHogAPIClient {
     }
   }
 
+  /**
+   * Update several of a source's schemas in one request. The backend commits each schema on its
+   * own, so one schema failing still applies the rest and the error names the ones it could not
+   * save — unlike a client-side loop, where the first failure skips everything after it.
+   */
+  async bulkUpdateExternalDataSchemas(
+    projectId: number,
+    sourceId: string,
+    schemas: { id: string; should_sync?: boolean; sync_type?: string }[],
+  ): Promise<void> {
+    const response = await this.api.patch(
+      "/api/projects/{project_id}/external_data_sources/{id}/bulk_update_schemas/",
+      {
+        path: { project_id: projectId.toString(), id: sourceId },
+        query: {},
+        body: {
+          schemas,
+        } as unknown as Schemas.PatchedExternalDataSourceBulkUpdateSchemas,
+        withResponse: true,
+        throwOnStatusError: false,
+      },
+    );
+    if (!response.ok) {
+      const errorData = isObjectRecord(response.data)
+        ? (response.data as { detail?: string })
+        : {};
+      throw new Error(
+        errorData.detail ??
+          `Failed to update external data schemas: ${response.statusText}`,
+      );
+    }
+  }
+
   async getTasks(options?: TaskListOptions): Promise<Task[]> {
     return (await this.getTasksPage(options)).tasks;
   }

@@ -80,11 +80,24 @@ export function GitHubSourceRepositoriesDialog({
       const saved = (await client.listExternalDataSources(projectId)).find(
         (candidate) => candidate.id === source.id,
       );
-      for (const schema of githubIssuesSchemasToEnable(repos, saved)) {
-        await client.updateExternalDataSchema(projectId, schema.id, {
-          should_sync: true,
-          sync_type: GITHUB_ISSUES_SYNC_TYPE,
-        });
+      if (!saved) {
+        throw new Error(
+          "Saved the repositories, but could not read the source back to start syncing their issues. Try saving again.",
+        );
+      }
+      const schemasToEnable = githubIssuesSchemasToEnable(repos, saved);
+      if (schemasToEnable.length > 0) {
+        // One request, not one per repository: enabling a schema makes the server probe GitHub,
+        // and the bulk endpoint attempts every schema instead of stopping at the first failure.
+        await client.bulkUpdateExternalDataSchemas(
+          projectId,
+          source.id,
+          schemasToEnable.map((schema) => ({
+            id: schema.id,
+            should_sync: true,
+            sync_type: GITHUB_ISSUES_SYNC_TYPE,
+          })),
+        );
       }
     },
     onSuccess: () => {
