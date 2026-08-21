@@ -50,7 +50,9 @@ USAGE_TYPES = [
     {"label": "Workflow emails", "value": "workflow_emails_sent_in_period"},
     {"label": "Workflow push notifications", "value": "workflow_push_sent_in_period"},
     {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
+    {"label": "Logs and traces ingested (bytes)", "value": "logs_and_traces_bytes_in_period"},
     {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
+    {"label": "Traces ingested (MB)", "value": "traces_mb_in_period"},
     {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
 ]
 
