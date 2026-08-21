@@ -61,33 +61,33 @@ def evict_team_oauth_tokens(
     refresh sets no `source_refresh_token`, so a link-based match misses rows that stay
     replayable for REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
 
-    `lock_oauth_connection` is what makes the re-query trustworthy. Row locks alone let a token
-    minted mid-sweep fall outside the deleting statement's snapshot and survive.
+    Only credentials scoped to this team alone are removed. A provisioning token can be scoped
+    to several teams at once, and evicting one team must not strip the others.
+
+    Two locks, because the minting paths do not agree on one: `lock_oauth_connection` covers
+    DOT's refresh, and the application row lock covers the Stripe provisioning refresh. Row
+    locks alone let a token minted mid-sweep fall outside the deleting statement's snapshot.
     """
     if not applications:
         return
 
+    scoped_to_team = {"application__in": applications, "scoped_teams": [team_id]}
+
     with transaction.atomic():
-        user_ids = set(
-            OAuthAccessToken.objects.filter(application__in=applications, scoped_teams__contains=[team_id]).values_list(
-                "user_id", flat=True
-            )
-        ) | set(
-            OAuthRefreshToken.objects.filter(
-                application__in=applications, scoped_teams__contains=[team_id]
-            ).values_list("user_id", flat=True)
+        user_ids = set(OAuthAccessToken.objects.filter(**scoped_to_team).values_list("user_id", flat=True)) | set(
+            OAuthRefreshToken.objects.filter(**scoped_to_team).values_list("user_id", flat=True)
         )
+        # Advisory lock before any row lock, and both in a fixed order, so this cannot deadlock
+        # against a mint taking the same locks.
         for user_id, application_id in sorted(
             (user_id, application.id) for user_id in user_ids if user_id is not None for application in applications
         ):
             lock_oauth_connection(user_id=user_id, application_id=application_id)
+        for application_id in sorted(application.id for application in applications):
+            OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
 
-        OAuthRefreshToken.objects.filter(application__in=applications, scoped_teams__contains=[team_id]).exclude(
-            access_token_id__in=keep_access_token_ids
-        ).delete()
-        OAuthAccessToken.objects.filter(application__in=applications, scoped_teams__contains=[team_id]).exclude(
-            id__in=keep_access_token_ids
-        ).delete()
+        OAuthRefreshToken.objects.filter(**scoped_to_team).exclude(access_token_id__in=keep_access_token_ids).delete()
+        OAuthAccessToken.objects.filter(**scoped_to_team).exclude(id__in=keep_access_token_ids).delete()
 
 
 class StripeIntegration:

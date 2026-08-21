@@ -374,6 +374,37 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
             application=self.new_app, scoped_teams__contains=[self.team.pk]
         ).exists()
 
+    @patch("stripe.StripeClient")
+    def test_leaves_a_credential_shared_with_another_team(self, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        other_team = Team.objects.create(organization=self.organization, name="Sibling team")
+        integration, stale_access, _ = self._create_integration_with_token(
+            self.team, "acct_shared", self.old_app, created_by=self.user
+        )
+        # A provisioning credential can cover several teams at once. Rotating one of them must
+        # not take the others down with it.
+        shared = OAuthAccessToken.objects.create(
+            application=self.old_app,
+            token="ph_access_shared",
+            user=self.user,
+            expires=timezone.now() + timedelta(days=14),
+            scope="query:read",
+            scoped_teams=[self.team.pk, other_team.pk],
+        )
+
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+            STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+            STRIPE_APP_SECRET_KEY="sk_test",
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=StringIO())
+
+        assert OAuthAccessToken.objects.filter(pk=shared.pk).exists()
+        assert not OAuthAccessToken.objects.filter(pk=stale_access.pk).exists()
+
     @parameterized.expand(
         [
             ("client_id_unset", ""),
