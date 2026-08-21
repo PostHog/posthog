@@ -38,6 +38,20 @@ const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
 
+// Like isValidOrderBy, but the assignee is an object, so it can be malformed in more ways: a bare
+// string, a missing or null id, a type outside user/role, or a resolved {id, type, user} object.
+// The query schema forbids unknown keys, so any of those makes every issues query fail with a 400
+// while the filter button still renders as unset — and the value is persisted, so it keeps failing
+// until someone finds "Remove assignee" in the dropdown. Keep only the two fields the query accepts.
+export function sanitizeAssignee(assignee: unknown): ErrorTrackingIssueAssignee | null {
+    if (!assignee || typeof assignee !== 'object') {
+        return DEFAULT_ASSIGNEE
+    }
+    const { id, type } = assignee as Partial<ErrorTrackingIssueAssignee>
+    const hasValidId = typeof id === 'number' || (typeof id === 'string' && id.length > 0)
+    return hasValidId && (type === 'user' || type === 'role') ? { id, type } : DEFAULT_ASSIGNEE
+}
+
 // The statuses the filter accepts: the query's status union minus archived/pending_release,
 // which are deprecated (writes rejected, legacy rows backfilled to resolved) and not offered by
 // the picker. Exhaustive over the rest, so removing a status from the schema fails typechecking.
@@ -128,7 +142,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             DEFAULT_ASSIGNEE as ErrorTrackingQueryAssignee | null,
             { persist: true },
             {
-                setAssignee: (_, { assignee }) => assignee,
+                setAssignee: (_, { assignee }) => sanitizeAssignee(assignee),
             },
         ],
         status: [
@@ -195,7 +209,8 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 // stale link doesn't silently keep querying the previously persisted status.
                 actions.setStatus(isValidStatus(params.status) ? params.status : DEFAULT_STATUS)
             }
-            if (params.assignee && !equal(params.assignee, values.assignee)) {
+            // Presence check like status, so a link with a cleared assignee resets the persisted one.
+            if ('assignee' in params && !equal(params.assignee, values.assignee)) {
                 actions.setAssignee(params.assignee)
             }
             if (params.orderDirection && !equal(params.orderDirection, values.orderDirection)) {
@@ -208,13 +223,17 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     }),
 
     afterMount(({ actions, values }) => {
-        // Persisted orderBy/status are loaded straight into state (bypassing the reducers), so an
-        // invalid stored value would otherwise reach the query and break the page. Reset them.
+        // Persisted values are loaded straight into state (bypassing the reducers), so an invalid
+        // stored value would otherwise reach the query and break the page. Reset them.
         if (!isValidOrderBy(values.orderBy)) {
             actions.setOrderBy(DEFAULT_ORDER_BY)
         }
         if (!isValidStatus(values.status)) {
             actions.setStatus(DEFAULT_STATUS)
+        }
+        const sanitizedAssignee = sanitizeAssignee(values.assignee)
+        if (!equal(values.assignee, sanitizedAssignee)) {
+            actions.setAssignee(sanitizedAssignee)
         }
     }),
 ])
