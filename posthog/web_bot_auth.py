@@ -21,8 +21,10 @@ _SIGNATURE_LIFETIME_SECONDS = 300
 # A request-controlled authority would let another site proxy this route. The returned directory
 # would verify for that site but contain our public key.
 #
-# The bot uses us.posthog.com as its origin in Signature-Agent because Vercel reserves /.well-known on posthog.com.
-# Vercel does not rewrite that path, so posthog.com cannot generate this response for each request.
+# Web Bot Auth requires a cryptographic signature with creation and expiration timestamps on the
+# directory response. The bot sets Signature-Agent to us.posthog.com because this Django app can
+# generate that response. The root posthog.com domain runs on Vercel, which only serves static files
+# under /.well-known.
 _AUTHORITY = "us.posthog.com"
 
 
