@@ -89,6 +89,11 @@ jobs:
             - name: Turbo-discover dependent-cascade tests (Node)
               run: node --test .github/scripts/turbo-discover-cascade.test.js
 
+            # hashFiles guard so an unrebased PR predating these files doesn't fail here.
+            - name: Turbo-discover segment and staleness tests (Node)
+              if: ${{ hashFiles('.github/scripts/turbo-discover.test.js') != '' }}
+              run: node --test .github/scripts/turbo-discover.test.js .github/scripts/turbo-discover-staleness.test.js
+
             - name: Selected Django shards tests (Node)
               run: node --test .github/scripts/selected-django-shards.test.js
 

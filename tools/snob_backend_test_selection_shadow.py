@@ -612,7 +612,7 @@ _POE_PREFIXES = (
     "ee/clickhouse/",
     "products/product_analytics/backend/tests/api/",
 )
-_CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/")
+_CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/", "posthog/test/repo_invariants/")
 
 
 def segments_for_test_file(path: str) -> frozenset[str]:
@@ -626,12 +626,7 @@ def segments_for_test_file(path: str) -> frozenset[str]:
         return frozenset({"temporal"})
     if path.startswith(_CORE_IGNORED_PREFIXES):
         return frozenset()
-    is_poe = (
-        path.startswith(_POE_PREFIXES)
-        or path.startswith("posthog/api/test/test_insight")
-        or path == "posthog/api/test/dashboards/test_dashboard.py"
-    )
-    if is_poe:
+    if path.startswith(_POE_PREFIXES) or path == "posthog/api/test/dashboards/test_dashboard.py":
         return frozenset({"core", "poe"})
     if path.startswith(("posthog/", "ee/")):
         return frozenset({"core"})
