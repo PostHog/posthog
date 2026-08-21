@@ -3,24 +3,25 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
-class AccessCeiling(UUIDModel):
-    """An organization-wide cap on what any principal can do through one access pathway.
+class SurfaceAccessLimit(UUIDModel):
+    """An organization-wide cap on what any principal can do through one access surface, such as
+    the MCP server, a personal API key, or a public share link.
 
-    Ceilings are not grants. The grants system (AccessControl rows) answers "what may this
-    principal do"; a ceiling answers "how wide is this pathway", and the effective access is
-    the minimum of the two. A ceiling therefore applies to every member, admins included:
-    exceptions are future subject-specific ceiling rows that widen the cap, never grants.
+    Limits are not grants. The grants system (AccessControl rows) answers "what may this
+    principal do"; a limit answers "how much this surface allows", and the effective access is
+    the minimum of the two. A limit therefore applies to every member, admins included:
+    exceptions are future subject-specific limit rows that widen it, never grants.
 
-    Absence of a row means the channel is unrestricted. `resource=None` caps every resource;
+    Absence of a row means the surface is unrestricted. `resource=None` limits every resource;
     a row naming a resource overrides the wildcard row for that resource.
     """
 
-    class Channel(models.TextChoices):
+    class Surface(models.TextChoices):
         MCP = "mcp"
 
     class MaxLevel(models.TextChoices):
-        # The grants vocabulary, minus levels a cap never needs. "none" disables the
-        # channel; "viewer" makes it read-only.
+        # The grants vocabulary, minus levels a limit never needs. "none" disables the
+        # surface; "viewer" makes it read-only.
         NONE = "none"
         VIEWER = "viewer"
         EDITOR = "editor"
@@ -28,8 +29,8 @@ class AccessCeiling(UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "channel", "resource"],
-                name="unique_ceiling_per_org_channel_resource",
+                fields=["organization", "surface", "resource"],
+                name="unique_limit_per_org_surface_resource",
                 nulls_distinct=False,
             )
         ]
@@ -39,12 +40,12 @@ class AccessCeiling(UUIDModel):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
-        related_name="access_ceilings",
+        related_name="surface_access_limits",
         db_constraint=False,
     )
 
-    channel: models.CharField = models.CharField(max_length=32, choices=Channel.choices)
-    # An APIScopeObject name, or None to cap every resource.
+    surface: models.CharField = models.CharField(max_length=32, choices=Surface.choices)
+    # An APIScopeObject name, or None to limit every resource.
     resource: models.CharField = models.CharField(max_length=64, null=True, blank=True)
     max_level: models.CharField = models.CharField(max_length=32, choices=MaxLevel.choices)
 

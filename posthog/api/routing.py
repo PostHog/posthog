@@ -42,7 +42,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.permissions import ChannelCeilingPermission
+from products.access_control.backend.facade.permissions import WithinSurfaceLimits
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -254,9 +254,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
-            # Domain enforcement and channel ceilings are tenant boundaries, not authorization
+            # Domain enforcement and surface limits are tenant boundaries, not authorization
             # levels: views that shape their own permission chain cannot opt out of them.
-            return [*dangerously_defined, ChannelCeilingPermission(), VerifiedDomainEnforcementPermission()]
+            return [*dangerously_defined, WithinSurfaceLimits(), VerifiedDomainEnforcementPermission()]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
             return [IsAuthenticated()]
@@ -272,7 +272,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         permission_classes: list = [
             IsAuthenticated,
             APIScopePermission,
-            ChannelCeilingPermission,
+            WithinSurfaceLimits,
             AccessControlPermission,
         ]
 
