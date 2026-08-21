@@ -62,6 +62,30 @@ describe('recommendationsTabLogic', () => {
         expect(logic.values.pendingIssueIds.has('gone')).toBe(false)
     })
 
+    // A merged-away issue stays in the backend's enriched meta until the next recompute, so a poll
+    // can re-list an issue the user already dropped after a 404. That phantom row must not reappear
+    // in the displayed recommendations.
+    it('keeps a dropped stale issue out of the displayed list when a later poll re-lists it', async () => {
+        logic.actions.setRecommendations([longRunningRecommendation([issue('gone'), issue('stays')])])
+        jest.spyOn(api.errorTracking, 'updateIssue').mockRejectedValue({ status: 404 })
+
+        await expectLogic(logic, () => {
+            logic.actions.suppressIssue('gone')
+        }).toDispatchActions(['markIssueStale', 'finishIssueMutation'])
+
+        // The next poll returns server data that still lists the deleted issue.
+        jest.spyOn(api.errorTracking, 'listRecommendations').mockResolvedValue({
+            results: [longRunningRecommendation([issue('gone'), issue('stays')])],
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.pollRecommendations()
+        }).toDispatchActions(['setRecommendations'])
+
+        const visible = logic.values.activeRecommendations[0] as LongRunningIssuesRecommendation
+        expect(visible.meta.issues.map((i) => i.id)).toEqual(['stays'])
+    })
+
     // The button spinner reads from pendingIssueIds; it must clear whether the update succeeds or fails.
     it('clears the pending state after a successful suppress', async () => {
         const recommendation = longRunningRecommendation([issue('one')])
