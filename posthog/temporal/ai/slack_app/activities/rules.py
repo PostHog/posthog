@@ -9,7 +9,7 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, post_slack_thread_reply
+from products.slack_app.backend.services.slack_messages import post_slack_ephemeral
 
 logger = structlog.get_logger(__name__)
 
@@ -75,15 +75,16 @@ def create_posthog_code_routing_rule_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    # The rule was requested by one person through a picker only they saw, so its outcome
-    # goes back the same way. Falls back to a thread reply if the event carries no actor.
+    # The rule was requested by one person through a picker only they saw, so its outcome goes
+    # back the same way. The workflow validated the actor before reaching here, so a missing one
+    # means something is wrong upstream — say nothing rather than announce it to the channel.
     slack_user_id = inputs.event.get("user")
+    if not isinstance(slack_user_id, str) or not slack_user_id:
+        logger.warning("posthog_code_rules_add_missing_actor", integration_id=inputs.integration_id, channel=channel)
+        return
 
     def reply(text: str) -> None:
-        if isinstance(slack_user_id, str) and slack_user_id:
-            post_slack_ephemeral(slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
-            return
-        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text)
+        post_slack_ephemeral(slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
 
     all_repos = _get_full_repo_names(integration, user_id=user_id)
     matched_repo = _extract_explicit_repo(repository, all_repos)

@@ -15,24 +15,6 @@ MENTION_HELP_REDIRECT = (
 )
 
 
-def _reply(
-    slack: SlackIntegration,
-    *,
-    channel: str,
-    thread_ts: str,
-    slack_user_id: str,
-    text: str,
-) -> None:
-    """Answer a command privately to whoever ran it.
-
-    Commands configure the app rather than produce work: routing rules, project defaults, the
-    help listing. The answer concerns the caller alone, so the whole surface replies ephemerally
-    on both entry points, which is what ``project_*`` already did. On the slash surface nobody
-    else saw the question either, so a public answer would arrive with nothing prompting it.
-    """
-    post_slack_ephemeral(slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
-
-
 def _handle_help(
     slack: SlackIntegration,
     integration: Integration,
@@ -40,21 +22,10 @@ def _handle_help(
     thread_ts: str,
     slack_user_id: str,
     *,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
+    """Post the command listing. Only the slash surface reaches this; see ``dispatch_rules_command``."""
     from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
-
-    # The slash command is the help surface, so a mention only points at it. Returning before the
-    # admin lookup keeps this reply off the Slack users.info call the listing below needs.
-    if command_prefix == MENTION_COMMAND_PREFIX:
-        _reply(
-            slack,
-            channel=channel,
-            thread_ts=thread_ts,
-            slack_user_id=slack_user_id,
-            text=MENTION_HELP_REDIRECT,
-        )
-        return
 
     # Task creation and thread follow-ups have no slash equivalent, but this listing is the only
     # help a user can reach, so it documents them under the mention prefix they actually type.
@@ -78,11 +49,11 @@ def _handle_help(
     lines.append(f"`{command_prefix} help` — Show this message\n")
     lines.append("You can also reply in an active thread to send follow-up messages to the agent.")
 
-    _reply(
-        slack,
+    post_slack_ephemeral(
+        slack.client,
         channel=channel,
+        user=slack_user_id,
         thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
         text="\n".join(lines),
     )
 
@@ -92,19 +63,19 @@ def _handle_rules_list(
     integration: Integration,
     channel: str,
     thread_ts: str,
-    slack_user_id: str,
     *,
+    slack_user_id: str,
     command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
     rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
     if not rules:
-        _reply(
-            slack,
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
+            user=slack_user_id,
             thread_ts=thread_ts,
-            slack_user_id=slack_user_id,
             text=(
                 f'No routing rules configured. Add one with `{command_prefix} rules add "description" '
                 "[org/repo]`. Omit the repo to pick from a list."
@@ -113,11 +84,11 @@ def _handle_rules_list(
         return
 
     lines = [f"{i + 1}. {r.rule_text} → `{r.repository}`" for i, r in enumerate(rules)]
-    _reply(
-        slack,
+    post_slack_ephemeral(
+        slack.client,
         channel=channel,
+        user=slack_user_id,
         thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
         text="*Routing rules:*\n" + "\n".join(lines),
     )
 
@@ -130,6 +101,7 @@ def _handle_rules_add(
     user_id: int,
     rule_text: str,
     repository: str,
+    *,
     slack_user_id: str,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -138,22 +110,22 @@ def _handle_rules_add(
 
     all_repos = _get_full_repo_names(integration, user_id=user_id)
     if not all_repos:
-        _reply(
-            slack,
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
+            user=slack_user_id,
             thread_ts=thread_ts,
-            slack_user_id=slack_user_id,
             text="No connected GitHub repositories found for your account.",
         )
         return
 
     matched_repo = _extract_explicit_repo(repository, all_repos)
     if not matched_repo:
-        _reply(
-            slack,
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
+            user=slack_user_id,
             thread_ts=thread_ts,
-            slack_user_id=slack_user_id,
             text=f"Repository `{repository}` is not connected to this project.",
         )
         return
@@ -172,11 +144,11 @@ def _handle_rules_add(
         priority=max_priority,
         created_by_id=user_id,
     )
-    _reply(
-        slack,
+    post_slack_ephemeral(
+        slack.client,
         channel=channel,
+        user=slack_user_id,
         thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
         text=f"Added rule: {rule_text} → `{matched_repo}`",
     )
 
@@ -187,18 +159,18 @@ def _handle_rules_remove(
     channel: str,
     thread_ts: str,
     rule_numbers: list[int] | None,
-    slack_user_id: str,
     *,
+    slack_user_id: str,
     command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
     if not rule_numbers or any(n < 1 for n in rule_numbers):
-        _reply(
-            slack,
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
+            user=slack_user_id,
             thread_ts=thread_ts,
-            slack_user_id=slack_user_id,
             text=f"Please provide valid rule number(s). Use `{command_prefix} rules list` to see current rules.",
         )
         return
@@ -206,11 +178,11 @@ def _handle_rules_remove(
     rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
     invalid = [n for n in rule_numbers if n > len(rules)]
     if invalid:
-        _reply(
-            slack,
+        post_slack_ephemeral(
+            slack.client,
             channel=channel,
+            user=slack_user_id,
             thread_ts=thread_ts,
-            slack_user_id=slack_user_id,
             text=f"Rule {'number' if len(invalid) == 1 else 'numbers'} {', '.join(f'#{n}' for n in invalid)} {'does' if len(invalid) == 1 else 'do'} not exist. There are {len(rules)} rule(s). Use `{command_prefix} rules list` to see them.",
         )
         return
@@ -223,11 +195,11 @@ def _handle_rules_remove(
         rule.delete()
 
     removed.reverse()
-    _reply(
-        slack,
+    post_slack_ephemeral(
+        slack.client,
         channel=channel,
+        user=slack_user_id,
         thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
         text=f"Removed rule{'s' if len(removed) > 1 else ''} {', '.join(removed)}",
     )
 
@@ -532,26 +504,36 @@ def dispatch_rules_command(
     error strings — ``@PostHog`` for mentions, ``/posthog`` for the slash command
     surface. Defaults preserve the mention copy for existing callers.
 
-    Every reply goes out ephemerally through ``_reply``, on both surfaces.
+    Commands configure the app rather than produce work: routing rules, project
+    defaults, the help listing. The answer concerns whoever ran the command, so
+    every reply below goes out ephemerally, on both surfaces.
     """
     if command.action == "help":
-        _handle_help(slack, integration, channel, thread_ts, slack_user_id, command_prefix=command_prefix)
+        # The slash command owns the listing, so a mention only points at it. Answering here
+        # rather than inside the handler keeps the Slack users.info call the listing needs off
+        # the mention path entirely.
+        if command_prefix == MENTION_COMMAND_PREFIX:
+            post_slack_ephemeral(
+                slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=MENTION_HELP_REDIRECT
+            )
+        else:
+            _handle_help(slack, integration, channel, thread_ts, slack_user_id, command_prefix=command_prefix)
     elif command.action == "list":
         _handle_rules_list(
             slack,
             integration,
             channel,
             thread_ts,
-            slack_user_id,
+            slack_user_id=slack_user_id,
             command_prefix=command_prefix,
         )
     elif command.action == "add":
         if not command.repository:
-            _reply(
-                slack,
+            post_slack_ephemeral(
+                slack.client,
                 channel=channel,
+                user=slack_user_id,
                 thread_ts=thread_ts,
-                slack_user_id=slack_user_id,
                 text=f'Please specify the repo inline: `{command_prefix} rules add "description" org/repo`.',
             )
         else:
@@ -563,7 +545,7 @@ def dispatch_rules_command(
                 user_id,
                 command.rule_text or "",
                 command.repository,
-                slack_user_id,
+                slack_user_id=slack_user_id,
             )
     elif command.action == "remove":
         _handle_rules_remove(
@@ -572,7 +554,7 @@ def dispatch_rules_command(
             channel,
             thread_ts,
             command.rule_numbers,
-            slack_user_id,
+            slack_user_id=slack_user_id,
             command_prefix=command_prefix,
         )
     elif command.action == "project_show":

@@ -8,11 +8,12 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.api import RulesCommand
 from products.slack_app.backend.models import SlackSettings
 from products.slack_app.backend.services.commands import (
     MENTION_HELP_REDIRECT,
-    _handle_help,
     _handle_project_set_workspace,
+    dispatch_rules_command,
 )
 
 SLASH_COMMAND_PREFIX = "/posthog"
@@ -123,10 +124,22 @@ class TestHandleHelp:
             integration_id="T_WS",
             sensitive_config={"access_token": "xoxb-a"},
         )
+        self.user = User.objects.create_and_join(self.organization, "help@example.com", "pw")
         self.slack = MagicMock()
 
     def _help_text(self, command_prefix: str = SLASH_COMMAND_PREFIX) -> str:
-        _handle_help(self.slack, self.integration, "C1", "111.1", "U1", command_prefix=command_prefix)
+        """Dispatch `help` the way a real command does, so the surface branch is exercised too."""
+        dispatch_rules_command(
+            RulesCommand(action="help"),
+            self.slack,
+            self.integration,
+            channel="C1",
+            thread_ts="111.1",
+            slack_user_id="U1",
+            slack_workspace_id="T_WS",
+            user_id=self.user.id,
+            command_prefix=command_prefix,
+        )
         return self.slack.client.chat_postEphemeral.call_args.kwargs["text"]
 
     @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")

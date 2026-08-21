@@ -105,7 +105,7 @@ def _post_connect_personal_github_prompt(
     settings_url: str,
     user_id: int,
     team_id: int,
-    slack_user_id: str | None = None,
+    slack_user_id: str,
     reconnect: bool = False,
 ) -> None:
     """Post the single-button prompt for a task held on an unusable personal GitHub install.
@@ -140,14 +140,11 @@ def _post_connect_personal_github_prompt(
             ],
         },
     ]
-    # Only the person being asked to connect can act on the button, and on the command surface
-    # the request that triggered it was theirs alone.
-    if slack_user_id:
-        post_slack_ephemeral(
-            slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text, blocks=blocks
-        )
-    else:
-        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
+    # Only the person being asked to connect can act on the button, and the command that
+    # triggered it was theirs alone. The command workflow is this activity's sole caller.
+    post_slack_ephemeral(
+        slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text, blocks=blocks
+    )
     logger.info(
         "slack_app_task_blocked_no_personal_github",
         user_id=user_id,
@@ -206,6 +203,12 @@ def block_posthog_code_task_if_no_personal_github_activity(
     slack = SlackIntegration(integration)
     settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
     slack_user_id = inputs.event.get("user")
+    if not isinstance(slack_user_id, str) or not slack_user_id:
+        # The prompt is addressed to a person; without one there is nobody to ask. Still block,
+        # since the task cannot run either way.
+        logger.warning("slack_app_github_prompt_missing_actor", user_id=user_id, channel=channel)
+        return True
+
     _post_connect_personal_github_prompt(
         slack,
         channel=channel,
@@ -213,7 +216,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
         settings_url=settings_url,
         user_id=user_id,
         team_id=integration.team_id,
-        slack_user_id=slack_user_id if isinstance(slack_user_id, str) else None,
+        slack_user_id=slack_user_id,
         reconnect=has_stale_github,
     )
     return True
