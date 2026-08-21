@@ -674,6 +674,41 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             Dashboard.objects.get(id=copied_id).customization, {"show_legend": False, "tile_spacing": "wide"}
         )
 
+    @patch(
+        "products.dashboards.backend.feature_flags.get_flags_from_service",
+        return_value={"flags": {"dashboard-customization": {"enabled": True}}},
+    )
+    def test_dashboard_customization_uses_remote_flag_evaluation(self, _mock_get_flags: MagicMock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, updated = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"grid_spacing": "condensed", "layout_compaction": "horizontal"},
+        )
+
+        self.assertEqual(
+            updated["customization"],
+            {"tile_spacing": "condensed", "layout_compaction": "horizontal"},
+        )
+
+    @patch(
+        "products.dashboards.backend.feature_flags.get_flags_from_service",
+        side_effect=ConnectionError,
+    )
+    def test_dashboard_customization_fails_closed_when_remote_evaluation_fails(
+        self, _mock_get_flags: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"grid_spacing": "condensed"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(response["attr"], "grid_spacing")
+        self.assertEqual(response["detail"], "Tile density isn't available.")
+
     @parameterized.expand([("horizontal",), ("stable",)])
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
     def test_dashboard_layout_compaction_is_saved_and_duplicated(
