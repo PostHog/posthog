@@ -1,11 +1,9 @@
-use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
-use common_hypercache::{HyperCacheReader, KeyType};
-use serde::Deserialize;
+use moka::future::Cache;
 use sqlx::PgPool;
 use thiserror::Error;
-use tracing::warn;
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
@@ -23,44 +21,40 @@ pub trait OrganizationResolver: Send + Sync {
     async fn resolve(&self, team_id: i64) -> Result<Uuid, ResolveError>;
 }
 
-#[derive(Deserialize)]
-struct TeamOrganizationMapping {
-    organization_id: Uuid,
-}
-
-pub struct HyperCacheOrganizationResolver {
-    cache: Arc<HyperCacheReader>,
+pub struct PostgresOrganizationResolver {
+    cache: Cache<i64, Uuid>,
     database: PgPool,
 }
 
-impl HyperCacheOrganizationResolver {
-    pub fn new(cache: Arc<HyperCacheReader>, database: PgPool) -> Self {
-        Self { cache, database }
+impl PostgresOrganizationResolver {
+    pub fn new(database: PgPool) -> Self {
+        Self {
+            cache: Cache::builder()
+                .time_to_live(Duration::from_secs(5 * 60))
+                .build(),
+            database,
+        }
     }
 }
 
 #[async_trait]
-impl OrganizationResolver for HyperCacheOrganizationResolver {
+impl OrganizationResolver for PostgresOrganizationResolver {
     async fn resolve(&self, team_id: i64) -> Result<Uuid, ResolveError> {
-        let cache_team_id = i32::try_from(team_id).map_err(|_| ResolveError::InvalidTeamId)?;
-        match self.cache.get(&KeyType::int(cache_team_id)).await {
-            Ok(value) => match serde_json::from_value::<TeamOrganizationMapping>(value) {
-                Ok(mapping) => return Ok(mapping.organization_id),
-                Err(error) => {
-                    warn!(team_id, %error, "Invalid team organization HyperCache payload; falling back to PostgreSQL")
-                }
-            },
-            Err(error) => {
-                warn!(team_id, %error, "Team organization HyperCache miss; falling back to PostgreSQL")
-            }
+        if team_id <= 0 {
+            return Err(ResolveError::InvalidTeamId);
+        }
+        if let Some(organization_id) = self.cache.get(&team_id).await {
+            return Ok(organization_id);
         }
 
-        sqlx::query_scalar::<_, Uuid>(
+        let organization_id = sqlx::query_scalar::<_, Uuid>(
             "SELECT organization_id FROM posthog_team WHERE id = $1 AND organization_id IS NOT NULL",
         )
         .bind(team_id)
         .fetch_optional(&self.database)
         .await?
-        .ok_or(ResolveError::Missing)
+        .ok_or(ResolveError::Missing)?;
+        self.cache.insert(team_id, organization_id).await;
+        Ok(organization_id)
     }
 }

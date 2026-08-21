@@ -1,13 +1,10 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
-use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
 use common_liveness::SyncLivenessReporter;
-use common_redis::{CompressionConfig, RedisClient};
 use envconfig::Envconfig;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use tonic::transport::Server;
@@ -16,7 +13,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 use usage_ingestion::config::Config;
-use usage_ingestion::resolver::HyperCacheOrganizationResolver;
+use usage_ingestion::resolver::PostgresOrganizationResolver;
 use usage_ingestion::service::UsageIngestionService;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIngestionServer;
 
@@ -43,27 +40,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::init_from_env()?;
     config.validate()?;
 
-    let redis_client = Arc::new(
-        RedisClient::with_config(
-            config.team_organization_redis_url.clone(),
-            CompressionConfig::default(),
-            common_redis::RedisValueFormat::default(),
-            Some(Duration::from_millis(500)),
-            Some(Duration::from_secs(5)),
-        )
-        .await?,
-    );
-    let mut hypercache_config = HyperCacheConfig::new(
-        "usage_ingestion".to_string(),
-        "organization_id.json".to_string(),
-        config.object_storage_region.clone(),
-        config.object_storage_bucket.clone(),
-    );
-    hypercache_config.s3_endpoint = config
-        .object_storage_endpoint
-        .clone()
-        .filter(|value| !value.is_empty());
-    let cache = Arc::new(HyperCacheReader::new(redis_client, hypercache_config).await?);
     let database = get_pool_with_config(
         &config.database_url,
         PoolConfig {
@@ -72,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         },
     )?;
-    let resolver = Arc::new(HyperCacheOrganizationResolver::new(cache, database));
+    let resolver = Arc::new(PostgresOrganizationResolver::new(database));
 
     let kafka_config = KafkaConfig {
         kafka_hosts: config.kafka_hosts,

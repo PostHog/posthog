@@ -1,8 +1,8 @@
 # Usage ingestion service
 
 `usage-ingestion` is the internal gRPC gateway for durable usage records. It
-validates records, resolves an omitted organization ID from the dedicated
-team-to-organization HyperCache (with PostgreSQL fallback), and publishes
+validates records, resolves an omitted organization ID from core PostgreSQL,
+caches successful lookups in memory for five minutes, and publishes
 JSONEachRow messages to `clickhouse_billing_usage_records`.
 
 The service is the shared gateway for every usage stream; `IngestBillingUsage`
@@ -17,9 +17,8 @@ docker compose -f docker-compose.dev.yml up usage-ingestion
 ```
 
 The gRPC endpoint listens on port 7143 and metrics/readiness on port 7144.
-The Django publisher must have warmed the `usage_ingestion/organization_id.json`
-HyperCache before relying on cache hits; PostgreSQL remains the source of truth
-for cold or stale mappings.
+PostgreSQL is the source of truth. The service retains successful team-to-
+organization lookups in its process-local cache for five minutes.
 
 ## Where it runs
 
@@ -29,7 +28,6 @@ for cold or stale mappings.
 | Topic | `clickhouse_billing_usage_records`, 8 partitions, 7-day retention |
 | ClickHouse Kafka table and MV | `NodeRole.INGESTION_SMALL` |
 | ClickHouse storage and read tables | `NodeRole.DATA` |
-| HyperCache store | a dedicated serverless Valkey cluster |
 | Reachability | in-cluster only; no external proxy and no request authentication |
 | Owning team | `team-ingestion` |
 
@@ -42,14 +40,6 @@ putting them there would couple billing data to the noisiest cluster for no gain
 The producer and the ClickHouse Kafka engine table must name the same cluster:
 the table takes it from `CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION`,
 and the service takes its topic from `USAGE_INGESTION_TOPIC`.
-
-The Valkey cluster is dedicated rather than shared with billing or ingestion, so
-its cost stays attributable and a usage-reporting incident stays off a shared
-instance.
-The Django publisher and this service must both point at it: they use
-`USAGE_INGESTION_REDIS_URL` and
-`USAGE_INGESTION_TEAM_ORGANIZATION_REDIS_URL` respectively, and if they disagree
-every lookup silently falls through to PostgreSQL.
 
 Partition count can be raised later without risk, which is not true of an
 ordered stream.
