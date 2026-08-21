@@ -241,7 +241,6 @@ class TestIndexEligibilityVerdicts(SimpleTestCase):
                 True,
             ),
             (PredicateIndexVerdict.INDEXED, _plan(kind=PropertySourceKind.MATERIALIZED_COLUMN, bloom=True), False),
-            (PredicateIndexVerdict.UNINDEXED_JSON, _plan(restricted=True), False),
         ]
     )
     def test_only_actionable_verdicts_carry_a_fix(
@@ -309,6 +308,12 @@ class TestIndexEligibilityVerdicts(SimpleTestCase):
 
         assert eligibility.editor_actionable is True
         assert eligibility.ai_fix_prompt is not None
+
+    def test_a_denied_property_reports_the_same_as_an_unmaterialized_one(self) -> None:
+        denied = eligibility_from_plan(_plan(restricted=True))
+        allowed = eligibility_from_plan(_plan())
+
+        assert denied == allowed
 
     def test_negation_overrides_an_otherwise_usable_index(self) -> None:
         plan = _plan(kind=PropertySourceKind.MATERIALIZED_COLUMN, bloom=True)

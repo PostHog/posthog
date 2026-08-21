@@ -365,7 +365,6 @@ def _copy_for(
     # The column name stays on the structured `column_name` field for callers that want it.
     label = _SCOPE_LABELS[plan.access.scope]
     name = plan.access.property_name
-    source = plan.access.source
 
     if verdict == PredicateIndexVerdict.INDEXED:
         index_names = ", ".join(sorted({_INDEX_LABELS[index] for index in usable}))
@@ -396,11 +395,9 @@ def _copy_for(
         )
 
     if verdict == PredicateIndexVerdict.UNINDEXED_JSON:
-        if source.restricted:
-            return _PredicateCopy(
-                message=f"{label} '{name}' is restricted for your role, so it is read from the properties JSON "
-                "and no index applies.",
-            )
+        # A property the reader is denied gets the same copy as one that simply is not materialized.
+        # The printer drops restricted keys from the JSON blob rather than erroring, so a denied
+        # property reads as one that was never set; copy that named the restriction would undo that.
         return _PredicateCopy(
             message=f"{label} '{name}' is read out of the properties JSON on every row, with no index to skip data.",
             fix=f"Materialize '{name}' so this filter reads a dedicated column instead of parsing the JSON.",
