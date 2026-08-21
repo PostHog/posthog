@@ -127,7 +127,6 @@ function VerificationCodeEntry(): JSX.Element {
                 placeholder="123456"
                 inputMode="numeric"
                 autoComplete="one-time-code"
-                maxLength={6}
                 size="large"
                 className="text-center"
                 data-attr="verify-email-code"
