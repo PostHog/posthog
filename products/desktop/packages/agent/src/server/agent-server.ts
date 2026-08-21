@@ -1560,6 +1560,21 @@ export class AgentServer {
         );
       }
 
+      case POSTHOG_METHODS.SIDE_QUESTION:
+      case "side_question": {
+        const question = params.question as string;
+
+        this.logger.debug("Side question requested");
+
+        // Returned as the command result rather than emitted as a session
+        // update: a side question is ephemeral, so it must not reach the
+        // event stream or the persisted transcript.
+        return await this.session.clientConnection.extMethod(
+          POSTHOG_METHODS.SIDE_QUESTION,
+          { sessionId: this.session.acpSessionId, question },
+        );
+      }
+
       case POSTHOG_NOTIFICATIONS.PERMISSION_RESPONSE:
       case "permission_response": {
         const requestId = params.requestId as string;
