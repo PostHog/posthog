@@ -887,6 +887,24 @@ class GitHubIntegrationBase:
             return None
         return PullRequestRef(owner=owner, repo=repo, number=pr_number)
 
+    def get_issue(
+        self,
+        repository: str,
+        issue_number: int,
+        *,
+        timeout: int = 10,
+        retry_transient: bool | None = None,
+    ) -> dict[str, Any]:
+        """Fetch an issue (or a pull request, which GitHub also serves here) by ``owner/repo`` and number.
+
+        Dict-or-raise: non-2xx becomes :class:`GitHubIntegrationError` carrying the status code."""
+        return self._gh_api_get(
+            f"/repos/{repository}/issues/{issue_number}",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+            timeout=timeout,
+            retry_transient=retry_transient,
+        )
+
     def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
@@ -2152,12 +2170,12 @@ class GitHubIntegrationBase:
             return response
         raise GitHubIntegrationError(f"GitHubIntegration: api_request exhausted retries on {path}")
 
-    def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10) -> dict:
+    def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10, retry_transient: bool | None = None) -> dict:
         """Authenticated GET against ``https://api.github.com`` returning parsed JSON.
 
         Dict-or-raise sugar over :meth:`api_request`: any non-2xx (or non-dict body) becomes a
         :class:`GitHubIntegrationError`; rate limits propagate as :class:`GitHubRateLimitError`."""
-        response = self.api_request("GET", path, endpoint=endpoint, timeout=timeout)
+        response = self.api_request("GET", path, endpoint=endpoint, timeout=timeout, retry_transient=retry_transient)
         if response.status_code < 200 or response.status_code >= 300:
             logger.warning(
                 "GitHubIntegration: _gh_api_get non-2xx response",

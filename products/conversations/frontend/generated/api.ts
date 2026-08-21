@@ -34,6 +34,8 @@ import type {
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
+    TicketGithubLinkApi,
+    TicketGithubLinkCreateApi,
     TicketMessageApi,
     TicketReplyRequestApi,
     TicketViewApi,
@@ -412,6 +414,64 @@ export const conversationsTicketsAiFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aiFeedbackRequestApi),
+    })
+}
+
+export const getConversationsTicketsGithubLinksRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/github_links/`
+}
+
+/**
+ * List the GitHub issues and pull requests linked to a ticket.
+ */
+export const conversationsTicketsGithubLinksRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketGithubLinkApi[]> => {
+    return apiMutator<TicketGithubLinkApi[]>(getConversationsTicketsGithubLinksRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsTicketsGithubLinksCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/github_links/`
+}
+
+/**
+ * Link a GitHub issue or pull request to a ticket by URL.
+ */
+export const conversationsTicketsGithubLinksCreate = async (
+    projectId: string,
+    id: string,
+    ticketGithubLinkCreateApi: TicketGithubLinkCreateApi,
+    options?: RequestInit
+): Promise<TicketGithubLinkApi> => {
+    return apiMutator<TicketGithubLinkApi>(getConversationsTicketsGithubLinksCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketGithubLinkCreateApi),
+    })
+}
+
+export const getConversationsTicketsGithubLinksDestroyUrl = (projectId: string, id: string, linkId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/github_links/${linkId}/`
+}
+
+/**
+ * Remove a GitHub issue or pull request link from a ticket.
+ */
+export const conversationsTicketsGithubLinksDestroy = async (
+    projectId: string,
+    id: string,
+    linkId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsTicketsGithubLinksDestroyUrl(projectId, id, linkId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

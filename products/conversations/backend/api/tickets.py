@@ -50,6 +50,12 @@ from products.conversations.backend.api.ticket_filters import (
     parse_stored_view_filters,
     query_params_to_view_filters,
 )
+from products.conversations.backend.api.ticket_github_links import (
+    TicketGithubLinkCreateSerializer,
+    TicketGithubLinkSerializer,
+    link_github_reference,
+    log_github_link_activity,
+)
 from products.conversations.backend.cache import (
     get_cached_unread_count,
     invalidate_unread_count_cache,
@@ -60,10 +66,19 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
+from products.conversations.backend.github_link_metadata import has_stale_github_links
 from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
-from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
+from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelKind,
+    Ticket,
+    TicketAssignment,
+    TicketGithubLink,
+    TicketView,
+)
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.tasks import schedule_github_link_refresh
 
 from ee.models.rbac.role import Role
 
@@ -401,6 +416,13 @@ NOTE_MESSAGE_ID_PARAM = OpenApiParameter(
     description="The UUID of the private note (comment) to edit or delete.",
 )
 
+GITHUB_LINK_ID_PARAM = OpenApiParameter(
+    name="link_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    description="The UUID of the GitHub link to remove.",
+)
+
 
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TICKET_ID_PARAM]),
@@ -410,7 +432,7 @@ NOTE_MESSAGE_ID_PARAM = OpenApiParameter(
 )
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
-    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
+    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages", "github_links"]
     # "create" stays listed so a ticket:write token reaches the create() override below and
     # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
     scope_object_write_actions = [
@@ -423,6 +445,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "ai_feedback",
         "note",
         "delete_note",
+        "create_github_link",
+        "delete_github_link",
     ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -1388,6 +1412,92 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             locked.deleted = True
             locked.save(update_fields=["deleted"])
 
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        responses={200: OpenApiResponse(response=TicketGithubLinkSerializer(many=True))},
+    )
+    @action(detail=True, methods=["get"], url_path="github_links", pagination_class=None)
+    def github_links(self, request, *args, **kwargs):
+        """List the GitHub issues and pull requests linked to a ticket."""
+        ticket = self.get_object()
+        links = list(
+            TicketGithubLink.objects.filter(team_id=self.team_id, ticket=ticket)
+            .select_related("created_by")
+            .order_by("created_at")
+        )
+        if has_stale_github_links(links):
+            schedule_github_link_refresh(self.team_id, str(ticket.id))
+        return Response(TicketGithubLinkSerializer(links, many=True).data)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=TicketGithubLinkCreateSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TicketGithubLinkSerializer, description="This issue or PR was already linked."
+            ),
+            201: OpenApiResponse(response=TicketGithubLinkSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @github_links.mapping.post
+    def create_github_link(self, request, *args, **kwargs):
+        """Link a GitHub issue or pull request to a ticket by URL."""
+        ticket = self.get_object()
+        serializer = TicketGithubLinkCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        link, created = link_github_reference(ticket, serializer.validated_data["url"], user=request.user)
+        if created:
+            log_github_link_activity(
+                organization_id=self.organization.id,
+                ticket=ticket,
+                link=link,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+                linked=True,
+            )
+        return Response(
+            TicketGithubLinkSerializer(link).data,
+            status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM, GITHUB_LINK_ID_PARAM],
+        responses={
+            204: OpenApiResponse(description="Link removed."),
+            404: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(detail=True, methods=["delete"], url_path=r"github_links/(?P<link_id>[^/.]+)", pagination_class=None)
+    def delete_github_link(self, request, link_id: str | None = None, *args, **kwargs):
+        """Remove a GitHub issue or pull request link from a ticket."""
+        ticket = self.get_object()
+        try:
+            link_uuid = uuid.UUID(link_id or "")
+        except ValueError:
+            link_uuid = None
+        link = (
+            TicketGithubLink.objects.filter(team_id=self.team_id, ticket=ticket, id=link_uuid).first()
+            if link_uuid
+            else None
+        )
+        if link is None:
+            return Response(
+                {"detail": "Link not found.", "error_type": "github_link_not_found"},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+        link.delete()
+        log_github_link_activity(
+            organization_id=self.organization.id,
+            ticket=ticket,
+            link=link,
+            user=request.user,
+            was_impersonated=is_impersonated(request),
+            linked=False,
+        )
         return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
     @extend_schema(

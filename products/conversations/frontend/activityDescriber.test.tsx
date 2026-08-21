@@ -129,4 +129,31 @@ describe('ticketActivityDescriber', () => {
         expect(text).toContain('snooze expired')
         expect(text).not.toContain('reopened')
     })
+
+    it.each([
+        ['created', 'linked GitHub PostHog/posthog#123'],
+        ['deleted', 'unlinked GitHub PostHog/posthog#123'],
+    ])('describes a GitHub link change with action %s as a repo#number reference', (action, expected) => {
+        const url = 'https://github.com/PostHog/posthog/pull/123'
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                user: { first_name: 'Sam', email: 'sam@example.com' },
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'Ticket #3',
+                    changes: [
+                        {
+                            type: ActivityScope.TICKET,
+                            action: action as ActivityChange['action'],
+                            field: 'github_link',
+                            before: action === 'deleted' ? url : null,
+                            after: action === 'created' ? url : null,
+                        },
+                    ],
+                },
+            })
+        )
+        expect(getTextContent(result)).toContain(expected)
+    })
 })

@@ -910,6 +910,71 @@ export interface AiFeedbackRequestApi {
 }
 
 /**
+ * * `issue` - Issue
+ * * `pull_request` - Pull request
+ */
+export type LinkTypeEnumApi = (typeof LinkTypeEnumApi)[keyof typeof LinkTypeEnumApi]
+
+export const LinkTypeEnumApi = {
+    Issue: 'issue',
+    PullRequest: 'pull_request',
+} as const
+
+/**
+ * * `open` - Open
+ * * `closed` - Closed
+ * * `merged` - Merged
+ */
+export type LinkStateEnumApi = (typeof LinkStateEnumApi)[keyof typeof LinkStateEnumApi]
+
+export const LinkStateEnumApi = {
+    Open: 'open',
+    Closed: 'closed',
+    Merged: 'merged',
+} as const
+
+export interface TicketGithubLinkApi {
+    readonly id: string
+    /** Repository in owner/name form. */
+    readonly repo: string
+    /** Issue or pull request number within the repository. */
+    readonly number: number
+    /** Whether the link points at an issue or a pull request.
+     *
+     * * `issue` - Issue
+     * * `pull_request` - Pull request */
+    readonly link_type: LinkTypeEnumApi
+    /** Canonical https://github.com URL of the issue or pull request. */
+    readonly url: string
+    /**
+     * Issue or PR title from GitHub. Null when no GitHub integration in the project can see the repository.
+     * @nullable
+     */
+    readonly title: string | null
+    /** open, closed, or merged (pull requests only). Null when not fetched from GitHub.
+     *
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    readonly link_state: LinkStateEnumApi | null
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+}
+
+export interface TicketGithubLinkCreateApi {
+    /**
+     * A GitHub issue or pull request, as a URL (https://github.com/owner/repo/issues/123) or shorthand (owner/repo#123).
+     * @maxLength 2048
+     */
+    url: string
+}
+
+export interface TicketErrorApi {
+    detail: string
+    error_type?: string
+}
+
+/**
  * A single message in a ticket thread (output-only).
  */
 export interface TicketMessageApi {
@@ -950,11 +1015,6 @@ export interface PatchedTicketNoteUpdateRequestApi {
     message?: string
     /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
     rich_content?: unknown
-}
-
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
 }
 
 /**

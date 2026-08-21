@@ -21,6 +21,7 @@ from .team_conversations_slack_config import TeamConversationsSlackConfig
 from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannelSync
 from .team_conversations_teams_config import TeamConversationsTeamsConfig
 from .ticket import Ticket
+from .ticket_github_link import TicketGithubLink, TicketGithubLinkState, TicketGithubLinkType
 from .ticket_view import TicketView
 from .ticket_view_favorite import TicketViewFavorite
 from .zendesk_import_job import ZendeskImportJob
@@ -54,6 +55,9 @@ __all__ = [
     "TeamConversationsTeamsConfig",
     "Ticket",
     "TicketAssignment",
+    "TicketGithubLink",
+    "TicketGithubLinkState",
+    "TicketGithubLinkType",
     "TicketView",
     "TicketViewFavorite",
     "ZendeskImportJob",
