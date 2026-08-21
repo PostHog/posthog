@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import uuid
 import hashlib
 from contextlib import suppress
 from datetime import timedelta
@@ -991,7 +992,15 @@ class UserVerifyEmailThrottle(UserOrEmailRateThrottle):
         # counter is the hard limit underneath.
         target_uuid = request.data.get("uuid") if isinstance(request.data, dict) else None
         if target_uuid:
-            ident = hashlib.sha256(str(target_uuid).encode()).hexdigest()
+            try:
+                # Canonicalize first: uuid.UUID accepts case-insensitive, hyphen-free, brace, and
+                # urn:uuid forms of one value, so hashing the raw text would mint a fresh bucket per
+                # spelling and let a caller sidestep the per-target limit. Fall back to the raw text
+                # (never raise from a cache key) when it isn't a parseable UUID.
+                key_source = str(uuid.UUID(str(target_uuid)))
+            except (ValueError, AttributeError, TypeError):
+                key_source = str(target_uuid)
+            ident = hashlib.sha256(key_source.encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
 
         return super().get_cache_key(request, view)
