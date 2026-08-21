@@ -46,8 +46,7 @@ export interface MlMirrorUrlFetchProducer {
 }
 
 /**
- * Which collection lanes the anonymizer runs, and the key they derive their per-team ref prefix
- * from.
+ * Which collection lanes the anonymizer runs, and the key they derive their ref HMAC keys from.
  *
  * Separate from the two producer settings, because collecting and producing are separate
  * decisions. Collection alone measures. A produce puts original, unscrubbed URLs onto Kafka.
@@ -56,7 +55,7 @@ export interface MlMirrorUrlFetchProducer {
  * make that measurement impossible to take on its own.
  */
 export interface MlMirrorCollection {
-    /** The ML pseudonym HMAC key (also used by the block-metadata sink), for the per-team ref prefix. */
+    /** The ML pseudonym HMAC key, also used by the block-metadata sink. */
     pseudonymSecret: string | Buffer
     collectImages: boolean
     collectUrls: boolean

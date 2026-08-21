@@ -99,7 +99,7 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
             continue
         }
         const ref = parseImageRef(entry.ref)
-        if (!ref || ref.source !== 'url' || ref.pseudoTeam !== pseudoTeam) {
+        if (!ref || ref.source !== 'url' || (ref.pseudoTeam && ref.pseudoTeam !== pseudoTeam)) {
             rejected.push({ reason: 'bad_ref' })
             continue
         }

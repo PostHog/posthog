@@ -49,7 +49,7 @@ export type MlMirrorConfig = {
      *
      * Enabling changes the mirrored JSONL shape a second time: a remote image keeps its grey
      * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its
-     * `imageurl:<pseudoTeam>:<hash>` ref. The prefix differs from the image lane's `image:` on
+     * `imageurl:<hash>` ref. The prefix differs from the image lane's `image:` on
      * purpose, because this hash names the URL rather than the bytes behind it. Nothing fetches
      * those URLs yet, so every such ref is dangling. What this buys is the measurement of how many
      * URLs and how many distinct hosts real traffic carries.

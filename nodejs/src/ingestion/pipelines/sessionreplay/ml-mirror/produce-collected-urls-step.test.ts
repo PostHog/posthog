@@ -23,7 +23,7 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     function collected(hash: string, host: string, url: string, domain = host): CollectedUrl {
-        return { ref: `imageurl:${PSEUDO_TEAM}:${hash.padEnd(22, 'x')}`, url, host, domain }
+        return { ref: `imageurl:${hash.padEnd(22, 'x')}`, pseudoTeam: PSEUDO_TEAM, url, host, domain }
     }
 
     function decode(batch: { key: string; value: Buffer }[]) {
@@ -68,12 +68,12 @@ describe('produceCollectedUrlsStep', () => {
                         capturedAtMs: CAPTURED_AT,
                         urls: [
                             {
-                                ref: `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
+                                ref: `imageurl:h1xxxxxxxxxxxxxxxxxxxx`,
                                 url: 'https://cdn.example.com/a.jpg?sig=1',
                                 host: 'cdn.example.com',
                             },
                             {
-                                ref: `imageurl:${PSEUDO_TEAM}:h3xxxxxxxxxxxxxxxxxxxx`,
+                                ref: `imageurl:h3xxxxxxxxxxxxxxxxxxxx`,
                                 url: 'https://cdn.example.com/c.jpg',
                                 host: 'cdn.example.com',
                             },
@@ -88,7 +88,7 @@ describe('produceCollectedUrlsStep', () => {
                         capturedAtMs: CAPTURED_AT,
                         urls: [
                             {
-                                ref: `imageurl:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
+                                ref: `imageurl:h2xxxxxxxxxxxxxxxxxxxx`,
                                 url: 'https://img.other.com/b.png',
                                 host: 'img.other.com',
                             },
@@ -134,18 +134,18 @@ describe('produceCollectedUrlsStep', () => {
         expect(queueMessages).toHaveBeenCalledTimes(2)
     })
 
-    it('refuses to produce a ref whose hash names bytes rather than a URL', async () => {
-        // A bytes ref comes from an image the page inlined, and its hash cannot be reproduced from
-        // any URL. Producing one would put a record on the fetch topic that the fetcher indexes
-        // under a hash nothing will ever match. Both prefixes parse, so only the source check
-        // separates them.
+    test.each([
+        ['inline image', `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`],
+        ['legacy team-scoped URL', `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`],
+    ])('refuses to produce a %s ref', async (_name, ref) => {
         const step = createProduceCollectedUrlsStep(outputs, 100)
 
         await run(step, {
             message: { timestamp: CAPTURED_AT },
             collectedUrls: [
                 {
-                    ref: `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
+                    ref,
+                    pseudoTeam: PSEUDO_TEAM,
                     url: 'https://img.example.com/a.png',
                     host: 'img.example.com',
                     domain: 'example.com',
@@ -166,6 +166,7 @@ describe('produceCollectedUrlsStep', () => {
                 collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
                 {
                     ref: `image:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
+                    pseudoTeam: PSEUDO_TEAM,
                     url: 'https://img.example.com/inlined.png',
                     host: 'img.example.com',
                     domain: 'example.com',
@@ -177,8 +178,8 @@ describe('produceCollectedUrlsStep', () => {
         const sent = decode(queued[0])
         expect(sent).toHaveLength(1)
         expect(sent[0].value.urls.map((u: { ref: string }) => u.ref)).toEqual([
-            `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
-            `imageurl:${PSEUDO_TEAM}:h3xxxxxxxxxxxxxxxxxxxx`,
+            `imageurl:h1xxxxxxxxxxxxxxxxxxxx`,
+            `imageurl:h3xxxxxxxxxxxxxxxxxxxx`,
         ])
     })
 
@@ -238,7 +239,8 @@ describe('produceCollectedUrlsStep', () => {
             collectedUrls: [
                 collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
                 {
-                    ref: `imageurl:${otherTeam}:h2xxxxxxxxxxxxxxxxxxxx`,
+                    ref: `imageurl:h2xxxxxxxxxxxxxxxxxxxx`,
+                    pseudoTeam: otherTeam,
                     url: 'https://img.example.com/b.png',
                     host: 'img.example.com',
                     domain: 'img.example.com',

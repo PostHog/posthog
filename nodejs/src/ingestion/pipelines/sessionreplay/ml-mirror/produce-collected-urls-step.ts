@@ -10,7 +10,7 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 
 /**
  * The same trade as the image lane's cache, at a much lower cost per entry: a record here holds a
- * ref of approximately 60 bytes and no image bytes. A ref that this cache drops before its next
+ * ref of approximately 32 bytes and no image bytes. A ref that this cache drops before its next
  * arrival produces a second time, which costs topic volume and one more ledger read in the
  * fetcher, but never correctness. The fetcher dedupes on the same ref again.
  */
@@ -107,18 +107,22 @@ export function createProduceCollectedUrlsStep<
         // reaches the fetcher under a hash nothing will ever match. Both kinds parse, so only
         // `source` separates them, and checking one entry would let every later one through.
         //
-        // The pseudonym comes back out of the ref, because the ref is the only place the collector
-        // puts it. Every entry must agree on it: one replay message belongs to one team, and a
-        // record stamped with another team's pseudonym is a tenant-attribution error that nothing
-        // downstream can detect.
+        // Every entry must use the global URL-ref shape and carry the same transport pseudonym. One
+        // replay message belongs to one team, and a record stamped with another team's pseudonym is
+        // a tenant-attribution error that nothing downstream can detect.
         const usable: CollectedUrl[] = []
         let pseudoTeam: string | undefined
         for (const entry of fresh) {
             const parsed = parseImageRef(entry.ref)
-            if (!parsed || parsed.source !== 'url' || (pseudoTeam && parsed.pseudoTeam !== pseudoTeam)) {
+            if (
+                !parsed ||
+                parsed.source !== 'url' ||
+                parsed.pseudoTeam !== undefined ||
+                (pseudoTeam && entry.pseudoTeam !== pseudoTeam)
+            ) {
                 continue
             }
-            pseudoTeam ??= parsed.pseudoTeam
+            pseudoTeam ??= entry.pseudoTeam
             usable.push(entry)
         }
         const unusable = fresh.length - usable.length

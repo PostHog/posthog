@@ -19,12 +19,8 @@
 //! downstream. Removing the volatile parameters matters more for that than it does for
 //! the request count.
 //!
-//! The hash is a *keyed* HMAC, for the same reason as the image hash. The ML bucket is not
-//! encrypted. An unkeyed digest of a URL would let a reader of the bucket learn which sites the
-//! users of a team visited.
-//!
-//! The caller derives the per-team key from the same KMS-held secret as the team pseudonym.
-//! Neither the secret nor the key leaves the ingester.
+//! The hash is a *keyed* HMAC. The caller derives one global URL key from the KMS-held secret. The
+//! secret does not leave the ingester.
 
 use std::collections::{HashMap, HashSet};
 
@@ -55,11 +51,7 @@ pub const MAX_URLS_PER_MESSAGE: usize = 512;
 /// Enables URL collection for one anonymize call.
 #[derive(Debug, Clone)]
 pub struct UrlCollection {
-    /// The non-reversible HMAC team pseudonym (32 hex chars), computed by the caller. Embedded
-    /// verbatim in every emitted ref, exactly as on the image lane.
-    pub pseudo_team: String,
-    /// Per-team key for the URL HMAC. The caller derives it under its own domain separator, so a
-    /// URL ref and an image ref stay distinct for one team.
+    /// Global key for the URL HMAC. The caller derives it under a URL-specific domain separator.
     pub url_key: String,
 }
 
@@ -91,7 +83,6 @@ pub fn hash_url(url_key: &[u8], dedup_url: &str) -> String {
 
 /// Accumulates the remote image URLs of one message, deduplicated on the hash.
 pub struct UrlCollector {
-    pseudo_team: String,
     url_key: String,
     urls: Vec<CollectedUrl>,
     seen: HashSet<String>,
@@ -106,7 +97,6 @@ pub struct UrlCollector {
 impl UrlCollector {
     pub fn new(collection: UrlCollection) -> Self {
         Self {
-            pseudo_team: collection.pseudo_team,
             url_key: collection.url_key,
             urls: Vec::new(),
             seen: HashSet::new(),
@@ -156,7 +146,7 @@ impl UrlCollector {
         };
         let hash = hash_url(self.url_key.as_bytes(), &canonical.dedup);
         if self.seen.contains(&hash) {
-            return Some(crate::collect::url_ref(&self.pseudo_team, &hash));
+            return Some(crate::collect::url_ref(&hash));
         }
         self.seen.insert(hash.clone());
         self.urls.push(CollectedUrl {
@@ -165,7 +155,7 @@ impl UrlCollector {
             host: canonical.host,
             domain: canonical.domain,
         });
-        Some(crate::collect::url_ref(&self.pseudo_team, &hash))
+        Some(crate::collect::url_ref(&hash))
     }
 
     /// Counts by reason for the URLs this collector refused.
@@ -194,7 +184,6 @@ mod tests {
 
     fn collector() -> UrlCollector {
         UrlCollector::new(UrlCollection {
-            pseudo_team: "a".repeat(32),
             url_key: String::from_utf8(TEST_KEY.to_vec()).unwrap(),
         })
     }
