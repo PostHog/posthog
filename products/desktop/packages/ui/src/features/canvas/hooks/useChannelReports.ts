@@ -19,7 +19,14 @@ import {
   useReportSeenStore,
 } from "@posthog/ui/features/canvas/stores/reportSeenStore";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import { keepPreviousData } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
+
+/** Sidebar rows are small; a short first page paints fast and scroll streams the rest. */
+const SIDEBAR_REPORTS_PAGE_SIZE = 25;
+
+/** How long a fetched page stays fresh: remounts inside this window paint from cache with no refetch. */
+const SIDEBAR_REPORTS_STALE_MS = 30_000;
 
 export interface ChannelReportsFilters {
   search: string;
@@ -98,6 +105,12 @@ export function useChannelReports(
       enabled: enabled && scopeReady,
       refetchInterval: 60_000,
       refetchIntervalInBackground: false,
+      pageSize: SIDEBAR_REPORTS_PAGE_SIZE,
+      staleTime: SIDEBAR_REPORTS_STALE_MS,
+      // Toggling the scope or filters swaps the query key; keep showing the
+      // pages already on screen while the new fetch runs instead of dropping
+      // to a skeleton.
+      placeholderData: keepPreviousData,
     },
   );
   // Archived reports are excluded from the main query server-side, so the
@@ -113,6 +126,9 @@ export function useChannelReports(
       enabled: enabled && archivedMode && scopeReady,
       refetchInterval: 60_000,
       refetchIntervalInBackground: false,
+      pageSize: SIDEBAR_REPORTS_PAGE_SIZE,
+      staleTime: SIDEBAR_REPORTS_STALE_MS,
+      placeholderData: keepPreviousData,
     },
   );
 
