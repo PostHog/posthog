@@ -406,6 +406,9 @@ tools:
             covered, even if the account is later rebound to another channel. Returns an empty list when the account has
             no bound channel, summaries are off (`slack_summary_cadence` is null), or nothing has been generated yet.
         feature_flag: customer-analytics-csp
+    accounts-support-ticket-messages-list:
+        operation: accounts_support_ticket_messages_list
+        enabled: false
     accounts-support-tickets-list:
         operation: accounts_support_tickets_list
         enabled: false
