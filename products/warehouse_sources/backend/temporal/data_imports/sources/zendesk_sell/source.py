@@ -40,6 +40,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZendeskSellSource(ResumableSource[ZendeskSellSourceConfig, ZendeskSellResumeConfig]):
+    # v2 is the terminal Core API version this source syncs (Zendesk versions its separate Search
+    # API independently). The vendor ships no Core API successor, so there is no version to repin
+    # to, and the per-version deprecation framework does not apply here because it never
+    # deprecates a source's sole/default version.
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.zendesk.com/api-reference/sales-crm/"

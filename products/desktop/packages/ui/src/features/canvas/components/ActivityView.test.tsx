@@ -18,6 +18,7 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityRow } from "./ActivityView";
 import { activityHeadline } from "./activityHeadline";
+import { openActivityItem } from "./openActivityItem";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
   return {
@@ -31,8 +32,6 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
     snippet: "Hello!",
     author: null,
     messageId: "message-1",
-    targetScope: null,
-    targetId: null,
     isUnread: true,
     ...overrides,
   };
@@ -139,6 +138,7 @@ describe("activityHeadline", () => {
         channelId="channel-1"
         onOpen={vi.fn()}
         onMarkRead={vi.fn()}
+        onActivate={openActivityItem}
         blockedTaskIds={NO_BLOCKED_TASKS}
       />,
     );
@@ -158,31 +158,5 @@ describe("activityHeadline", () => {
       openCommentsTab: true,
       intent: "navigate",
     });
-  });
-
-  it("opens report activity at its generated canvas", () => {
-    const activity = item({
-      activityKind: "completed",
-      channelId: "channel-1",
-      targetScope: "desktop_canvas",
-      targetId: "canvas-1",
-    });
-
-    render(
-      <ActivityRow
-        item={activity}
-        channelId="channel-1"
-        onOpen={vi.fn()}
-        onMarkRead={vi.fn()}
-        blockedTaskIds={NO_BLOCKED_TASKS}
-      />,
-    );
-    fireEvent.click(screen.getByText("A report canvas is ready"));
-
-    expect(navigation.toChannelDashboard).toHaveBeenCalledWith(
-      "channel-1",
-      "canvas-1",
-    );
-    expect(navigation.toChannelTask).not.toHaveBeenCalled();
   });
 });

@@ -55,6 +55,7 @@ from posthog.schema import (
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
     MCPToolCategoryCountsQuery,
+    MCPToolCategoryMapQuery,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
     MCPToolFailureOccurrencesQuery,
@@ -94,6 +95,7 @@ from posthog.schema import (
     WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
+    WebVitalsQuery,
 )
 
 from posthog.hogql import ast
@@ -484,6 +486,7 @@ RunnableQueryNode = Union[
     MCPToolQualityDailyStatsQuery,
     MCPToolCategoryCountsQuery,
     MCPToolCategoriesQuery,
+    MCPToolCategoryMapQuery,
     MCPToolDescriptionsQuery,
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
@@ -902,6 +905,41 @@ def get_query_runner(
             team=team,
         )
 
+    if kind == "WebVitalsQuery":
+        from products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute import (
+            is_vitals_precompute_enabled_for_team,
+        )
+
+        # This runner is a plain TrendsQueryRunner subclass, so it can only
+        # handle the canonical line-graph tab shape over a TrendsQuery source.
+        # A non-Trends source, or any other display (total-value, cumulative,
+        # calendar heatmap, box plot, slope graph), must reach the source's own
+        # dispatch below — several map to dedicated runners — so let those fall
+        # through and unwrap to the source rather than take this branch.
+        # Routing a non-Trends source here would raise in the constructor, and
+        # `get_query_runner_or_none` re-raises that instead of unwrapping.
+        source = get_from_dict_or_attr(query, "source")
+        source_is_trends = source is not None and get_from_dict_or_attr(source, "kind") == "TrendsQuery"
+        source_trends_filter = get_from_dict_or_attr(source, "trendsFilter") if source_is_trends else None
+        source_display = get_from_dict_or_attr(source_trends_filter, "display") if source_trends_filter else None
+        is_canonical_display = source_display is None or source_display == ChartDisplayType.ACTIONS_LINE_GRAPH
+
+        # Flag-gated at dispatch: with the rollout flag off this kind has no
+        # runner branch, so `process_query_model` unwraps to the source
+        # exactly as before the runner existed. Local flag evaluation only — no
+        # network I/O here.
+        if source_is_trends and is_canonical_display and is_vitals_precompute_enabled_for_team(team):
+            from products.web_analytics.backend.hogql_queries.web_vitals_timeseries import WebVitalsQueryRunner
+
+            return WebVitalsQueryRunner(
+                query=cast(WebVitalsQuery | dict[str, Any], query),
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+                user=user,
+            )
+
     if kind == "WebPageURLSearchQuery":
         from products.web_analytics.backend.hogql_queries.page_url_search_query_runner import PageUrlSearchQueryRunner
 
@@ -1235,6 +1273,17 @@ def get_query_runner(
 
         return MCPToolCategoriesQueryRunner(
             query=cast(MCPToolCategoriesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolCategoryMapQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolCategoryMapQueryRunner
+
+        return MCPToolCategoryMapQueryRunner(
+            query=cast(MCPToolCategoryMapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

@@ -3,6 +3,7 @@ import uuid
 import asyncio
 import datetime
 import tempfile
+import contextlib
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -30,6 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionSupersededError,
     RepartitionUnpartitionableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    MAX_REPARTITION_ATTEMPTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import repartition_table
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
@@ -767,6 +771,92 @@ class TestRepartitionActivity:
 
         assert samples and samples[0]["phase"] == "repartition"
         assert samples[0]["schema_id"] == str(schema.id)
+
+    def test_a_rewrite_whose_worker_dies_still_burns_an_attempt(self, team):
+        # A worker OOM-killed mid-rewrite records nothing, so the cap never moved and these retried
+        # forever.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+
+        def killed_mid_rewrite(**kwargs):
+            raise KeyboardInterrupt("worker killed")
+
+        # Three attempts run and die; the next evaluation finds the cap spent and gives up.
+        for _ in range(MAX_REPARTITION_ATTEMPTS + 1):
+            with contextlib.suppress(BaseException):
+                self._run(self._inputs(team, schema), AsyncMock(side_effect=killed_mid_rewrite))
+            schema.refresh_from_db()
+
+        assert schema.repartition_pending is None
+
+    def test_an_overlapping_attempt_charge_survives_another_attempts_refund(self, team):
+        # Overlapping attempts must not erase each other's charge, or the cap never counts up and the
+        # retry loop this change exists to stop comes back.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 2,
+            }
+        )
+        # This attempt charged 0 -> 1; a concurrent one then charged 1 -> 2. Refunding to 0 here would
+        # erase that second charge.
+        repartition_table._refund_attempt(schema, 0, logger)
+
+        schema.refresh_from_db()
+        pending = schema.repartition_pending
+        assert pending is not None and pending["attempts"] == 2
+
+    def test_a_staged_swap_is_never_abandoned_by_the_attempt_cap(self, team):
+        # An interrupted swap may already have deleted live, leaving temp the only intact copy. Giving
+        # up clears the marker that points at it, so the next sync would bootstrap an empty table.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": MAX_REPARTITION_ATTEMPTS,
+            }
+        )
+        schema.set_repartition_swap({"state": "ready", "temp_uri": "s3://t/__repartitioned", "live_uri": "s3://t"})
+
+        mocked = AsyncMock(return_value={"outcome": "completed"})
+        self._run(self._inputs(team, schema), mocked)
+
+        # The rewrite runs and resumes the swap, rather than the cap short-circuiting it.
+        mocked.assert_awaited_once()
+
+    def test_a_superseded_attempt_costs_no_attempt(self, team):
+        # A zombie displaced by a newer claim is not evidence the rewrite is doomed.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+
+        self._run(self._inputs(team, schema), AsyncMock(side_effect=RepartitionSupersededError("newer claim")))
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["attempts"] == 0
 
     def test_unpartitionable_clears_pending(self, team):
         schema = _make_schema(team, {})

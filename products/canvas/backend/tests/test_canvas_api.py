@@ -1274,8 +1274,15 @@ class TestCanvasState(CanvasAPIBaseTest):
             assert self._set_state(canvas_id, "shared", "one", 11).status_code == status.HTTP_200_OK
             assert self._set_state(canvas_id, "shared", "three", 3).status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_sandbox_tokens_cannot_use_state(self):
+    def test_sandbox_tokens_use_their_users_state_on_visible_canvases(self):
         canvas_id = self._state_canvas()
+        other_user = self._create_user("state-owner@example.com")
+        Canvas.objects.unscoped().filter(id=canvas_id).update(created_by=other_user)
+        self.client.force_login(other_user)
+        assert self._set_state(canvas_id, "user", "draft", "owners-private-state").status_code == status.HTTP_200_OK
+        self.client.force_login(self.user)
+        assert self._set_state(canvas_id, "shared", "progress", {"completed": 12}).status_code == status.HTTP_200_OK
+        assert self._set_state(canvas_id, "user", "draft", "my-private-state").status_code == status.HTTP_200_OK
         task = Task.objects.create(
             team=self.team,
             channel=self.channel,
@@ -1291,15 +1298,26 @@ class TestCanvasState(CanvasAPIBaseTest):
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/",
             HTTP_X_POSTHOG_TASK_ID=str(task.id),
         )
-        write = client.post(
+        write_shared = client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/set/",
-            {"scope": "shared", "key": "k", "value": 1},
+            {"scope": "shared", "key": "progress", "value": {"completed": 13}},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+        write_user = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/set/",
+            {"scope": "user", "key": "draft", "value": "updated-by-agent"},
             format="json",
             HTTP_X_POSTHOG_TASK_ID=str(task.id),
         )
 
-        assert read.status_code == status.HTTP_403_FORBIDDEN
-        assert write.status_code == status.HTTP_403_FORBIDDEN
+        assert read.status_code == status.HTTP_200_OK
+        assert {(entry["scope"], entry["key"]): entry["value"] for entry in read.json()["entries"]} == {
+            ("shared", "progress"): {"completed": 12},
+            ("user", "draft"): "my-private-state",
+        }
+        assert write_shared.status_code == status.HTTP_200_OK
+        assert write_user.status_code == status.HTTP_200_OK
 
 
 class TestCanvasErrorReports(CanvasAPIBaseTest):

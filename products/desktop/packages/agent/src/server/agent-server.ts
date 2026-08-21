@@ -22,6 +22,7 @@ import {
   buildPrOutput,
   getErrorMessage,
   isIgnoredSkillPath,
+  isSkillBundleArtifactMetadata,
   type McpServerConnection,
   mergePrUrls,
   parseMcpToolName,
@@ -34,6 +35,7 @@ import {
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
+import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
@@ -167,12 +169,19 @@ export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
 ): string | { append: string } {
-  if (typeof userPrompt === "string") {
-    return appendRichOutputPrompt([userPrompt, cloudAppend].join("\n\n"));
-  }
+  const prompt = [
+    typeof userPrompt === "string" ? userPrompt : userPrompt?.append,
+    cloudAppend,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const combinedPrompt = appendRichOutputPrompt(
+    prependProductEngineerPrompt(prompt),
+  );
 
-  const prompt = [userPrompt?.append, cloudAppend].filter(Boolean).join("\n\n");
-  return { append: appendRichOutputPrompt(prompt) };
+  return typeof userPrompt === "string"
+    ? combinedPrompt
+    : { append: combinedPrompt };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -322,6 +331,7 @@ interface InstalledSkillBundle {
 interface BuiltPrompt {
   prompt: ContentBlock[];
   meta?: Record<string, unknown>;
+  messageId?: string;
 }
 
 function hiddenTextBlock(text: string): ContentBlock {
@@ -1232,19 +1242,10 @@ export class AgentServer {
         if (messageId) {
           this.inFlightMessageDeliveries.set(messageId, deliveryOutcome);
         }
-        let deliveryCommitted = retryCompactContinuation;
         let releaseNonSteerDelivery: (() => void) | undefined;
         const commitDelivery = (): void => {
-          deliveryCommitted = true;
           if (!messageId) return;
-          this.deliveredMessageIds.add(messageId);
-          if (this.deliveredMessageIds.size > 500) {
-            const oldest = this.deliveredMessageIds.values().next().value;
-            if (oldest !== undefined) {
-              this.deliveredMessageIds.delete(oldest);
-              this.pendingCompactContinuationMessageIds.delete(oldest);
-            }
-          }
+          this.markMessageDelivered(messageId);
         };
 
         try {
@@ -1454,9 +1455,6 @@ export class AgentServer {
           resolveDelivery(outcome);
           return outcome;
         } catch (error) {
-          if (messageId && !deliveryCommitted) {
-            this.deliveredMessageIds.delete(messageId);
-          }
           rejectDelivery(error);
           throw error;
         } finally {
@@ -1559,6 +1557,21 @@ export class AgentServer {
         return await this.session.clientConnection.extMethod(
           POSTHOG_METHODS.REFRESH_SESSION,
           { mcpServers: refreshedMcpServers },
+        );
+      }
+
+      case POSTHOG_METHODS.SIDE_QUESTION:
+      case "side_question": {
+        const question = params.question as string;
+
+        this.logger.debug("Side question requested");
+
+        // Returned as the command result rather than emitted as a session
+        // update: a side question is ephemeral, so it must not reach the
+        // event stream or the persisted transcript.
+        return await this.session.clientConnection.extMethod(
+          POSTHOG_METHODS.SIDE_QUESTION,
+          { sessionId: this.session.acpSessionId, question },
         );
       }
 
@@ -1734,6 +1747,8 @@ export class AgentServer {
       true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
+    const runtimeAdapter = this.getRuntimeAdapter();
+
     const gatewayEnv = this.configureEnvironment({
       isInternal: preTask?.internal === true,
       originProduct: preTask?.origin_product,
@@ -1743,6 +1758,17 @@ export class AgentServer {
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
       taskTitle: preTask?.title,
+      repositories: this.taskRepositories,
+      runtimeAdapter,
+      sandboxEnvironmentId: getTaskRunStateString(
+        preTaskRun,
+        "sandbox_environment_id",
+      ),
+      snapshotKind: preTaskRun
+        ? (getTaskRunStateString(preTaskRun, "snapshot_kind") ?? "absent")
+        : null,
+      prewarmed: preTaskRun ? this.prewarmedRun : null,
+      executionEnvironment: "cloud",
     });
 
     if (this.config.repoReadyFile && gatewayEnv.anthropicBaseUrl) {
@@ -1778,7 +1804,6 @@ export class AgentServer {
       ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
       : null;
 
-    const runtimeAdapter = this.getRuntimeAdapter();
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
       slackThreadUrl,
@@ -2349,6 +2374,8 @@ export class AgentServer {
       return;
     }
 
+    let promptDispatched = false;
+    let releaseSelfDelivery: (() => void) | undefined;
     try {
       const task = await this.posthogAPI.getTask(payload.task_id);
 
@@ -2364,9 +2391,11 @@ export class AgentServer {
       )?.prewarmed;
       let initialPrompt: ContentBlock[] = [];
       let initialPromptMeta: Record<string, unknown> | undefined;
+      let initialPromptMessageId: string | undefined;
       if (pendingUserPrompt?.prompt.length) {
         initialPrompt = pendingUserPrompt.prompt;
         initialPromptMeta = pendingUserPrompt.meta;
+        initialPromptMessageId = pendingUserPrompt.messageId;
       } else if (initialPromptOverride) {
         initialPrompt = [{ type: "text", text: initialPromptOverride }];
       } else if (task.description && !prewarmed) {
@@ -2394,6 +2423,21 @@ export class AgentServer {
       if (!acpSessionId) {
         throw new Error("Agent session is missing its ACP session ID");
       }
+
+      if (initialPromptMessageId) {
+        if (
+          this.deliveredMessageIds.has(initialPromptMessageId) ||
+          this.inFlightMessageDeliveries.has(initialPromptMessageId)
+        ) {
+          this.logger.info(
+            "Pending message already delivered by a forwarded command; skipping the startup prompt",
+            { messageId: initialPromptMessageId },
+          );
+          return;
+        }
+        releaseSelfDelivery = this.beginSelfDelivery(initialPromptMessageId);
+      }
+      promptDispatched = true;
 
       const result = await this.runStartupTurn(() =>
         this.promptWithUpstreamRetry({
@@ -2426,7 +2470,12 @@ export class AgentServer {
       if (this.session) {
         await this.session.logWriter.flushAll();
       }
+      if (promptDispatched) {
+        await this.clearPendingInitialPromptState(payload, taskRun);
+      }
       await this.handleTurnFailure(payload, "initial", error);
+    } finally {
+      releaseSelfDelivery?.();
     }
   }
 
@@ -2453,8 +2502,10 @@ export class AgentServer {
 
       let resumePromptBlocks: ContentBlock[];
       let resumePromptMeta: Record<string, unknown> | undefined;
+      let resumePromptMessageId: string | undefined;
       if (pendingUserPrompt?.prompt.length) {
         resumePromptMeta = pendingUserPrompt.meta;
+        resumePromptMessageId = pendingUserPrompt.messageId;
         resumePromptBlocks = [
           hiddenTextBlock(
             `You are resuming a previous conversation. ${checkpointContext}\n\n` +
@@ -2491,6 +2542,7 @@ export class AgentServer {
       return {
         prompt: resumePromptBlocks,
         ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
+        messageId: resumePromptMessageId,
       };
     });
   }
@@ -2520,7 +2572,6 @@ export class AgentServer {
                 text: "Continue from where you left off. The user is waiting for your response.",
               },
             ];
-
         this.logger.debug("Sending resume continuation", {
           taskId: payload.task_id,
           sessionId: this.nativeResume?.sessionId,
@@ -2532,6 +2583,7 @@ export class AgentServer {
         return {
           prompt,
           ...(pendingUserPrompt?.meta ? { meta: pendingUserPrompt.meta } : {}),
+          messageId: pendingUserPrompt?.messageId,
         };
       },
       { retryOnOversizedPrompt: true },
@@ -2624,6 +2676,8 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session) return;
 
+    let promptDispatched = false;
+    let releaseSelfDelivery: (() => void) | undefined;
     try {
       const builtPrompt = await buildPrompt();
 
@@ -2632,6 +2686,11 @@ export class AgentServer {
       if (!acpSessionId) {
         throw new Error("Agent session is missing its ACP session ID");
       }
+
+      if (builtPrompt.messageId) {
+        releaseSelfDelivery = this.beginSelfDelivery(builtPrompt.messageId);
+      }
+      promptDispatched = true;
 
       const result = await this.runStartupTurn(() =>
         this.promptWithUpstreamRetry({
@@ -2675,7 +2734,12 @@ export class AgentServer {
       ) {
         return;
       }
+      if (promptDispatched) {
+        await this.clearPendingInitialPromptState(payload, taskRun);
+      }
       await this.handleTurnFailure(payload, "resume", error);
+    } finally {
+      releaseSelfDelivery?.();
     }
   }
 
@@ -2728,12 +2792,28 @@ export class AgentServer {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  private markMessageDelivered(messageId: string): void {
+    this.deliveredMessageIds.add(messageId);
+    if (this.deliveredMessageIds.size > 500) {
+      const oldest = this.deliveredMessageIds.values().next().value;
+      if (oldest !== undefined) {
+        this.deliveredMessageIds.delete(oldest);
+        this.pendingCompactContinuationMessageIds.delete(oldest);
+      }
+    }
+  }
+
   private async getPendingUserPrompt(
     taskRun: TaskRun | null,
   ): Promise<BuiltPrompt | null> {
     if (!taskRun) return null;
     const state = taskRun.state as Record<string, unknown> | undefined;
     const message = state?.pending_user_message;
+    const pendingMessageId =
+      typeof state?.pending_user_message_id === "string" &&
+      state.pending_user_message_id
+        ? state.pending_user_message_id
+        : undefined;
     const artifactIds = Array.isArray(state?.pending_user_artifact_ids)
       ? state.pending_user_artifact_ids.filter(
           (artifactId): artifactId is string =>
@@ -2808,7 +2888,10 @@ export class AgentServer {
       lostAttachmentCount,
       blockTypes: prompt.prompt.map((block) => block.type),
     });
-    return prompt.prompt.length > 0 ? prompt : null;
+    if (prompt.prompt.length === 0) {
+      return null;
+    }
+    return { ...prompt, messageId: pendingMessageId };
   }
 
   private async resolvePendingArtifactManifest(
@@ -2887,6 +2970,7 @@ export class AgentServer {
     const pendingKeys = [
       "pending_user_message",
       "pending_user_artifact_ids",
+      "pending_user_message_id",
       "pending_user_message_ts",
     ].filter((key) => key in state);
 
@@ -2902,9 +2986,31 @@ export class AgentServer {
       return;
     }
 
-    await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
-      state_remove_keys: stateRemoveKeys,
+    try {
+      await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
+        state_remove_keys: stateRemoveKeys,
+      });
+    } catch (error) {
+      this.logger.warn("Failed to clear pending prompt state", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  private beginSelfDelivery(messageId: string): () => void {
+    this.markMessageDelivered(messageId);
+    let release: () => void = () => {};
+    const outcome = new Promise<unknown>((resolve) => {
+      release = () => {
+        this.inFlightMessageDeliveries.delete(messageId);
+        resolve({ stopReason: "duplicate_delivery", duplicate: true });
+      };
     });
+    void outcome.catch(() => {});
+    this.inFlightMessageDeliveries.set(messageId, outcome);
+    return release;
   }
 
   private async buildPromptFromContentAndArtifacts({
@@ -3055,7 +3161,8 @@ export class AgentServer {
       const hasMatchingArtifact = artifacts.some(
         (artifact) =>
           artifact.type === "skill_bundle" &&
-          artifact.metadata?.skill_name === invocation.skillName,
+          isSkillBundleArtifactMetadata(artifact.metadata) &&
+          artifact.metadata.skill_name === invocation.skillName,
       );
       const installedSkill = hasMatchingArtifact
         ? this.installedSkillBundleInfo.get(
@@ -3096,8 +3203,16 @@ export class AgentServer {
     messageText: string,
   ): LocalSkillPromptContext | null {
     const installed = artifacts
-      .filter((artifact) => artifact.type === "skill_bundle")
-      .map((artifact) => artifact.metadata?.skill_name)
+      .filter(
+        (artifact) =>
+          artifact.type === "skill_bundle" &&
+          isSkillBundleArtifactMetadata(artifact.metadata),
+      )
+      .map((artifact) =>
+        isSkillBundleArtifactMetadata(artifact.metadata)
+          ? artifact.metadata.skill_name
+          : null,
+      )
       .filter((name): name is string => typeof name === "string")
       .map((name) =>
         this.installedSkillBundleInfo.get(
@@ -3218,15 +3333,14 @@ export class AgentServer {
     artifact: TaskRunArtifact,
   ): Promise<void> {
     const metadata = artifact.metadata;
-    const skillName = metadata?.skill_name;
-    const expectedSha256 = metadata?.content_sha256;
-
-    if (!artifact.storage_path || !skillName || !expectedSha256) {
+    if (!artifact.storage_path || !isSkillBundleArtifactMetadata(metadata)) {
       throw new Error(
         `Skill bundle artifact ${artifact.name} is missing metadata`,
       );
     }
 
+    const skillName = metadata.skill_name;
+    const expectedSha256 = metadata.content_sha256;
     const installKey = `${runId}:${expectedSha256}:${skillName}`;
     if (
       this.installedSkillBundles.has(installKey) &&
@@ -4291,6 +4405,12 @@ ${commonInstructions}
     taskRunId,
     taskUserId,
     taskTitle,
+    repositories,
+    runtimeAdapter,
+    sandboxEnvironmentId,
+    snapshotKind,
+    prewarmed,
+    executionEnvironment,
   }: {
     isInternal?: boolean;
     originProduct?: Task["origin_product"] | null;
@@ -4300,6 +4420,12 @@ ${commonInstructions}
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    repositories?: string[];
+    runtimeAdapter?: string | null;
+    sandboxEnvironmentId?: string | null;
+    snapshotKind?: string | null;
+    prewarmed?: boolean | null;
+    executionEnvironment?: "local" | "cloud";
   } = {}): GatewayEnv {
     const { apiKey, apiUrl, projectId } = this.config;
     const product = resolveGatewayProduct({ isInternal, originProduct });
@@ -4343,6 +4469,14 @@ ${commonInstructions}
       task_run_id: taskRunId,
       task_user_id: taskUserId,
       task_title: taskTitle,
+      task_repositories: repositories?.length
+        ? JSON.stringify(repositories)
+        : null,
+      task_runtime_adapter: runtimeAdapter,
+      task_sandbox_environment_id: sandboxEnvironmentId,
+      task_snapshot_kind: snapshotKind,
+      task_prewarmed: prewarmed,
+      task_execution_environment: executionEnvironment ?? "cloud",
     };
     // The Claude path appends the project scope in buildEnvironment from
     // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below
