@@ -171,7 +171,7 @@ function LoopDiagram(): JSX.Element {
                 Example
             </LemonTag>
 
-            <Tooltip title="This is an example. Run the command above to get real ones in your inbox.">
+            <Tooltip title="This is an example. Run the command above to get real ones in your inbox." openOnClick>
                 <button
                     type="button"
                     aria-label="Example loop – run the setup command to get real ones in your inbox"
