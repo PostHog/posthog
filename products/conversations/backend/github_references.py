@@ -8,7 +8,9 @@ from posthog.dataclasses import frozen
 from products.conversations.backend.models.ticket_github_link import TicketGithubLinkType
 
 GITHUB_HOSTS = {"github.com", "www.github.com"}
-_REPO_PART = r"[A-Za-z0-9._-]+"
+# GitHub never allows an owner or repo name made only of dots, and letting one through ("..", ".")
+# would let dot-segment normalization steer the /repos/{owner}/{repo}/... API path elsewhere.
+_REPO_PART = r"(?!\.+(?:/|#|$))[A-Za-z0-9._-]+"
 _REPO_PART_RE = re.compile(rf"^{_REPO_PART}$")
 # owner/repo#123, the shorthand GitHub itself renders for cross-repo references.
 _SHORTHAND_RE = re.compile(rf"^(?P<owner>{_REPO_PART})/(?P<repo>{_REPO_PART})#(?P<number>[1-9][0-9]*)$")

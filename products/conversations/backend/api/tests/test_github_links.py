@@ -48,9 +48,16 @@ class TestParseGithubReference(SimpleTestCase):
             ),
             ("PostHog/posthog#123", GithubReference(repo="PostHog/posthog", number=123, link_type=None)),
             (" owner/repo.js#7 ", GithubReference(repo="owner/repo.js", number=7, link_type=None)),
+            (".github/.dotfiles#3", GithubReference(repo=".github/.dotfiles", number=3, link_type=None)),
             ("PostHog/posthog#0", None),
             ("posthog#123", None),
             ("owner/repo/extra#1", None),
+            ("../repo#1", None),
+            ("owner/..#1", None),
+            (".../repo#1", None),
+            ("https://github.com/../repo/issues/1", None),
+            ("https://github.com/owner/./issues/1", None),
+            ("https://github.com/owner/..#1", None),
             ("javascript:alert(1)", None),
         ]
     )
