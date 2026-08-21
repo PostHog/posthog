@@ -180,6 +180,33 @@ describe("reportCharts", () => {
     });
   });
 
+  it("labels compared aggregate rows with their period", () => {
+    const data = shapeReportChartData(
+      {
+        results: [
+          {
+            label: "Pageviews",
+            aggregated_value: 120,
+            compare_label: "current",
+          },
+          {
+            label: "Pageviews",
+            aggregated_value: 80,
+            compare_label: "previous",
+          },
+        ],
+      },
+      runPlan(trendsNode("ActionsTable")),
+    );
+    expect(data).toMatchObject({
+      type: "table",
+      rows: [
+        ["Pageviews (current)", 120],
+        ["Pageviews (previous)", 80],
+      ],
+    });
+  });
+
   it("shapes a steps funnel into one bar per step", () => {
     const data = shapeReportChartData(
       {

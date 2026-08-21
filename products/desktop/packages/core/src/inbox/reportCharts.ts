@@ -275,16 +275,24 @@ function trendsAggregateValue(result: QueryNode): number | null {
 }
 
 function trendsAggregateLabel(result: QueryNode, index: number): string {
+  // A compared insight returns the current and previous periods as two results
+  // with identical labels; the period lives only in compare_label.
+  const period =
+    typeof result.compare_label === "string" && result.compare_label
+      ? ` (${result.compare_label})`
+      : "";
   if (Object.hasOwn(result, "breakdown_value")) {
     const value = result.breakdown_value;
     if (value === null || value === undefined || value === "")
-      return "No value";
-    if (Array.isArray(value)) return value.map(String).join(" · ");
-    return String(value);
+      return `No value${period}`;
+    if (Array.isArray(value)) return value.map(String).join(" · ") + period;
+    return `${String(value)}${period}`;
   }
-  return typeof result.label === "string" && result.label
-    ? result.label
-    : `Series ${index + 1}`;
+  const label =
+    typeof result.label === "string" && result.label
+      ? result.label
+      : `Series ${index + 1}`;
+  return `${label}${period}`;
 }
 
 function shapeTrendsAggregates(
