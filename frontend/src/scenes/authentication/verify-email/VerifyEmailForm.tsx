@@ -125,6 +125,7 @@ function VerificationCodeEntry(): JSX.Element {
                 value={verificationCode}
                 onChange={setVerificationCode}
                 placeholder="123456"
+                aria-label="Email verification code"
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 size="large"
