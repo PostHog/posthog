@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Literal
 
 import structlog
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +69,32 @@ TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
         "prewarmed",
         "phase",
     ],
+)
+
+WORKFLOW_DISPATCH_CREATED_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_created_total", "Workflow dispatch rows created", labelnames=["kind"]
+)
+WORKFLOW_DISPATCH_ATTEMPT_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_attempt_total",
+    "Workflow dispatch attempt outcomes",
+    labelnames=["kind", "outcome"],
+)
+WORKFLOW_DISPATCH_START_DURATION_SECONDS = Histogram(
+    "posthog_tasks_workflow_dispatch_start_duration_seconds", "Temporal workflow start RPC duration"
+)
+WORKFLOW_DISPATCH_READY = Gauge("posthog_tasks_workflow_dispatch_ready", "Ready workflow dispatches")
+WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS = Gauge(
+    "posthog_tasks_workflow_dispatch_oldest_ready_age_seconds", "Age of the oldest ready workflow dispatch"
+)
+WORKFLOW_DISPATCH_CLAIMED = Gauge("posthog_tasks_workflow_dispatch_claimed", "Claimed workflow dispatches")
+WORKFLOW_DISPATCH_LEASE_EXPIRED_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_lease_expired_total", "Expired workflow dispatch leases reclaimed"
+)
+WORKFLOW_DISPATCH_DEAD_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_dead_total", "Dead workflow dispatches", labelnames=["kind", "reason"]
+)
+WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_missing_intent_total", "Queued cloud task runs without dispatch intent"
 )
 
 AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(

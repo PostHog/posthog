@@ -44,11 +44,9 @@ class TestRedditAdsSource:
         self.config = RedditAdsSourceConfig(reddit_integration_id=456, account_id="789")
 
     def test_source_type(self):
-        """Test source type property."""
         assert self.source.source_type == ExternalDataSourceType.REDDITADS
 
     def test_get_source_config(self):
-        """Test get_source_config returns proper configuration."""
         config = self.source.get_source_config
 
         assert config.name.value == "RedditAds"
@@ -72,7 +70,6 @@ class TestRedditAdsSource:
         assert account_field.integrationKind == "reddit-ads"
 
     def test_validate_credentials_missing_account_id(self):
-        """Test credential validation with missing account ID."""
         invalid_config = RedditAdsSourceConfig(reddit_integration_id=456, account_id="")
 
         is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
@@ -82,7 +79,6 @@ class TestRedditAdsSource:
         assert "Account ID and Reddit Ads integration are required" in error_message
 
     def test_validate_credentials_missing_integration_id(self):
-        """Test credential validation with missing integration ID."""
         invalid_config = RedditAdsSourceConfig(reddit_integration_id=0, account_id="789")
 
         is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
@@ -95,7 +91,6 @@ class TestRedditAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
     )
     def test_validate_credentials_success(self, mock_get_oauth_integration):
-        """Test successful credential validation."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_token"
         mock_get_oauth_integration.return_value = mock_integration
@@ -146,6 +141,10 @@ class TestRedditAdsSource:
             "403 Client Error: Forbidden for url: https://ads-api.reddit.com/api/v3/ad_accounts/09663b71-f301-484f-9b15-8d0e6fe69124/reports?page.size=100",
             "404 Client Error: Not Found for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
             "ValueError: Integration not found: 154683",
+            # A 400 on the profiles fan-out parent fetch (used by both the `profiles` schema and
+            # the `structured_posts` fan-out) never recovers on retry — the account id varies but
+            # the path/params suffix is stable across accounts.
+            "400 Client Error: Bad Request for url: https://ads-api.reddit.com/api/v3/ad_accounts/d56c38c6-058a-4196-9795-284f820d27a6/profiles?page.size=100 | api error: code=400",
         ],
     )
     def test_non_retryable_errors_match_known_failures(self, observed_error):
@@ -158,6 +157,9 @@ class TestRedditAdsSource:
         [
             "500 Server Error for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
             "ConnectionError: Connection reset by peer",
+            # A 400 on a different endpoint is not covered by the profiles-specific pattern above —
+            # only the profiles fan-out parent fetch is known to fail deterministically like this.
+            "400 Client Error: Bad Request for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
         ],
     )
     def test_non_retryable_errors_does_not_match_transient(self, other_error):
@@ -231,7 +233,6 @@ class TestRedditAdsSource:
         assert expected_fragment in str(excinfo.value).lower()
 
     def test_get_schemas(self):
-        """Test get_schemas returns all endpoint schemas."""
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         expected_endpoints = set(REDDIT_ADS_CONFIG)
@@ -296,7 +297,6 @@ class TestRedditAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
     )
     def test_source_for_pipeline_success(self, mock_get_oauth_integration):
-        """Test source_for_pipeline with valid integration."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_token"
         mock_get_oauth_integration.return_value = mock_integration
@@ -335,7 +335,6 @@ class TestRedditAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
     )
     def test_source_for_pipeline_no_access_token(self, mock_get_oauth_integration):
-        """Test source_for_pipeline with no access token raises error."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = None
         mock_get_oauth_integration.return_value = mock_integration
@@ -354,7 +353,6 @@ class TestRedditAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
     )
     def test_source_for_pipeline_with_incremental(self, mock_get_oauth_integration):
-        """Test source_for_pipeline with incremental field."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_token"
         mock_get_oauth_integration.return_value = mock_integration

@@ -13,7 +13,6 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import { sessionSupportsNativeSteer } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   resolveLocalSkillPrompt,
@@ -138,20 +137,6 @@ export function useSessionCallbacks({
         await sessionService.sendPrompt(taskId, promptText ?? text, {
           steer: messagingMode === "steer",
         });
-
-        const sentSession = sessionStoreSetters.getSessionByTaskId(taskId);
-        if (
-          messagingMode === "steer" &&
-          sentSession?.isPromptPending &&
-          !sentSession.isCompacting &&
-          sentSession.adapter === "claude" &&
-          sessionSupportsNativeSteer(sentSession)
-        ) {
-          toast.info("Steering waits for a safe boundary", {
-            description:
-              "It will apply at the next safe boundary. The current command may keep running until then.",
-          });
-        }
 
         const view = getAppViewSnapshot();
         const isViewingTask =

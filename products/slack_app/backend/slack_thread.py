@@ -15,7 +15,10 @@ from products.slack_app.backend.services.slack_messages import (
     app_home_url,
     context_block,
     normalize_labeled_mentions_to_bare,
+    personal_integrations_url,
+    post_slack_thread_reply,
     reply_footer_block,
+    slack_message_exists,
     viewer_has_code_access,
 )
 
@@ -221,6 +224,19 @@ class SlackThreadHandler:
                 logger.warning("slack_auth_test_failed", error=str(e))
         return self._bot_user_id
 
+    def _post_in_thread(self, **kwargs: Any) -> Any:
+        """Post in the run's thread, or nothing at all once the prompt it answers is gone.
+
+        Every lifecycle card and relayed answer goes through here, so a user who deletes
+        the prompt mid-run simply stops hearing from us.
+        """
+        return post_slack_thread_reply(
+            self._get_client(),
+            channel=self.context.channel,
+            thread_ts=self.context.thread_ts,
+            **kwargs,
+        )
+
     def _find_progress_message_ts(self) -> str | None:
         """Find existing progress message in the thread."""
         try:
@@ -282,6 +298,9 @@ class SlackThreadHandler:
             return None
         try:
             client = self._get_client()
+            if not slack_message_exists(client, self.context.channel, self.context.thread_ts):
+                logger.warning("slack_app_status_stream_skipped_message_deleted", channel=self.context.channel)
+                return None
             integration = self._get_integration()
             response = client.chat_startStream(
                 channel=self.context.channel,
@@ -418,12 +437,7 @@ class SlackThreadHandler:
                     blocks=blocks,
                 )
             else:
-                client.chat_postMessage(
-                    channel=self.context.channel,
-                    thread_ts=self.context.thread_ts,
-                    text=text,
-                    blocks=blocks,
-                )
+                self._post_in_thread(text=text, blocks=blocks)
         except Exception as e:
             logger.exception("slack_progress_update_failed", error=str(e))
 
@@ -432,6 +446,7 @@ class SlackThreadHandler:
         pr_url: str,
         task_url: str | None,
         reply_target_slack_user_id: str | None = None,
+        bot_authored: bool = False,
     ) -> None:
         """Post the single per-run "PR opened" card.
 
@@ -443,6 +458,12 @@ class SlackThreadHandler:
 
         ``reply_target_slack_user_id`` is the resolved actor — typically the
         most recent thread participant. ``None`` produces an untagged message.
+
+        ``bot_authored`` means the run fell back to the team GitHub installation
+        because the actor had no usable personal one, so the pull request carries
+        the bot's identity rather than theirs. This card is the first place that
+        becomes visible, and it is the only surface guaranteed to reach someone
+        who only ever talks to @PostHog from Slack.
         """
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         header = f"{mention_prefix}*Pull request opened* :rocket:"
@@ -475,8 +496,20 @@ class SlackThreadHandler:
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
             {"type": "actions", "elements": buttons},
         ]
+        if bot_authored:
+            blocks.append(context_block(self._personal_github_hint()))
 
         self._delete_progress_and_post(header, blocks)
+
+    def _personal_github_hint(self) -> str:
+        """One muted line telling the reader why the pull request isn't theirs.
+
+        Written for the next run rather than this one: authorship is fixed when a run is
+        created, so connecting now changes who the following pull requests belong to, and
+        the commits this thread pushes once someone replies here.
+        """
+        url = personal_integrations_url(self._get_integration().team_id)
+        return f"Opened by the PostHog bot. <{url}|Connect your GitHub> so pull requests are opened as you."
 
     def post_footer(self) -> None:
         """Post the footer alone, for an answer with no message of its own to close.
@@ -489,12 +522,7 @@ class SlackThreadHandler:
         if not footer:
             return
         try:
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=footer["elements"][0]["text"],
-                blocks=[footer],
-            )
+            self._post_in_thread(text=footer["elements"][0]["text"], blocks=[footer])
         except Exception as e:
             logger.warning("slack_app_post_footer_failed", error=str(e))
 
@@ -521,12 +549,7 @@ class SlackThreadHandler:
             else None
         )
         try:
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=text,
-                blocks=blocks,
-            )
+            self._post_in_thread(text=text, blocks=blocks)
         except SlackApiError as e:
             # Slack rejects a request whose blocks are invalid outright — the `text`
             # fallback does not rescue it — so the answer would go down with its footer.
@@ -664,11 +687,6 @@ class SlackThreadHandler:
                 blocks = [*blocks, footer]
         try:
             self.delete_progress()
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=text,
-                blocks=blocks,
-            )
+            self._post_in_thread(text=text, blocks=blocks)
         except Exception as e:
             logger.exception("slack_completion_post_failed", error=str(e))

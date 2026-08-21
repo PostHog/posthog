@@ -47,6 +47,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseSourceJobUpdate,
     ManagedWarehouseSourceJobWorkflow,
 )
+from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
 from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob
 from products.managed_warehouse.backend.storage import connect_to_duckgres, setup_duckgres_session
 from products.managed_warehouse.backend.temporal.metrics import (
@@ -64,7 +65,6 @@ from products.managed_warehouse.backend.temporal.source_job_state import record_
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
-DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-registration-workflow"
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
 S3_COPY_BATCH_SIZE = 16
@@ -76,6 +76,7 @@ _DUCKGRES_CANCEL_MARGIN = dt.timedelta(minutes=1)
 _DUCKGRES_CANCEL_MAX_ATTEMPTS = 10
 _DUCKGRES_CANCEL_RETRY_SECONDS = 0.5
 _DUCKGRES_CANCEL_TIMEOUT_SECONDS = 5.0
+_DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
 # Duckgres cancel fires one minute before this deadline. One attempt: a
 # StartToClose timeout has an unknown catalog outcome, so a retry could race
 # the original CALL.
@@ -225,23 +226,18 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
     logger = LOGGER.bind()
 
     try:
-        team = await database_sync_to_async(Team.objects.only("uuid", "organization_id").get)(id=inputs.team_id)
+        team = await database_sync_to_async(Team.objects.only("organization_id").get)(id=inputs.team_id)
     except Team.DoesNotExist:
         await logger.aerror("Team does not exist when evaluating DuckLake data imports registration gate")
         return False
 
+    organization_id = str(team.organization_id)
     try:
         flag_enabled = feature_enabled_or_false(
-            DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
+            DATA_WAREHOUSE_SCENE_FLAG,
+            organization_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
@@ -552,7 +548,7 @@ def _should_publish_prepared_generation(inputs: DuckLakeRegisterDataImportsActiv
 def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
     if is_dev_mode():
         conninfo = make_duckgres_conninfo(team_id, application_name="ducklake-register")
-        with psycopg.connect(conninfo, autocommit=True) as conn:
+        with psycopg.connect(conninfo, autocommit=True, options=_DUCKGRES_REGISTER_WORKER_OPTIONS) as conn:
             yield conn
         return
 
@@ -560,7 +556,11 @@ def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
     server = get_duckgres_server_for_organization(organization_id)
     if server is None:
         raise ApplicationError(f"No DuckgresServer configured for team {team_id}", non_retryable=True)
-    with connect_to_duckgres(server, application_name="ducklake-register") as conn:
+    with connect_to_duckgres(
+        server,
+        application_name="ducklake-register",
+        options=_DUCKGRES_REGISTER_WORKER_OPTIONS,
+    ) as conn:
         yield conn
 
 

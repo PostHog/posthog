@@ -1,6 +1,8 @@
 import datetime as dt
 from uuid import UUID
 
+from temporalio.common import Priority
+
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 
@@ -11,6 +13,16 @@ SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 # between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
 # row is stranded in `running` until the reaper's cutoff below.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
+
+
+def on_demand_priority(team_id: int) -> Priority:
+    """Task priority for user-initiated starts (1 = highest of 5, default 3): Temporal inherits it into
+    the rasterize-recording child and its rasterization-queue activity, so on-demand runs jump the sweep
+    and backfill backlog on every queue they touch. The fairness key shares priority-1 dispatch across
+    teams, so one team's burst cannot starve another team's on-demand work.
+    """
+    return Priority(priority_key=1, fairness_key=str(team_id))
+
 
 # A pending/running row is created inside its workflow, and the workflow cannot outlive its execution timeout
 # (which spans Temporal-level retries), so any such row older than the timeout plus a margin for clock skew
@@ -51,10 +63,32 @@ SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 # pass that picks up sessions whose matching events were older than the fast pass's narrow window.
 # Paired with SWEEP_EVENTS_LOOKBACK: that sets what the fast pass can miss, this sets how long a miss
 # waits, so tuning either one moves the same cost-against-latency tradeoff.
-DEEP_SWEEP_INTERVAL = dt.timedelta(hours=6)
-# The deep pass shares the sweep activity's time budget with the fast query, so it gets the smaller
-# share: it is catch-up work, and a tick that overruns retries both queries.
-DEEP_SWEEP_MAX_EXECUTION_SECONDS = 60
+DEEP_SWEEP_INTERVAL = dt.timedelta(hours=12)
+# ClickHouse budget for one deep query; the pass shares the sweep activity's ~200s timeout with the
+# fast query, so it only gets this when enough of the activity is left to spend it.
+DEEP_SWEEP_MAX_EXECUTION_SECONDS = 120
+
+# Most ground one deep pass covers. The events scan pads ~50h around whatever window it is given, so
+# an unbounded window is both slow and unbounded in cost; a scanner further behind takes more passes
+# rather than one huge one. Sized against the longest interval below, not the floor: the padding
+# dominates a single pass, so widening the window is much cheaper than shortening the gap.
+DEEP_SWEEP_MAX_WINDOW = dt.timedelta(hours=54)
+# Ceiling on the deep pass's cadence stretch. Must stay below DEEP_SWEEP_MAX_WINDOW / DEEP_SWEEP_INTERVAL
+# with margin: a pass covering less ground than the gap before it falls behind for good.
+DEEP_SWEEP_MAX_FACTOR = 3
+# The deep pass is priced on its average daily reads over this window, which has to outlast the
+# longest interval above or a stretched pass ages out of its own measurement and resets to the floor.
+DEEP_SPEND_WINDOW_DAYS = 8
+# Daily ClickHouse read budget for the deep pass alone; above it the pass stretches its interval.
+# Half the frequent sweep's budget: it is background catch-up, and giving each pass the full budget
+# would double the per-scanner ceiling this throttling exists to hold.
+DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY = 100 * 1024**3
+
+# One-off priming pass for a scanner that has never been swept: a few recent recordings scanned on
+# the first sweep tick, so the scanner has observations to show without waiting for new sessions.
+PRIMING_LOOKBACK = dt.timedelta(hours=24)
+PRIMING_SCAN_SESSIONS = 3
+PRIMING_MAX_EXECUTION_SECONDS = 30
 
 # Rolling 24h ClickHouse read budget per scanner. Above it, sweeps stretch their effective cadence
 # proportionally (skipped ticks batch into the next executed one, so no sessions are missed).
@@ -68,8 +102,12 @@ READ_METER_WORKFLOW_NAME = "replay-vision-meter-scanner-reads"
 READ_METER_WORKFLOW_ID = "replay-vision-scanner-read-meter"
 READ_METER_SCHEDULE_ID = "replay-vision-scanner-read-meter-schedule"
 READ_METER_INTERVAL = dt.timedelta(hours=1)
-READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
+# Must cover the metering activity's retries plus the auto-materialize pass, or a slow metering run
+# eats the day's only acting window. Overlap policy is SKIP, so a long run absorbs the next tick.
+READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
 METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
+# Covers the ON CLUSTER ADD COLUMN round when the auto-materializer acts; candidate scans are seconds.
+AUTO_MATERIALIZE_TIMEOUT = dt.timedelta(minutes=4)
 
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
 # prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
@@ -130,16 +168,23 @@ COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
 
 
+# Slots at each cap that scheduled dispatch (sweep, backfill) must leave free, so a user-initiated
+# observe still admits when scheduled work is saturated; on-demand admission checks the full caps.
+ON_DEMAND_RESERVED_SCANNER_SLOTS = 25
+ON_DEMAND_RESERVED_TEAM_SLOTS = 50
+
+
 def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
-    """Dispatch headroom for a sweep tick: the tighter of the per-scanner and per-team caps.
+    """Scheduled-dispatch headroom for a sweep or backfill tick: the tighter of the per-scanner and
+    per-team caps, minus the slots reserved for on-demand admission.
 
     The sweep workflow throttles on this and the count activity records the throttled
     metric from it, so the decision and the metric can't drift apart. Pure, so it is safe
     inside deterministic workflow code.
     """
     return min(
-        MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
-        MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
+        MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - scanner_in_flight,
+        MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS - team_in_flight,
     )
 
 

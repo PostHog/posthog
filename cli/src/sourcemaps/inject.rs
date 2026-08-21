@@ -189,7 +189,16 @@ fn resolve_release_id(
     if let Some(r) = existing_release {
         return Ok(Some(r.id.to_string()));
     }
+    Ok(resolve_release(release)?.map(|r| r.id.to_string()))
+}
 
+/// Fetch or create the release identified by `release`, filling in whichever of name and version
+/// the flags left out from git and CI metadata. Returns `None` when neither source identifies a
+/// release.
+///
+/// Shared with the `release resolve` command, so a build tool that injects the release id itself
+/// lands on the same row `sourcemap inject --release-mode=event` would have injected.
+pub fn resolve_release(release: ReleaseArgs) -> Result<Option<Release>> {
     let cwd = std::env::current_dir()?;
     let release_args_were_provided =
         release.name.is_some() || release.version.is_some() || release.build.is_some();
@@ -198,7 +207,7 @@ fn resolve_release_id(
     if !builder.can_create() {
         return Ok(None);
     }
-    Ok(Some(builder.fetch_or_create()?.id.to_string()))
+    Ok(Some(builder.fetch_or_create()?))
 }
 
 pub fn get_release_for_maps<'a>(

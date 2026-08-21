@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
-from django.db import DatabaseError, OperationalError
+from django.db import DatabaseError, OperationalError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
@@ -67,7 +67,9 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthRefreshToken,
     TokenEndpointAuthMethod,
+    lock_oauth_connection,
     revoke_oauth_session,
+    revoke_oauth_token_family,
 )
 from posthog.scopes import (
     ALWAYS_ALLOWED_SCOPES,
@@ -752,7 +754,9 @@ class OAuthValidator(OAuth2Validator):
 
     def save_bearer_token(self, token, request, *args, **kwargs):
         """
-        Override to use custom token expiry for certain clients.
+        Override to use custom token expiry for certain clients, and to serialize a refresh
+        against a concurrent revoke of the same connection.
+
         Sets token["expires_in"] before calling parent, which uses this value
         when calculating the actual expiry datetime stored in the database.
         """
@@ -775,7 +779,28 @@ class OAuthValidator(OAuth2Validator):
             refresh_token_suppressed=skip_refresh,
             grant_type=getattr(request, "grant_type", "unknown"),
         )
-        return super().save_bearer_token(token, request, *args, **kwargs)
+
+        presented_refresh_token = getattr(request, "refresh_token_instance", None)
+        if not isinstance(presented_refresh_token, OAuthRefreshToken):
+            return super().save_bearer_token(token, request, *args, **kwargs)
+
+        # Take the connection lock before `super()`, which is where DOT opens its transaction and
+        # locks the refresh-token row: acquiring in the other order would deadlock against
+        # `revoke_oauth_session`, which takes this lock and then writes those same rows.
+        with transaction.atomic():
+            lock_oauth_connection(
+                user_id=presented_refresh_token.user_id,
+                application_id=presented_refresh_token.application_id,
+            )
+            # DOT validated this token in autocommit, so a revoke may have deleted the row while
+            # this request waited for the lock. DOT's own re-read is an unguarded `.get()`, which
+            # would surface as a 500; reject the grant instead so the client re-authorizes.
+            if not OAuthRefreshToken.objects.filter(pk=presented_refresh_token.pk).exists():
+                raise InvalidGrantError(
+                    description="This application's access was revoked; re-authorize.",
+                    request=request,
+                )
+            return super().save_bearer_token(token, request, *args, **kwargs)
 
     def _save_bearer_token(self, token, request, *args, **kwargs):
         """
@@ -824,6 +849,53 @@ class OAuthValidator(OAuth2Validator):
             client_id_prefix=str(getattr(request.client, "client_id", "")[:8]),
             refresh_token_id=str(refresh_token_instance.pk),
         )
+
+    def validate_refresh_token(self, refresh_token, client, request, *args, **kwargs):
+        """Fork of django-oauth-toolkit 3.2.x ``OAuth2Validator.validate_refresh_token``
+        with the reuse-protection family sweep made set-based.
+
+        Upstream revokes the compromised family one row at a time (``related_rt.revoke()``
+        per member). Each row costs a ``SELECT ... FOR UPDATE`` plus access-token cleanup,
+        even when already revoked, and a rotating session grows its family by one row per
+        refresh, so a long-lived client that keeps re-presenting a stale token turns every
+        ``/oauth/token`` request into hundreds of serial row-locking queries.
+
+        Everything here is upstream line for line except the two blocks marked
+        "PostHog:" below. ``test_oauth_validator_fork.py`` pins the upstream sources this
+        fork was taken from, so a django-oauth-toolkit upgrade that touches any of them
+        fails CI until this method is re-reviewed against the new upstream. Known hazards
+        when moving to 3.4+: refresh tokens are looked up by SHA-256 ``token_checksum``
+        there (the ``token`` column loses its unique index and is blank under
+        hashed-at-rest storage, so the ``token=`` filter below would lose its index or
+        match nothing), and ``request.refresh_token`` must become the raw presented token
+        rather than ``rt.token``.
+        """
+        # Upstream verbatim from here to the sweep, with RefreshToken resolved to our
+        # swapped OAuthRefreshToken model.
+        rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("access_token").first()
+
+        if not rt:
+            return False
+
+        if rt.revoked is not None and rt.revoked <= timezone.now() - timedelta(
+            seconds=oauth2_settings.REFRESH_TOKEN_GRACE_PERIOD_SECONDS
+        ):
+            if oauth2_settings.REFRESH_TOKEN_REUSE_PROTECTION and rt.token_family:
+                # PostHog: upstream loops `related_rt.revoke()` over the whole family
+                # here. This batched sweep is the reason the method is forked.
+                revoke_oauth_token_family(rt)
+            return False
+
+        # Upstream verbatim: attach the validated token for get_original_scopes and
+        # save_bearer_token, which read request.refresh_token_instance.
+        request.user = rt.user
+        request.refresh_token = rt.token
+        request.refresh_token_instance = rt
+
+        # PostHog: upstream returns `rt.application == client`. Django model equality is
+        # pk-based and False against None, so this is equivalent while avoiding a lazy
+        # load of the Application row.
+        return client is not None and rt.application_id == client.pk
 
     def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
         """

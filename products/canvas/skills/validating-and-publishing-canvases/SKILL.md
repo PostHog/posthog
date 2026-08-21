@@ -104,6 +104,13 @@ every few seconds (up to ~2 minutes) until the build you queued is terminal:
   build never replaces the last good one, so the canvas keeps rendering the previous version —
   finishing the task here would leave the user with a stale canvas and a silent failure.
 
+Runtime error reports (filed on the authoring task when a rendered canvas throws) name the build
+they came from. A report from an **older build id** is history, not evidence about your current
+code — check it against the build you just published before acting on it. In particular, a report
+that a documented `ph` API is undefined (e.g. `ph.state`) means that artifact was baked by an
+older host runtime: republish so a current build replaces it. Never "fix" it by removing the API
+or its capability declaration.
+
 ## Draft, then promote
 
 Publishing goes live the moment its build is ready. For a canvas that **already has a live

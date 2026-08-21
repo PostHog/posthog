@@ -27,6 +27,23 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 _PURGE_S3_PREFIX_MAX_ATTEMPTS = 4
 
 
+def _is_retryable_purge_error(error: OSError) -> bool:
+    """True for an error worth retrying `_purge_s3_prefix` on.
+
+    Covers the known-transient object-store blips (see is_transient_object_store_error) plus a bare
+    `PermissionError`: s3fs translates every S3 auth-failure response code (AccessDenied,
+    ExpiredToken, InvalidAccessKeyId, ...) into this one exception type, and a HeadObject 403 never
+    carries the underlying code in its body (AWS omits it for HEAD requests), so a transient
+    credential-resolution race can't be told apart from a genuine permission problem by message here.
+    `_purge_s3_prefix` always runs against a freshly created client (aget_s3_client(fresh_instance=True)),
+    which re-resolves credentials on every call — the same IMDS/STS race already covered for
+    NoCredentialsError above, just surfacing as an explicit S3-side denial instead of a local
+    resolution failure. Retrying the same bounded budget lets that race self-heal; a persistent
+    misconfiguration still raises once the budget is exhausted, since this only defers the error.
+    """
+    return is_transient_object_store_error(error) or isinstance(error, PermissionError)
+
+
 async def _purge_s3_prefix(s3: Any, uri: str) -> None:
     """Delete every object under `uri`, retrying on transient S3 SlowDown throttling.
 
@@ -40,7 +57,7 @@ async def _purge_s3_prefix(s3: Any, uri: str) -> None:
             return
         except OSError as e:
             attempt += 1
-            if attempt >= _PURGE_S3_PREFIX_MAX_ATTEMPTS or not is_transient_object_store_error(e):
+            if attempt >= _PURGE_S3_PREFIX_MAX_ATTEMPTS or not _is_retryable_purge_error(e):
                 raise
             await asyncio.sleep(2**attempt)
 

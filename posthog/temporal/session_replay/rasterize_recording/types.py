@@ -9,6 +9,19 @@ from pydantic import BaseModel, model_validator
 RASTERIZE_RENDER_TIMEOUT = timedelta(minutes=30)
 RASTERIZE_RENDER_MAX_ATTEMPTS = 2
 
+# Envelope for the whole workflow: the render's retry budget plus room for the prep and finalize
+# activities and queue wait. The exports API uses this both as the workflow's execution_timeout and
+# as the age at which it reports an export stuck, so the two can't drift and start calling a render
+# that is still legitimately working a failure. A tighter caller timeout silently converts the second
+# render attempt into an untyped WorkflowExecutionTimeout, bypassing error-code-based failure
+# classification downstream.
+RASTERIZE_WORKFLOW_TIMEOUT = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATTEMPTS + timedelta(minutes=15)
+
+# execution_timeout that funds exactly one render attempt plus prep/finalize headroom, for callers
+# with their own phase budget (the replay_vision sweep and evaluation). It still exceeds the render
+# start-to-close, so a fast first failure leaves room to schedule a retry that fits the budget.
+RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT = RASTERIZE_RENDER_TIMEOUT + timedelta(minutes=10)
+
 
 class RasterizeRecordingInputs(BaseModel, frozen=True):
     """Input to the RasterizeRecordingWorkflow."""
@@ -81,6 +94,19 @@ class FinalizeRasterizationInput(BaseModel, frozen=True):
     exported_asset_id: int
     result: RasterizationActivityOutput
     render_fingerprint: str
+
+
+class RecordRasterizationFailureInput(BaseModel, frozen=True):
+    """The renderer's own error code and message, resolved in the workflow before the activity runs.
+
+    The code is the rasterizer's `RasterizationErrorCode`, which Temporal carries as the failure
+    type. Without persisting it the reason lives only in workflow history, where neither the user nor
+    a failure-rate breakdown can reach it.
+    """
+
+    exported_asset_id: int
+    error_code: str
+    error_message: str
 
 
 # Output destination fields — excluded so bucket/prefix changes don't invalidate caches.

@@ -250,6 +250,33 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
             })
+
+            it('uses and logs the sender selected for this workflow invocation', async () => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: 4,
+                    kind: 'email',
+                    config: {
+                        email: 'second@posthog.com',
+                        name: 'Second Sender',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                invocation.id = 'invocation-0'
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, integrationIds: [1, 4] },
+                })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe('"Second Sender" <second@posthog.com>')
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'Email sent to test@example.com from Second Sender <second@posthog.com>'
+                )
+            })
         })
         describe('from overrides', () => {
             it.each<[string, { email?: string; name?: string }, string, string]>([
@@ -301,13 +328,18 @@ describe('EmailService', () => {
                 ['a list of addresses', 'a@posthog.com, b@posthog.com'],
                 ['an RFC-822 formatted address', '"Name" <a@posthog.com>'],
                 ['a value that is not an email address', 'not-an-email'],
-            ])('rejects %s without calling SES', async (_desc, email) => {
+            ])('discards %s and sends from the integration sender', async (_desc, email) => {
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1, email },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toContain(`"${email}"`)
-                expect(sendEmailSpy).not.toHaveBeenCalled()
+                // Failing the send would break every step still carrying the placeholder address
+                // an old sender picker wrote, so an unusable override degrades to the integration's
+                // own sender. The unverified address must never reach the provider either way.
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe('"Test User" <test@posthog.com>')
+                expect(result.logs.some((log) => log.level === 'warn' && log.message.includes(email))).toBe(true)
             })
         })
         describe('email sending', () => {
