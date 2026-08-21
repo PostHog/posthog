@@ -104,7 +104,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     // The new posthog_ai view's back button walks its own panel view state (run -> history -> composer)
     // rather than legacy Max's conversation stack — mounting this tiny headless logic in legacy view is
     // harmless (unconditional hooks).
-    const { canGoBack: panelCanGoBack } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
+    const { canGoBack: panelCanGoBack, activeCreation: panelActiveCreation } = useValues(
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
+    )
     const { goBack: panelGoBack } = useActions(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
 
     const threadProps: MaxThreadLogicProps = {
@@ -117,6 +119,13 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     const isNewView = effectivePhaiView === 'new'
     const headerBackDisabled = isNewView ? !panelCanGoBack : backButtonDisabled
+
+    // The new view's panel runs tasks, not Max conversations, so `conversationId` is always null there.
+    // Without the panel's open task the link would fall back to an empty `/ai` rather than the open run.
+    const activeTaskId = isNewView ? panelActiveCreation?.taskId : undefined
+    const mainFocusUrl = activeTaskId
+        ? urls.taskDetail(activeTaskId)
+        : urls.ai((isNewView ? null : conversationId) ?? undefined)
 
     const content = !isMaxAvailable ? (
         <MaxNotConfigured />
@@ -221,7 +230,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                     buttonProps={{
                         iconOnly: true,
                     }}
-                    to={urls.ai(conversationId ?? undefined)}
+                    to={mainFocusUrl}
                     onClick={() => {
                         closeSidePanel()
                     }}
