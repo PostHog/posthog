@@ -735,6 +735,13 @@ export function shapeRecordingPreview(
   };
 }
 
+// Each rendered tile mounts a card that fires its own blocking insight
+// refresh, and those queries share no concurrency limit, so an uncapped list
+// opens one long-running request per tile at once when the page mounts. Bound
+// the preview to a handful of tiles, matching the Insights section; the whole
+// dashboard stays one "Open in PostHog" click away.
+const MAX_DASHBOARD_CHART_TILES = 6;
+
 export function shapeDashboardPreview(
   dashboard: Schemas.Dashboard,
 ): EvidencePreview {
@@ -758,17 +765,20 @@ export function shapeDashboardPreview(
   }
   const filters = isRecord(dashboard.filters) ? dashboard.filters : {};
   const variables = isRecord(dashboard.variables) ? dashboard.variables : {};
-  const chartTiles = tiles.flatMap((tile) => {
-    if (!isRecord(tile) || !isRecord(tile.insight)) return [];
-    const shortId = tile.insight.short_id;
-    if (typeof shortId !== "string" || !shortId) return [];
-    return [
-      {
-        shortId,
-        name: typeof tile.insight.name === "string" ? tile.insight.name : null,
-      },
-    ];
-  });
+  const chartTiles = tiles
+    .flatMap((tile) => {
+      if (!isRecord(tile) || !isRecord(tile.insight)) return [];
+      const shortId = tile.insight.short_id;
+      if (typeof shortId !== "string" || !shortId) return [];
+      return [
+        {
+          shortId,
+          name:
+            typeof tile.insight.name === "string" ? tile.insight.name : null,
+        },
+      ];
+    })
+    .slice(0, MAX_DASHBOARD_CHART_TILES);
   return {
     title: dashboard.name || "Untitled dashboard",
     detail: dashboard.description || undefined,

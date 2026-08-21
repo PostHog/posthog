@@ -223,6 +223,19 @@ describe("evidence preview shaping", () => {
     expect(preview.tiles).toEqual([{ shortId: "abc123", name: "DAU" }]);
   });
 
+  it("caps chartable tiles so a large dashboard doesn't open one query per tile", () => {
+    const tiles = Array.from({ length: 20 }, (_, index) => ({
+      insight: { name: `Insight ${index}`, short_id: `id${index}` },
+    }));
+    const preview = shapeDashboardPreview({
+      id: 12,
+      name: "Growth",
+      tiles,
+    } as unknown as Schemas.Dashboard);
+    expect(preview.tiles).toHaveLength(6);
+    expect(preview.tiles?.[0]).toEqual({ shortId: "id0", name: "Insight 0" });
+  });
+
   // The remainder counts unnamed tiles too: named tiles are shown, but every
   // tile that filtered out of the name list still has to appear in "+N more".
   it.each([
