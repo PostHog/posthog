@@ -1273,6 +1273,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 // Nothing downstream reports this: the copy is created by a plain listener rather than
                 // a loader, so without a toast here a failure is indistinguishable from a dead button.
                 lemonToast.error(e.detail ?? 'Could not duplicate insight')
+                // Catching here also skips the gate `initKea` applies to loader failures, so reapply
+                // it: a recovered failure shares its stack with every other ApiError, so filing it
+                // buries the crashes worth seeing.
                 if (shouldReportApiFailure(e)) {
                     posthog.captureException(e)
                 }

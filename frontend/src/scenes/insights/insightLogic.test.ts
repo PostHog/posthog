@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -1055,23 +1056,40 @@ describe('insightLogic', () => {
                 .toMatchValues({ insightDuplicating: false })
         })
 
-        it('surfaces a failure instead of silently doing nothing', async () => {
-            useMocks({
-                post: {
-                    '/api/environments/:team_id/insights/': () => [400, { detail: 'Insight limit reached' }],
-                },
-            })
-            jest.spyOn(lemonToast, 'error')
+        // Catching the rejection skips the gate `initKea` applies to loader failures, so the
+        // listener has to reapply it: a validation error is the app's own bug and stays
+        // reportable, while an access-denied 403 the AccessDenied scene already handles would
+        // file an issue sharing its stack with every other ApiError, burying real crashes.
+        it.each([
+            ['a validation error', 400, { detail: 'Insight limit reached' }, 1],
+            [
+                'a failure the app recovers from',
+                403,
+                { detail: 'You do not have permission', code: 'permission_denied' },
+                0,
+            ],
+        ])(
+            'toasts %s rather than doing nothing, and reports it only if it is worth filing',
+            async (_, status, body, timesReported) => {
+                useMocks({
+                    post: {
+                        '/api/environments/:team_id/insights/': () => [status, body],
+                    },
+                })
+                jest.spyOn(lemonToast, 'error')
+                jest.spyOn(posthog, 'captureException')
 
-            await expectLogic(logic, () => {
-                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
-            })
-                .toFinishAllListeners()
-                .toMatchValues({ insightDuplicating: false })
+                await expectLogic(logic, () => {
+                    logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ insightDuplicating: false })
 
-            expect(lemonToast.error).toHaveBeenCalledWith('Insight limit reached')
-            await expectLogic(router).toNotHaveDispatchedActions(['push'])
-        })
+                expect(lemonToast.error).toHaveBeenCalledWith(body.detail)
+                expect(posthog.captureException).toHaveBeenCalledTimes(timesReported)
+                await expectLogic(router).toNotHaveDispatchedActions(['push'])
+            }
+        )
     })
 
     describe('hasOverrides', () => {
