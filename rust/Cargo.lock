@@ -43,8 +43,6 @@ dependencies = [
  "determinator",
  "guppy",
  "rstest",
- "serde",
- "serde_json",
  "tempfile",
 ]
 
@@ -13340,6 +13338,8 @@ dependencies = [
  "moka",
  "rdkafka",
  "reqwest 0.12.28",
+ "serde",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
