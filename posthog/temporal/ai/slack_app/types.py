@@ -65,10 +65,6 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # The message the reader forked from. The context block stops here: what was said
     # in the thread afterwards is not what they were looking at when they forked.
     fork_source_message_ts: str | None = None
-    # Repository carried over from the forked thread's own task, when it had one: the
-    # fork is about that thread, so it belongs on the repo the thread was already
-    # about. `None` means "run the normal cascade".
-    fork_repository: str | None = None
     # The forked thread's own task, when it had one. Named in the context block so the
     # agent can pull that task's runs, logs and artifacts if the question needs more
     # than the messages.

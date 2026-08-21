@@ -167,35 +167,3 @@ class TestCascadeTeamInstall(TestCase):
         assert outcome.mode == expected_mode
         assert outcome.repository == expected_repository
         assert outcome.reason == expected_reason
-
-
-class TestCascadeForkInheritance(TestCase):
-    def setUp(self):
-        cache.clear()
-        self.org = Organization.objects.create(name="TestOrg")
-        self.team = Team.objects.create(organization=self.org, name="TestTeam")
-        self.user = User.objects.create(email="alice@test.com")
-        self.slack_integration = Integration.objects.create(
-            team=self.team, kind="slack", integration_id="T_SLACK", config={}
-        )
-
-    def test_fork_repository_short_circuits_before_any_github_lookup(self):
-        # A fork's prompt is generic, so every signal the cascade scans for is absent
-        # and the ask would fall through to the discovery agent and then the repo
-        # picker — in a DM, for someone who asked for an explanation.
-        inputs = PostHogCodeSlackMentionWorkflowInputs(
-            event={"channel": "D_ALICE", "ts": "999.1", "user": "U_ALICE", "text": "catch me up on this thread"},
-            integration_id=self.slack_integration.id,
-            slack_team_id="T_SLACK",
-            user_id=self.user.id,
-            fork_source_channel="C_SOURCE",
-            fork_source_thread_ts="111.1",
-            fork_repository="posthog/posthog",
-        )
-
-        with patch("products.slack_app.backend.api._get_full_repo_names") as get_repos:
-            outcome = cascade_posthog_code_repository_activity(inputs, "catch me up on this thread", self.user.id)
-
-        assert outcome.mode == "auto"
-        assert outcome.repository == "posthog/posthog"
-        get_repos.assert_not_called()

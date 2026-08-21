@@ -128,7 +128,7 @@ class TestForkThreadPayload(TestCase):
         posted = [c.kwargs["channel"] for c in slack.client.chat_postMessage.call_args_list]
         assert posted == ["U_ALICE"]
 
-    def test_inherits_repository_from_forked_threads_task(self):
+    def test_carries_the_forked_threads_task_but_never_its_repository(self):
         from django.apps import apps
 
         Task = apps.get_model("tasks", "Task")
@@ -159,16 +159,18 @@ class TestForkThreadPayload(TestCase):
 
         parked = get_pending_fork(self.integration.id, "D_ALICE", "999.1")
         assert parked is not None
-        assert parked.repository == "posthog/posthog"
         assert parked.task_id == str(task.id)
+        # The repository stays behind on purpose: the source task's repo was resolved
+        # against the *original* mentioner's access, and carrying it over would let the
+        # forker skip their own authorization gate in the cascade.
+        assert not hasattr(parked, "repository")
 
-    def test_no_mapping_leaves_repository_to_the_cascade(self):
+    def test_no_mapping_carries_no_task(self):
         # Forking a thread the agent has never worked in has no task to inherit from.
         self._run(self._payload(), self._slack_mock())
 
         parked = get_pending_fork(self.integration.id, "D_ALICE", "999.1")
         assert parked is not None
-        assert parked.repository is None
         assert parked.task_id is None
 
     def test_ext_shared_source_is_inherited_by_the_dm_run(self):
@@ -356,7 +358,6 @@ class TestPendingForkHandoff(TestCase):
             PendingFork(
                 source_channel="C_SOURCE",
                 source_thread_ts="111.1",
-                repository="posthog/posthog",
                 is_ext_shared=True,
             ),
         )
@@ -366,7 +367,6 @@ class TestPendingForkHandoff(TestCase):
         kwargs = start.call_args.kwargs
         assert kwargs["fork_source_channel"] == "C_SOURCE"
         assert kwargs["fork_source_thread_ts"] == "111.1"
-        assert kwargs["fork_repository"] == "posthog/posthog"
         # Carried across the handoff, so a fork out of a Slack Connect channel keeps its
         # posture even though the DM it lands in is never externally shared.
         assert kwargs["is_ext_shared_channel"] is True

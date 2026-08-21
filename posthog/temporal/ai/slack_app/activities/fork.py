@@ -174,23 +174,22 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         )
         return
 
-    # Inherit the repo the forked thread was already working on. A fork's prompt is
-    # generic, so the cascade has nothing to match on and would send an "explain this
-    # to me" ask to the discovery agent and then the repo picker, in a DM.
     # A thread the agent has already worked in has a task behind it, holding far more
     # than the messages did: prior runs, session logs, artifacts, the PR. Carry its id
-    # so the fork can read that when the question calls for it, and its repository so
-    # the fork lands on the same one the thread was already about.
+    # so the fork can read that when the question calls for it. Its repository is
+    # deliberately not carried over: the fork runs the normal cascade, which resolves a
+    # repo against what the *requester* can access rather than what the source thread's
+    # mentioner could.
     source_task = (
         SlackThreadTaskMapping.objects.filter(
             integration=integration,
             channel=source_channel,
             thread_ts=source_thread_ts,
         )
-        .values_list("task_id", "task__repository")
+        .values_list("task_id", flat=True)
         .first()
     )
-    source_task_id, fork_repository = (str(source_task[0]), source_task[1]) if source_task else (None, None)
+    source_task_id = str(source_task) if source_task else None
 
     permalink = thread_permalink(slack, source_channel, source_thread_ts)
     title = _fork_title(thread_root)
@@ -234,7 +233,6 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
             source_channel=source_channel,
             source_thread_ts=source_thread_ts,
             source_message_ts=source_message_ts,
-            repository=fork_repository,
             task_id=source_task_id,
             is_ext_shared=is_ext_shared,
         ),
@@ -246,7 +244,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         team_id=integration.team_id,
         source_channel=source_channel,
         dm_channel=dm_channel,
-        inherited_repository=bool(fork_repository),
+        has_source_task=bool(source_task_id),
     )
     _ephemeral(
         slack,
@@ -262,7 +260,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         slack_user_id=slack_user_id,
         source_channel=source_channel,
         is_ext_shared_channel=is_ext_shared,
-        inherited_repository=bool(fork_repository),
+        has_source_task=bool(source_task_id),
     )
 
 
