@@ -22,13 +22,6 @@ function call(
   };
 }
 
-function _localToolMeta(tool: string) {
-  return posthogToolMeta({
-    toolName: `mcp__posthog-code-tools__${tool}`,
-    mcp: { server: "posthog-code-tools", tool },
-  });
-}
-
 function mcpMeta(tool: string) {
   return posthogToolMeta({
     toolName: `mcp__github__${tool}`,
