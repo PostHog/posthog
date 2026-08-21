@@ -7,6 +7,8 @@ from django.utils.safestring import SafeString
 
 from products.warehouse_sources.backend.models import ExternalDataSource
 
+type _FilterChoice = tuple[str, str]
+
 _CREDENTIAL_KIND_CHOICES = (
     ("duckgres_service", "duckgres_service"),
     ("project_reader", "project_reader"),
@@ -20,7 +22,7 @@ class CredentialKindFilter(admin.SimpleListFilter):
     title = "credential kind"
     parameter_name = "credential_kind"
 
-    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[_FilterChoice]:
         return list(_CREDENTIAL_KIND_CHOICES)
 
     def queryset(self, request: HttpRequest, queryset: QuerySet[ExternalDataSource]) -> QuerySet[ExternalDataSource]:
@@ -34,7 +36,7 @@ class SystemManagedFilter(admin.SimpleListFilter):
     title = "system managed"
     parameter_name = "system_managed"
 
-    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[_FilterChoice]:
         return [("yes", "Yes"), ("no", "No")]
 
     def queryset(self, request: HttpRequest, queryset: QuerySet[ExternalDataSource]) -> QuerySet[ExternalDataSource]:
