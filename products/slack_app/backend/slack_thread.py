@@ -8,11 +8,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_forking_enabled,
-    is_slack_app_home_enabled,
-    is_slack_app_model_classifier_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled, is_slack_app_model_classifier_enabled
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -201,14 +197,8 @@ class SlackThreadHandler:
         return self.reader_footer().task_url
 
     def _footer_block(self, include_task_url: bool = True) -> dict[str, Any] | None:
-        """This handler's footer, or `None` when the workspace isn't in the rollout.
-
-        "Configure" points at the Home tab, so it only appears where that tab exists — a
-        workspace outside the Home rollout would land on an empty one. The Home flag is
-        only consulted once there is actually something to gate.
-        """
-        # A handler with nothing to describe can't produce a footer, so it never pays for
-        # the flag lookups.
+        """This handler's footer, or `None` when there is nothing to describe."""
+        # A handler with nothing to describe can't produce a footer.
         if not self.run_footer.has_content():
             return None
         if not self.footer_enabled():
@@ -218,8 +208,6 @@ class SlackThreadHandler:
             footer = replace(footer, task_url=None)
         integration = self._get_integration()
         configure_url = app_home_url(integration)
-        if configure_url and not is_slack_app_home_enabled(integration):
-            configure_url = None
         return reply_footer_block(footer, configure_url)
 
     def _fork_menu(self) -> dict[str, Any] | None:

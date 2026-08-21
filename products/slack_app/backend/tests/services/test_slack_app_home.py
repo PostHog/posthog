@@ -1094,7 +1094,6 @@ class TestTasksControlsResolveViewState:
     def _resolved_state(self, monkeypatch, payload: dict):
         captured: dict[str, Any] = {}
         monkeypatch.setattr(slack_app_home, "_resolve_interaction_integration", lambda team_id, user_id: object())
-        monkeypatch.setattr(slack_app_home, "is_slack_app_home_enabled", lambda integration: True)
         monkeypatch.setattr(
             slack_app_home,
             "_republish_home",

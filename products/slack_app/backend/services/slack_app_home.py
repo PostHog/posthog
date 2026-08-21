@@ -33,7 +33,6 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import (
-    is_slack_app_home_enabled,
     is_slack_app_oauth_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
@@ -1470,24 +1469,10 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
 
     The caller resolves the integration through the shared region gate, so this
     region owns the workspace by the time we get here.
-
-    Gated by the slack-app-home flag — when off, the publish is skipped so
-    installs without the manifest changes (and workspaces that haven't opted
-    in) keep getting Slack's default blank Home tab instead of seeing an
-    interactive UI for a feature that doesn't fire downstream.
     """
 
     slack_user_id = event.get("user")
     if not slack_user_id:
-        return
-
-    if not is_slack_app_home_enabled(integration):
-        logger.info(
-            "slack_app_home_publish_skipped",
-            reason="flag_off",
-            slack_team_id=slack_team_id,
-            slack_user_id=slack_user_id,
-        )
         return
 
     effective = resolve_ai_preferences(integration, slack_user_id)
@@ -1540,12 +1525,6 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
 
     integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
-        return HttpResponse(status=200)
-
-    # The flag is the kill-switch for the whole feature — writes and modal
-    # opens must respect it too, otherwise a flipped-off flag silently
-    # accumulates rows that the resolver will ignore.
-    if not is_slack_app_home_enabled(integration):
         return HttpResponse(status=200)
 
     # The Home tab keeps no server-side view state — every payload carries the whole
@@ -1647,9 +1626,6 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
     integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return _modal_error_response("This Slack workspace is no longer connected to PostHog.")
-
-    if not is_slack_app_home_enabled(integration):
-        return _modal_error_response("AI preferences are not available for this workspace right now.")
 
     runtime_adapter, model, reasoning_effort = parse_modal_submission(view)
 
@@ -2260,8 +2236,7 @@ def _resolve_stats_state(
 ) -> StatsState | None:
     """Workspace activity aggregates, or None when the card shouldn't render at all.
 
-    Admin-only, and rides the same `slack-app-home` gate as the rest of the tab — the
-    callers already returned early when that flag is off.
+    Admin-only.
 
     Scoped to the projects this admin can already reach: being a Slack workspace admin
     says nothing about PostHog org membership, so the card must never widen what its

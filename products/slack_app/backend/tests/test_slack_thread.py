@@ -372,7 +372,6 @@ class TestReplyFooterGate(SimpleTestCase):
         return SlackThreadHandler(context, footer or RunFooter(model="claude-opus-5"))
 
     @parameterized.expand([("withheld", False), ("granted", True)])
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
     @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
@@ -383,7 +382,6 @@ class TestReplyFooterGate(SimpleTestCase):
         mock_get_client,
         mock_get_integration,
         _mock_flag,
-        _mock_home,
     ) -> None:
         # Whether this reader can open a task page changes which segments render, never
         # whether the line appears: the model and the way to change it are theirs either way.
@@ -406,7 +404,6 @@ class TestReplyFooterGate(SimpleTestCase):
         assert ("View on desktop" in line) is code_access
 
     @parameterized.expand([("off", False, False), ("on", True, True)])
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_streamed_reply_carries_the_footer_only_inside_the_rollout(
@@ -416,7 +413,6 @@ class TestReplyFooterGate(SimpleTestCase):
         expected: bool,
         mock_get_client,
         mock_get_integration,
-        _mock_home_enabled,
     ) -> None:
         # Losing this gate would put the footer under every workspace's replies at once.
         mock_client = MagicMock()
@@ -436,12 +432,11 @@ class TestReplyFooterGate(SimpleTestCase):
 
 
 class TestFooterNeverCostsTheAnswer(SimpleTestCase):
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
     @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_a_rejected_footer_reposts_the_answer_as_plain_text(
-        self, mock_get_client, mock_get_integration, _mock_flag, _mock_home
+        self, mock_get_client, mock_get_integration, _mock_flag
     ) -> None:
         # Slack fails the whole request when blocks are invalid — the text fallback does
         # not rescue it — so without this the reader loses the answer, not just its footer.
@@ -476,7 +471,6 @@ class TestRelayedAnswerFooter(SimpleTestCase):
             ("earlier_chunk", RunFooter(model="claude-opus-5"), False, False),
         ]
     )
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
     @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
@@ -489,7 +483,6 @@ class TestRelayedAnswerFooter(SimpleTestCase):
         mock_get_client,
         mock_get_integration,
         _mock_flag,
-        _mock_home,
     ) -> None:
         # A non-streamed answer is split only to fit Slack's length cap, so a footer on
         # any chunk but the last would appear mid-answer.
@@ -574,12 +567,11 @@ class TestForkMenuOnReplies(SimpleTestCase):
         return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
 
     @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=True)
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
     @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_non_streamed_answer_hangs_the_menu_off_the_answer_not_the_footer(
-        self, mock_get_client, mock_get_integration, _flag, _home, _forking
+        self, mock_get_client, mock_get_integration, _flag, _forking
     ) -> None:
         # Hanging it off the answer's section buys both things the footer alone cannot
         # give: no extra line, and a footer that stays muted. A context block rejects
@@ -599,12 +591,11 @@ class TestForkMenuOnReplies(SimpleTestCase):
         assert blocks[1]["type"] == "context"
 
     @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=False)
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
     @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_outside_the_rollout_the_footer_closes_the_message(
-        self, mock_get_client, mock_get_integration, _flag, _home, _forking
+        self, mock_get_client, mock_get_integration, _flag, _forking
     ) -> None:
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
