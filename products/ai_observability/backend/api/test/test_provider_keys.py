@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -1146,6 +1147,88 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         config.refresh_from_db()
         self.assertEqual(config.active_provider_key, active_key)
+        self.assertTrue(LLMProviderKey.objects.filter(id=active_key.id).exists())
+
+    @parameterized.expand([(False,), (True,)])
+    def test_cannot_delete_active_key_pinned_to_denied_evaluation(self, use_replacement: bool):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        active_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Active Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-active"},
+            created_by=self.user,
+        )
+        replacement_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Replacement Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-replacement"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=active_key,
+        )
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Restricted Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=model_config,
+            enabled=True,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=str(evaluation.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        config = EvaluationConfig.objects.create(team=self.team, active_provider_key=active_key)
+        url = f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{active_key.id}/"
+        if use_replacement:
+            url = f"{url}?replacement_key_id={replacement_key.id}"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        config.refresh_from_db()
+        model_config.refresh_from_db()
+        evaluation.refresh_from_db()
+        self.assertEqual(config.active_provider_key, active_key)
+        self.assertEqual(model_config.provider_key, active_key)
+        self.assertEqual(evaluation.status, "active")
         self.assertTrue(LLMProviderKey.objects.filter(id=active_key.id).exists())
 
     def test_cannot_replace_key_pinned_to_denied_evaluation(self):
