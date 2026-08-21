@@ -53920,10 +53920,10 @@ export namespace Schemas {
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
      */
-    export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
+    export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
 
-    export const SignalSourceConfigSourceProductEnum = {
+    export const SignalSourceProductEnum = {
       SessionReplay: 'session_replay',
       LlmAnalytics: 'llm_analytics',
       Github: 'github',
@@ -54024,7 +54024,7 @@ export namespace Schemas {
 
     export interface SignalSourceConfig {
       readonly id: string;
-      source_product: SignalSourceConfigSourceProductEnum;
+      source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
       /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
@@ -62935,9 +62935,16 @@ export namespace Schemas {
       thread_reports?: boolean;
     }
 
+    export interface SignalScoutWebhookDestination {
+      /** Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it. */
+      hog_function_id: string;
+    }
+
     export interface SignalScoutOutputDestinations {
       /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
       slack?: SignalScoutSlackDestination | null;
+      /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+      webhook?: SignalScoutWebhookDestination | null;
     }
 
     /**
@@ -63011,7 +63018,7 @@ export namespace Schemas {
 
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
-      source_product?: SignalSourceConfigSourceProductEnum;
+      source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
       /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
@@ -72488,6 +72495,235 @@ export namespace Schemas {
     }
 
     /**
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+     * @nullable
+     */
+    export type SignalScoutConfigOptionsStructuredOutputSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Schedule, enablement, and delivery options accepted while creating a scout.
+     */
+    export interface SignalScoutConfigOptions {
+      /** Whether this scout runs on its schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+         * @minimum 30
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
+      output_destinations?: SignalScoutOutputDestinations;
+      /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
+       *
+       * * `trusted` - Trusted domains only
+       * * `full` - Full */
+      network_access?: ScoutConfigNetworkAccessEnum;
+      /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+      auto_pause_exempt?: boolean;
+      /**
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+         * @maxLength 100
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
+      /**
+         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+         * @maxLength 200
+         * @nullable
+         */
+      model?: string | null;
+      /**
+         * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
+         * @maxItems 10
+         */
+      tags?: string[];
+      /**
+         * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+         * @nullable
+         */
+      structured_output_schema?: SignalScoutConfigOptionsStructuredOutputSchema;
+      /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      mcp_gateway_server_ids?: string[];
+    }
+
+    /**
+     * A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is
+     * what the caller's access is checked against, and what the scout is recorded as belonging to.
+     *
+     * Inherits the Signals scout definition so a scout created here clears the same name and prompt-size
+     * bars as one created through the generic endpoint.
+     */
+    export interface ScannerScoutCreate {
+      /**
+         * Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Short description of the signal or behavior this scout investigates.
+         * @maxLength 4096
+         */
+      description: string;
+      /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
+      body: string;
+      /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
+      config?: SignalScoutConfigOptions;
+    }
+
+    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
+
+
+    export const ScoutOriginEnum = {
+      Canonical: 'canonical',
+      Custom: 'custom',
+    } as const;
+
+    /**
+     * * `active` - Active
+     * * `pending_pause` - Pending pause
+     * * `paused_by_system` - Paused by system
+     * * `paused_by_user` - Paused by user
+     */
+    export type ScoutConfigStatusEnum = typeof ScoutConfigStatusEnum[keyof typeof ScoutConfigStatusEnum];
+
+
+    export const ScoutConfigStatusEnum = {
+      Active: 'active',
+      PendingPause: 'pending_pause',
+      PausedBySystem: 'paused_by_system',
+      PausedByUser: 'paused_by_user',
+    } as const;
+
+    /**
+     * * `no_output` - No output
+     * * `ignored` - Ignored
+     * * `repeated_failures` - Repeated failures
+     */
+    export type ScoutConfigPauseReasonEnum = typeof ScoutConfigPauseReasonEnum[keyof typeof ScoutConfigPauseReasonEnum];
+
+
+    export const ScoutConfigPauseReasonEnum = {
+      NoOutput: 'no_output',
+      Ignored: 'ignored',
+      RepeatedFailures: 'repeated_failures',
+    } as const;
+
+    /**
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+     * @nullable
+     */
+    export type SignalScoutConfigStructuredOutputSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Read shape for a per-(team, skill) scout config.
+     *
+     * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+     * when it discovers a scout skill; this serializer lets agents tune the row.
+     */
+    export interface SignalScoutConfig {
+      readonly id: string;
+      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+      readonly skill_name: string;
+      /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+      readonly description: string;
+      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+      readonly scout_origin: ScoutOriginEnum;
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
+      readonly enabled: boolean;
+      /** Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.
+       *
+       * * `active` - Active
+       * * `pending_pause` - Pending pause
+       * * `paused_by_system` - Paused by system
+       * * `paused_by_user` - Paused by user */
+      readonly status: ScoutConfigStatusEnum;
+      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+       *
+       * * `no_output` - No output
+       * * `ignored` - Ignored
+       * * `repeated_failures` - Repeated failures */
+      readonly pause_reason: ScoutConfigPauseReasonEnum | null;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+      readonly emit: boolean;
+      /**
+         * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 30
+         * @maximum 43200
+         */
+      readonly run_interval_minutes: number;
+      /**
+         * Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.
+         * @nullable
+         */
+      readonly run_cron_schedule: string | null;
+      /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
+      readonly output_destinations: SignalScoutOutputDestinations;
+      /**
+         * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+         * @nullable
+         */
+      readonly structured_output_schema: SignalScoutConfigStructuredOutputSchema;
+      /** What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `full` lets the scout reach any site, for skills that read external sources such as documentation or papers.
+       *
+       * * `trusted` - Trusted domains only
+       * * `full` - Full */
+      readonly network_access: ScoutConfigNetworkAccessEnum;
+      /**
+         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+         * @nullable
+         */
+      readonly model: string | null;
+      /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      readonly mcp_gateway_server_ids: readonly string[];
+      /**
+         * When the coordinator last dispatched this scout. Null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
+      readonly consecutive_failure_count: number;
+      /**
+         * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone engages with the scout's reports — opening one counts; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
+         * @nullable
+         */
+      readonly status_changed_at: string | null;
+      /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
+      readonly auto_pause_exempt: boolean;
+      /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
+      tags?: string[];
+      /**
+         * The product that stood this scout up for one of its own objects. Null when a person created it.
+         * @nullable
+         */
+      readonly source_product: string | null;
+      /**
+         * Id of the owning object in `source_product`, e.g. a Replay Vision scanner id.
+         * @nullable
+         */
+      readonly source_id: string | null;
+      readonly created_at: string;
+    }
+
+    /**
+     * The scout that now watches this scanner.
+     */
+    export interface ScannerScoutCreateResponse {
+      /** False when a scout of this name already existed and the supplied config was applied to it. */
+      created: boolean;
+      /** The scout's config, including the source recorded for it. */
+      config: SignalScoutConfig;
+    }
+
+    /**
      * Response of GET /vision/scanners/:id/self_driving_stats/.
      */
     export interface ScannerSelfDrivingStats {
@@ -72579,36 +72815,6 @@ export namespace Schemas {
        * * `recent_signals` - recent_signals */
       chat_type: ChatTypeEnum;
     }
-
-    /**
-     * * `no_output` - No output
-     * * `ignored` - Ignored
-     * * `repeated_failures` - Repeated failures
-     */
-    export type ScoutConfigPauseReasonEnum = typeof ScoutConfigPauseReasonEnum[keyof typeof ScoutConfigPauseReasonEnum];
-
-
-    export const ScoutConfigPauseReasonEnum = {
-      NoOutput: 'no_output',
-      Ignored: 'ignored',
-      RepeatedFailures: 'repeated_failures',
-    } as const;
-
-    /**
-     * * `active` - Active
-     * * `pending_pause` - Pending pause
-     * * `paused_by_system` - Paused by system
-     * * `paused_by_user` - Paused by user
-     */
-    export type ScoutConfigStatusEnum = typeof ScoutConfigStatusEnum[keyof typeof ScoutConfigStatusEnum];
-
-
-    export const ScoutConfigStatusEnum = {
-      Active: 'active',
-      PendingPause: 'pending_pause',
-      PausedBySystem: 'paused_by_system',
-      PausedByUser: 'paused_by_user',
-    } as const;
 
     /**
      * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
@@ -72735,13 +72941,24 @@ export namespace Schemas {
       expires_at?: string | null;
     }
 
-    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
-
-
-    export const ScoutOriginEnum = {
-      Canonical: 'canonical',
-      Custom: 'custom',
-    } as const;
+    /**
+     * One report a scanner's scout filed. Enough to read it in Replay Vision; the inbox owns the
+     * full record (status, priority, reviewers, run trail).
+     */
+    export interface ScoutReport {
+      /** The report's id, as used by the Signals inbox. */
+      report_id: string;
+      /** The scout that filed it, as its skill name. */
+      skill_name: string;
+      /** When the run that filed this report started. Later edits do not move it. */
+      filed_at: string;
+      /** The report's title. Empty when the scout left it unset. */
+      title: string;
+      /** The report body, as markdown. Empty when the scout left it unset. */
+      summary: string;
+      /** Charts the scout attached. The summary places one inline with a `[label](chart:<chart_id>)` link; any it does not place render after the body. */
+      charts: ReportChart[];
+    }
 
     /**
      * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
@@ -73421,95 +73638,6 @@ export namespace Schemas {
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
      */
-    export type SignalScoutConfigStructuredOutputSchema = { [key: string]: unknown } | null;
-
-    /**
-     * Read shape for a per-(team, skill) scout config.
-     *
-     * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
-     * when it discovers a scout skill; this serializer lets agents tune the row.
-     */
-    export interface SignalScoutConfig {
-      readonly id: string;
-      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
-      readonly skill_name: string;
-      /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
-      readonly description: string;
-      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
-      readonly scout_origin: ScoutOriginEnum;
-      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
-      readonly enabled: boolean;
-      /** Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.
-       *
-       * * `active` - Active
-       * * `pending_pause` - Pending pause
-       * * `paused_by_system` - Paused by system
-       * * `paused_by_user` - Paused by user */
-      readonly status: ScoutConfigStatusEnum;
-      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
-       *
-       * * `no_output` - No output
-       * * `ignored` - Ignored
-       * * `repeated_failures` - Repeated failures */
-      readonly pause_reason: ScoutConfigPauseReasonEnum | null;
-      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
-      readonly emit: boolean;
-      /**
-         * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
-         * @minimum 30
-         * @maximum 43200
-         */
-      readonly run_interval_minutes: number;
-      /**
-         * Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.
-         * @nullable
-         */
-      readonly run_cron_schedule: string | null;
-      /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
-      readonly output_destinations: SignalScoutOutputDestinations;
-      /**
-         * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
-         * @nullable
-         */
-      readonly structured_output_schema: SignalScoutConfigStructuredOutputSchema;
-      /** What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `full` lets the scout reach any site, for skills that read external sources such as documentation or papers.
-       *
-       * * `trusted` - Trusted domains only
-       * * `full` - Full */
-      readonly network_access: ScoutConfigNetworkAccessEnum;
-      /**
-         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
-         * @nullable
-         */
-      readonly model: string | null;
-      /**
-         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
-         * @maxItems 100
-         */
-      readonly mcp_gateway_server_ids: readonly string[];
-      /**
-         * When the coordinator last dispatched this scout. Null if it has never run.
-         * @nullable
-         */
-      readonly last_run_at: string | null;
-      /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
-      readonly consecutive_failure_count: number;
-      /**
-         * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone engages with the scout's reports — opening one counts; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
-         * @nullable
-         */
-      readonly status_changed_at: string | null;
-      /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
-      readonly auto_pause_exempt: boolean;
-      /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
-      tags?: string[];
-      readonly created_at: string;
-    }
-
-    /**
-     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
-     * @nullable
-     */
     export type SignalScoutConfigCreateStructuredOutputSchema = { [key: string]: unknown } | null;
 
     /**
@@ -73570,64 +73698,6 @@ export namespace Schemas {
          * @maxLength 200
          */
       skill_name: string;
-    }
-
-    /**
-     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
-     * @nullable
-     */
-    export type SignalScoutConfigOptionsStructuredOutputSchema = { [key: string]: unknown } | null;
-
-    /**
-     * Schedule, enablement, and delivery options accepted while creating a scout.
-     */
-    export interface SignalScoutConfigOptions {
-      /** Whether this scout runs on its schedule. Defaults to true. */
-      enabled?: boolean;
-      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
-      emit?: boolean;
-      /**
-         * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
-         * @minimum 30
-         * @maximum 43200
-         */
-      run_interval_minutes?: number;
-      /** Destinations that receive each finding or report this scout emits. Empty by default. */
-      output_destinations?: SignalScoutOutputDestinations;
-      /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
-       *
-       * * `trusted` - Trusted domains only
-       * * `full` - Full */
-      network_access?: ScoutConfigNetworkAccessEnum;
-      /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
-      auto_pause_exempt?: boolean;
-      /**
-         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
-         * @maxLength 100
-         * @nullable
-         */
-      run_cron_schedule?: string | null;
-      /**
-         * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
-         * @maxLength 200
-         * @nullable
-         */
-      model?: string | null;
-      /**
-         * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
-         * @maxItems 10
-         */
-      tags?: string[];
-      /**
-         * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
-         * @nullable
-         */
-      structured_output_schema?: SignalScoutConfigOptionsStructuredOutputSchema;
-      /**
-         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
-         * @maxItems 100
-         */
-      mcp_gateway_server_ids?: string[];
     }
 
     /**
