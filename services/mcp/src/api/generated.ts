@@ -4754,6 +4754,10 @@ export namespace Schemas {
     export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentFunnelMetric {
+      /** How to attribute the breakdown value across funnel steps. */
+      breakdownAttributionType?: BreakdownAttributionType | null;
+      /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. */
+      breakdownAttributionValue?: number | null;
       breakdownFilter?: BreakdownFilter | null;
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
@@ -39879,6 +39883,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `server` - Server
+     * * `toolbar` - Toolbar
+     */
+    export type HeatmapScreenshotResponseSourceEnum = typeof HeatmapScreenshotResponseSourceEnum[keyof typeof HeatmapScreenshotResponseSourceEnum];
+
+
+    export const HeatmapScreenshotResponseSourceEnum = {
+      Server: 'server',
+      Toolbar: 'toolbar',
+    } as const;
+
+    /**
      * * `processing` - Processing
      * * `completed` - Completed
      * * `failed` - Failed
@@ -39924,13 +39940,18 @@ export namespace Schemas {
          */
       data_url?: string | null;
       /** Viewport widths (CSS pixels) the screenshot is rendered at. */
-      target_widths?: unknown;
+      readonly target_widths: readonly number[];
       /** Render mode: 'screenshot', 'iframe', or 'recording'.
        *
        * * `screenshot` - Screenshot
        * * `iframe` - Iframe
        * * `recording` - Recording */
       type?: HeatmapType;
+      /** How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).
+       *
+       * * `server` - Server
+       * * `toolbar` - Toolbar */
+      readonly source: HeatmapScreenshotResponseSourceEnum;
       /** Screenshot generation status: 'processing', 'completed', or 'failed'.
        *
        * * `processing` - Processing
@@ -44619,11 +44640,24 @@ export namespace Schemas {
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
+      /** Provider this model belongs to. Pass this value together with `id` when configuring an llm_judge evaluation. */
+      provider: string;
+    }
+
+    export interface LLMProviderModelsSummary {
+      /** Supported provider value, exactly as the `provider` param accepts it. */
+      provider: string;
+      /** How many of this provider's models appear in `models`. */
+      model_count: number;
+      /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied. */
+      requires_provider_key: boolean;
     }
 
     export interface LLMModelsListResponse {
-      /** Models supported for the requested provider. */
+      /** Models supported for the requested provider, or for every supported provider when `provider` is omitted. */
       models: LLMModelInfo[];
+      /** One entry per provider covered by this response. Read it to tell an unsupported provider apart from a provider whose models need a team key before they can be listed. */
+      providers: LLMProviderModelsSummary[];
     }
 
     /**
@@ -72415,6 +72449,39 @@ export namespace Schemas {
       output_fields: OutputField[];
     }
 
+    export interface SavedHeatmapCaptureRequest {
+      /** Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap. */
+      image?: string;
+      /**
+         * Viewport width (CSS pixels) the single 'image' was captured at.
+         * @minimum 100
+         * @maximum 3000
+         */
+      width?: number;
+      /**
+         * One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single toolbar capture cover the same viewport widths the server renders. At most 16 widths.
+         * @maxItems 16
+         */
+      images?: string[];
+      /**
+         * Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'.
+         * @maxItems 16
+         * @items.minimum 100
+         * @items.maximum 3000
+         */
+      widths?: number[];
+      /**
+         * Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.
+         * @maxLength 2000
+         */
+      url: string;
+      /**
+         * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
+         * @maxLength 400
+         */
+      name?: string;
+    }
+
     export interface SavedHeatmapListResponse {
       results: HeatmapScreenshotResponse[];
       /** Total number of saved heatmaps matching the filters. */
@@ -91381,13 +91448,13 @@ export namespace Schemas {
 
     export type LlmAnalyticsModelsRetrieveParams = {
     /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.
      */
     key_id?: string;
     /**
-     * LLM provider to list models for. Must be one of the supported providers.
+     * LLM provider to list models for. Omit it to list every supported provider and its models in one call.
      */
-    provider: LlmAnalyticsModelsRetrieveProvider;
+    provider?: LlmAnalyticsModelsRetrieveProvider;
     };
 
     export type LlmAnalyticsModelsRetrieveProvider = typeof LlmAnalyticsModelsRetrieveProvider[keyof typeof LlmAnalyticsModelsRetrieveProvider];

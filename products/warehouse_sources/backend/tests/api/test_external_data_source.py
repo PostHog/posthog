@@ -45,6 +45,7 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -154,6 +155,141 @@ class TestExternalDataSource(APIBaseTest):
         return ExternalDataSchema.objects.create(
             name="Customers", team_id=self.team.pk, source_id=source_id, table=None
         )
+
+    def _make_source(self, prefix: str) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix=prefix,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+        )
+
+    def _make_schema_with_table(
+        self,
+        source: ExternalDataSource,
+        name: str,
+        *,
+        status: str | None = None,
+        latest_error: str | None = None,
+        should_sync: bool = True,
+        row_count: int = 0,
+    ) -> ExternalDataSchema:
+        table = DataWarehouseTable.objects.create(
+            name=name, team=self.team, external_data_source=source, row_count=row_count
+        )
+        return ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name=name,
+            table=table,
+            status=status,
+            latest_error=latest_error,
+            should_sync=should_sync,
+        )
+
+    def test_list_serializes_trimmed_schema_shape_while_retrieve_stays_full(self):
+        # The sources list embeds every schema of every source, so it serializes a trimmed per-schema
+        # shape (the fields the list UI reads); the single-source view keeps the full schema.
+        source = self._make_source("trim")
+        self._make_schema_with_table(source, "Customers", row_count=42)
+
+        list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+        self.assertEqual(list_response.status_code, 200)
+        listed_schema = list_response.json()["results"][0]["schemas"][0]
+        self.assertEqual(
+            set(listed_schema.keys()),
+            {"id", "name", "label", "should_sync", "status", "sync_type", "last_synced_at", "latest_error", "table"},
+        )
+        self.assertEqual(listed_schema["table"]["row_count"], 42)
+        self.assertEqual(listed_schema["table"]["name"], "Customers")
+        # sync_type is kept for the PostHog Desktop app, which reads it from the list; without it the
+        # app treats every schema as needing an update and sends a redundant PATCH per toggle.
+        self.assertIn("sync_type", listed_schema)
+
+        detail_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
+        self.assertEqual(detail_response.status_code, 200)
+        detail_schema = detail_response.json()["schemas"][0]
+        # fields the settings page needs that the list intentionally drops
+        self.assertIn("sync_type", detail_schema)
+        self.assertIn("available_columns", detail_schema)
+
+    def test_list_source_status_and_latest_error_reflect_syncing_schemas(self):
+        # `active_schemas` is derived in Python from the single schemas prefetch; the derived subset
+        # must still drive the source-level status/error the same way the second prefetch did.
+        source = self._make_source("status")
+        self._make_schema_with_table(
+            source, "Customers", status=ExternalDataSchema.Status.FAILED, latest_error="boom", should_sync=True
+        )
+        # a disabled schema must not drag the source into a failed state
+        self._make_schema_with_table(source, "Old", status=ExternalDataSchema.Status.COMPLETED, should_sync=False)
+
+        result = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"][0]
+        self.assertEqual(result["status"], ExternalDataSchema.Status.FAILED)
+        self.assertEqual(result["latest_error"], "boom")
+
+    def test_list_query_count_does_not_scale_with_source_count(self):
+        # Guards the prefetch design: adding sources (each with schemas + tables) must not add queries.
+        # A regression to per-source credential/source lookups or the duplicate schema prefetch shows up
+        # here as a rising query count.
+        first = self._make_source("one")
+        self._make_schema_with_table(first, "A")
+
+        # warm any per-request caches so the two measurements compare like with like
+        self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+
+        with CaptureQueriesContext(connection) as one_source_queries:
+            self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+
+        for index in range(4):
+            extra = self._make_source(f"many-{index}")
+            self._make_schema_with_table(extra, f"S{index}")
+
+        with CaptureQueriesContext(connection) as many_source_queries:
+            self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+
+        self.assertEqual(len(many_source_queries.captured_queries), len(one_source_queries.captured_queries))
+
+    def _make_credentialed_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key=f"key-{name}", access_secret=f"secret-{name}"
+        )
+        table = DataWarehouseTable.objects.create(
+            name=name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            credential=credential,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source_id=source.id, name=name, table=table, should_sync=True
+        )
+
+    def test_retrieve_query_count_does_not_scale_with_schema_count(self):
+        # Retrieve serializes columns (include_columns=True), and building them reads
+        # table.credential.access_key per schema. The prefetch must keep credentials joined on this
+        # path; if it stops, each schema adds a credential SELECT. Guards the N+1 on the detail page.
+        source = self._make_source("detail")
+        self._make_credentialed_schema(source, "first")
+
+        url = f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/"
+        self.client.get(url)  # warm
+
+        with CaptureQueriesContext(connection) as one_schema_queries:
+            assert self.client.get(url).status_code == 200
+
+        for index in range(4):
+            self._make_credentialed_schema(source, f"more-{index}")
+
+        with CaptureQueriesContext(connection) as many_schema_queries:
+            assert self.client.get(url).status_code == 200
+
+        self.assertEqual(len(many_schema_queries.captured_queries), len(one_schema_queries.captured_queries))
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -2256,12 +2392,12 @@ class TestExternalDataSource(APIBaseTest):
             table=table,
         )
 
-        # The list view never reads schemas[].table.columns, so it skips the expensive
-        # HogQL field serialization and returns an empty column list.
+        # The list view never reads schemas[].table.columns, so it serializes a trimmed table shape
+        # (id, name, row_count) and omits columns entirely — no expensive HogQL field serialization.
         list_payload = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()
         list_table = list_payload["results"][0]["schemas"][0]["table"]
         self.assertEqual(list_table["name"], "Accounts")
-        self.assertEqual(list_table["columns"], [])
+        self.assertNotIn("columns", list_table)
 
         # The single-source read still populates columns for the schema detail page.
         retrieve_payload = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}").json()

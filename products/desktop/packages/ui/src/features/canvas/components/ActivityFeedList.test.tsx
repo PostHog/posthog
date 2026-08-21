@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@posthog/quill", () => ({
+  cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
   Button: ({ children }: { children: ReactNode }) => (
     <button type="button">{children}</button>
   ),
@@ -90,9 +91,9 @@ vi.mock("@posthog/ui/primitives/hooks/useInView", () => ({
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
-import { ActivityHoverCard } from "./ActivityHoverCard";
+import { ActivityFeedList } from "./ActivityFeedList";
 
-describe("ActivityHoverCard", () => {
+describe("ActivityFeedList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.hasNextPage = true;
@@ -102,14 +103,14 @@ describe("ActivityHoverCard", () => {
   });
 
   it("loads the next page when the bottom sentinel is visible", async () => {
-    render(<ActivityHoverCard onClose={vi.fn()} />);
+    render(<ActivityFeedList />);
 
     await waitFor(() => expect(mocks.fetchNextPage).toHaveBeenCalledOnce());
   });
 
   it("does not load when there is no next page", async () => {
     mocks.hasNextPage = false;
-    render(<ActivityHoverCard onClose={vi.fn()} />);
+    render(<ActivityFeedList />);
 
     await waitFor(() => expect(mocks.fetchNextPage).not.toHaveBeenCalled());
   });
@@ -126,7 +127,7 @@ describe("ActivityHoverCard", () => {
       } as TaskActivityItem,
     ];
 
-    render(<ActivityHoverCard onClose={vi.fn()} />);
+    render(<ActivityFeedList />);
     fireEvent.click(screen.getByText("Activity row"));
 
     expect(mocks.markRead).toHaveBeenCalledWith([
@@ -156,7 +157,7 @@ describe("ActivityHoverCard", () => {
       } as TaskActivityItem,
     ];
 
-    render(<ActivityHoverCard onClose={vi.fn()} />);
+    render(<ActivityFeedList />);
     expect(screen.getAllByText("Activity row")).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("switch"));
