@@ -8,10 +8,14 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
+
+from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.models.event.util import bulk_create_events
 
 from products.ai_observability.backend.summarization.llm.schema import (
     InterestingNote,
@@ -364,38 +368,63 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
+    def _ingest_ai_event(self, event: str, event_uuid: uuid.UUID, timestamp: datetime, metadata: dict, content: dict):
+        """Write an event the way ingestion does: metadata on `events`, message content only on `ai_events`.
+
+        Writes both tables directly rather than going through `flush_persons_and_events`, which
+        would mirror the stripped events row into ai_events and hide the split being tested.
+        """
+        row = {
+            "event": event,
+            "team": self.team,
+            "distinct_id": "user-1",
+            "timestamp": timestamp,
+            "event_uuid": str(event_uuid),
+        }
+        bulk_create_events([{**row, "properties": metadata}])
+        bulk_create_ai_events([{**row, "properties": {**metadata, **content}}])
+
+    @parameterized.expand(
+        [
+            (
+                "generation",
+                "$ai_generation",
+                {"$ai_trace_id": "trace-1", "$ai_model": "gpt-4"},
+                {
+                    "$ai_input": [{"role": "user", "content": "how do i reset my password"}],
+                    "$ai_output_choices": [{"role": "assistant", "content": "open account settings"}],
+                },
+                ["how do i reset my password", "open account settings"],
+            ),
+            (
+                "span",
+                "$ai_span",
+                {"$ai_trace_id": "trace-1", "$ai_span_id": "span-1", "$ai_span_name": "fetch-docs"},
+                {"$ai_input_state": {"query": "docs"}, "$ai_output_state": {"documents": 3}},
+                ["fetch-docs", "query", "documents"],
+            ),
+        ]
+    )
     @patch("products.ai_observability.backend.api.summarization.summarize")
-    def test_summarizes_a_span_by_event_uuid(self, mock_summarize):
+    def test_summarizes_content_that_lives_only_in_ai_events(
+        self, _name, event, metadata, content, expected, mock_summarize
+    ):
         self._approve_ai_processing()
         mock_summarize.return_value = SummarizationResponse(
-            title="Span Summary",
+            title="Event Summary",
             flow_diagram="Start\n    |\nComplete",
-            summary_bullets=[SummaryBullet(text="Span fetched documents", line_refs="L1")],
+            summary_bullets=[SummaryBullet(text="Handled the request", line_refs="L1")],
             interesting_notes=[],
         )
 
-        span_uuid = uuid.uuid4()
+        event_uuid = uuid.uuid4()
         timestamp = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
-        _create_event(
-            event="$ai_span",
-            distinct_id="user-1",
-            team=self.team,
-            timestamp=timestamp,
-            event_uuid=str(span_uuid),
-            properties={
-                "$ai_trace_id": "trace-1",
-                "$ai_span_id": "span-1",
-                "$ai_span_name": "fetch-docs",
-                "$ai_input_state": {"query": "docs"},
-                "$ai_output_state": {"documents": 3},
-            },
-        )
-        flush_persons_and_events()
+        self._ingest_ai_event(event, event_uuid, timestamp, metadata, content)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/summarization/",
             {
-                "generation_id": str(span_uuid),
+                "generation_id": str(event_uuid),
                 "mode": "minimal",
                 "date_from": (timestamp - timedelta(days=1)).isoformat(),
                 "date_to": (timestamp + timedelta(days=1)).isoformat(),
@@ -404,9 +433,52 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        self.assertEqual(response.data["summary"]["title"], "Span Summary")
-        # The formatter upper-cases the span name in its header.
-        self.assertIn("fetch-docs", response.data["text_repr"].lower())
+        text_repr = response.data["text_repr"].lower()
+        for fragment in expected:
+            self.assertIn(fragment, text_repr)
+
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_summarizes_an_event_predating_the_ai_events_split(self, mock_summarize):
+        """Events older than the ai_events retention window still hold their content inline."""
+        self._approve_ai_processing()
+        mock_summarize.return_value = SummarizationResponse(
+            title="Event Summary",
+            flow_diagram="Start\n    |\nComplete",
+            summary_bullets=[SummaryBullet(text="Handled the request", line_refs="L1")],
+            interesting_notes=[],
+        )
+
+        event_uuid = uuid.uuid4()
+        timestamp = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+        bulk_create_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "user-1",
+                    "timestamp": timestamp,
+                    "event_uuid": str(event_uuid),
+                    "properties": {
+                        "$ai_trace_id": "trace-1",
+                        "$ai_input": [{"role": "user", "content": "how do i reset my password"}],
+                    },
+                }
+            ]
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {
+                "generation_id": str(event_uuid),
+                "mode": "minimal",
+                "date_from": (timestamp - timedelta(days=1)).isoformat(),
+                "date_to": (timestamp + timedelta(days=1)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertIn("how do i reset my password", response.data["text_repr"].lower())
 
     def test_unknown_event_uuid_is_reported_as_not_found(self):
         self._approve_ai_processing()

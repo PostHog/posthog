@@ -14,6 +14,7 @@ from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
     AccessControlLevel as AccessControlLevel,
     AccountsTableAccountField as AccountsTableAccountField,
+    AccountsTableAccountFieldOperator as AccountsTableAccountFieldOperator,
     AccountsTableAggregation as AccountsTableAggregation,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
@@ -99,6 +100,7 @@ from posthog.schema_enums import (
     ErrorTrackingIssueAssigneeType as ErrorTrackingIssueAssigneeType,
     ErrorTrackingIssueStatus as ErrorTrackingIssueStatus,
     ErrorTrackingOrderBy as ErrorTrackingOrderBy,
+    ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     EvaluationRuntime as EvaluationRuntime,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
@@ -3090,6 +3092,16 @@ class AccountCustomPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class AccountsTableAccountFieldFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field: AccountsTableAccountField
+    kind: Literal["account_field"] = "account_field"
+    operator: AccountsTableAccountFieldOperator
+    values: list[str] | None = None
+
+
 class AccountsTableAggregateMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4791,6 +4803,7 @@ class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
     issue_description: str | None = None
     issue_id: str
     issue_name: str | None = None
+    issue_severity: ErrorTrackingQueryIssueSeverity | None = None
     issue_status: str
     version: int = Field(
         ...,
@@ -14872,9 +14885,13 @@ class ConversionGoalFilter1(BaseModel):
         description=(
             "Marks this goal as customer-defining: a conversion here means the person"
             " became a customer (e.g. a payment or subscription), not an intermediate"
-            " step like a sign up. It gates customer-based metrics such as CAC and"
-            " LTV:CAC, whose denominator is new customers (counted once per person via"
-            " first_time_for_user) rather than every conversion. Defaults to false."
+            " step like a sign up. It gates customer-based metrics such as CAC, whose"
+            " denominator is this goal's conversions — its count, or its unique"
+            " converters under dau math. That equals new customers only for a"
+            " once-per-person moment: a repeatable event such as a monthly payment"
+            " counts every time and understates cost per customer, and dedup under dau"
+            " is per result row, so someone converting under two sources counts twice"
+            " at channel level. Defaults to false."
         ),
     )
     counts_as_revenue: bool | None = Field(
@@ -14936,9 +14953,13 @@ class ConversionGoalFilter2(BaseModel):
         description=(
             "Marks this goal as customer-defining: a conversion here means the person"
             " became a customer (e.g. a payment or subscription), not an intermediate"
-            " step like a sign up. It gates customer-based metrics such as CAC and"
-            " LTV:CAC, whose denominator is new customers (counted once per person via"
-            " first_time_for_user) rather than every conversion. Defaults to false."
+            " step like a sign up. It gates customer-based metrics such as CAC, whose"
+            " denominator is this goal's conversions — its count, or its unique"
+            " converters under dau math. That equals new customers only for a"
+            " once-per-person moment: a repeatable event such as a monthly payment"
+            " counts every time and understates cost per customer, and dedup under dau"
+            " is per result row, so someone converting under two sources counts twice"
+            " at channel level. Defaults to false."
         ),
     )
     counts_as_revenue: bool | None = Field(
@@ -14998,9 +15019,13 @@ class ConversionGoalFilter3(BaseModel):
         description=(
             "Marks this goal as customer-defining: a conversion here means the person"
             " became a customer (e.g. a payment or subscription), not an intermediate"
-            " step like a sign up. It gates customer-based metrics such as CAC and"
-            " LTV:CAC, whose denominator is new customers (counted once per person via"
-            " first_time_for_user) rather than every conversion. Defaults to false."
+            " step like a sign up. It gates customer-based metrics such as CAC, whose"
+            " denominator is this goal's conversions — its count, or its unique"
+            " converters under dau math. That equals new customers only for a"
+            " once-per-person moment: a repeatable event such as a monthly payment"
+            " counts every time and understates cost per customer, and dedup under dau"
+            " is per result row, so someone converting under two sources counts twice"
+            " at channel level. Defaults to false."
         ),
     )
     counts_as_revenue: bool | None = Field(
@@ -16558,6 +16583,7 @@ class ErrorTrackingIssue(BaseModel):
     last_seen: AwareDatetime
     library: str | None = None
     name: str | None = None
+    severity: ErrorTrackingQueryIssueSeverity | None = None
     source: str | None = None
     status: ErrorTrackingIssueStatus
 
@@ -16645,6 +16671,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     first_seen: AwareDatetime
     id: str
     name: str | None = None
+    severity: ErrorTrackingQueryIssueSeverity | None = None
     status: ErrorTrackingIssueStatus
 
 
@@ -24606,6 +24633,7 @@ class AccountsTableQuery(BaseModel):
             | AccountsTableAssignedToFilter
             | AccountsTableUnassignedFilter
             | AccountsTableAccountIdFilter
+            | AccountsTableAccountFieldFilter
             | AccountsTableCustomPropertyFilter
         ]
         | None
@@ -25515,6 +25543,7 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     name: str | None = None
     odds_ratio: float
     population: Population
+    severity: ErrorTrackingQueryIssueSeverity | None = None
     status: ErrorTrackingIssueStatus
 
 

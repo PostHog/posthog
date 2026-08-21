@@ -122,7 +122,7 @@ export function initializePostHog(sessionId?: string) {
   isInitialized = true;
 
   // Dev-only: expose the posthog instance so flags can be toggled from the
-  // renderer console, e.g. `posthog.featureFlags.override({ "agent-platform": true })`
+  // renderer console, e.g. `posthog.featureFlags.override({ "mcp-gateway": true })`
   // (and `posthog.featureFlags.override(false)` to clear). The module build
   // doesn't attach to window otherwise.
   if (import.meta.env.DEV) {

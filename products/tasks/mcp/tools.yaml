@@ -374,6 +374,9 @@ tools:
     tasks-destroy:
         operation: tasks_destroy
         enabled: false
+    tasks-handoff-create:
+        operation: tasks_handoff_create
+        enabled: false
     tasks-list:
         operation: tasks_list
         enabled: true
@@ -482,6 +485,9 @@ tools:
         enabled: false
     tasks-runs-artifacts-presign-create:
         operation: tasks_runs_artifacts_presign_create
+        enabled: false
+    tasks-runs-artifacts-references-create:
+        operation: tasks_runs_artifacts_references_create
         enabled: false
     tasks-runs-cancel-create:
         operation: tasks_runs_cancel_create
