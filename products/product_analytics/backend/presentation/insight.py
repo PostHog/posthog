@@ -166,17 +166,17 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
+    record_insight_view,
     record_insight_views,
-    refresh_insight_views,
     with_last_viewed_at,
 )
 from products.product_analytics.backend.facade.models import Insight
-from products.product_analytics.backend.facade.test_account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -829,7 +829,7 @@ class InsightSerializer(InsightBasicSerializer):
             **validated_data,
         )
 
-        record_insight_views(team_id=team_id, user_id=request.user.pk, last_viewed_at_by_insight_id={insight.pk: now()})
+        record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk)
 
         if placement is not None:
             for dashboard in placement.create_tiles(insight):
@@ -2528,10 +2528,11 @@ When set, the specified dashboard's filters and date range override will be appl
             ).values_list("id", flat=True)
         )
 
-        if visible_insight_ids:
-            refresh_insight_views(
-                team_id=self.team.pk, user_id=cast(User, request.user).pk, insight_ids=visible_insight_ids
-            )
+        record_insight_views(
+            team_id=self.team.pk,
+            user_id=cast(User, request.user).pk,
+            last_viewed_at_by_insight_id=dict.fromkeys(visible_insight_ids, now()),
+        )
 
         return Response(status=status.HTTP_201_CREATED)
 

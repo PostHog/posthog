@@ -912,23 +912,20 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Insight views
-        try:
-            record_insight_views(
-                team_id=team.pk,
-                user_id=user.pk,
-                last_viewed_at_by_insight_id={
-                    insight.pk: (
-                        self.now
-                        - dt.timedelta(
-                            days=self.random.randint(0, 3),
-                            minutes=self.random.randint(5, 60),
-                        )
+        record_insight_views(
+            team_id=team.pk,
+            user_id=user.pk,
+            last_viewed_at_by_insight_id={
+                insight.pk: (
+                    self.now
+                    - dt.timedelta(
+                        days=self.random.randint(0, 3),
+                        minutes=self.random.randint(5, 60),
                     )
-                    for insight in Insight.objects.filter(team__project_id=team.project_id)
-                },
-            )
-        except IntegrityError:
-            pass  # This can happen if demo data generation is re-run for the same project
+                )
+                for insight in Insight.objects.filter(team__project_id=team.project_id)
+            },
+        )
 
         # Feature flags
         def create_experiment_flag(
