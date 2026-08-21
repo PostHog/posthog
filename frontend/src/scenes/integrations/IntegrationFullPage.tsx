@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconArrowLeft, IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTextArea, Link, Spinner } from '@posthog/lemon-ui'
@@ -6,6 +7,7 @@ import { LemonBanner, LemonButton, LemonTextArea, Link, Spinner } from '@posthog
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { describeOAuthCallbackError, OAUTH_CALLBACK_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useSelfDrivingRunState } from 'scenes/onboarding/shared/wizard-sync/hooks'
 import { urls } from 'scenes/urls'
@@ -22,9 +24,13 @@ export function IntegrationFullPage({
     SettingsSection: SettingsSectionComponent
 }): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { searchParams } = useValues(router)
 
     const integrations = getIntegrationsByKind([definition.kind])
     const connected = integrations.length > 0
+    // The callback attaches this when the provider denied or dropped the connection, so the user
+    // who just came back sees a banner that stays instead of a toast they already missed.
+    const callbackError = searchParams[OAUTH_CALLBACK_ERROR_PARAM]
 
     return (
         <div className="flex flex-col items-center justify-center min-h-full w-full p-4">
@@ -41,6 +47,12 @@ export function IntegrationFullPage({
                             className="max-w-full max-h-full object-contain"
                         />
                     </div>
+
+                    {callbackError && !connected ? (
+                        <LemonBanner type="warning" className="w-full">
+                            {describeOAuthCallbackError(String(callbackError))}
+                        </LemonBanner>
+                    ) : null}
 
                     {integrationsLoading ? (
                         <Spinner className="text-2xl" />
