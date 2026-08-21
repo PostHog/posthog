@@ -593,9 +593,9 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             """
             SELECT
                 uuid,
-                hex(tryBase64Decode(trace_id)),
-                hex(tryBase64Decode(span_id)),
-                hex(tryBase64Decode(parent_span_id)),
+                lower(hex(tryBase64Decode(trace_id))),
+                lower(hex(tryBase64Decode(span_id))),
+                lower(hex(tryBase64Decode(parent_span_id))),
                 name,
                 kind,
                 service_name,
@@ -706,9 +706,9 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             """
             SELECT
                 uuid,
-                hex(tryBase64Decode(trace_id)),
-                hex(tryBase64Decode(span_id)),
-                hex(tryBase64Decode(parent_span_id)),
+                lower(hex(tryBase64Decode(trace_id))),
+                lower(hex(tryBase64Decode(span_id))),
+                lower(hex(tryBase64Decode(parent_span_id))),
                 name,
                 kind,
                 service_name,
