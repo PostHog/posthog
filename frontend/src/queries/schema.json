@@ -273,6 +273,43 @@
             "required": ["kind", "field"],
             "type": "object"
         },
+        "AccountsTableAccountFieldFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "field": {
+                    "$ref": "#/definitions/AccountsTableAccountField"
+                },
+                "kind": {
+                    "const": "account_field",
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/AccountsTableAccountFieldOperator"
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "field", "operator"],
+            "type": "object"
+        },
+        "AccountsTableAccountFieldOperator": {
+            "enum": [
+                "exact",
+                "is_not",
+                "icontains",
+                "not_icontains",
+                "is_set",
+                "is_not_set",
+                "is_date_exact",
+                "is_date_before",
+                "is_date_after"
+            ],
+            "type": "string"
+        },
         "AccountsTableAccountIdFilter": {
             "additionalProperties": false,
             "properties": {
@@ -504,6 +541,9 @@
                 },
                 {
                     "$ref": "#/definitions/AccountsTableAccountIdFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableAccountFieldFilter"
                 },
                 {
                     "$ref": "#/definitions/AccountsTableCustomPropertyFilter"
@@ -15700,7 +15740,7 @@
                             "type": "string"
                         },
                         "counts_as_customer": {
-                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
+                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false.",
                             "type": "boolean"
                         },
                         "counts_as_revenue": {
@@ -15794,7 +15834,7 @@
                             "type": "string"
                         },
                         "counts_as_customer": {
-                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
+                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false.",
                             "type": "boolean"
                         },
                         "counts_as_revenue": {
@@ -15877,7 +15917,7 @@
                             "type": "string"
                         },
                         "counts_as_customer": {
-                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
+                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false.",
                             "type": "boolean"
                         },
                         "counts_as_revenue": {
@@ -33652,7 +33692,7 @@
             "type": "object"
         },
         "MarketingAnalyticsConstants": {
-            "enum": ["Goal", "Cost per", "ROAS", "const:"],
+            "enum": ["Goal", "Cost per", "ROAS", "customer", "const:"],
             "type": "string"
         },
         "MarketingAnalyticsDrillDownConfig": {
@@ -38193,6 +38233,7 @@
                 "data_warehouse_person_property",
                 "error_tracking_issue",
                 "revenue_analytics",
+                "account",
                 "account_custom_property",
                 "flag",
                 "log",
@@ -51007,6 +51048,7 @@
                 "replay",
                 "replay_saved_filters",
                 "revenue_analytics_properties",
+                "account_fields",
                 "account_custom_properties",
                 "resources",
                 "error_tracking_properties",

@@ -383,6 +383,86 @@ def _rollback_if_aborted(connection: psycopg.Connection) -> None:
         connection.rollback()
 
 
+def _recover_after_failed_probe(connection: psycopg.Connection) -> None:
+    """Roll back a best-effort probe's aborted transaction, swallowing a lost connection."""
+    try:
+        _rollback_if_aborted(connection)
+    except Exception:
+        pass
+
+
+def _reads_primary_keys(cursor: psycopg.Cursor, schema: str) -> bool | None:
+    """Can this connection read primary-key constraints in `schema` at all?
+
+    `information_schema.table_constraints` exposes only the objects the role holds privileges on,
+    so an empty result for one table means either "no key is declared" or "no privilege to see the
+    one that is", and the two need opposite advice. Finding a key on any table in the schema
+    settles it: the role can read the view, so an empty per-table result is a real absence.
+
+    `None` when the probe itself fails, which settles nothing either way.
+    """
+    query = sql.SQL("""
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE table_schema = {schema} AND constraint_type = 'PRIMARY KEY'
+        LIMIT 1""").format(schema=sql.Literal(schema))
+    try:
+        return cursor.execute(query).fetchone() is not None
+    except Exception:
+        _recover_after_failed_probe(cursor.connection)
+        return None
+
+
+def _no_primary_key_warning(
+    cursor: psycopg.Cursor,
+    schema: str,
+    table_name: str,
+    table_type: Literal["table", "view", "materialized_view"] | None,
+) -> str:
+    """The warning for a table whose primary-key lookup came back empty.
+
+    Each branch states only what the empty result actually establishes, so the operator is never
+    sent after a key that cannot exist or that we merely failed to read.
+    """
+    if table_type in ("view", "materialized_view"):
+        relation = "materialized view" if table_type == "materialized_view" else "view"
+        return (
+            f"No primary keys found for {table_name}. A {relation} cannot have a primary key. "
+            "Select a primary key manually to enable incremental sync, or use full table replication instead."
+        )
+
+    if _reads_primary_keys(cursor, schema):
+        return (
+            f"No primary key is set on {table_name}. Select one manually to enable incremental sync, "
+            "or use full table replication instead."
+        )
+
+    return (
+        f"Could not determine a primary key for {table_name}. Either none is set, or PostHog's role "
+        f"cannot read constraints in schema {schema}. Check the role has SELECT on the table. You can "
+        "also select a primary key manually, or use full table replication instead."
+    )
+
+
+def _is_materialized_view(cursor: psycopg.Cursor, schema: str, table_name: str) -> bool:
+    """Is this relation a materialized view?
+
+    Redshift exposes no `pg_matviews`, so the `pg_views` lookup that classifies a regular view
+    never matches a materialized one — `svv_mv_info` is the only catalog that lists them.
+    Best-effort: a role that can't read the system view degrades to the `pg_views` answer rather
+    than failing discovery.
+    """
+    query = sql.SQL("SELECT {table} IN (SELECT name FROM svv_mv_info WHERE schema_name = {schema}) as res").format(
+        schema=sql.Literal(schema), table=sql.Literal(table_name)
+    )
+    try:
+        row = cursor.execute(query).fetchone()
+    except Exception:
+        _recover_after_failed_probe(cursor.connection)
+        return False
+    return row is not None and row[0] is True
+
+
 def _libpq_rows_per_chunk() -> int:
     """Rows per libpq chunk while streaming, or 1 where chunked delivery isn't available.
 
@@ -612,6 +692,15 @@ class DisplayNameIndex:
     bare_tables: list[str]
 
 
+@frozen
+class QualifiedRelation:
+    """A relation addressed by namespace and name. Both are strings, so keeping them named
+    stops a `COUNT(*)` being aimed at `name.schema`."""
+
+    schema: str
+    name: str
+
+
 class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):
     # `psycopg.Cursor` does not satisfy `_CursorLike` (its `execute`
     # signature uses `params` instead of `args`, and accepts `Query`
@@ -731,11 +820,17 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         config: RedshiftSourceConfig,
         tables: list[str],
     ) -> dict[str, list[str] | None]:
-        """Detect primary keys for all tables in a single query.
+        """Detect primary keys for all tables in a single query, each in declared column order.
 
         Permission-sensitive — some Redshift deployments restrict access
         to `information_schema.table_constraints`. Swallow and log any
         failure so schema discovery keeps working without PKs.
+
+        A swallowed failure returns every table as `None`, which the base
+        contract cannot distinguish from "declares no key". The sync path
+        re-runs the lookup per table and says which it is
+        (`_no_primary_key_warning`); surfacing the difference at discovery
+        needs a channel on `SourceSchema` that does not exist yet.
         """
         result: dict[str, list[str] | None] = dict.fromkeys(tables)
         if not tables:
@@ -757,11 +852,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         WHERE tc.table_schema = ANY({schemas})
                         AND tc.table_name = ANY({names})
                         AND tc.constraint_type = 'PRIMARY KEY'
+                        ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position
                     """).format(schemas=sql.Literal(index.schemas), names=sql.Literal(index.bare_tables))
                 )
                 rows = cursor.fetchall()
         except Exception as e:
-            structlog.get_logger().warning("Failed to detect primary keys for Redshift schemas", exc_info=e)
+            structlog.get_logger().warning(
+                "Primary keys for Redshift schemas are undetermined, not absent: the detection query failed",
+                exc_info=e,
+            )
             return result
 
         pks: dict[str, list[str]] = collections.defaultdict(list)
@@ -808,8 +907,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         `svv_table_info.tbl_rows` is a Redshift system table that gives
         cheap row count estimates for materialized tables; views aren't
         in it, so they fall through to a (slower) `UNION ALL` of
-        `COUNT(*)` queries. Errors are swallowed — schema discovery
-        keeps working without row counts.
+        `COUNT(*)` queries. A materialized view is in neither under its
+        own name — its storage is registered under an internal one — so
+        `svv_mv_info` routes it onto the `COUNT(*)` path too. Errors are
+        swallowed — schema discovery keeps working without row counts.
         """
         if not tables:
             return {}
@@ -842,23 +943,24 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     "SELECT schemaname, viewname FROM pg_views WHERE schemaname = ANY(%(schemas)s) AND viewname = ANY(%(names)s)",
                     params,
                 )
-                view_pairs = [
-                    (schema_name, view_name)
+                to_count = [
+                    QualifiedRelation(schema=schema_name, name=view_name)
                     for schema_name, view_name in cursor.fetchall()
                     if (schema_name, view_name) in index.display_by_pair
                 ]
+                to_count.extend(self._materialized_views(conn, cursor, index, params))
 
-                if view_pairs:
+                if to_count:
                     view_counts = [
                         sql.SQL(
                             "SELECT {schema_lit} AS schema_name, {view_lit} AS table_name, COUNT(*) AS row_count FROM {schema}.{view}"
                         ).format(
-                            schema_lit=sql.Literal(schema_name),
-                            view_lit=sql.Literal(view_name),
-                            schema=sql.Identifier(schema_name),
-                            view=sql.Identifier(view_name),
+                            schema_lit=sql.Literal(relation.schema),
+                            view_lit=sql.Literal(relation.name),
+                            schema=sql.Identifier(relation.schema),
+                            view=sql.Identifier(relation.name),
                         )
-                        for schema_name, view_name in view_pairs
+                        for relation in to_count
                     ]
                     cursor.execute(sql.SQL(" UNION ALL ").join(view_counts))
                     for schema_name, table_name, row_count in cursor.fetchall():
@@ -869,6 +971,36 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return {}
 
         return result
+
+    @staticmethod
+    def _materialized_views(
+        conn: psycopg.Connection,
+        cursor: Any,
+        index: DisplayNameIndex,
+        params: dict,
+    ) -> list[QualifiedRelation]:
+        """Each requested relation that is a materialized view.
+
+        Isolated from the caller's `except` so a role without access to `svv_mv_info` loses only
+        the materialized-view counts, not every count in the batch. The rollback matters for the
+        same reason: a failed probe aborts the transaction, and the `COUNT(*)` batch that follows
+        runs on the same connection.
+        """
+        try:
+            cursor.execute(
+                "SELECT schema_name, name FROM svv_mv_info WHERE schema_name = ANY(%(schemas)s) AND name = ANY(%(names)s)",
+                params,
+            )
+            rows = cursor.fetchall()
+        except Exception:
+            _recover_after_failed_probe(conn)
+            return []
+
+        return [
+            QualifiedRelation(schema=schema_name, name=view_name)
+            for schema_name, view_name in rows
+            if (schema_name, view_name) in index.display_by_pair
+        ]
 
     def get_leading_index_columns(
         self,
@@ -980,8 +1112,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         schema: str,
         table_name: str,
         logger: FilteringBoundLogger | None = None,
+        table_type: Literal["table", "view", "materialized_view"] | None = None,
     ) -> list[str] | None:
-        """Return the primary-key column names for a single table, or None."""
+        """Return the primary-key column names for a single table in declared order, or None.
+
+        `table_type` only shapes the warning on an empty result, which is ambiguous on its own:
+        see `_no_primary_key_warning` for what each case establishes.
+        """
         query = sql.SQL("""
             SELECT
                 kcu.column_name
@@ -994,9 +1131,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             WHERE
                 tc.table_schema = {schema}
                 AND tc.table_name = {table}
-                AND tc.constraint_type = 'PRIMARY KEY'""").format(
-            schema=sql.Literal(schema), table=sql.Literal(table_name)
-        )
+                AND tc.constraint_type = 'PRIMARY KEY'
+            ORDER BY
+                kcu.ordinal_position""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
         if logger is not None:
             _explain_query(cursor, query, logger)
@@ -1007,9 +1144,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return [row[0] for row in rows]
 
         if logger is not None:
-            logger.warning(
-                f"No primary keys found for {table_name}. If the table is not a view, (a) does the table have a primary key set? (b) is the primary key returned from querying information_schema?"
-            )
+            logger.warning(_no_primary_key_warning(cursor, schema, table_name, table_type))
         return None
 
     def has_duplicate_primary_keys(
@@ -1073,12 +1208,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         logger: FilteringBoundLogger | None = None,
     ) -> Table[RedshiftColumn]:
         """Return rich column metadata for building a PyArrow schema."""
-        # Check if it's a view
-        is_view_query = sql.SQL(
-            "SELECT {table} IN (SELECT viewname FROM pg_views WHERE schemaname = {schema}) as res"
-        ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
-        is_view_res = cursor.execute(is_view_query).fetchone()
-        is_view = is_view_res is not None and is_view_res[0] is True
+        is_mat_view = _is_materialized_view(cursor, schema, table_name)
+        is_view = False
+        if not is_mat_view:
+            is_view_query = sql.SQL(
+                "SELECT {table} IN (SELECT viewname FROM pg_views WHERE schemaname = {schema}) as res"
+            ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+            is_view_res = cursor.execute(is_view_query).fetchone()
+            is_view = is_view_res is not None and is_view_res[0] is True
 
         query = sql.SQL("""
             SELECT
@@ -1123,7 +1260,11 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 )
             )
 
-        table_type: Literal["view", "table"] = "view" if is_view else "table"
+        table_type: Literal["table", "view", "materialized_view"] = "table"
+        if is_mat_view:
+            table_type = "materialized_view"
+        elif is_view:
+            table_type = "view"
         return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
 
     def get_rows_to_sync(
@@ -1305,7 +1446,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 )
                 try:
                     logger.debug("Getting primary keys...")
-                    primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name, logger)
+                    primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name, logger, full_table.type)
                     if primary_keys:
                         logger.debug(f"Found primary keys: {primary_keys}")
 

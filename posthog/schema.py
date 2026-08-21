@@ -14,6 +14,7 @@ from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
     AccessControlLevel as AccessControlLevel,
     AccountsTableAccountField as AccountsTableAccountField,
+    AccountsTableAccountFieldOperator as AccountsTableAccountFieldOperator,
     AccountsTableAggregation as AccountsTableAggregation,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
@@ -3089,6 +3090,16 @@ class AccountCustomPropertyFilter(BaseModel):
         description=("Customer analytics account custom property — the key is the property definition id"),
     )
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class AccountsTableAccountFieldFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field: AccountsTableAccountField
+    kind: Literal["account_field"] = "account_field"
+    operator: AccountsTableAccountFieldOperator
+    values: list[str] | None = None
 
 
 class AccountsTableAggregateMetric(BaseModel):
@@ -14874,9 +14885,13 @@ class ConversionGoalFilter1(BaseModel):
         description=(
             "Marks this goal as customer-defining: a conversion here means the person"
             " became a customer (e.g. a payment or subscription), not an intermediate"
-            " step like a sign up. It gates customer-based metrics such as CAC and"
-            " LTV:CAC, whose denominator is new customers (counted once per person via"
-            " first_time_for_user) rather than every conversion. Defaults to false."
+            " step like a sign up. It gates customer-based metrics such as CAC, whose"
+            " denominator is this goal's conversions — its count, or its unique"
+            " converters under dau math. That equals new customers only for a"
+            " once-per-person moment: a repeatable event such as a monthly payment"
+            " counts every time and understates cost per customer, and dedup under dau"
+            " is per result row, so someone converting under two sources counts twice"
+            " at channel level. Defaults to false."
         ),
     )
     counts_as_revenue: bool | None = Field(
@@ -14938,9 +14953,13 @@ class ConversionGoalFilter2(BaseModel):
         description=(
             "Marks this goal as customer-defining: a conversion here means the person"
             " became a customer (e.g. a payment or subscription), not an intermediate"
-            " step like a sign up. It gates customer-based metrics such as CAC and"
-            " LTV:CAC, whose denominator is new customers (counted once per person via"
-            " first_time_for_user) rather than every conversion. Defaults to false."
+            " step like a sign up. It gates customer-based metrics such as CAC, whose"
+            " denominator is this goal's conversions — its count, or its unique"
+            " converters under dau math. That equals new customers only for a"
+            " once-per-person moment: a repeatable event such as a monthly payment"
+            " counts every time and understates cost per customer, and dedup under dau"
+            " is per result row, so someone converting under two sources counts twice"
+            " at channel level. Defaults to false."
         ),
     )
     counts_as_revenue: bool | None = Field(
@@ -15000,9 +15019,13 @@ class ConversionGoalFilter3(BaseModel):
         description=(
             "Marks this goal as customer-defining: a conversion here means the person"
             " became a customer (e.g. a payment or subscription), not an intermediate"
-            " step like a sign up. It gates customer-based metrics such as CAC and"
-            " LTV:CAC, whose denominator is new customers (counted once per person via"
-            " first_time_for_user) rather than every conversion. Defaults to false."
+            " step like a sign up. It gates customer-based metrics such as CAC, whose"
+            " denominator is this goal's conversions — its count, or its unique"
+            " converters under dau math. That equals new customers only for a"
+            " once-per-person moment: a repeatable event such as a monthly payment"
+            " counts every time and understates cost per customer, and dedup under dau"
+            " is per result row, so someone converting under two sources counts twice"
+            " at channel level. Defaults to false."
         ),
     )
     counts_as_revenue: bool | None = Field(
@@ -24610,6 +24633,7 @@ class AccountsTableQuery(BaseModel):
             | AccountsTableAssignedToFilter
             | AccountsTableUnassignedFilter
             | AccountsTableAccountIdFilter
+            | AccountsTableAccountFieldFilter
             | AccountsTableCustomPropertyFilter
         ]
         | None

@@ -44,6 +44,18 @@ class AccountsTableAccountField(StrEnum):
     ZENDESK_ID = "zendesk_id"
 
 
+class AccountsTableAccountFieldOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    IS_DATE_EXACT = "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before"
+    IS_DATE_AFTER = "is_date_after"
+
+
 class AccountsTableAggregation(StrEnum):
     SUM = "sum"
     AVG = "avg"
@@ -3098,6 +3110,7 @@ class MarketingAnalyticsConstants(StrEnum):
     GOAL = "Goal"
     COST_PER = "Cost per"
     ROAS = "ROAS"
+    CUSTOMER = "customer"
     CONST_ = "const:"
 
 
@@ -3616,6 +3629,7 @@ class PropertyFilterType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
     REVENUE_ANALYTICS = "revenue_analytics"
+    ACCOUNT = "account"
     ACCOUNT_CUSTOM_PROPERTY = "account_custom_property"
     FLAG = "flag"
     LOG = "log"
@@ -4042,6 +4056,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY = "replay"
     REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
+    ACCOUNT_FIELDS = "account_fields"
     ACCOUNT_CUSTOM_PROPERTIES = "account_custom_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
