@@ -181,7 +181,11 @@ export class EmailService {
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
-            {},
+            // Preserve the incoming priority: createInvocationResult otherwise resets it to 0, which
+            // on a throttle reschedule (below) would rewrite the send's priority class — an entering
+            // bulk send (priority 1) would return as fast-lane (0). The queue caller sets this to the
+            // send's class before calling in, so carrying it through keeps a throttled retry in class.
+            { queuePriority: invocation.queuePriority },
             {
                 finished: true,
             }
@@ -230,7 +234,7 @@ export class EmailService {
                 )
             }
 
-            const from = this.resolveFromSender(integration, params.from)
+            const from = this.resolveFromSender(integration, params.from, addLog)
 
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
@@ -480,7 +484,8 @@ export class EmailService {
 
     private resolveFromSender(
         integration: IntegrationType,
-        from: CyclotronInvocationQueueParametersEmailType['from']
+        from: CyclotronInvocationQueueParametersEmailType['from'],
+        addLog: ReturnType<typeof createAddLogFunction>
     ): { email: string; name: string } {
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
@@ -495,25 +500,34 @@ export class EmailService {
         const overrideName = from.name ? sanitizeFromName(from.name) : ''
 
         return {
-            email: this.resolveFromEmailAddress(integration, from.email?.trim()),
+            email: this.resolveFromEmailAddress(integration, from.email?.trim(), addLog),
             name: overrideName || integration.config.name,
         }
     }
 
-    private resolveFromEmailAddress(integration: IntegrationType, overrideEmail: string | undefined): string {
+    // An unusable override degrades to the integration's own sender rather than failing the send.
+    // Steps authored before mid-2026 carry a placeholder address written by an old sender picker,
+    // so throwing here fails sends whose author never typed an address at all.
+    private resolveFromEmailAddress(
+        integration: IntegrationType,
+        overrideEmail: string | undefined,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): string {
         if (!overrideEmail) {
             return integration.config.email
         }
 
         if (!FROM_OVERRIDE_EMAIL_REGEX.test(overrideEmail)) {
-            throw new Error(
-                `The custom sender address "${overrideEmail}" is not a valid email address. Fix the From address in the workflow's email step so it resolves to a single valid address.`
+            addLog(
+                'warn',
+                `Ignoring the custom sender address "${overrideEmail}": it is not a valid email address. Sending from ${integration.config.email} instead. Fix the From address in the workflow's email step so it resolves to a single valid address.`
             )
+            return integration.config.email
         }
 
         // Verification is domain-level (the DNS records cover the whole domain), so any address
         // on the integration's domain is exactly as verified as the integration's own address.
-        // Anything off-domain must fail: allowing it would let a workflow send as a domain the
+        // Anything off-domain is discarded: honoring it would let a workflow send as a domain the
         // team never proved ownership of.
         const integrationDomain: string = (
             integration.config.domain ??
@@ -522,9 +536,11 @@ export class EmailService {
         ).toLowerCase()
         const overrideDomain = overrideEmail.split('@')[1].toLowerCase()
         if (!integrationDomain || overrideDomain !== integrationDomain) {
-            throw new Error(
-                `The custom sender address "${overrideEmail}" is not on the verified domain "${integrationDomain}" of the selected sender. Use an address on that domain, or select a different sender in the workflow's email step.`
+            addLog(
+                'warn',
+                `Ignoring the custom sender address "${overrideEmail}": it is not on the verified domain "${integrationDomain}" of the selected sender. Sending from ${integration.config.email} instead. Use an address on that domain, or select a different sender in the workflow's email step.`
             )
+            return integration.config.email
         }
 
         return overrideEmail

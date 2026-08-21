@@ -278,7 +278,7 @@ export function formatGatewayModelName(model: GatewayModel): string {
   if (displayName) {
     return displayName;
   }
-  if (isCloudflareModel(model)) {
+  if (isCloudflareModel(model) || isBasetenModel(model)) {
     return formatProviderModelName(model.id.split("/").pop() ?? model.id);
   }
   if (isModalModel(model)) {

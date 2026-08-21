@@ -81,6 +81,30 @@ class TestScoutReportPersistence(BaseTest):
         )
         return run
 
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY, True),
+            ("pending_input", SignalReport.Status.PENDING_INPUT, True),
+            ("suppressed", SignalReport.Status.SUPPRESSED, False),
+        ]
+    )
+    def test_create_stamps_first_visible_only_for_visible_born_status(self, _name, born_status, expect_stamp):
+        # Scout reports are born in their final status without passing through transition_to (which
+        # stamps pipeline reports), so creation must stamp visible births or the daily report limit
+        # would never count them.
+        run = self._make_run()
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+            status=born_status,
+            run=run,
+        )
+        report = SignalReport.objects.get(id=result.report_id)
+        assert (report.first_visible_at is not None) is expect_stamp
+
     def test_create_writes_report_with_bound_signals_metadata(self) -> None:
         # The load-bearing contract (decision #5): each backing signal is written to the embeddings
         # pipeline with report_id pre-set, as a signals/signal row, so every read-side consumer

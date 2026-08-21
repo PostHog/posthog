@@ -41,8 +41,8 @@ export type GetOrCreatePersonEntry = Message<'personhog.identity.v1.GetOrCreateP
 
     /**
      * Additional distinct ids mapped to the person on the creation branch.
-     * Their rows get version 1 when the distinct id has personless history
-     * (a posthog_personlessdistinctid row already existed), else version 0.
+     * Their rows always get version 1: there is no proof the distinct id
+     * never sent events, and version 1 is safe either way.
      * An extra already mapped to a different person keeps its existing
      * mapping: get-or-create never re-points or merges, so the conflict is
      * not an error and is not reported — re-pointing distinct ids is the

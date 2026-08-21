@@ -4,16 +4,27 @@ import {
 } from "@posthog/shared";
 import { z } from "zod";
 import { canvasAgentRequestInputSchema } from "./freeformSchemas";
+import { componentMetaSchema } from "./gridLayoutSchemas";
 
 // A canvas record from the PostHog canvases API, normalized to camelCase and
 // epoch-ms timestamps. Source code and version history are NOT part of the
 // record — they live behind the source/versions endpoints, and the rendered
 // output behind the build lifecycle.
+export const canvasKindSchema = z.enum(["freeform", "grid", "component"]);
+export type CanvasKind = z.infer<typeof canvasKindSchema>;
+
 export const dashboardRecordSchema = z.object({
   id: z.string(),
   // The backend channel (task channel UUID) this canvas belongs to.
   channelId: z.string(),
   name: z.string(),
+  // freeform: a standalone app. component: a reusable widget grids place.
+  // grid: a composition of components (its source is a layout document).
+  kind: canvasKindSchema.default("freeform"),
+  // Short prose describing the canvas; for components, the store-search text.
+  description: z.string().default(""),
+  // For components: the head version's placement contract (size, configSchema).
+  componentMeta: componentMetaSchema.nullish(),
   templateId: z.string().default("freeform"),
   // The live author-written context (markdown) passed to the agent.
   context: z.string().default(""),
@@ -81,6 +92,12 @@ export const canvasSourceSchema = z.object({
 export type CanvasSource = z.infer<typeof canvasSourceSchema>;
 
 export const listDashboardsInput = z.object({ channelId: z.string().min(1) });
+
+// The component store: component-kind canvases across every channel visible to
+// the caller, optionally narrowed by a name/description search.
+export const listComponentsInput = z.object({
+  search: z.string().optional(),
+});
 
 export const createDashboardInput = z.object({
   channelId: z.string().min(1),

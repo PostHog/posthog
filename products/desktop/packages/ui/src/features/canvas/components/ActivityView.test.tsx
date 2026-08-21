@@ -16,7 +16,9 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
-import { ActivityRow, activityHeadline } from "./ActivityView";
+import { ActivityRow } from "./ActivityView";
+import { activityHeadline } from "./activityHeadline";
+import { openActivityItem } from "./openActivityItem";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
   return {
@@ -136,6 +138,7 @@ describe("activityHeadline", () => {
         channelId="channel-1"
         onOpen={vi.fn()}
         onMarkRead={vi.fn()}
+        onActivate={openActivityItem}
         blockedTaskIds={NO_BLOCKED_TASKS}
       />,
     );

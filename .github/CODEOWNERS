@@ -48,10 +48,6 @@ tools/owners/** @PostHog/team-security
 # assignment and are much safer to change.
 CODEOWNERS @PostHog/team-security
 
-# PR approval agent — can auto-approve PRs, so changes need review
-.github/workflows/pr-approval-agent.yml @PostHog/team-security
-tools/pr-approval-agent/** @PostHog/team-security
-
 # Ingestion team owns persons migrations
 rust/persons_migrations/** @PostHog/team-ingestion
 
@@ -72,3 +68,9 @@ bin/dev-sandbox* @PostHog/team-security
 # deploy — installable by all tenants and feeding tool results into their LLM agents. The
 # probe only verifies liveness, so PR review is the vendor-identity gate.
 products/mcp_store/backend/catalog.py @PostHog/team-self-driving @cvolzer3
+
+# Adding a line here exempts a product from isolation, so the full Django backend suite
+# keeps running on every change it makes — a cost paid by everyone, not just its team.
+# `hogli product:bootstrap` scaffolds a sealed product, so a new one should never need an
+# entry. Removals are the mechanical result of a product sealing and are a rubber stamp.
+products/isolation_baseline.txt @PostHog/team-devex

@@ -22,17 +22,32 @@ def cascade_posthog_code_repository_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
     user_id: int,
+    thread_messages: list[dict[str, str]] | None = None,
+    mention_ts: str | None = None,
 ) -> PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path before the discovery agent.
 
-    Resolves the trivial cases — no GitHub repos connected to the mentioning user's
-    personal install, exactly one connected, or an explicit `org/repo` mentioned in the
-    message — without paying for the sandbox-backed agent. Anything else returns
-    `mode='agent_needed'` and the workflow takes over.
+    Resolves the trivial cases without paying for the sandbox-backed agent: no GitHub
+    repos connected to the mentioning user's personal install, exactly one connected, or
+    an explicit `org/repo` named in the mention or in the thread it sits in. Anything
+    else returns `mode='agent_needed'` and the workflow takes over.
+
+    The discovery agent this preempts reads the whole thread, so the fast path must too:
+    a mention-only read sends every ask whose link sits in an earlier message to a
+    sandbox run that then finds the repo in text the fast path skipped. Only messages at
+    or before ``mention_ts`` may name the repo, though: the snapshot is taken when the
+    activity runs, so it can contain replies posted after the mention, and letting those
+    win the newest-first scan would let any channel participant redirect someone else's
+    ask by pasting a repo link right after it.
+
+    ``thread_messages`` and ``mention_ts`` default to ``None`` for backwards
+    compatibility with calls recorded before the parameters existed: if a worker drains
+    an activity task scheduled by an older workflow, the call still binds and degrades
+    to the mention-only behavior.
     """
     from posthog.models.integration import Integration
 
-    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+    from products.slack_app.backend.api import _get_full_repo_names
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -51,9 +66,42 @@ def cascade_posthog_code_repository_activity(
     if len(all_repos) == 1:
         return PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
 
+    outcome = _resolve_explicit_repo(event_text, _messages_at_or_before(thread_messages or [], mention_ts), all_repos)
+    # Logged so the share of mentions each resolution tier saves from the discovery agent is measurable.
+    logger.info(
+        "posthog_code_cascade_outcome",
+        reason=outcome.reason,
+        integration_id=inputs.integration_id,
+    )
+    return outcome
+
+
+def _messages_at_or_before(messages: list[dict[str, str]], mention_ts: str | None) -> list[dict[str, str]]:
+    """Messages eligible as repo-selection evidence: posted at or before the mention.
+
+    Fail-closed on a missing bound — resolution degrades to the mention text alone —
+    which is why this doesn't just call the shared helper: there, no bound means no clip.
+    """
+    from products.slack_app.backend.services.slack_messages import messages_at_or_before
+
+    if not mention_ts:
+        return []
+    return messages_at_or_before(messages, mention_ts)
+
+
+def _resolve_explicit_repo(
+    event_text: str, thread_messages: list[dict[str, str]], all_repos: list[str]
+) -> PostHogCodeRepoCascadeOutcome:
+    """Repo named by the mention, then by the thread, each reported under its own reason."""
+    from products.slack_app.backend.api import _extract_explicit_repo, _extract_explicit_repo_from_thread
+
     explicit_repo = _extract_explicit_repo(event_text, all_repos)
     if explicit_repo:
         return PostHogCodeRepoCascadeOutcome(mode="auto", repository=explicit_repo, reason="explicit_mention")
+
+    thread_repo = _extract_explicit_repo_from_thread(thread_messages, all_repos)
+    if thread_repo:
+        return PostHogCodeRepoCascadeOutcome(mode="auto", repository=thread_repo, reason="explicit_thread_mention")
 
     return PostHogCodeRepoCascadeOutcome(mode="agent_needed", repository=None, reason="needs_agent")
 
