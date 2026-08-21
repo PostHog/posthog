@@ -23,7 +23,9 @@ def has_autoresearch_access(user: AbstractBaseUser | AnonymousUser | None, *, te
 
     # In local dev the analytics SDK is disabled; fall back to a direct ORM check.
     # Don't apply this in TEST mode, because tests mock feature_enabled directly.
-    if (getattr(posthoganalytics, "disabled", False) or settings.DEBUG) and not getattr(settings, "TEST", False):
+    # Gate on DEBUG alone: posthoganalytics.disabled is also true on a self-hosted deployment
+    # running OPT_OUT_CAPTURE, and the fallback ignores rollout and release conditions.
+    if settings.DEBUG and not getattr(settings, "TEST", False):
         return _local_flag_enabled(team_id=team_id)
 
     kwargs: dict = {

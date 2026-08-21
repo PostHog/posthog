@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -73,6 +74,13 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     class Meta:
         ordering = ["-created_at"]
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self._state.adding:
+            # The two budget fields default independently, so a pipeline created with a
+            # smaller or larger budget would otherwise start with 50 iterations remaining.
+            self.iteration_budget_remaining = self.iteration_budget
+        super().save(*args, **kwargs)
+
     def __str__(self) -> str:
         return f"{self.name} ({self.team_id})"
 
@@ -96,7 +104,10 @@ class PipelineScopedModel(TeamScopedRootMixin, UUIDModel):
     def save(self, *args: Any, **kwargs: Any) -> None:
         # RelatedObjectDoesNotExist subclasses AttributeError, so an unset pipeline reads as None.
         pipeline = getattr(self, "pipeline", None)
-        if self.team_id is None and pipeline is not None:
+        if pipeline is not None:
+            # Derive unconditionally rather than only when unset: a caller that passes a team of
+            # its own would otherwise file the row under one tenant while the pipeline it hangs
+            # off belongs to another, and scoped reads follow the row's own column.
             self.team_id = pipeline.team_id
         super().save(*args, **kwargs)
 
@@ -155,6 +166,17 @@ class AutoresearchModel(PipelineScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            # Inference picks the pipeline's champion by role, so two of them is not a
+            # tie-break, it is an unresolvable read. Promotion already archives the
+            # incumbent before writing the successor; this catches the paths that don't,
+            # such as an admin edit.
+            models.UniqueConstraint(
+                fields=["pipeline"],
+                condition=models.Q(role="champion"),
+                name="autoresearch_one_champion_per_pipeline",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.role} model for pipeline {self.pipeline_id}"
@@ -231,6 +253,15 @@ class AutoresearchIteration(PipelineScopedModel):
     class Meta:
         ordering = ["iteration_number"]
         unique_together = [("training_run", "iteration_number")]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Both foreign keys are set independently, and iteration_number is only unique
+        # within the training run, so a divergent pipeline would number the row against
+        # one history while filing it under another.
+        training_run = getattr(self, "training_run", None)
+        if training_run is not None:
+            self.pipeline_id = training_run.pipeline_id
+        super().save(*args, **kwargs)
 
 
 class AutoresearchSuggestion(PipelineScopedModel):
@@ -320,3 +351,12 @@ class AutoresearchRun(PipelineScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Reject rather than derive: pipeline is the run's own identity, so a mismatch
+        # means the caller picked the wrong model, and silently repointing the run would
+        # attribute one pipeline's scores to another.
+        model = getattr(self, "model", None)
+        if model is not None and model.pipeline_id != self.pipeline_id:
+            raise ValidationError(f"Model {model.pk} belongs to pipeline {model.pipeline_id}, not {self.pipeline_id}.")
+        super().save(*args, **kwargs)

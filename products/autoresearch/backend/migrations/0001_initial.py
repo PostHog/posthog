@@ -588,4 +588,12 @@ class Migration(migrations.Migration):
                 "unique_together": {("training_run", "iteration_number")},
             },
         ),
+        migrations.AddConstraint(
+            model_name="autoresearchmodel",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("role", "champion")),
+                fields=("pipeline",),
+                name="autoresearch_one_champion_per_pipeline",
+            ),
+        ),
     ]
