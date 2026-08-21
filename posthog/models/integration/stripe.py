@@ -48,28 +48,29 @@ class StripeSecretPublication:
     unwritten: tuple[str, ...]
 
 
-def evict_team_oauth_tokens(
+def revoke_team_oauth_tokens(
     applications: list[OAuthApplication],
     team_id: int,
     *,
     keep_access_token_ids: Collection[int] = (),
 ) -> None:
-    """Remove one team's access to every OAuth credential these applications hold.
+    """Remove one team's access to the OAuth credentials these applications hold.
 
-    Refresh tokens are matched by application and team rather than through their access token.
-    A rotation leaves its predecessor with `access_token` NULL, and the Stripe provisioning
-    refresh sets no `source_refresh_token`, so a link-based match misses rows that stay
-    replayable for REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
+    Match refresh tokens by application and team. Do not match them through their access token.
+    A refresh sets the access token of its predecessor to NULL. The Stripe provisioning refresh
+    sets no source_refresh_token. A match through the link therefore misses rows. Those rows
+    stay usable for REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
 
-    A credential covering several teams is narrowed rather than deleted, because the Stripe
-    provisioning refresh recomputes a multi-team scope: deleting it would strip teams this
-    eviction was never asked to touch, and skipping it would leave this team reachable.
-    Narrowing never empties the list, since an empty `scoped_teams` reads as unrestricted;
-    a credential that covered only this team is deleted instead.
+    Delete a credential that covers only this team. Narrow a credential that covers other teams:
+    remove this team and keep the rest. The Stripe provisioning refresh can widen a credential to
+    several teams. A skip then leaves this team reachable. A delete then removes teams that this
+    call must not touch.
 
-    Two locks, because the minting paths do not agree on one: `lock_oauth_connection` covers
-    DOT's refresh, and the application row lock covers the Stripe provisioning refresh. Row
-    locks alone let a token minted mid-sweep fall outside the deleting statement's snapshot.
+    Never leave scoped_teams empty. An empty list means unrestricted.
+
+    Take two locks. lock_oauth_connection covers the refresh in django-oauth-toolkit. The
+    application row lock covers the Stripe provisioning refresh. One lock is not enough. A row
+    lock alone lets a token minted during the sweep stay outside the snapshot of the delete.
     """
     if not applications:
         return
@@ -265,7 +266,7 @@ class StripeIntegration:
 
     def _destroy_posthog_oauth_tokens(self) -> None:
         """Delete the local OAuth access and refresh tokens created for this Stripe integration."""
-        evict_team_oauth_tokens(self._posthog_oauth_apps_for_revocation(), self.integration.team_id)
+        revoke_team_oauth_tokens(self._posthog_oauth_apps_for_revocation(), self.integration.team_id)
 
     def _get_posthog_oauth_app(self):
         """The application new marketplace tokens are minted on.

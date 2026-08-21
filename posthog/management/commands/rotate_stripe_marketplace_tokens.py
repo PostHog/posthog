@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import STRIPE_POSTHOG_SECRET_NAMES, Integration, StripeIntegration
-from posthog.models.integration.stripe import evict_team_oauth_tokens
+from posthog.models.integration.stripe import revoke_team_oauth_tokens
 from posthog.models.oauth import OAuthApplication
 
 
@@ -99,7 +99,7 @@ class Command(BaseCommand):
                 if publication.unwritten:
                     raise RuntimeError(f"Stripe secret store not updated: {', '.join(publication.unwritten)}")
 
-                evict_team_oauth_tokens(
+                revoke_team_oauth_tokens(
                     StripeIntegration._posthog_oauth_apps_for_revocation(),
                     integration.team_id,
                     keep_access_token_ids=[publication.access_token_id] if publication.access_token_id else [],
