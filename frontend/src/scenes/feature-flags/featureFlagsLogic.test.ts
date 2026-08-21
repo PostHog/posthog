@@ -368,8 +368,9 @@ describe('updateFeatureFlag 409 handling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(showApprovalRequiredToast).not.toHaveBeenCalled()
-        // A non-approval 409 stays visible to error tracking; only approval-shaped ones are suppressed
-        expect(posthog.captureException).toHaveBeenCalledWith(error)
+        // A non-approval 409 stays visible to error tracking; only approval-shaped ones are suppressed.
+        // The plain object carries no endpoint, so the attached capture properties are empty.
+        expect(posthog.captureException).toHaveBeenCalledWith(error, {})
     })
 })
 
