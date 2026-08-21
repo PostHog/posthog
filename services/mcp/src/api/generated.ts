@@ -948,6 +948,28 @@ export namespace Schemas {
       kind?: 'account_field';
     }
 
+    export type AccountsTableAccountFieldOperator = typeof AccountsTableAccountFieldOperator[keyof typeof AccountsTableAccountFieldOperator];
+
+
+    export const AccountsTableAccountFieldOperator = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+      IsDateExact: 'is_date_exact',
+      IsDateBefore: 'is_date_before',
+      IsDateAfter: 'is_date_after',
+    } as const;
+
+    export interface AccountsTableAccountFieldFilter {
+      field: AccountsTableAccountField;
+      kind?: 'account_field';
+      operator: AccountsTableAccountFieldOperator;
+      values?: string[] | null;
+    }
+
     export interface AccountsTableAccountIdFilter {
       accountId: string;
       kind?: 'account_id';
@@ -1175,7 +1197,7 @@ export namespace Schemas {
       /** Columns to load for each account. Account identity fields are always returned. */
       columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */
-      filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableCustomPropertyFilter)[] | null;
+      filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)[] | null;
       /** Include churned accounts. Churned accounts are hidden by default. */
       includeChurned?: boolean | null;
       /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -6709,6 +6731,7 @@ export namespace Schemas {
       Replay: 'replay',
       ReplaySavedFilters: 'replay_saved_filters',
       RevenueAnalyticsProperties: 'revenue_analytics_properties',
+      AccountFields: 'account_fields',
       AccountCustomProperties: 'account_custom_properties',
       Resources: 'resources',
       ErrorTrackingProperties: 'error_tracking_properties',

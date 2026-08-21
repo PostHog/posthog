@@ -14,6 +14,7 @@ from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
     AccessControlLevel as AccessControlLevel,
     AccountsTableAccountField as AccountsTableAccountField,
+    AccountsTableAccountFieldOperator as AccountsTableAccountFieldOperator,
     AccountsTableAggregation as AccountsTableAggregation,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
@@ -3089,6 +3090,16 @@ class AccountCustomPropertyFilter(BaseModel):
         description=("Customer analytics account custom property — the key is the property definition id"),
     )
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class AccountsTableAccountFieldFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field: AccountsTableAccountField
+    kind: Literal["account_field"] = "account_field"
+    operator: AccountsTableAccountFieldOperator
+    values: list[str] | None = None
 
 
 class AccountsTableAggregateMetric(BaseModel):
@@ -24622,6 +24633,7 @@ class AccountsTableQuery(BaseModel):
             | AccountsTableAssignedToFilter
             | AccountsTableUnassignedFilter
             | AccountsTableAccountIdFilter
+            | AccountsTableAccountFieldFilter
             | AccountsTableCustomPropertyFilter
         ]
         | None

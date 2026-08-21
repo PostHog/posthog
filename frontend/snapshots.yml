@@ -5757,9 +5757,9 @@ snapshots:
     scenes-app-customer-analytics-accounts--default--light:
         hash: v1.k794b7964.faa5deb2da376bb4364cc185f6ca36d5ef4e5f12af269420f106569f0847011d.I72hc0cqrIF69Nf3LBXC_FxP4Wb9n8qYouNiokLvDv4
     scenes-app-customer-analytics-accounts--empty--dark:
-        hash: v1.k794b7964.892b7da6722a32bd8383152a945e4bbc30eefebf1b9daa79d615e55a969e1a52._oCcXCKvTuiGNNd4h0WZ2YoMvWXtHmgHCxHmljYucH0
+        hash: v1.k794b7964.335e429043f942468f4d038a2089b48bc2e2c4fd02dff40af100bb8e46e9731a.0yyxMsPpYP8LN8AMi5eNS6uZqCB5w0EQKMKSXfxoqtQ
     scenes-app-customer-analytics-accounts--empty--light:
-        hash: v1.k794b7964.fc9180344a16b4c4831f1c377d8f603b5df857f6f9822bb3075e95d8290659a4.eZFjKAI4DZ4GhnNMihMFzc7-Eu_7X5Pf-rBe1j1cP5M
+        hash: v1.k794b7964.3cf93a7ca9fe5453e14210067583f16a552a95cdf5882a11ec97ef1b57b35c68.OukR8G27tpqoK_OXjeHBf4HvZPbFTFQ04lipBl4DsFc
     scenes-app-customer-analytics-accounts--feature-gate-off--dark:
         hash: v1.k794b7964.4b8d5226ee154debdf333ff93d65a90ca766bcb25951e1baf36affb8b84b548d.dWZSHssPc83RkHVE-JPJA562bJR7MUim2yfqhjfNE50
     scenes-app-customer-analytics-accounts--feature-gate-off--light:
