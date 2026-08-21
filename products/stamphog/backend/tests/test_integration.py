@@ -145,7 +145,13 @@ def _merged_event(number: int, author: str, head_sha: str) -> dict:
 
 
 def _make_pr_with_review(
-    team_id: int, repo_config: StamphogRepoConfig, *, number: int, author: str, approved_at_sha: str | None
+    team_id: int,
+    repo_config: StamphogRepoConfig,
+    *,
+    number: int,
+    author: str,
+    approved_at_sha: str | None,
+    owning_team: str = "team-devex",
 ) -> PullRequest:
     pull_request = PullRequest.objects.for_team(team_id).create(
         team_id=team_id,
@@ -162,6 +168,9 @@ def _make_pr_with_review(
             head_sha=approved_at_sha,
             status=ReviewRunStatus.COMPLETED,
             verdict=ReviewVerdict.APPROVED,
+            # Digest audiences are read back out of the approving run's ownership, so a run without
+            # one produces no audience at all and cannot exercise the eligibility gate.
+            gate_result={"classification": {"ownership": {"teams": [f"@PostHog/{owning_team}"]}}},
         )
     return pull_request
 
@@ -1285,12 +1294,11 @@ def test_merged_pr_digest_eligibility_gate(
     approved_at_sha: str | None,
     expected_audience_key: str,
 ) -> None:
-    # Regression guard: the approved-head_sha eligibility gate plus the author -> GitHub-team
-    # audience cascade. Merge facts are always recorded, but audience_key is stamped (via the
-    # cascade) only when a stamphog-approved run exists at the exact merged head SHA.
+    # Regression guard: the approved-head_sha eligibility gate. Merge facts are always recorded,
+    # but audiences are stamped only when a stamphog-approved run exists at the exact merged head
+    # SHA — that run is also where the ownership the audience is built from comes from.
     repo_config = _repo_config(team.id)
     author, merged_head = "devex-dev", "sha-merged"
-    stamphog_chain.recorder.teams_by_login[author] = ["team-devex"]
     _make_pr_with_review(team.id, repo_config, number=101, author=author, approved_at_sha=approved_at_sha)
 
     status = stamphog_chain.post_webhook(_merged_event(101, author, merged_head), delivery_id=str(uuid.uuid4()))
@@ -1577,29 +1585,30 @@ def test_daily_digest_provisions_name_matched_channel_and_posts_the_same_run(
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_repo_declared_digest_channel_short_circuits_author_cascade(team, stamphog_chain: StamphogChain) -> None:
+def test_repo_declared_digest_channel_routes_alongside_owning_teams(team, stamphog_chain: StamphogChain) -> None:
     # Regression guard: the repo-declared digest path. A repo that declares digest.channel in
-    # .stamphog/policy.yml groups all merged PRs under a "repo:" audience (skipping the author
-    # cascade) and routes to the declared channel via the STAMPHOG_CONFIG resolution source.
+    # .stamphog/policy.yml adds a "repo:" audience carrying every one of its merges, routed to the
+    # declared channel via the STAMPHOG_CONFIG resolution source. It sits beside the owning teams
+    # rather than replacing them, so a shared repo can feed both at once. Only the declared channel
+    # exists in the workspace here, so it is the only one that posts.
     repo_config = _repo_config(team.id)
     Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
     )
     author, merged_head = "devex-dev", "sha-merged"
-    stamphog_chain.recorder.teams_by_login[author] = ["team-devex"]  # would win if the cascade ran
     stamphog_chain.recorder.policy_files[".stamphog/policy.yml"] = "digest:\n  channel: eng-merges\n"
     _make_pr_with_review(team.id, repo_config, number=101, author=author, approved_at_sha=merged_head)
 
     stamphog_chain.post_webhook(_merged_event(101, author, merged_head), delivery_id=str(uuid.uuid4()))
     pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
-    assert _audience_keys(team.id, pr) == [f"repo:{REPO}"]
+    assert sorted(_audience_keys(team.id, pr)) == sorted([f"repo:{REPO}", "team-devex"])
 
     fakes.FakeSlackIntegration.reset(channels=[{"id": "C-ENG", "name": "eng-merges"}])
     send_daily_digests()
 
     channel = DigestChannel.objects.for_team(team.id).get(audience_key=f"repo:{REPO}")
     assert channel.resolution_source == ChannelResolutionSource.STAMPHOG_CONFIG
-    assert fakes.FakeSlackIntegration.posted_messages[0]["channel"] == "C-ENG"
+    assert {m["channel"] for m in fakes.FakeSlackIntegration.posted_messages} == {"C-ENG"}
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

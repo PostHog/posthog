@@ -22,8 +22,6 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import get_llm_client
 
-from ..facade.enums import AudienceReason
-
 if TYPE_CHECKING:
     from ..models import PullRequest, PullRequestAudience
 
@@ -191,12 +189,6 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "grazed them (a repo-wide rename, a shared type bump, an import fix). Say what changed for",
         "them, not what the PR was about overall.",
         "",
-        "A `by_your_team` line means the author is on the team this digest goes to. They share a",
-        "standup, a review queue and a channel with the author, so that team's own routine progress",
-        "is not news to them. Keep it only when it reaches past the author's own work: a shared",
-        "default, an interface other code calls, a cost or a risk the whole team now carries. Drop it",
-        "when the team's honest reaction would be 'yes, we know, we did that'.",
-        "",
         "HOW TO WRITE THE LINE",
         "- One sentence. 20 words or fewer. Present tense. Active voice. One idea.",
         "- State the effect, not the edit. Write what is true now, not what the author did.",
@@ -254,17 +246,13 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "Pull requests:",
     ]
     owned_by_index = {}
-    authored_indexes = set()
     for index, audience in enumerate(audiences or []):
-        # Keyed on the ownership itself rather than on the reason. A team that both wrote the PR and
-        # owns its files is one AUTHORED audience carrying an owned-file sample, and reading the
-        # reason instead would throw that sample away for exactly the teams closest to the change.
+        # Keyed on the ownership itself rather than on the audience reason, so a repo-declared row
+        # (which carries no files) is simply left without the hint instead of needing its own case.
         if audience.owned_file_count:
             # The sample is capped; the count is not. Reporting the sample size as the count would
             # make a team that owns most of a large change look like it was grazed by it.
             owned_by_index[index] = (audience.owned_files or [], audience.owned_file_count)
-        if audience.reason == AudienceReason.AUTHORED:
-            authored_indexes.add(index)
 
     for index, pr in enumerate(prs):
         repository = pr.repo_config.repository
@@ -287,8 +275,6 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
             lines.append(f"  your_files index={index} count={owned_count} of {pr.changed_files}")
             if owned:
                 lines.append(f"  <your_file_sample index={index}>{', '.join(owned)}</your_file_sample>")
-        if index in authored_indexes:
-            lines.append(f"  by_your_team index={index}")
     return "\n".join(lines)
 
 

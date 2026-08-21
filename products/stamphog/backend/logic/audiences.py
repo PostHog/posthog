@@ -1,12 +1,17 @@
 """Resolve a merged PR to the digest audiences it belongs to.
 
-A merge reaches a team two ways, and can reach the same team both ways:
+Ownership decides who hears about a merge:
 
-- ``authored`` / ``repo_declared`` — one audience from the global best-effort cascade:
-  repo-declared digest channel (see logic/digest_config.py) -> PR author -> GitHub team slug
-  -> "repo:{repository}" fallback.
 - ``owned`` — one audience per team owning a file the PR changed, read back from the ownership
   the review already resolved against the checkout (see models.PullRequestAudience).
+- ``repo_declared`` — one audience for a repo that declared its own digest channel (see
+  logic/digest_config.py). It carries every one of that repo's merges to one place regardless of
+  who owns what, which is what a standalone repo needs.
+
+The author's own team is deliberately not an audience. A team hears about code it owns, not about
+everywhere its members touched. A merge that no team owns, in a repo that declares nothing,
+therefore reaches nobody: that is an ownership gap, and ``hogli owners:unowned`` is where it gets
+fixed.
 
 Digest grouping and channel routing key off the opaque audience string alone (see
 models.DigestChannel).
@@ -24,7 +29,6 @@ from posthog.dataclasses import frozen
 
 from ..facade.enums import AudienceReason
 from .digest_config import load_repo_digest_config
-from .github_client import StamphogGitHubClient
 
 if TYPE_CHECKING:
     from ..models import StamphogRepoConfig
@@ -69,49 +73,6 @@ def _repository_audience_key(repo_config: StamphogRepoConfig) -> str:
     return f"repo:{repo_config.repository}"
 
 
-def _author_team_audience_key(repo_config: StamphogRepoConfig, pr_payload: dict[str, Any]) -> str:
-    """Resolve the PR author's GitHub team, live, via the org's team memberships.
-
-    Falls back to the repository key (with a warning) whenever the author has no resolvable team —
-    missing fields, no team membership, or a failed lookup. Wrapped end-to-end so a flaky GitHub call
-    never blocks capture of the merged PR itself.
-    """
-    try:
-        login = ((pr_payload or {}).get("user") or {}).get("login")
-        org = (repo_config.repository or "").split("/", 1)[0]
-        if not login or not org:
-            logger.warning(
-                "stamphog_author_team_audience_missing_fields",
-                repository=repo_config.repository,
-                has_login=bool(login),
-            )
-            return _repository_audience_key(repo_config)
-
-        # One GraphQL call per merged PR — merge volume is tiny next to API limits, not worth a cache.
-        slugs = StamphogGitHubClient(repo_config.installation_id).get_user_team_slugs(org, login)
-        if not slugs:
-            logger.warning("stamphog_author_team_audience_no_team", repository=repo_config.repository, login=login)
-            return _repository_audience_key(repo_config)
-
-        chosen, *other_teams = slugs
-        if other_teams:
-            logger.info(
-                "stamphog_author_team_audience_multiple_teams",
-                login=login,
-                chosen=chosen,
-                other_teams=other_teams,
-            )
-        # `chosen` (the raw team slug) becomes the audience_key unchanged, and channel_resolution
-        # later matches it against a real Slack channel name for auto-provisioning. This trusts
-        # GitHub org team-slug governance; only PUBLIC channels are matched (see channel_resolution).
-        return chosen
-    except Exception:
-        logger.warning(
-            "stamphog_author_team_audience_resolution_failed", repository=repo_config.repository, exc_info=True
-        )
-        return _repository_audience_key(repo_config)
-
-
 def _owner_teams(gate_result: dict[str, Any] | None) -> list[_OwnerTeam]:
     """Every team owning a changed file, with its path sample and true file count.
 
@@ -151,45 +112,27 @@ def resolve_audiences(
     pr_payload: dict[str, Any],
     gate_result: dict[str, Any] | None = None,
 ) -> list[ResolvedAudience]:
-    """Every audience a merged PR belongs to, primary first.
+    """Every audience a merged PR belongs to. Empty when nobody owns it and no repo claimed it.
 
     Membership is deliberately generous: a team owning a single changed file still gets an
     audience. Whether the PR is worth mentioning to that team is a later, per-digest judgment.
-    The primary audience wins a key collision, so a PR whose author owns the code it changed
-    reads as "your team shipped this" rather than "this changed in your area".
+
+    A repo-declared audience sits alongside the owning teams rather than replacing them, so a
+    shared repo still tells each team about its own area while a standalone repo gets the single
+    feed it asked for.
+
+    ``pr_payload`` is unused now that the author's team no longer forms an audience. It stays in
+    the signature because both callers hold the payload, and a routing input read off the PR
+    itself is a plausible near-term addition.
     """
+    audiences = []
     digest_config = load_repo_digest_config(repo_config)
     if digest_config is not None and digest_config.channel:
-        # Repo declared a single digest channel for all its PRs, so they group per-repo
-        # instead of cascading through the author -> team lookup.
-        primary = ResolvedAudience(key=_repository_audience_key(repo_config), reason=AudienceReason.REPO_DECLARED)
-    else:
-        primary = ResolvedAudience(
-            key=_author_team_audience_key(repo_config, pr_payload), reason=AudienceReason.AUTHORED
+        audiences.append(
+            ResolvedAudience(key=_repository_audience_key(repo_config), reason=AudienceReason.REPO_DECLARED)
         )
 
-    owner_teams = _owner_teams(gate_result)
-
-    # A team that wrote the PR and owns the files it touched collapses into one audience. The
-    # primary reason wins, because "your team shipped this" is the more useful framing than "this
-    # changed in your area". The ownership has to ride along on that row anyway: it is the only
-    # signal that separates a change in the team's own area from a sweep that grazed two of its
-    # files, and dropping it leaves the digest judging the PR for that team with neither.
-    owned_by_primary = next((owner for owner in owner_teams if owner.slug == primary.key), None)
-    if owned_by_primary is not None:
-        primary = ResolvedAudience(
-            key=primary.key,
-            reason=primary.reason,
-            owned_files=owned_by_primary.files,
-            owned_file_count=owned_by_primary.file_count,
-        )
-
-    audiences = [primary]
-    seen = {primary.key}
-    for owner in owner_teams:
-        if owner.slug in seen:
-            continue
-        seen.add(owner.slug)
+    for owner in _owner_teams(gate_result):
         audiences.append(
             ResolvedAudience(
                 key=owner.slug,

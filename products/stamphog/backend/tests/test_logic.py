@@ -36,7 +36,7 @@ from products.stamphog.backend.logic.slack_digest import (
     _detail_blocks,
     _lead_blocks,
 )
-from products.stamphog.backend.models import PullRequest, StamphogRepoConfig
+from products.stamphog.backend.models import PullRequest, PullRequestAudience, StamphogRepoConfig
 from products.stamphog.backend.temporal import activities as activities_module
 from products.stamphog.backend.temporal.registry import ACTIVITIES
 from products.stamphog.backend.tests import fakes
@@ -585,50 +585,36 @@ class ResolveAudiencesTests(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "owning_teams_join_the_author",
+                "every_owning_team_gets_an_audience",
                 ["@PostHog/team-replay", "@PostHog/team-surveys"],
-                [
-                    ("team-devex", AudienceReason.AUTHORED),
-                    ("team-replay", AudienceReason.OWNED),
-                    ("team-surveys", AudienceReason.OWNED),
-                ],
+                [("team-replay", AudienceReason.OWNED), ("team-surveys", AudienceReason.OWNED)],
             ),
-            (
-                "author_owning_its_own_code_stays_one_audience",
-                ["@PostHog/team-devex", "@PostHog/team-replay"],
-                [("team-devex", AudienceReason.AUTHORED), ("team-replay", AudienceReason.OWNED)],
-            ),
-            ("individual_owners_are_not_audiences", ["@someone"], [("team-devex", AudienceReason.AUTHORED)]),
+            ("individual_owners_are_not_audiences", ["@someone"], []),
             (
                 "a_crafted_slug_cannot_claim_the_repo_namespace",
                 ["@PostHog/repo:PostHog/posthog", "@PostHog/team with spaces"],
-                [("team-devex", AudienceReason.AUTHORED)],
+                [],
             ),
-            ("missing_ownership_section", None, [("team-devex", AudienceReason.AUTHORED)]),
-            ("malformed_ownership_section", "team-replay", [("team-devex", AudienceReason.AUTHORED)]),
+            ("missing_ownership_section", None, []),
+            ("malformed_ownership_section", "team-replay", []),
         ]
     )
     def test_owner_teams_become_audiences(self, _name: str, teams: object, expected: list) -> None:
-        # Owner audiences are what carry "this changed in your area", and they are read back out of a
-        # blob the sandbox wrote, so a shape the engine never promised must degrade to author-only
-        # rather than dropping the merge. The author winning a collision is what keeps a team that
-        # wrote its own code out of its own "changed in your area" list. Ownership comes from the
-        # PR-head owners.yaml, so a slug is attacker-controlled: one shaped like "repo:owner/name"
-        # would otherwise reach the channel path that auto-enables and skips the shared-channel guard.
+        # Ownership is the only thing that makes an audience, so a merge nobody owns reaches nobody
+        # rather than falling back to whoever wrote it. The ownership blob is written by the sandbox,
+        # so a shape the engine never promised has to degrade to no audience instead of raising and
+        # losing the merge. A slug is attacker-controlled, coming from the PR-head owners.yaml: one
+        # shaped like "repo:owner/name" would otherwise reach the reserved repo namespace, whose
+        # channel path skips the shared-channel guard.
         repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
-        with (
-            patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None),
-            patch(
-                "products.stamphog.backend.logic.audiences._author_team_audience_key",
-                return_value="team-devex",
-            ),
-        ):
+        with patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None):
             audiences = resolve_audiences(repo_config, {}, self._gate_result(teams))
         assert [(a.key, a.reason) for a in audiences] == expected
 
     def test_repo_declared_channel_still_collects_owner_audiences(self) -> None:
         # A repo that pins all its merges to one channel still has owning teams, and they should
-        # hear about their area — the declared channel replaces the author cascade, not the fan-out.
+        # hear about their area. The declared audience sits alongside them rather than replacing
+        # them, which is what lets a shared repo do both at once.
         repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
         with patch(
             "products.stamphog.backend.logic.audiences.load_repo_digest_config",
@@ -641,44 +627,14 @@ class ResolveAudiencesTests(SimpleTestCase):
         ]
 
 
-class AudienceOwnershipSignalTests(SimpleTestCase):
-    """What the prompt learns about the team it is writing for."""
-
-    REPO_CONFIG = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
-
-    def _resolve(self, gate_result: dict) -> list:
-        with (
-            patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None),
-            patch("products.stamphog.backend.logic.audiences._author_team_audience_key", return_value="team-devex"),
-        ):
-            return resolve_audiences(self.REPO_CONFIG, {}, gate_result)
-
-    def test_an_author_owning_its_own_code_keeps_its_file_sample(self) -> None:
-        # The collapsed audience is the team closest to the change, and it was the only one arriving
-        # with no ownership on it: the author row won the key and the owner row was dropped whole.
-        # The digest then judged that PR for that team with no way to tell their own area from a
-        # repo-wide sweep that grazed two of their files.
-        audiences = self._resolve(
-            {
-                "classification": {
-                    "ownership": {
-                        "teams": ["@PostHog/team-devex"],
-                        "team_files": {"@PostHog/team-devex": ["a.py", "b.py"]},
-                        "team_file_counts": {"@PostHog/team-devex": 5},
-                    }
-                }
-            }
-        )
-        assert [(a.key, a.reason) for a in audiences] == [("team-devex", AudienceReason.AUTHORED)]
-        assert audiences[0].owned_files == ["a.py", "b.py"]
-        assert audiences[0].owned_file_count == 5
-
-    def test_the_prompt_states_both_who_wrote_the_pr_and_which_files_are_theirs(self) -> None:
-        # These two markers are how the model knows whose side to judge from. They are read out of
-        # the audience row by the prompt builder, so a change on either side of that seam degrades
-        # the digest silently: nothing fails, the bar just stops being applied.
+class OwnedFilePromptTests(SimpleTestCase):
+    def test_the_prompt_names_which_files_belong_to_the_reading_team(self) -> None:
+        # This marker is how the model knows whose side to judge from. It is read off the audience
+        # row by the prompt builder, so a change on either side of that seam degrades the digest
+        # silently: nothing fails, the bar just stops being applied.
+        repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
         pr = PullRequest(
-            repo_config=self.REPO_CONFIG,
+            repo_config=repo_config,
             team_id=7,
             pr_number=1,
             title="Ship it",
@@ -689,20 +645,26 @@ class AudienceOwnershipSignalTests(SimpleTestCase):
             changed_files=5,
             body_excerpt="",
         )
-        audiences = self._resolve(
-            {
-                "classification": {
-                    "ownership": {
-                        "teams": ["@PostHog/team-devex"],
-                        "team_files": {"@PostHog/team-devex": ["a.py"]},
-                        "team_file_counts": {"@PostHog/team-devex": 5},
-                    }
+        gate_result = {
+            "classification": {
+                "ownership": {
+                    "teams": ["@PostHog/team-devex"],
+                    "team_files": {"@PostHog/team-devex": ["a.py"]},
+                    "team_file_counts": {"@PostHog/team-devex": 5},
                 }
             }
-        )
-        prompt = _build_prompt([pr], audiences)
-        assert "by_your_team index=0" in prompt
-        assert "your_files index=0 count=5 of 5" in prompt
+        }
+        with patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None):
+            resolved = resolve_audiences(repo_config, {}, gate_result)
+        # Mapped into rows the way the capture activity does, because the seam under test is the one
+        # between a stored audience row and the prompt, not the resolver's own return type.
+        audiences = [
+            PullRequestAudience(
+                audience_key=a.key, reason=a.reason, owned_files=a.owned_files, owned_file_count=a.owned_file_count
+            )
+            for a in resolved
+        ]
+        assert "your_files index=0 count=5 of 5" in _build_prompt([pr], audiences)
 
 
 class OwnedFileCountTests(SimpleTestCase):
@@ -719,10 +681,7 @@ class OwnedFileCountTests(SimpleTestCase):
                 }
             }
         }
-        with (
-            patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None),
-            patch("products.stamphog.backend.logic.audiences._author_team_audience_key", return_value="team-devex"),
-        ):
+        with patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None):
             owned = next(a for a in resolve_audiences(repo_config, {}, gate_result) if a.key == "team-replay")
         assert len(owned.owned_files) == 10
         assert owned.owned_file_count == 200

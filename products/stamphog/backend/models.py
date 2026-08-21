@@ -151,8 +151,9 @@ class PullRequest(ProductTeamModel):
 class PullRequestAudience(ProductTeamModel):
     """One digest audience a merged PR belongs to.
 
-    A PR reaches a team either because its author is on that team (`authored`) or because the team
-    owns files the PR changed (`owned`), so one merge can land in several digests. The claim marker
+    A PR reaches a team because that team owns files the PR changed (`owned`), or because its repo
+    declared one channel for everything it merges (`repo_declared`). One merge can land in several
+    digests, since several teams can own parts of it. The claim marker
     lives here rather than on the PullRequest: with several audiences per PR, a single `digest_run`
     on the PR would let the first channel to claim it hide the merge from every other channel, and
     one channel's failed post would strand the PR for all of them.
@@ -234,9 +235,9 @@ class ReviewRun(ProductTeamModel):
 class DigestChannel(ProductTeamModel):
     """One Slack destination for a digest audience.
 
-    The `audience_key` is a plain opaque string produced by the single audience cascade at
-    capture time (see logic/audiences.py): PR author -> GitHub team slug -> "repo:{repository}"
-    fallback. A row can be created by a human (API) or auto-provisioned when the workspace has a
+    The `audience_key` is a plain opaque string produced at capture time (see logic/audiences.py):
+    an owning team's GitHub slug, or "repo:{repository}" for a repo that declared its own channel.
+    A row can be created by a human (API) or auto-provisioned when the workspace has a
     channel named exactly like the audience_key (see logic/channel_resolution.py) —
     `resolution_source` records which.
     """

@@ -76,8 +76,11 @@ class ChannelResolutionSource(StrEnum):
 
 class AudienceReason(StrEnum):
     # Why a merged PR landed in an audience's digest.
-    # The PR author's own team, or the channel the repo declared under digest:.
+    # No longer produced: routing the author's own team a copy of everything they touched told a
+    # team about code it did not own. Retained because rows written before that change still read
+    # back through this enum.
     AUTHORED = "authored"
+    # The repo declared one channel for every merge of its own, regardless of who owns what.
     REPO_DECLARED = "repo_declared"
     # A team that owns at least one changed file, from the review's ownership resolution.
     OWNED = "owned"
