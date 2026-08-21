@@ -1420,7 +1420,7 @@ export const LlmAnalyticsEvaluationReportsRunsListQueryParams = /* @__PURE__ */ 
 })
 
 /**
- * List available models for a provider.
+ * List available models, for one provider or for every supported provider.
  */
 export const LlmAnalyticsModelsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1435,7 +1435,7 @@ export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe(
-            'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.'
+            'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.'
         ),
     provider: zod
         .enum([
@@ -1449,7 +1449,10 @@ export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object(
             'together_ai',
             'zeabur',
         ])
-        .describe('LLM provider to list models for. Must be one of the supported providers.'),
+        .optional()
+        .describe(
+            'LLM provider to list models for. Omit it to list every supported provider and its models in one call.'
+        ),
 })
 
 export const LlmAnalyticsProviderKeysListParams = /* @__PURE__ */ zod.object({

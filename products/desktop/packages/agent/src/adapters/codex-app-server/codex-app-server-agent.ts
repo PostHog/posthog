@@ -590,16 +590,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.config.setInitialMode(params.meta?.permissionMode);
     // Codex doesn't attribute input tokens by source; the baseline seeds the resident floor + system prompt.
     this.usage.setBaseline(buildBaseline(params.meta));
-    // Flatten the {append} form (else "[object Object]") and dedupe identical parts
-    // (the host pre-flattens into developerInstructions, so the prod prompt would duplicate).
-    const developerInstructions = [
-      ...new Set(
-        [
-          this.developerInstructions,
-          flattenSystemPrompt(params.meta?.systemPrompt),
-        ].filter((s): s is string => !!s),
-      ),
-    ].join("\n\n");
+    const developerInstructions = mergeDeveloperInstructions(
+      this.developerInstructions,
+      flattenSystemPrompt(params.meta?.systemPrompt),
+    );
     this.threadSetup = { meta: params.meta, developerInstructions };
     // Degrade gracefully: an unresolvable bundled local-tools script skips it with a
     // warning rather than killing thread setup.
@@ -2408,4 +2402,16 @@ function flattenSystemPrompt(
     return systemPrompt.append || undefined;
   }
   return undefined;
+}
+
+function mergeDeveloperInstructions(
+  developerInstructions: string | undefined,
+  systemPrompt: string | undefined,
+): string {
+  if (!developerInstructions) return systemPrompt ?? "";
+  if (!systemPrompt || developerInstructions.includes(systemPrompt)) {
+    return developerInstructions;
+  }
+  if (systemPrompt.includes(developerInstructions)) return systemPrompt;
+  return `${developerInstructions}\n\n${systemPrompt}`;
 }
