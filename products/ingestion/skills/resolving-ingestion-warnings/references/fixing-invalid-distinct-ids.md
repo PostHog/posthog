@@ -1,10 +1,11 @@
 # Fixing the invalid distinct ID warnings
 
-Both warnings are the same bug class: **something that isn't a user identifier reached the distinct ID argument.** The value's shape decides which warning fires:
+These warnings are the same bug class: **something that isn't a user identifier reached the distinct ID argument.** The value's shape, and whether it arrived on a merge, decides which warning fires:
 
 | Type                                    | Severity | The junk value                                                                                                                    | What happened                                                                                                                                                                          |
 | --------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cannot_merge_with_illegal_distinct_id` | warning  | A blocklisted placeholder: `undefined`, `null`, `NaN`, `[object Object]`, `true`, `false`, `anonymous`, `guest`, `distinct_id`, … | The `identify`/`alias` merge was **refused** — silently; the SDK call returned success. (If it weren't, every user hitting the same bug would merge into one giant "undefined" person) |
+| `illegal_distinct_id`                   | warning  | The same blocklisted placeholders as the merge case above                                                                         | The event was **kept**, but person processing was forced off, so it lands personless. `details.distinctIdCount` counts the distinct placeholders in the batch; `details.distinctId` names the value only when the batch carried exactly one                             |
 | `skipping_event_invalid_distinct_id`    | error    | Anything over 400 characters — a JWT, a serialized object, a URL, a concatenation bug                                             | The event was **dropped** entirely. Every event sent with that value is silently lost until fixed                                                                                      |
 
 ## What it means in your code
@@ -16,7 +17,7 @@ Both warnings are the same bug class: **something that isn't a user identifier r
 
 ## Diagnose
 
-1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('cannot_merge_with_illegal_distinct_id', 'skipping_event_invalid_distinct_id') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). The `details` JSON does most of the work: `illegalDistinctId` shows the placeholder (plus `otherDistinctId`, the real user it tried to link); the oversized variant shows the truncated `distinctId` and its length. The value's shape names the bug.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('cannot_merge_with_illegal_distinct_id', 'illegal_distinct_id', 'skipping_event_invalid_distinct_id') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). The `details` JSON does most of the work: `cannot_merge_with_illegal_distinct_id` puts the placeholder in `illegalDistinctId` (plus `otherDistinctId`, the real user it tried to link); `illegal_distinct_id` reports `distinctIdCount`, and `distinctId` when the batch carried exactly one placeholder; the oversized variant shows the truncated `distinctId` and its length. The value's shape names the bug.
 2. Find the callsite: grep the app for `identify(`, `alias(`, and `capture(` with an explicit `distinctId` — and trace where the argument can be undefined (typically a race with auth state) or receive a token/object.
 
 ## Fix
@@ -35,7 +36,7 @@ if (user?.id) {
 
 ## Verify
 
-Re-run the login/affected flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('cannot_merge_with_illegal_distinct_id', 'skipping_event_invalid_distinct_id')`, `timestamp` after your fix) — no new occurrences of either type — and confirm events arrive under the correct persons.
+Re-run the login/affected flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('cannot_merge_with_illegal_distinct_id', 'illegal_distinct_id', 'skipping_event_invalid_distinct_id')`, `timestamp` after your fix) — no new occurrences of any of these types — and confirm events arrive under the correct persons.
 
 ## Related
 
