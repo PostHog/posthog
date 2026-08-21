@@ -88,6 +88,21 @@ describe('recommendationsTabLogic', () => {
         expect(visible.meta.issues.map((i) => i.id)).toEqual(['stays'])
     })
 
+    // Suppressing the last remaining issue 404s and empties the card. The backend treats an empty
+    // long-running recommendation as completed, so the emptied card must leave the active set that
+    // the tab badge counts, rather than stay active while its card reads "nice work".
+    it('moves an emptied long-running recommendation out of the active set after a 404 drops its last issue', async () => {
+        logic.actions.setRecommendations([longRunningRecommendation([issue('gone')])])
+        jest.spyOn(api.errorTracking, 'updateIssue').mockRejectedValue({ status: 404 })
+
+        await expectLogic(logic, () => {
+            logic.actions.suppressIssue('gone')
+        }).toDispatchActions(['markIssueStale', 'upsertRecommendation', 'finishIssueMutation'])
+
+        expect(logic.values.activeRecommendations).toEqual([])
+        expect(logic.values.completedRecommendations.map((r) => r.id)).toEqual(['rec-long-running'])
+    })
+
     // The status update can succeed while re-pulling the enriched card fails (network drop, 5xx).
     // That refresh rejection must be caught — not escape the listener as an unhandled error — and
     // the user must get a toast instead of a silent no-op.

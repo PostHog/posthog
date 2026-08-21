@@ -375,17 +375,24 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                 if (staleIssueIds.size === 0) {
                     return recommendations
                 }
-                return recommendations.map((recommendation) =>
-                    isLongRunningIssuesRecommendation(recommendation)
-                        ? {
-                              ...recommendation,
-                              meta: {
-                                  ...recommendation.meta,
-                                  issues: recommendation.meta.issues.filter((issue) => !staleIssueIds.has(issue.id)),
-                              },
-                          }
-                        : recommendation
-                )
+                return recommendations.map((recommendation) => {
+                    if (!isLongRunningIssuesRecommendation(recommendation)) {
+                        return recommendation
+                    }
+                    const issues = recommendation.meta.issues.filter((issue) => !staleIssueIds.has(issue.id))
+                    return {
+                        ...recommendation,
+                        // The backend derives completed from the issue list (is_completed -> no issues).
+                        // Mirror that once filtering empties the card, so the emptied recommendation
+                        // leaves the active set instead of counting toward the tab badge while its card
+                        // reads as done.
+                        completed: issues.length === 0 ? true : recommendation.completed,
+                        meta: {
+                            ...recommendation.meta,
+                            issues,
+                        },
+                    }
+                })
             },
         ],
         activeRecommendations: [
