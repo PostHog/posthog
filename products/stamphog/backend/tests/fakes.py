@@ -409,7 +409,7 @@ class FakeSlackClient:
     def chat_postMessage(self, *, channel: str, blocks: list[dict], text: str, **kwargs: Any) -> dict[str, Any]:
         if channel in self._needs_join and channel not in self._joined:
             raise SlackApiError("not_in_channel", {"ok": False, "error": "not_in_channel"})
-        self._posted.append({"channel": channel, "blocks": blocks, "text": text})
+        self._posted.append({"channel": channel, "blocks": blocks, "text": text, "thread_ts": kwargs.get("thread_ts")})
         return {"ok": True, "ts": "1234.5678"}
 
     def conversations_join(self, *, channel: str) -> dict[str, Any]:

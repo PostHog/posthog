@@ -4,8 +4,9 @@ Renders the summary as Block Kit and posts it with a plain-text fallback for not
 ``DigestSlackError`` when the stored integration can't be resolved for the team so the caller can
 record the run as failed and retry the PRs tomorrow.
 
-Shape: one line per change, then a footer. Every part that is not a change was cut, because a daily
-bot post competes with the channel it lands in and loses on anything a reader has already read once.
+Shape: the channel gets one lead (the model's headline, or the scope line when it wrote none) and a
+footer. The per-change lines go in a thread under it. A daily bot post competes with the channel it
+lands in, so it spends one line there and keeps the rest where a reader can open it by choice.
 """
 
 from __future__ import annotations
@@ -27,6 +28,12 @@ logger = structlog.get_logger(__name__)
 # Slack rejects a section whose mrkdwn text exceeds 3000 chars, and the failure path unlinks the
 # claimed PRs — an oversized LLM summary would make every daily retry fail the same way forever.
 _MAX_SECTION_CHARS = 2900
+
+
+# What the digest is, and how to answer it. Every reader sees this line, so it carries the two things
+# that are not in any single digest: that the feature is still being tuned, and where to say so.
+_FOOTER_INVITE = "Full list in the thread. React with :+1: or :-1:, or reply with feedback."
+_BETA_LABEL = "Beta"
 
 
 def _clip(text: str, limit: int) -> str:
@@ -72,56 +79,94 @@ def _scope_line(shown: int, considered: int) -> str:
     return f"{shown} stamphog-approved {'merge' if shown == 1 else 'merges'}."
 
 
-def _build_blocks(summary: DigestSummary) -> list[dict]:
-    """One section per change, then a footer. No header and no intro.
+def _lead_text(summary: DigestSummary) -> str:
+    """The one line the channel gets: the model's headline, or the scope line when it wrote none.
 
-    The header said "Merged PRs digest" to people who could see it came from stamphog, in a channel
-    that gets one daily, and the intro was a model-written sentence about a list printed directly
-    below it. Both cost a reader their first line, which is the one that decides whether the rest
-    gets read, so the first line is now the first change.
+    The headline is model output over untrusted PR content, so it is escaped and clipped like any
+    other summary text. The scope line is built from counts and is safe as it stands.
     """
-    blocks: list[dict] = []
-    for pr in summary.prs:
-        # The sentence is the link, and it is the whole line. A leading "#412" makes a reader parse
-        # an identifier before they reach what changed, and a trailing author repeats down the
-        # column on the common day where one person did most of the work. Both are on the PR, one
-        # click away, for the few readers who want them.
-        blocks.append(
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": _link(pr.url, pr.summary)},
-            }
-        )
-    blocks.append(
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": _scope_line(len(summary.prs), summary.considered)}],
-        }
-    )
-    return blocks
+    if summary.headline:
+        return _clip(_escape_mrkdwn(summary.headline), _MAX_SECTION_CHARS)
+    return _scope_line(len(summary.prs), summary.considered)
+
+
+def _footer_text(summary: DigestSummary) -> str:
+    """The context line under the lead.
+
+    The scope line appears here only when the lead is a headline, because a digest with no headline
+    already leads with it. Printing it twice would make a two-line post state its own count twice.
+    """
+    if not summary.headline:
+        return f"{_BETA_LABEL} · {_FOOTER_INVITE}"
+    return f"{_BETA_LABEL} · {_scope_line(len(summary.prs), summary.considered)}\n{_FOOTER_INVITE}"
+
+
+def _lead_blocks(summary: DigestSummary) -> list[dict]:
+    """What lands in the channel: one lead, then the footer. The changes go in the thread."""
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": _lead_text(summary)}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": _footer_text(summary)}]},
+    ]
+
+
+def _detail_blocks(summary: DigestSummary) -> list[dict]:
+    """One section per change, for the thread under the lead."""
+    # The sentence is the link, and it is the whole line. A leading "#412" makes a reader parse an
+    # identifier before they reach what changed, and a trailing author repeats down the column on
+    # the common day where one person did most of the work. Both are on the PR, one click away, for
+    # the few readers who want them.
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": _link(pr.url, pr.summary)}} for pr in summary.prs]
 
 
 def _build_fallback_text(summary: DigestSummary) -> str:
-    """Plain text for the notification preview and for clients that ignore blocks.
-
-    Leads with the first change, not with a title: the preview is what a reader sees on their lock
-    screen or in the channel list, and "Merged PRs digest" there tells them nothing they can act on.
-    """
+    """Plain text for the thread's notification preview and for clients that ignore blocks."""
     # The top-level `text` fallback is parsed for mentions too, so escape it the same way.
     lines = [_escape_mrkdwn(pr.summary) for pr in summary.prs]
     return "\n".join(lines) or "No merged PRs worth a mention."
 
 
-def _post_message(slack: SlackIntegration, digest_channel: DigestChannel, summary: DigestSummary) -> SlackResponse:
+def _post_message(
+    slack: SlackIntegration,
+    digest_channel: DigestChannel,
+    blocks: list[dict],
+    text: str,
+    thread_ts: str | None = None,
+) -> SlackResponse:
     # No unfurls: the summary text is LLM output over untrusted PR content, so a prompt-injected
     # URL must not make Slack's unfurler fetch an attacker's server from inside the workspace.
     return slack.client.chat_postMessage(
         channel=digest_channel.slack_channel_id,
-        blocks=_build_blocks(summary),
-        text=_build_fallback_text(summary),
+        blocks=blocks,
+        text=text,
+        thread_ts=thread_ts,
         unfurl_links=False,
         unfurl_media=False,
     )
+
+
+def _post_details_thread(
+    slack: SlackIntegration, digest_channel: DigestChannel, summary: DigestSummary, thread_ts: str | None
+) -> None:
+    """Post the per-change lines under the lead. Never raises.
+
+    The caller already has a Slack-accepted lead, and the task consumes the claimed audience rows on
+    that basis. Turning a failed thread reply into a failed run would unlink those rows and re-post
+    the same lead tomorrow, so the channel would carry the digest twice. Losing the thread costs one
+    day of detail for changes the reader can still find on GitHub.
+
+    Skipped when Slack returned no ts: without a parent to hang it on, the reply would land in the
+    channel as a second top-level post, which is the noise the thread exists to remove.
+    """
+    if not thread_ts or not summary.prs:
+        return
+    try:
+        _post_message(slack, digest_channel, _detail_blocks(summary), _build_fallback_text(summary), thread_ts)
+    except SlackApiError as e:
+        logger.warning(
+            "stamphog_digest_thread_post_failed",
+            digest_channel_id=str(digest_channel.id),
+            error=str(e.response.get("error") or "unknown_error"),
+        )
 
 
 def _join_channel(slack: SlackIntegration, digest_channel: DigestChannel) -> str | None:
@@ -150,7 +195,11 @@ def _join_channel(slack: SlackIntegration, digest_channel: DigestChannel) -> str
 
 
 def post_digest(team_id: int, digest_channel: DigestChannel, summary: DigestSummary) -> str | None:
-    """Post the digest to the channel's Slack destination. Returns the message ts, or None."""
+    """Post the digest to the channel's Slack destination. Returns the lead message ts, or None.
+
+    Two messages: the lead in the channel, then the per-change lines in a thread under it. Only the
+    lead decides success, because the ts it returns is what the caller writes as proof-of-post.
+    """
     integration = Integration.objects.filter(
         id=digest_channel.slack_integration_id, team_id=team_id, kind="slack"
     ).first()
@@ -158,8 +207,10 @@ def post_digest(team_id: int, digest_channel: DigestChannel, summary: DigestSumm
         raise DigestSlackError(f"No slack integration {digest_channel.slack_integration_id} for team {team_id}")
 
     slack = SlackIntegration(integration)
+    lead_blocks = _lead_blocks(summary)
+    lead_text = _lead_text(summary)
     try:
-        response = _post_message(slack, digest_channel, summary)
+        response = _post_message(slack, digest_channel, lead_blocks, lead_text)
     except SlackApiError as e:
         if e.response.get("error") != "not_in_channel":
             raise
@@ -173,7 +224,9 @@ def post_digest(team_id: int, digest_channel: DigestChannel, summary: DigestSumm
                 f"Couldn't post to #{channel}. PostHog isn't in the channel and couldn't join it: Slack said "
                 f"{join_error}. Invite the app with /invite @PostHog."
             ) from e
-        response = _post_message(slack, digest_channel, summary)
+        response = _post_message(slack, digest_channel, lead_blocks, lead_text)
 
     ts = response.get("ts")
-    return str(ts) if ts else None
+    message_ts = str(ts) if ts else None
+    _post_details_thread(slack, digest_channel, summary, message_ts)
+    return message_ts

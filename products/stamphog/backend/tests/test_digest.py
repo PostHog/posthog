@@ -475,6 +475,86 @@ def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, a
             _parse_llm_response(content, prs_by_index)
 
 
+def _slack_channel(team: Any) -> DigestChannel:
+    integration = Integration.objects.create(
+        team_id=team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
+    )
+    return DigestChannel.objects.for_team(team.id).create(
+        team_id=team.id,
+        audience_key=AUDIENCE,
+        slack_integration_id=integration.id,
+        slack_channel_id="C1",
+        slack_channel_name="team-devex",
+    )
+
+
+def _one_pr_summary(headline: str = "") -> DigestSummary:
+    return DigestSummary(
+        considered=1,
+        headline=headline,
+        prs=[
+            DigestPRSummary(
+                pr_number=1,
+                title="Add util helper",
+                url="https://github.com/acme/widgets/pull/1",
+                author_login="devex-dev",
+                summary="Add util helper",
+                repository=REPO,
+            )
+        ],
+    )
+
+
+def _recording_slack_stub(posted: list[dict[str, Any]], fail_thread: bool = False) -> MagicMock:
+    """SlackIntegration stand-in that records every post and can fail only the threaded one."""
+    stub = MagicMock()
+
+    def post(**kwargs: Any) -> dict[str, Any]:
+        posted.append(kwargs)
+        if fail_thread and kwargs.get("thread_ts"):
+            raise SlackApiError("msg_too_long", {"ok": False, "error": "msg_too_long"})
+        return {"ok": True, "ts": "9999.1"}
+
+    stub.client.chat_postMessage.side_effect = post
+    return stub
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_the_changes_are_posted_as_a_thread_reply_under_the_lead(team) -> None:
+    # The channel gets one line and the change lines hang off it. Losing thread_ts posts those
+    # lines as a second top-level message, so the channel carries more of the digest than the flat
+    # version it replaced rather than less.
+    channel = _slack_channel(team)
+    posted: list[dict[str, Any]] = []
+
+    with patch(
+        "products.stamphog.backend.logic.slack_digest.SlackIntegration",
+        return_value=_recording_slack_stub(posted),
+    ):
+        assert post_digest(team.id, channel, _one_pr_summary("The util helper landed.")) == "9999.1"
+
+    assert [p.get("thread_ts") for p in posted] == [None, "9999.1"]
+    assert "pull/1" not in str(posted[0]["blocks"])
+    assert "pull/1" in str(posted[1]["blocks"])
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_failed_thread_reply_still_counts_as_a_posted_digest(team) -> None:
+    # Slack already accepted the lead, and the caller writes that ts as proof-of-post before
+    # consuming the claimed PRs. Raising here would mark the run failed, unlink its PRs, and post
+    # the same lead into the channel again tomorrow.
+    channel = _slack_channel(team)
+    posted: list[dict[str, Any]] = []
+
+    with patch(
+        "products.stamphog.backend.logic.slack_digest.SlackIntegration",
+        return_value=_recording_slack_stub(posted, fail_thread=True),
+    ):
+        assert post_digest(team.id, channel, _one_pr_summary("The util helper landed.")) == "9999.1"
+
+    assert len(posted) == 2
+
+
 def _slack_stub(post_error: str, join_error: str | None, joined: list[str]) -> MagicMock:
     """SlackIntegration stand-in whose post fails with ``post_error`` until the app has joined."""
     stub = MagicMock()
@@ -523,29 +603,8 @@ def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
     # concurrent worker joining first (already_in_channel) must not fail a digest whose retry would
     # have gone through. A genuine refusal names Slack's reason and the invite, because neither is
     # derivable from an error code by the person reading the run.
-    integration = Integration.objects.create(
-        team_id=team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
-    )
-    channel = DigestChannel.objects.for_team(team.id).create(
-        team_id=team.id,
-        audience_key=AUDIENCE,
-        slack_integration_id=integration.id,
-        slack_channel_id="C1",
-        slack_channel_name="team-devex",
-    )
-    summary = DigestSummary(
-        considered=1,
-        prs=[
-            DigestPRSummary(
-                pr_number=1,
-                title="Add util helper",
-                url="https://github.com/acme/widgets/pull/1",
-                author_login="devex-dev",
-                summary="Add util helper",
-                repository=REPO,
-            )
-        ],
-    )
+    channel = _slack_channel(team)
+    summary = _one_pr_summary()
     actually_joined: list[str] = []
     stub = _slack_stub(post_error, join_error, actually_joined)
 

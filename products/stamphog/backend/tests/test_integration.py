@@ -1567,11 +1567,12 @@ def test_daily_digest_provisions_name_matched_channel_and_posts_the_same_run(
     run = DigestRun.objects.for_team(team.id).get(digest_channel=channel)
     assert run.status == DigestRunStatus.COMPLETED
     posted = fakes.FakeSlackIntegration.posted_messages
-    assert len(posted) == 1
-    assert posted[0]["channel"] == "C-DEVEX"
-    # The notification preview is the change itself now, with the PR number only inside the link.
-    assert posted[0]["text"] == "Add util helper"
-    assert "/pull/101|" in posted[0]["blocks"][0]["text"]["text"]
+    # The channel gets the lead, and the change lines hang off it in a thread.
+    assert [p["channel"] for p in posted] == ["C-DEVEX", "C-DEVEX"]
+    assert [p["thread_ts"] for p in posted] == [None, "1234.5678"]
+    # The thread's notification preview is the change itself, with the PR number only inside the link.
+    assert posted[1]["text"] == "Add util helper"
+    assert "/pull/101|" in posted[1]["blocks"][0]["text"]["text"]
     assert PullRequestAudience.objects.for_team(team.id).get(pull_request=pr).digest_run_id == run.id
 
 

@@ -168,9 +168,25 @@ def resolve_audiences(
             key=_author_team_audience_key(repo_config, pr_payload), reason=AudienceReason.AUTHORED
         )
 
+    owner_teams = _owner_teams(gate_result)
+
+    # A team that wrote the PR and owns the files it touched collapses into one audience. The
+    # primary reason wins, because "your team shipped this" is the more useful framing than "this
+    # changed in your area". The ownership has to ride along on that row anyway: it is the only
+    # signal that separates a change in the team's own area from a sweep that grazed two of its
+    # files, and dropping it leaves the digest judging the PR for that team with neither.
+    owned_by_primary = next((owner for owner in owner_teams if owner.slug == primary.key), None)
+    if owned_by_primary is not None:
+        primary = ResolvedAudience(
+            key=primary.key,
+            reason=primary.reason,
+            owned_files=owned_by_primary.files,
+            owned_file_count=owned_by_primary.file_count,
+        )
+
     audiences = [primary]
     seen = {primary.key}
-    for owner in _owner_teams(gate_result):
+    for owner in owner_teams:
         if owner.slug in seen:
             continue
         seen.add(owner.slug)
