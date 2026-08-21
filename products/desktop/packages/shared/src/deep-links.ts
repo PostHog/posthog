@@ -128,38 +128,39 @@ export type NewTaskLinkPayload =
     } & NewTaskSharedParams);
 
 /**
- * A card is sandboxed HTML any MCP server can supply, so it sends a verb and the
- * verb's own fields rather than a URL, and the host builds the link itself with
- * {@link buildActionUrl}.
+ * An action an agent offers the user as a button. It names a verb and the verb's
+ * own fields rather than a URL, and the host builds the link itself with
+ * {@link buildActionUrl}. Agent output can carry text from anywhere, so a URL it
+ * picked and the user was invited to click would be a phishing primitive.
  */
-export interface McpAppComposeAction {
+export interface AgentComposeAction {
   kind: "compose";
   prompt: string;
   repo?: string;
 }
 
-export interface McpAppOpenSpaceAction {
+export interface AgentOpenSpaceAction {
   kind: "open_space";
   channel_id: string;
 }
 
-export interface McpAppOpenCanvasAction {
+export interface AgentOpenCanvasAction {
   kind: "open_canvas";
   channel_id: string;
   canvas_id: string;
 }
 
-export type McpAppAction =
-  | McpAppComposeAction
-  | McpAppOpenSpaceAction
-  | McpAppOpenCanvasAction;
+export type AgentAction =
+  | AgentComposeAction
+  | AgentOpenSpaceAction
+  | AgentOpenCanvasAction;
 
 /**
- * The action is already validated by `mcpAppActionSchema`, which rejects a blank required field,
+ * The action is already validated by `agentActionSchema`, which rejects a blank required field,
  * so every branch can build a whole link. Keep that guarantee at the schema rather than returning
  * a partial link from here.
  */
-export function buildActionUrl(action: McpAppAction, scheme: string): string {
+export function buildActionUrl(action: AgentAction, scheme: string): string {
   switch (action.kind) {
     case "compose": {
       const prompt = `prompt=${encodeURIComponent(action.prompt)}`;

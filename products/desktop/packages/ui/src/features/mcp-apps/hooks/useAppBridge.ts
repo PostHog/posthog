@@ -12,14 +12,9 @@ import type {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { applyCspToHtml } from "@posthog/core/mcp-apps/csp";
-import {
-  type McpUiResource,
-  mcpAppActionSchema,
-} from "@posthog/core/mcp-apps/schemas";
-import type { McpAppAction } from "@posthog/shared";
+import type { McpUiResource } from "@posthog/core/mcp-apps/schemas";
 import { getAppViewSnapshot } from "@posthog/ui/router/useAppView";
 import { useCallback, useEffect, useRef } from "react";
-import { z } from "zod";
 import { logger } from "../../../shell/logger";
 import { useDraftStore } from "../../message-editor/draftStore";
 import type { ToolCall } from "../../sessions/types";
@@ -62,7 +57,6 @@ interface UseAppBridgeArgs {
     uri: string;
   }) => Promise<ReadResourceResult>;
   openLink: (args: { url: string }) => Promise<void>;
-  openAction: (args: { action: McpAppAction }) => Promise<boolean>;
 }
 
 interface UseAppBridgeReturn {
@@ -70,18 +64,6 @@ interface UseAppBridgeReturn {
 }
 
 const HOST_INFO = { name: "posthog-code", version: "1.0.0" };
-
-/**
- * A PostHog extension, not part of the MCP Apps spec: unlike the spec's
- * `ui/open-link` it carries a verb rather than a URL the sandbox picked, so the
- * host stays in charge of what a click can reach.
- */
-const OPEN_ACTION_METHOD = "posthog/open-action";
-
-const openActionRequestSchema = z.object({
-  method: z.literal(OPEN_ACTION_METHOD),
-  params: z.object({ action: mcpAppActionSchema }),
-});
 
 const HOST_CAPABILITIES: McpUiHostCapabilities = {
   openLinks: {},
@@ -218,11 +200,6 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
           await latestRef.current.openLink({ url: params.url });
           return {};
         };
-
-        bridge.setRequestHandler(openActionRequestSchema, async (request) => {
-          await latestRef.current.openAction({ action: request.params.action });
-          return {};
-        });
 
         // When an MCP App sends a ui/message, pre-fill the chat input
         // for the active task so the user can review before sending.

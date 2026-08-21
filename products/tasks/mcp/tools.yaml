@@ -12,10 +12,6 @@ ui_apps:
         type: custom
         app_name: PostHog Loop Review
         description: Review card for a loop before creation, with a Create loop action.
-    task-show-actions:
-        type: custom
-        app_name: PostHog Actions
-        description: Card of buttons that open a PostHog Desktop action the agent offered.
 tools:
     channel-create:
         operation: task_channels_create

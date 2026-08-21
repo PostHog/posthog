@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  type AgentAction,
   buildActionUrl,
   buildInboxDeeplink,
   buildLoopDeeplink,
@@ -7,7 +8,6 @@ import {
   decodePlanBase64,
   getDeeplinkProtocol,
   isPostHogCodeDeeplink,
-  type McpAppAction,
   parseGitHubIssueUrl,
 } from "./deep-links";
 
@@ -364,7 +364,7 @@ describe("buildActionUrl", () => {
   });
 
   describe("dev scheme", () => {
-    it.each<[string, McpAppAction, string]>([
+    it.each<[string, AgentAction, string]>([
       [
         "compose",
         { kind: "compose", prompt: "Do it" },

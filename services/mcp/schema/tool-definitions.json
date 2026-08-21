@@ -627,20 +627,6 @@
             "readOnlyHint": true
         }
     },
-    "task-show-actions": {
-        "description": "Show the user a card of clickable buttons in PostHog Desktop, so they can act on what you just told them without retyping it. Pass 1 to 4 actions. Each action is a typed verb, never a URL: there is no URL parameter and free-form URLs are not accepted.\n`compose` opens the new-task composer prefilled with `prompt` (and `repo` when given). The user reads, edits and sends it themselves, so it does NOT start a task and does NOT send anything on click.\n`open_space` opens a channel's feed. `open_canvas` opens a canvas inside a channel, and needs both `channel_id` and `canvas_id`.\nOffer only what the person actually wants to do next, in the order they would want it. Buttons that decorate an answer are noise, so skip the card entirely when there is nothing worth clicking.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "Show the user clickable actions in PostHog Desktop.",
-        "title": "Show actions",
-        "required_scopes": [],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true
-        }
-    },
     "external-data-sources-db-schema": {
         "description": "Validate credentials against a remote source and return the list of tables available to sync (works for database sources like Postgres/MySQL and SaaS sources like Stripe/Hubspot alike). Pass source_type and credential fields in the payload object. Each table entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks, detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.",
         "category": "Data warehouse",

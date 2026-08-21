@@ -8,17 +8,11 @@ import {
   McpAppsServiceEvent,
   mcpAppsSubscriptionInput,
   mcpUiResourceSchema,
-  openActionInput,
   openLinkInput,
   proxyResourceReadInput,
   proxyToolCallInput,
 } from "@posthog/core/mcp-apps/schemas";
 import { publicProcedure, router } from "@posthog/host-trpc/trpc";
-import {
-  DEEP_LINK_SERVICE,
-  type IDeepLinkRegistry,
-} from "@posthog/platform/deep-link";
-import { buildActionUrl } from "@posthog/shared";
 
 export const mcpAppsRouter = router({
   getUiResource: publicProcedure
@@ -76,17 +70,6 @@ export const mcpAppsRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.container.get<McpAppsService>(MCP_APPS_SERVICE).openLink(input.url),
     ),
-
-  // A verb rather than a URL, unlike openLink above, so a card supplied by any
-  // MCP server cannot pick where a click lands.
-  openAction: publicProcedure
-    .input(openActionInput)
-    .mutation(({ ctx, input }) => {
-      const deepLinks = ctx.container.get<IDeepLinkRegistry>(DEEP_LINK_SERVICE);
-      return deepLinks.handleUrl(
-        buildActionUrl(input.action, deepLinks.getProtocol()),
-      );
-    }),
 
   onToolInput: publicProcedure
     .input(mcpAppsSubscriptionInput)

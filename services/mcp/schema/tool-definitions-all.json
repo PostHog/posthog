@@ -10841,20 +10841,6 @@
             "readOnlyHint": false
         }
     },
-    "task-show-actions": {
-        "description": "Show the user a card of clickable buttons in PostHog Desktop, so they can act on what you just told them without retyping it. Pass 1 to 4 actions. Each action is a typed verb, never a URL: there is no URL parameter and free-form URLs are not accepted.\n`compose` opens the new-task composer prefilled with `prompt` (and `repo` when given). The user reads, edits and sends it themselves, so it does NOT start a task and does NOT send anything on click.\n`open_space` opens a channel's feed. `open_canvas` opens a canvas inside a channel, and needs both `channel_id` and `canvas_id`.\nOffer only what the person actually wants to do next, in the order they would want it. Buttons that decorate an answer are noise, so skip the card entirely when there is nothing worth clicking.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "Show the user clickable actions in PostHog Desktop.",
-        "title": "Show actions",
-        "required_scopes": [],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true
-        }
-    },
     "tasks-artifacts-list": {
         "description": "List the current PostHog Desktop task's artifacts and canvases. Use the returned artifact ids to filter tasks-comments-list when the user asks about comments on a specific artifact. The current task is fixed by the host and cannot be selected by the caller.",
         "category": "Tasks",
