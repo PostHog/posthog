@@ -75,6 +75,10 @@ def _unit(vec: list[float]) -> np.ndarray:
     return arr / np.linalg.norm(arr)
 
 
+def _snapshot_record(intent: str, tool: str, count: int) -> IntentRecord:
+    return IntentRecord(intent_text=intent, frequency=count, tool_counts={tool: count})
+
+
 # cluster_embeddings ------------------------------------------------------
 
 
@@ -257,6 +261,20 @@ class TestBuildSnapshot:
         snapshot = build_snapshot(records, labels, embeddings, distance_threshold=DEFAULT_DISTANCE_THRESHOLD)
 
         assert snapshot["clusters"][0]["label"] == "center"
+
+    def test_meta_marks_snapshot_as_sampled_not_population(self) -> None:
+        # The page presents per-tool numbers as if they were the population; the
+        # snapshot must carry the sampling/balance metadata so the UI can warn.
+        records = [_snapshot_record("i1", "exec", 3), _snapshot_record("i2", "query-apm-spans", 1)]
+        labels = np.array([0, 1], dtype=np.int64)
+        embeddings = np.array([_unit([1.0, 0.0]), _unit([0.0, 1.0])], dtype=np.float32)
+
+        snapshot = build_snapshot(records, labels, embeddings, calls_by_session={})
+
+        meta = snapshot["computed_with"]
+        assert meta["sampled"] is True
+        assert "corpus_strategy" in meta
+        assert "sampling_warning" in meta
 
     def test_misaligned_inputs_raise(self) -> None:
         records = [IntentRecord(intent_text="a", frequency=1, tool_counts={"tool_a": 1})]
@@ -478,6 +496,96 @@ class TestBuildCallCorpus:
         assert [r.intent_text for r in records] == ["popular", "middling"]
         assert stats.attributed_calls == 6
         assert stats.kept_calls == 5
+
+
+# stratified corpus ---------------------------------------------------------
+
+
+class TestStratifySessionIds:
+    """The uniform 0.5% session sample is what erases low/mid-volume tools (the
+    APM logs/tracing/metrics complaint). Stratifying the *session ids* before
+    the corpus SQL guarantees every tool keeps a floor of sessions, so no tool
+    is silently dropped from clustering just because exec/scout dominate."""
+
+    def test_every_tool_keeps_a_floor_of_sessions(self) -> None:
+        from products.mcp_analytics.backend.intent_clustering import stratify_session_ids
+
+        tool_sessions: dict[str, set[str]] = {
+            "exec": {f"exec-s{i}" for i in range(2000)},
+            "query-apm-spans": {f"apm-s{i}" for i in range(30)},
+        }
+        union = set().union(*tool_sessions.values())
+
+        selected = stratify_session_ids(tool_sessions, min_sessions_per_tool=400, max_total_sessions=2000)
+
+        # The 30-session APM tool must survive even though a uniform sample of
+        # ~2000/2030 will statistically drop most of them.
+        assert {sid for sid in selected if sid.startswith("apm-s")} == set(tool_sessions["query-apm-spans"])
+        assert selected.issubset(union)
+
+    def test_total_respects_max_total_sessions(self) -> None:
+        from products.mcp_analytics.backend.intent_clustering import stratify_session_ids
+
+        tool_sessions = {
+            f"tool_{t}": {f"tool_{t}-s{i}" for i in range(600)} for t in range(10)
+        }
+
+        selected = stratify_session_ids(tool_sessions, min_sessions_per_tool=400, max_total_sessions=2000)
+
+        assert len(selected) <= 2000
+
+    def test_selection_is_deterministic(self) -> None:
+        from products.mcp_analytics.backend.intent_clustering import stratify_session_ids
+
+        tool_sessions = {f"tool_{t}": {f"tool_{t}-s{i}" for i in range(50)} for t in range(5)}
+
+        first = stratify_session_ids(tool_sessions, min_sessions_per_tool=20, max_total_sessions=80)
+        second = stratify_session_ids(tool_sessions, min_sessions_per_tool=20, max_total_sessions=80)
+
+        assert first == second
+
+    def test_scarce_tool_is_kept_entirely(self) -> None:
+        from products.mcp_analytics.backend.intent_clustering import stratify_session_ids
+
+        tool_sessions = {"query-metrics": {f"m-s{i}" for i in range(4)}, "exec": {f"e-s{i}" for i in range(3000)}}
+
+        selected = stratify_session_ids(tool_sessions, min_sessions_per_tool=400, max_total_sessions=2000)
+
+        assert {sid for sid in selected if sid.startswith("m-s")} == tool_sessions["query-metrics"]
+
+
+class TestCapPerToolCallVolume:
+    """After sampling, a single high-volume tool (exec) must not be allowed to
+    occupy the whole intent corpus; cap its attributed calls so mid/low tools
+    retain enough signal to cluster."""
+
+    def test_caps_overrepresented_tool_and_reports_it(self) -> None:
+        from products.mcp_analytics.backend.intent_clustering import cap_per_tool_call_volume
+
+        rows = (
+            [("s1", "exec", "operate", False)] * 100
+            + [("s2", "query-logs", "tail logs", False)] * 2
+        )
+
+        capped_rows, per_tool = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
+
+        per_tool_count = {}
+        for _, tool, _, _ in capped_rows:
+            per_tool_count[tool] = per_tool_count.get(tool, 0) + 1
+        assert per_tool_count["exec"] <= 10
+        # low-volume tool is untouched
+        assert per_tool_count["query-logs"] == 2
+        assert per_tool["exec"]["dropped"] >= 90
+
+    def test_deterministic_about_which_calls_survive(self) -> None:
+        from products.mcp_analytics.backend.intent_clustering import cap_per_tool_call_volume
+
+        rows = [("s1", "exec", f"op {i}", False) for i in range(50)]
+
+        first, _ = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
+        second, _ = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
+
+        assert first == second
 
 
 # compute_cluster_flows ----------------------------------------------------

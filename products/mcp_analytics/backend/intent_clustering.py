@@ -148,10 +148,23 @@ class WindowStats:
 
 # Intent corpus -----------------------------------------------------------
 
-# Bound on sessions sampled from ClickHouse for the corpus. Keeps the IN-tuple
-# in the per-session queries below at a sane size; a larger sample mostly adds
-# long-tail singleton intents past DEFAULT_TOP_N_INTENTS anyway.
-MAX_CORPUS_SESSIONS = 2000
+# Bound on sessions sampled from ClickHouse for the corpus. Raised alongside
+# stratified sampling: with per-tool floors, a larger pool means each tool can
+# actually reach its floor, and the per-tool call cap (below) stops the extra
+# sessions from belonging only to the dominant tool. The IN-tuple stays sane
+# because per-session queries chunk the ids.
+MAX_CORPUS_SESSIONS = 6000
+
+# Each tool keeps at least this many sessions in the corpus, so a low/mid-volume
+# tool (logs/tracing/metrics) survives sampling instead of being erased by the
+# dominant exec/scout traffic. ~400 is the statistical floor for reading a
+# discovery/capture rate to ±5%.
+MIN_SESSIONS_PER_TOOL = 400
+
+# No tool may contribute more than this many attributed calls to the corpus.
+# Stops one dominant tool from occupying the entire intent space; the freed
+# budget is what lets mid/low tools cluster into real themes rather than noise.
+MAX_CALLS_PER_TOOL = 1500
 
 # execute_hogql_query injects LIMIT 100 into any query without an explicit
 # LIMIT — far below what the per-session queries return at production scale
@@ -413,6 +426,133 @@ def fetch_window_stats(team: Team, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -
         calls_with_intent=int(row[1] or 0),
         sessions=int(row[2] or 0),
     )
+
+
+# Sessions that recorded at least one intent, with the set of effective tools
+# each session used, bucketed per tool. This is the input to stratified
+# sampling: choosing session ids per tool rather than uniformly across the
+# window. Without the per-tool bucket, a uniform sample of a dominant-tool
+# window silently erases every low/mid-volume tool (logs/tracing/metrics).
+_SESSION_TOOLS_SQL = """
+SELECT
+    $session_id AS session_id,
+    left({tool_expr}, {max_tool_len}) AS tool
+FROM events
+WHERE event = {event}
+    AND timestamp >= now() - INTERVAL {lookback_days} DAY
+    AND $session_id != ''
+    AND notEmpty({tool_expr_where})
+GROUP BY session_id, tool
+LIMIT {max_rows}
+"""
+
+
+def fetch_tools_by_session(
+    team: Team,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+) -> dict[str, set[str]]:
+    """Return ``{tool: {session_ids}}`` for the sampling window.
+
+    Only sessions that recorded at least one intent are eligible for the
+    corpus, so this is filtered the same way as ``sample_corpus_sessions`` and
+    the caller intersects with the intent-bearing sample. Keyed by tool so the
+    stratifier can guarantee per-tool floors.
+    """
+    query = parse_select(
+        _SESSION_TOOLS_SQL,
+        placeholders={
+            "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "tool_expr": parse_expr(EFFECTIVE_TOOL_SQL),
+            "tool_expr_where": parse_expr(EFFECTIVE_TOOL_SQL),
+            "lookback_days": ast.Constant(value=lookback_days),
+            "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
+            "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
+        },
+    )
+    out: dict[str, set[str]] = defaultdict(set)
+    for row in _run_corpus_query(team, query):
+        session_id, tool = str(row[0] or ""), str(row[1] or "")
+        if session_id and tool:
+            out[tool].add(session_id)
+    return dict(out)
+
+
+def stratify_session_ids(
+    tool_sessions: dict[str, set[str]],
+    min_sessions_per_tool: int,
+    max_total_sessions: int,
+) -> set[str]:
+    """Choose corpus sessions so no tool is erased by the dominant tools.
+
+    The prior uniform sample drew sessions proportionally to traffic, so in a
+    window where ``exec``/scout dominate, a low/mid-volume tool's handful of
+    sessions is statistically dropped and the tool becomes invisible to
+    clustering. This guarantees each tool keeps up to ``min_sessions_per_tool``
+    sessions (its full set when smaller), then fills any remaining budget with
+    the highest-volume tools, capped at ``max_total_sessions``.
+
+    Deterministic: per-tool session ids take the cityHash-style prefix of a
+    sorted order, so reruns re-hit the embedding cache.
+    """
+    selected: set[str] = set()
+    # Tools ordered by ascending volume so scarce tools secure their floor before
+    # dominant tools consume the shared budget.
+    for tool in sorted(tool_sessions, key=lambda t: (len(tool_sessions[t]), t)):
+        sessions = sorted(tool_sessions[tool])
+        floor = sessions[:min_sessions_per_tool]
+        selected.update(floor)
+        if len(selected) >= max_total_sessions:
+            break
+
+    if len(selected) <= max_total_sessions:
+        return selected
+
+    # Over budget: trim the largest tools' contribution back toward the floor,
+    # never below it, until the total fits. Deterministic about which ids drop.
+    over = len(selected) - max_total_sessions
+    for tool in sorted(tool_sessions, key=lambda t: (-len(tool_sessions[t]), t)):
+        if over <= 0:
+            break
+        contributed = sorted(tool_sessions[tool])
+        droppable = [sid for sid in contributed if sid in selected][min_sessions_per_tool:]
+        for sid in droppable[:over]:
+            selected.discard(sid)
+            over -= 1
+    return selected
+
+
+def cap_per_tool_call_volume(
+    rows: list[tuple[str, str, str, bool]],
+    max_calls_per_tool: int,
+) -> tuple[list[tuple[str, str, str, bool]], dict[str, dict[str, int]]]:
+    """Down-sample an over-represented tool's raw call rows before attribution.
+
+    Row-level (pre-attribution) so intents and LOCF see the capped population.
+    Deterministic: keeps an even stride across the tool's rows so the surviving
+    calls still span the tool's whole session/intent range rather than a prefix.
+    Returns ``(kept_rows, per_tool_report)`` where each over-capped tool reports
+    how many calls were ``kept`` vs ``dropped``.
+    """
+    tool_row_indexes: dict[str, list[int]] = defaultdict(list)
+    for idx, (_, tool, _, _) in enumerate(rows):
+        tool_row_indexes[tool].append(idx)
+
+    keep_indexes: set[int] = set()
+    report: dict[str, dict[str, int]] = {}
+    for tool, indexes in tool_row_indexes.items():
+        total = len(indexes)
+        if total <= max_calls_per_tool:
+            keep_indexes.update(indexes)
+            continue
+        # Even stride keeps breadth across the tool's calls.
+        stride = total / max_calls_per_tool
+        kept_positions = {int(i * stride) for i in range(max_calls_per_tool)}
+        kept = {indexes[pos] for pos in kept_positions}
+        keep_indexes.update(kept)
+        report[tool] = {"kept": len(kept), "dropped": total - len(kept)}
+
+    kept_rows = [row for idx, row in enumerate(rows) if idx in keep_indexes]
+    return kept_rows, report
 
 
 def fetch_tool_descriptions(
@@ -1170,6 +1310,16 @@ def build_snapshot(
         "dropped_tools": dropped_tools,
         "dropped_overlap_pairs": dropped_pairs,
         "description_coverage_pct": _pct(described_tools, len(tools)) if tools else None,
+        # Representation honesty: these per-tool numbers come from a *balanced
+        # sample*, never the population. Downstream surfaces must warn before
+        # treating a tool's capture/discovery rate as its true traffic share.
+        "sampled": True,
+        "corpus_strategy": "stratified_by_tool",
+        "sampling_warning": (
+            "Intent clusters are computed from a stratified sample of sessions "
+            "(per-tool floors, dominant tools capped). Per-tool capture and "
+            "discovery rates are sample statistics, not population totals."
+        ),
     }
 
     return {
@@ -1222,5 +1372,12 @@ def empty_snapshot(
             "dropped_tools": 0,
             "dropped_overlap_pairs": 0,
             "description_coverage_pct": None,
+            "sampled": True,
+            "corpus_strategy": "stratified_by_tool",
+            "sampling_warning": (
+                "Intent clusters are computed from a stratified sample of sessions "
+                "(per-tool floors, dominant tools capped). Per-tool capture and "
+                "discovery rates are sample statistics, not population totals."
+            ),
         },
     }

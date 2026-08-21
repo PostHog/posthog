@@ -109,12 +109,48 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
             snapshot = await _mark_computing(team, user)
 
             try:
-                session_ids = await database_sync_to_async(intent_clustering.sample_corpus_sessions)(
-                    team, lookback_days=inputs.lookback_days
+                # Stratified sampling: fetch per-tool session buckets and choose
+                # corpus session ids so every tool keeps a floor, instead of a
+                # uniform sample that erases low/mid-volume tools (logs/tracing/
+                # metrics). Falls back to the uniform sample when per-tool data
+                # is unavailable so a schema/capture gap never blocks a run.
+                intent_session_ids = await database_sync_to_async(intent_clustering.sample_corpus_sessions)(
+                    team, lookback_days=inputs.lookback_days, max_sessions=intent_clustering.MAX_CORPUS_SESSIONS
                 )
+                try:
+                    tools_by_session = await database_sync_to_async(intent_clustering.fetch_tools_by_session)(
+                        team, lookback_days=inputs.lookback_days
+                    )
+                except Exception:
+                    logger.warning(
+                        "mcpa.intent_clustering.tool_buckets_unavailable_falling_back_to_uniform",
+                        team_id=inputs.team_id,
+                    )
+                    session_ids = intent_session_ids
+                else:
+                    eligible = set(intent_session_ids)
+                    stratified = intent_clustering.stratify_session_ids(
+                        {tool: sids & eligible for tool, sids in tools_by_session.items()},
+                        min_sessions_per_tool=intent_clustering.MIN_SESSIONS_PER_TOOL,
+                        max_total_sessions=intent_clustering.MAX_CORPUS_SESSIONS,
+                    )
+                    # Keep the intent-bearing sessions the stratifier selected, in a
+                    # stable order for the downstream IN-tuple queries.
+                    session_ids = sorted(stratified) or intent_session_ids
+
                 call_rows = await database_sync_to_async(intent_clustering.fetch_session_calls)(
                     team, session_ids, lookback_days=inputs.lookback_days
                 )
+                # Cap dominant tools so they can't occupy the whole intent corpus.
+                call_rows, per_tool_cap_report = intent_clustering.cap_per_tool_call_volume(
+                    call_rows, max_calls_per_tool=intent_clustering.MAX_CALLS_PER_TOOL
+                )
+                if per_tool_cap_report:
+                    logger.info(
+                        "mcpa.intent_clustering.capped_overrepresented_tools",
+                        team_id=inputs.team_id,
+                        per_tool=per_tool_cap_report,
+                    )
                 records, calls_by_session, corpus_stats = intent_clustering.build_call_corpus(
                     call_rows, top_n=inputs.top_n
                 )
