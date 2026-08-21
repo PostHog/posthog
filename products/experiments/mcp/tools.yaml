@@ -100,37 +100,6 @@ tools:
             Optionally pass exposure_rate_per_day (expected exposures per day across all variants) to also get
             recommended_running_time_days. The response returns baseline_value, variance (null for funnels),
             recommended_sample_size (total across variants), and recommended_running_time_days.
-    experiment-cleanup-task:
-        operation: experiments_flag_cleanup_task_retrieve
-        enabled: true
-        scopes:
-            - experiment:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Get flag cleanup task status
-        description: >
-            Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
-
-
-            Status of the flag cleanup task opened when this experiment was ended or shipped with open_cleanup_pr=true.
-            Returns run_status, is_terminal, and pr_url: the draft pull request that removes the experiment's feature
-            flag code, null until the task opens it. A cleanup typically takes several minutes; poll until is_terminal
-            is true rather than assuming failure. A terminal run without a pr_url means the task found no flag
-            references to remove, or it failed.
-
-
-            Returns 404 when no cleanup task was opened for this experiment.
-        param_overrides:
-            id:
-                cast: string-int
-        feature_flag: experiment-flag-cleanup-pr
-        response:
-            exclude:
-                - can_view_task
     experiment-copy-to-project:
         operation: experiments_copy_to_project_create
         enabled: true
@@ -415,8 +384,6 @@ tools:
             Optional flag cleanup: pass open_cleanup_pr=true to also open a draft pull request that removes the
             experiment's feature flag code from the team's connected repository. Only offer this when the user asks for
             it or confirms it. Track progress with experiment-cleanup-task.
-        exclude_params:
-            - set_repository_as_team_default
         param_overrides:
             id:
                 cast: string-int
@@ -428,10 +395,42 @@ tools:
             repository:
                 description: >
                     Repository the cleanup pull request targets, as "organization/repository". Must be connected to the
-                    team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default,
-                    or the team's only connected repository. When several repositories are connected and no default is
-                    set, the cleanup is skipped unless this is provided.
+                    team's GitHub integration. Omit to fall back to the experiment's saved repository, the team
+                    default, or the team's only connected repository. When several repositories are connected and no
+                    default is set, the cleanup is skipped unless this is provided.
+        exclude_params:
+            - set_repository_as_team_default
         ui_app: experiment
+    experiment-cleanup-task:
+        operation: experiments_flag_cleanup_task_retrieve
+        enabled: true
+        feature_flag: experiment-flag-cleanup-pr
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get flag cleanup task status
+        description: >
+            Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            Status of the flag cleanup task opened when this experiment was ended or shipped with open_cleanup_pr=true.
+            Returns run_status, is_terminal, and pr_url: the draft pull request that removes the experiment's feature
+            flag code, null until the task opens it. A cleanup typically takes several minutes; poll until is_terminal
+            is true rather than assuming failure. A terminal run without a pr_url means the task found no flag
+            references to remove, or it failed.
+
+
+            Returns 404 when no cleanup task was opened for this experiment.
+        param_overrides:
+            id:
+                cast: string-int
+        response:
+            exclude:
+                - can_view_task
     experiment-freeze-exposure:
         operation: experiments_freeze_exposure_create
         enabled: true
@@ -1147,8 +1146,6 @@ tools:
             Optional flag cleanup: pass open_cleanup_pr=true to also open a draft pull request that removes the
             experiment's feature flag code, keeping the shipped variant's code path. Only offer this when the user asks
             for it or confirms it. Track progress with experiment-cleanup-task.
-        exclude_params:
-            - set_repository_as_team_default
         param_overrides:
             id:
                 cast: string-int
@@ -1156,14 +1153,16 @@ tools:
                 description: >
                     When true, a background PostHog Code task removes the experiment's feature flag code, keeping the
                     shipped variant's code path, and opens a draft pull request. Only works for teams with the flag
-                    cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask
-                    the user before setting this.
+                    cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope.
+                    Ask the user before setting this.
             repository:
                 description: >
                     Repository the cleanup pull request targets, as "organization/repository". Must be connected to the
-                    team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default,
-                    or the team's only connected repository. When several repositories are connected and no default is
-                    set, the cleanup is skipped unless this is provided.
+                    team's GitHub integration. Omit to fall back to the experiment's saved repository, the team
+                    default, or the team's only connected repository. When several repositories are connected and no
+                    default is set, the cleanup is skipped unless this is provided.
+        exclude_params:
+            - set_repository_as_team_default
         ui_app: experiment
     experiment-stats:
         operation: experiments_stats_retrieve
