@@ -120,6 +120,7 @@ from django.core.management.base import BaseCommand, CommandError
 import psycopg
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.persons_db import persons_db_connection, persons_db_url
 
 logger = structlog.get_logger(__name__)
@@ -248,13 +249,20 @@ ORDER BY uuid
 _UUID_SPACE = 1 << 128
 
 
-def _uuid_slices(count: int) -> Iterator[tuple[UUID, UUID]]:
-    """Contiguous, non-overlapping halves of the uuid space, covering all of it."""
+@frozen
+class UuidSlice:
+    """A closed range of the uuid space. SLICE_UUIDS_SQL matches both ends."""
+
+    first: UUID
+    last: UUID
+
+
+def _uuid_slices(count: int) -> Iterator[UuidSlice]:
+    """Contiguous, non-overlapping ranges covering the whole uuid space."""
     step = _UUID_SPACE // count
     for index in range(count):
-        lo = index * step
-        hi = _UUID_SPACE - 1 if index == count - 1 else (index + 1) * step - 1
-        yield UUID(int=lo), UUID(int=hi)
+        last = _UUID_SPACE - 1 if index == count - 1 else (index + 1) * step - 1
+        yield UuidSlice(first=UUID(int=index * step), last=UUID(int=last))
 
 
 def _sql(tail: str, *, paged: bool) -> str:
@@ -289,8 +297,9 @@ def _census_pages(conn: psycopg.Connection, team: int, slices: int, *, pid: int)
     if slices <= 1:
         yield {"team": team}
         return
-    for index, (lo, hi) in enumerate(_uuid_slices(slices), start=1):
-        rows = _read_in_txn(conn, SLICE_UUIDS_SQL, {"team": team, "lo": lo, "hi": hi}, step="slice_uuids")
+    for index, uuid_slice in enumerate(_uuid_slices(slices), start=1):
+        params = {"team": team, "lo": uuid_slice.first, "hi": uuid_slice.last}
+        rows = _read_in_txn(conn, SLICE_UUIDS_SQL, params, step="slice_uuids")
         if not rows:
             continue
         uuids = [row[0] for row in rows]
@@ -628,17 +637,27 @@ def _scalar(conn: psycopg.Connection, sql: str, params: dict | None = None) -> i
     return int(row[0]) if row else 0
 
 
-def _gates(conn: psycopg.Connection) -> tuple[int, int, int]:
-    """Reachable victims, groups that would be emptied, groups that would lose their survivor.
+@frozen
+class GateViolations:
+    """What each safety gate objects to in this batch. All zero means safe to delete."""
 
-    A missing row raises rather than reading as zero, because zero here means "safe to delete".
-    """
+    reachable_victims: int
+    groups_left_empty: int
+    groups_losing_reachable_row: int
+
+
+def _gates(conn: psycopg.Connection) -> GateViolations:
+    """A missing row raises rather than reading as zero, because zero means "safe to delete"."""
     with conn.cursor() as cur:
         cur.execute(GATES_SQL)
         row = cur.fetchone()
     if row is None:
         raise CommandError("gate query returned no row; refusing to delete")
-    return int(row[0]), int(row[1]), int(row[2])
+    return GateViolations(
+        reachable_victims=int(row[0]),
+        groups_left_empty=int(row[1]),
+        groups_losing_reachable_row=int(row[2]),
+    )
 
 
 def _verify_failures(*, resolvable: int, orphans: int, require_no_orphans: bool) -> list[str]:
@@ -1156,15 +1175,16 @@ class Command(BaseCommand):
                 break
             batches += 1
 
-            reachable, no_survivor, wrong_survivor = _gates(conn)
+            gates = _gates(conn)
             # Not prunable and never a race: staging cannot produce this, so reaching it means
             # the survivor rule and the reachability rule disagree for this data.
-            if wrong_survivor:
+            if gates.groups_losing_reachable_row:
                 raise CommandError(
-                    f"team {team}: {wrong_survivor} group(s) would lose their only reachable row. "
-                    f"The survivor rule is wrong for this data. {deleted} row(s) already deleted."
+                    f"team {team}: {gates.groups_losing_reachable_row} group(s) would lose their "
+                    f"only reachable row. The survivor rule is wrong for this data. {deleted} "
+                    f"row(s) already deleted."
                 )
-            if reachable or no_survivor:
+            if gates.reachable_victims or gates.groups_left_empty:
                 # A writer got here first, or the staged set came from a checkpoint written before
                 # one did. Drop those victims rather than the run, the same way the
                 # in-transaction gate does.
@@ -1173,8 +1193,8 @@ class Command(BaseCommand):
                     team_id=team,
                     batch=batches,
                     gate="pre-flight",
-                    reachable=reachable,
-                    would_empty=no_survivor,
+                    reachable=gates.reachable_victims,
+                    would_empty=gates.groups_left_empty,
                 )
                 pruned_total = self._absorb_raced_batch(
                     conn,
@@ -1182,7 +1202,8 @@ class Command(BaseCommand):
                     deleted=deleted,
                     pruned_total=pruned_total,
                     prune_budget=prune_budget,
-                    detail=f"pre-flight gate failed for team {team} (reachable {reachable}, would empty {no_survivor})",
+                    detail=f"pre-flight gate failed for team {team} (reachable "
+                    f"{gates.reachable_victims}, would empty {gates.groups_left_empty})",
                 )
                 continue
 
@@ -1214,17 +1235,17 @@ class Command(BaseCommand):
                     locked = cur.rowcount
                     # Re-check inside the transaction: these teams still receive writes, and a
                     # concurrent insert could have made a victim reachable since the pre-flight.
-                    now_reachable, now_emptied, now_wrong_survivor = _gates(conn)
+                    now = _gates(conn)
                     # Not prunable, and never a race: staging cannot produce this, so reaching it
                     # means the survivor rule and the reachability rule disagree. Stop the team.
-                    if now_wrong_survivor:
+                    if now.groups_losing_reachable_row:
                         cur.execute("ROLLBACK")
                         raise CommandError(
-                            f"team {team}: {now_wrong_survivor} group(s) would lose their only "
-                            f"reachable row. This is not a concurrent-writer race; the survivor "
-                            f"rule is wrong for this data. {deleted} row(s) already deleted."
+                            f"team {team}: {now.groups_losing_reachable_row} group(s) would lose "
+                            f"their only reachable row. This is not a concurrent-writer race; the "
+                            f"survivor rule is wrong for this data. {deleted} row(s) already deleted."
                         )
-                    if locked != in_batch or now_reachable or now_emptied:
+                    if locked != in_batch or now.reachable_victims or now.groups_left_empty:
                         cur.execute("ROLLBACK")
                         logger.warning(
                             "persons_dedup.batch_raced",
@@ -1233,8 +1254,8 @@ class Command(BaseCommand):
                             gate="in-transaction",
                             locked=locked,
                             staged=in_batch,
-                            reachable=now_reachable,
-                            would_empty=now_emptied,
+                            reachable=now.reachable_victims,
+                            would_empty=now.groups_left_empty,
                         )
                         pruned_total = self._absorb_raced_batch(
                             conn,
@@ -1243,7 +1264,8 @@ class Command(BaseCommand):
                             pruned_total=pruned_total,
                             prune_budget=prune_budget,
                             detail=f"in-transaction gate failed for team {team} (locked "
-                            f"{locked}/{in_batch}, reachable {now_reachable}, would empty {now_emptied})",
+                            f"{locked}/{in_batch}, reachable {now.reachable_victims}, would empty "
+                            f"{now.groups_left_empty})",
                         )
                         continue
 
