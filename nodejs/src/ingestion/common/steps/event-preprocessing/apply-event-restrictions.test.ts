@@ -20,8 +20,9 @@ describe('createApplyEventRestrictionsStep', () => {
             getAppliedRestrictions: jest.fn().mockReturnValue(new Set()),
         } as unknown as EventIngestionRestrictionManager
 
-        // personProcessingWritesPersons is left unset so these cases exercise
-        // the default (true), which is what the person-writing pipelines rely on.
+        // personProcessingWritesPersons is left unset so the shared config
+        // exercises the default (true) that the person-writing pipelines rely on.
+        // The locality table sets it per case.
         routingConfig = {
             preservePartitionLocality: true,
             overflowMode: 'redirect',
@@ -191,158 +192,49 @@ describe('createApplyEventRestrictionsStep', () => {
             )
         })
 
-        it('partition locality: config=true, skipPerson=false -> preserves locality', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                }),
-            }
+        // The force-overflow redirect keeps the partition key only when person
+        // processing is on AND the pipeline writes persons, because that is the
+        // only case where a spread key could put two writers on one person row.
+        // Every other case follows preservePartitionLocality.
+        it.each([
+            { config: true, skipPerson: false, writesPersons: undefined, expected: true },
+            { config: false, skipPerson: false, writesPersons: undefined, expected: true },
+            { config: true, skipPerson: true, writesPersons: undefined, expected: true },
+            { config: false, skipPerson: true, writesPersons: undefined, expected: false },
+            { config: true, skipPerson: false, writesPersons: false, expected: true },
+            { config: false, skipPerson: false, writesPersons: false, expected: false },
+        ])(
+            'partition locality: config=$config, skipPerson=$skipPerson, writesPersons=$writesPersons -> preserveKey=$expected',
+            async ({ config, skipPerson, writesPersons, expected }) => {
+                const localityStep = createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                    ...routingConfig,
+                    preservePartitionLocality: config,
+                    personProcessingWritesPersons: writesPersons,
+                })
 
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
-            )
-
-            const result = await step(input)
-
-            expect(result).toEqual(
-                redirect(
-                    'Event redirected to overflow due to force overflow restrictions',
-                    OVERFLOW_OUTPUT,
-                    true,
-                    false
+                jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                    skipPerson
+                        ? new Set([Restriction.FORCE_OVERFLOW, Restriction.SKIP_PERSON_PROCESSING])
+                        : new Set([Restriction.FORCE_OVERFLOW])
                 )
-            )
-        })
 
-        it('partition locality: config=false, skipPerson=false -> preserves locality', async () => {
-            const configWithNoLocality: RoutingConfig = {
-                ...routingConfig,
-                preservePartitionLocality: false,
-            }
-            const stepWithNoLocality = createApplyEventRestrictionsStep(
-                eventIngestionRestrictionManager,
-                configWithNoLocality
-            )
+                const input = {
+                    message: {} as any,
+                    headers: createTestEventHeaders({ token: 'test-token', distinct_id: 'test-user' }),
+                }
 
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                }),
-            }
+                const result = await localityStep(input)
 
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
-            )
-
-            const result = await stepWithNoLocality(input)
-
-            expect(result).toEqual(
-                redirect(
-                    'Event redirected to overflow due to force overflow restrictions',
-                    OVERFLOW_OUTPUT,
-                    true, // Person writes default on and person processing not skipped, so locality wins over the config
-                    false
+                expect(result).toEqual(
+                    redirect(
+                        'Event redirected to overflow due to force overflow restrictions',
+                        OVERFLOW_OUTPUT,
+                        expected,
+                        false
+                    )
                 )
-            )
-        })
-
-        it('partition locality: config=true, skipPerson=true -> preserves locality', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                }),
             }
-
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW, Restriction.SKIP_PERSON_PROCESSING])
-            )
-
-            const result = await step(input)
-
-            expect(result).toEqual(
-                redirect(
-                    'Event redirected to overflow due to force overflow restrictions',
-                    OVERFLOW_OUTPUT,
-                    true, // Uses config value
-                    false
-                )
-            )
-        })
-
-        it('partition locality: config=false, skipPerson=true -> does not preserve locality', async () => {
-            const configWithNoLocality: RoutingConfig = {
-                ...routingConfig,
-                preservePartitionLocality: false,
-            }
-            const stepWithNoLocality = createApplyEventRestrictionsStep(
-                eventIngestionRestrictionManager,
-                configWithNoLocality
-            )
-
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                }),
-            }
-
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW, Restriction.SKIP_PERSON_PROCESSING])
-            )
-
-            const result = await stepWithNoLocality(input)
-
-            expect(result).toEqual(
-                redirect(
-                    'Event redirected to overflow due to force overflow restrictions',
-                    OVERFLOW_OUTPUT,
-                    false, // Uses config value
-                    false
-                )
-            )
-        })
-
-        it('partition locality: personProcessingWritesPersons=false, config=false, skipPerson=false -> does not preserve locality', async () => {
-            const readOnlyPersonConfig: RoutingConfig = {
-                ...routingConfig,
-                preservePartitionLocality: false,
-                personProcessingWritesPersons: false,
-            }
-            const readOnlyPersonStep = createApplyEventRestrictionsStep(
-                eventIngestionRestrictionManager,
-                readOnlyPersonConfig
-            )
-
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                }),
-            }
-
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
-            )
-
-            const result = await readOnlyPersonStep(input)
-
-            expect(result).toEqual(
-                redirect(
-                    'Event redirected to overflow due to force overflow restrictions',
-                    OVERFLOW_OUTPUT,
-                    false, // Uses config value: no person writes to protect
-                    false
-                )
-            )
-        })
+        )
 
         it('returns success when overflow is disabled', async () => {
             const disabledConfig: RoutingConfig = {
