@@ -161,8 +161,9 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     def _person_query(self) -> ast.SelectQuery:
         # Deliberately approximate: the deduplicating `persons` table pays a full argMax
         # GROUP BY over every person row before anything else runs (30s on large teams).
-        # Autocomplete instead samples 100k raw rows and discounts ids with a tombstone,
-        # trading staleness for latency.
+        # Autocomplete instead samples 100k raw rows and discounts ids with a tombstone.
+        # Deletion hiding is best-effort: a tombstone only cancels the values it carries
+        # itself, so values from versions written before the deletion still appear.
         if self.query.search_value:
             inner_where = parse_expr(
                 "value ILIKE {pattern}",
