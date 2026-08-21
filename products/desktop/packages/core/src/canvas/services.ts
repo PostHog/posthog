@@ -50,6 +50,7 @@ export interface IDashboardsService {
   }): Promise<DashboardRecord>;
   // Get-or-create the caller's home grid canvas. Idempotent.
   home(): Promise<DashboardRecord>;
+  setHome(id: string): Promise<DashboardRecord>;
   // Read a grid canvas's layout (the head, or a historical version).
   getLayout(input: {
     id: string;

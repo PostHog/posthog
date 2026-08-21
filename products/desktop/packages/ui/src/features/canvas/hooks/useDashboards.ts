@@ -196,6 +196,13 @@ export function useDashboardMutations() {
   const setPinned = useMutation(
     trpc.dashboards.setPinned.mutationOptions({ onSuccess: invalidate }),
   );
+  const setHome = useMutation(
+    trpc.dashboards.setHome.mutationOptions({
+      onSuccess: (home) => {
+        queryClient.setQueryData(trpc.dashboards.home.queryKey(), home);
+      },
+    }),
+  );
 
   return {
     // Refresh the canvas queries after a mutation that didn't go through this
@@ -232,6 +239,7 @@ export function useDashboardMutations() {
     // shows in the channel's Pinned menu for every member.
     setPinned: (id: string, pinned: boolean) =>
       setPinned.mutateAsync({ id, pinned }),
+    setHome: (id: string) => setHome.mutateAsync({ id }),
     isCreating: create.isPending,
     isDeleting: remove.isPending,
     isSavingContext: saveContext.isPending,

@@ -1266,6 +1266,29 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._report_canvas_action("canvas home provisioned", canvas)
         return Response(CanvasSerializer(canvas).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        operation_id="canvases_set_home_create",
+        request=None,
+        responses={
+            200: OpenApiResponse(response=CanvasSerializer, description="The caller's new home canvas."),
+            403: OpenApiResponse(description="Home is a viewer surface; sandbox tokens cannot change it."),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="set-home")
+    def set_home(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Set this canvas as the caller's home canvas."""
+        user = self._request_user()
+        if user is None or self._is_sandbox_authenticated(request):
+            return Response(
+                {"detail": "Home is a viewer surface; sandbox tokens cannot change it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        canvas = self.get_object()
+        CanvasHomePreference.objects.for_team(self.team_id).update_or_create(
+            team_id=self.team_id, user=user, defaults={"canvas": canvas}
+        )
+        return Response(CanvasSerializer(canvas).data)
+
     def _lock_home_provisioning(self, user_id: int) -> None:
         """Serialize home provisioning for one user inside the current transaction.
 

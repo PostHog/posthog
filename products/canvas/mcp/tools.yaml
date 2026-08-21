@@ -345,6 +345,9 @@ tools:
     canvases-revert-create:
         operation: canvases_revert_create
         enabled: false
+    canvases-set-home-create:
+        operation: canvases_set_home_create
+        enabled: false
     canvases-state-retrieve:
         operation: canvases_state_retrieve
         enabled: false

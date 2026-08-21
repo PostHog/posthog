@@ -55,6 +55,7 @@ const actions = {
   setPinned: () => {},
   archive: () => {},
   remove: () => {},
+  setHome: () => {},
 };
 
 function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
@@ -456,7 +457,8 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "All caught up" })).toBeNull();
   });
 
-  it("gives a canvas the actions it has: pin and delete, not archive or filing", async () => {
+  it("gives a canvas its home, pin, and delete actions", async () => {
+    const setHome = vi.fn();
     const canvas = item({
       key: "canvas:c1",
       kind: "canvas",
@@ -464,7 +466,11 @@ describe("ChannelItemRow", () => {
       title: "Web analytics overview",
     });
     renderInList(
-      <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
+      <ChannelItemRow
+        actions={{ ...actions, setHome }}
+        isActive={false}
+        item={canvas}
+      />,
     );
 
     await userEvent.hover(screen.getByText("Web analytics overview"));
@@ -472,6 +478,13 @@ describe("ChannelItemRow", () => {
     expect(
       await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 }),
     ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Set as home tab" }),
+    ).not.toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Set as home tab" }),
+    );
+    expect(setHome).toHaveBeenCalledWith(canvas);
     expect(screen.getByRole("button", { name: "Delete…" })).not.toBeNull();
     // A canvas can't be archived, filed to a space, or given a command-centre
     // cell, so those items aren't drawn at all rather than drawn dead.

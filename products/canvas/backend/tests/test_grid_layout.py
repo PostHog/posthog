@@ -403,6 +403,20 @@ class TestHomeProvisioning(GridLayoutAPIBaseTest):
         assert replacement.status_code == status.HTTP_201_CREATED
         assert replacement.json()["id"] != first.json()["id"]
 
+    def test_existing_canvas_can_be_set_as_home(self):
+        original = self._home()
+        replacement_id = self._create_grid()
+
+        selected = self.client.post(f"/api/projects/{self.team.id}/canvases/{replacement_id}/set-home/")
+
+        assert selected.status_code == status.HTTP_200_OK, selected.json()
+        assert selected.json()["id"] == replacement_id
+        assert self._home().json()["id"] == replacement_id
+        with team_scope(self.team.id):
+            preference = CanvasHomePreference.objects.for_team(self.team.id).get(user=self.user)
+            assert str(preference.canvas_id) == replacement_id
+            assert str(preference.canvas_id) != original.json()["id"]
+
     @parameterized.expand([("without_github", False), ("with_github", True)])
     def test_home_seeds_welcome_checklist(self, _name: str, github_connected: bool):
         if github_connected:

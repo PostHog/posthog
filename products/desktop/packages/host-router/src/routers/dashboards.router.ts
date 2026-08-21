@@ -70,6 +70,14 @@ export const dashboardsRouter = router({
     .query(({ ctx }) =>
       ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).home(),
     ),
+  setHome: publicProcedure
+    .input(dashboardIdInput)
+    .output(dashboardRecordSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .setHome(input.id),
+    ),
   layout: publicProcedure
     .input(canvasLayoutInput)
     .output(canvasLayoutResultSchema)

@@ -63,6 +63,7 @@ export interface ChannelItemActions {
   archive: (item: ChannelItemModel) => void;
   /** Canvases only — a task is archived, not deleted. */
   remove: (item: ChannelItemModel) => void;
+  setHome: (item: ChannelItemModel) => void;
 }
 
 // The channel sidebar's own chrome. Deliberately not shared with the Code
@@ -325,6 +326,7 @@ export function ChannelItemRow({
             title: item.title,
             isPinned: item.pinned,
             onTogglePin: () => actions.togglePin(item),
+            onSetHome: () => actions.setHome(item),
             // Confirm first, like the canvas menus in the artifacts grid and
             // the canvas header: the canvas and its history go for everyone.
             onDelete: () => setConfirmDeleteOpen(true),

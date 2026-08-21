@@ -211,6 +211,15 @@ export class DashboardsService {
     return toRecord(api);
   }
 
+  async setHome(id: string): Promise<DashboardRecord> {
+    const api = await this.api.json<ApiCanvas>(
+      `canvases/${encodeURIComponent(id)}/set-home/`,
+      "set home canvas",
+      { method: "POST" },
+    );
+    return toRecord(api);
+  }
+
   // Read a grid canvas's layout document — the head, or a historical version.
   async getLayout(input: {
     id: string;
