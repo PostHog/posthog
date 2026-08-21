@@ -9,9 +9,10 @@ use envconfig::Envconfig;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
+use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{EnvFilter, Layer};
 use usage_ingestion::config::Config;
 use usage_ingestion::resolver::PostgresOrganizationResolver;
 use usage_ingestion::service::UsageIngestionService;
@@ -28,8 +29,29 @@ impl SyncLivenessReporter for ProcessLiveness {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let log_layer = {
+        let base = tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true);
+
+        if std::env::var_os("DEBUG").is_some() {
+            base.with_span_events(
+                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+            )
+            .with_ansi(true)
+            .boxed()
+        } else {
+            base.json()
+                .flatten_event(true)
+                .with_span_list(true)
+                .with_current_span(true)
+                .boxed()
+        }
+    };
+
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().json())
+        .with(log_layer)
         .with(
             EnvFilter::builder()
                 .with_default_directive(LevelFilter::INFO.into())
