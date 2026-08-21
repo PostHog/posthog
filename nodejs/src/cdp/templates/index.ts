@@ -31,10 +31,12 @@ import { template as posthogTagAccountTemplate } from './_destinations/posthog_c
 import { template as posthogUpdateAccountPropertyTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-property.template'
 import { template as posthogUpdateAccountRelationshipsTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-relationships.template'
 import { template as posthogUpdateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account.template'
+import { template as posthogCreateTaskTemplate } from './_destinations/posthog_tasks/posthog-create-task.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as pushTemplate } from './_destinations/push/push.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as retainTemplate } from './_destinations/retain/retain.template'
+import { template as slackTemplate } from './_destinations/slack/slack.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
@@ -64,6 +66,7 @@ import { template as logRedactAttributesTemplate } from './_transformations_log/
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
+    slackTemplate,
     webhookTemplate,
     tiktokAdsTemplate,
     snapchatAdsTemplate,
@@ -89,6 +92,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogSetHogflowVariableTemplate,
     posthogGetTicketTemplate,
     posthogUpdateTicketTemplate,
+    posthogCreateTaskTemplate,
     posthogCreateAccountTemplate,
     posthogGetAccountTemplate,
     posthogTagAccountTemplate,

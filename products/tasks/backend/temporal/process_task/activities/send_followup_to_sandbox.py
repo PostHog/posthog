@@ -25,10 +25,11 @@ from products.tasks.backend.logic.services.agent_command import (
     user_facing_agent_error,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates
+from products.tasks.backend.logic.services.peer_messages import mark_peer_message_outcome, peer_message_id_from_context
+from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates, user_has_current_team_access
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import AgentPeerMessage, TaskRun
 from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
@@ -175,15 +176,26 @@ def _is_steer_declined(result_data: dict[str, Any] | None) -> bool:
 
 
 def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
+    peer_message_id = peer_message_id_from_context(input.context)
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=input.run_id)
     except TaskRun.DoesNotExist:
         error_msg = "Task run not found"
         logger.warning("send_followup_run_not_found", run_id=input.run_id)
+        if peer_message_id is not None:
+            # Peer failures never write the recipient's stream sentinels; the row
+            # carries the outcome and the workflow's isolation keeps the run healthy.
+            _mark_peer_delivery_outcome(
+                peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "run_not_found", error_msg
+            )
+            raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
         _write_error_and_complete(input.run_id, error_msg)
         # Raise so the workflow can mark the run as failed. Without this,
         # background-mode runs hang until the inactivity timeout because
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
+
+    if peer_message_id is not None:
+        return _deliver_peer_message(input, task_run, peer_message_id)
 
     # Resolve credentials against this message's sender, not the run-state
     # actor a concurrent follow-up may have overwritten since queueing. Local
@@ -371,6 +383,142 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
     return None
+
+
+def _mark_peer_delivery_outcome(peer_message_id: str, outcome: str, phase: str = "", detail: str = "") -> None:
+    """Best-effort audit-row bookkeeping — a marking failure must never change how
+    delivery itself is reported."""
+    try:
+        mark_peer_message_outcome(peer_message_id, outcome, failure_phase=phase, failure_detail=detail)
+    except Exception:
+        logger.warning("peer_message_outcome_mark_failed", peer_message_id=peer_message_id, exc_info=True)
+
+
+def _resolve_peer_credential_actor(task_run: TaskRun) -> tuple[Any, str]:
+    """The user a peer turn may execute as, or ``(None, reason)`` to fail delivery closed.
+
+    The ONLY credential-actor source in peer delivery mode is the sandbox's own
+    bound identity — never the message input, never task-state actor overlays — and
+    the binding is honored only when it is the task creator with current active
+    team access. v1 peer authorization is creator-to-creator (see
+    visible_peer_runs), so the creator is the sole authority a peer message can
+    carry. Everything else fails closed: an expired binding marker can hide a
+    still-live prior session (the marker lives half the token lifetime), and a
+    binding left by a teammate (e.g. a Slack interaction) must never lend their
+    credentials to a turn they did not send.
+    """
+    bound_user_id = get_sandbox_mcp_session_user(sandbox_identity_scope(str(task_run.id), task_run.state))
+    if bound_user_id is None:
+        return None, "the sandbox's bound credential identity is unconfirmed"
+    creator = task_run.task.created_by
+    if creator is None or bound_user_id != creator.id:
+        return None, "the sandbox is bound to a different user than the task creator"
+    if not user_has_current_team_access(creator, task_run.task.team):
+        return None, "the task creator no longer has active access to this team"
+    return creator, ""
+
+
+def _deliver_peer_message(input: SendFollowupToSandboxInput, task_run: TaskRun, peer_message_id: str) -> str | None:
+    """Deliver an agent peer message (see logic/services/peer_messages.py).
+
+    Deviations from the user follow-up path, each load-bearing for the delivery
+    contract:
+    - Credentials: delivery fails closed unless the sandbox's bound identity is
+      confirmed to be the task creator with current team access (see
+      _resolve_peer_credential_actor); refreshes then run strictly via that
+      identity. A peer message can never mint or rebind credentials for anyone
+      else, and never runs a turn on unconfirmed residual credentials.
+    - Failures record the outcome on the message row and raise non-retryably
+      WITHOUT stream error sentinels: no user turn is dangling, and the workflow's
+      failure isolation keeps the recipient run healthy.
+    - Steer is never honored; peer messages always queue as non-steer turns.
+    """
+    state = task_run.state
+    actor_user, identity_error = _resolve_peer_credential_actor(task_run)
+    if actor_user is None:
+        error_msg = f"Peer delivery requires a confirmed credential identity: {identity_error}"
+        _mark_peer_delivery_outcome(
+            peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "credential_identity", error_msg
+        )
+        raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
+
+    auth_token = create_sandbox_connection_token(
+        task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
+    )
+    mcp_failure = _refresh_sandbox_mcp(
+        task_run, input.posthog_mcp_scopes, auth_token, actor_user=actor_user, state=state
+    )
+    if mcp_failure is not None:
+        error_msg = "Could not refresh sandbox MCP credentials via the bound identity"
+        _mark_peer_delivery_outcome(
+            peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "credential_refresh", error_msg
+        )
+        raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
+    github_failure = _refresh_sandbox_github(task_run, actor_user, state)
+    if github_failure is not None:
+        error_msg = "Could not refresh sandbox GitHub credentials via the bound identity"
+        _mark_peer_delivery_outcome(
+            peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "credential_refresh", error_msg
+        )
+        raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
+
+    artifacts = None
+    if input.artifact_ids:
+        artifacts, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, input.artifact_ids)
+        if missing_artifact_ids:
+            error_msg = f"Peer attachments missing from the target run: {', '.join(missing_artifact_ids)}"
+            _mark_peer_delivery_outcome(
+                peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "artifacts_missing", error_msg
+            )
+            raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
+
+    result = send_user_message(
+        task_run,
+        input.message,
+        artifacts=artifacts,
+        auth_token=auth_token,
+        timeout=FOLLOWUP_TIMEOUT_SECONDS,
+        message_id=input.message_id,
+        steer=False,
+    )
+    logger.info(
+        "peer_message_delivery_attempted",
+        run_id=input.run_id,
+        peer_message_id=peer_message_id,
+        artifact_count=len(artifacts or []),
+    )
+
+    if result.success:
+        if _is_duplicate_delivery(result.data):
+            # The sandbox already recorded this message_id: a prior attempt
+            # delivered it, so the accurate audit outcome is delivered — and that
+            # attempt owns the turn bookkeeping.
+            _mark_peer_delivery_outcome(peer_message_id, AgentPeerMessage.Outcome.DELIVERED)
+            return None
+        _mark_peer_delivery_outcome(peer_message_id, AgentPeerMessage.Outcome.DELIVERED)
+        _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
+        return None
+    if result.turn_in_flight:
+        # The read timeout means the message reached the sandbox and the turn is
+        # simply still running (see the user path for why this is not a failure).
+        _mark_peer_delivery_outcome(peer_message_id, AgentPeerMessage.Outcome.DELIVERED)
+        return None
+    if result.retryable and input.message_id and _current_attempt() < input.max_attempts:
+        # Row stays signaled; a retried delivery is deduped by message_id and the
+        # final attempt terminalizes below.
+        raise ApplicationError(f"peer message delivery retryable failure: {result.error}")
+    error_msg = user_facing_agent_error(result.error)
+    logger.warning(
+        "peer_message_delivery_failed",
+        run_id=input.run_id,
+        peer_message_id=peer_message_id,
+        error=result.error,
+        status_code=result.status_code,
+    )
+    _mark_peer_delivery_outcome(
+        peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "sandbox_delivery", error_msg
+    )
+    raise ApplicationError(f"peer message delivery failed: {error_msg}", non_retryable=True)
 
 
 def _refresh_sandbox_mcp(

@@ -1456,6 +1456,33 @@ class TestCalculateCohortFromListRetries(APIBaseTest):
         finally:
             task.pop_request()
 
+    def test_failed_import_keeps_previous_resolution_counts(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            last_import_total_count=10,
+            last_import_unmatched_count=2,
+        )
+        task = calculate_cohort_from_list
+        task.push_request(retries=0, called_directly=True, is_eager=True)
+        try:
+            with (
+                patch.object(Cohort, "insert_users_by_email", side_effect=RuntimeError("lookup failed")),
+                self.assertRaisesRegex(RuntimeError, "lookup failed"),
+            ):
+                task.run(
+                    cohort.id,
+                    ["one@example.com", "two@example.com"],
+                    team_id=self.team.id,
+                    id_type="email",
+                )
+        finally:
+            task.pop_request()
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.last_import_total_count, 10)
+        self.assertEqual(cohort.last_import_unmatched_count, 2)
+
     @parameterized.expand(
         [
             ("retries_exhausted", ClickHouseAtCapacity, calculate_cohort_from_list.max_retries, False),
