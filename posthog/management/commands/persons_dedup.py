@@ -231,11 +231,11 @@ WITH dups AS (
 #   the group count because a LIMIT bounds only the rows returned, so on a team whose duplicates
 #   are sparse one page would scan almost the whole team to fill its quota.
 #
-#   It costs extra index probes. Unsliced, one scan both finds the duplicate groups and feeds
-#   the member subqueries; sliced, each slice's statements have to locate their rows again, at
-#   roughly one index probe per duplicate group. On a team with millions of them that is hours
-#   of probing. Worse, once a slice carries enough uuids the planner abandons the probes for a
-#   sequential scan of the whole partition, which holds every team that hashes to it.
+#   Total work is about the same either way. EXPLAIN against prod-US shows the slice driver
+#   as a partition-pruned Index Only Scan whose slices tile the team's index range once, and
+#   the statements below driving from the uuid list with `uuid = d.uuid` as an Index Cond, so
+#   they probe rather than scan at any slice size. It is off by default only because slicing
+#   has never run against production, not because it is expensive.
 #
 # Balanced because person uuids are UUIDv5, so their leading bytes are hash output and spread
 # evenly (nodejs/src/ingestion/common/persons/person-uuid.ts). Exact because
@@ -828,14 +828,18 @@ class Command(BaseCommand):
             default=1,
             help=(
                 "split the duplicate census into this many uuid slices to bound how long any one "
-                "snapshot is held. Costs extra index probes proportional to the number of duplicate "
-                "groups, so it is opt-in; see the comment on SLICE_UUIDS_SQL"
+                "snapshot is held. About the same total work as 1; opt-in only because it has not "
+                "run against production yet"
             ),
         )
         parser.add_argument(
             "--require-no-orphans",
             action="store_true",
-            help="verify: also fail when the team has orphaned distinct IDs, which repair cannot create or remove",
+            help=(
+                "verify: also check for orphaned distinct IDs and fail on them. Off by default "
+                "because repair cannot create or remove one and the scan costs several times the "
+                "rest of verify"
+            ),
         )
 
     def _assert_explicit_target(self, use_writer: bool) -> None:
@@ -1070,11 +1074,15 @@ class Command(BaseCommand):
                 dups += int(rows[0][0])
                 blocked += int(rows[0][1])
 
-        # Its own transaction: this measures an independent invariant compared against zero on
-        # its own, so sharing a snapshot with the group count only makes one last longer.
-        with _step("verify_orphans", team_id=team, pid=pid):
-            orphans_rows = _read_in_txn(conn, VERIFY_ORPHANS_SQL, {"team": team}, step="verify_orphans")
-        orphans = int(orphans_rows[0][0]) if orphans_rows else 0
+        # Only when asked. This walks the team's whole distinct-id slice and anti-joins it
+        # against every person row, which on prod-US costs several times the duplicate census and
+        # sorts tens of millions of rows. It stopped gating the rollout, so paying for it on every
+        # verify buys nothing. Its own transaction because it is an independent invariant.
+        orphans = 0
+        if require_no_orphans:
+            with _step("verify_orphans", team_id=team, pid=pid):
+                orphans_rows = _read_in_txn(conn, VERIFY_ORPHANS_SQL, {"team": team}, step="verify_orphans")
+            orphans = int(orphans_rows[0][0]) if orphans_rows else 0
         resolvable = dups - blocked
         logger.info(
             "persons_dedup.verify",
@@ -1082,7 +1090,7 @@ class Command(BaseCommand):
             duplicate_groups=dups,
             blocked_groups=blocked,
             resolvable_groups=resolvable,
-            orphaned_distinct_ids=orphans,
+            orphaned_distinct_ids=orphans if require_no_orphans else None,
         )
         # The gate is "nothing repair could still resolve". The merge-required remainder is
         # expected and is separate work, so leaving only those means this command is done.

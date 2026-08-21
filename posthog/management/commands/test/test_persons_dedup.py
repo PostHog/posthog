@@ -1092,9 +1092,10 @@ class TestPersonsDedupPlatformErrors:
 
 
 class TestPersonsDedupVerifyGate:
-    def test_an_orphaned_mapping_is_reported_without_failing_the_gate(self, persons_conn, tmp_path):
+    def test_an_orphaned_mapping_does_not_fail_the_gate_and_is_not_scanned_for(self, persons_conn, tmp_path):
         # repair can neither create an orphaned mapping nor remove one, so gating on it blocked
-        # the rollout on damage this command cannot fix.
+        # the rollout on damage this command cannot fix. The scan costs several times the rest of
+        # verify, so once it stopped gating there was no reason to keep paying for it.
         doomed = _add_person(persons_conn, _uuid(98))
         _add_distinct_id(persons_conn, doomed, "did-98")
         _orphan_a_distinct_id(persons_conn, doomed)
@@ -1102,7 +1103,18 @@ class TestPersonsDedupVerifyGate:
         with capture_logs() as logs:
             _run("verify", tmp_path)
 
-        assert next(e for e in logs if e["event"] == "persons_dedup.orphaned_distinct_ids")["orphans"] == 1
+        assert not [e for e in logs if e["event"] == "persons_dedup.step_started" and e["step"] == "verify_orphans"]
+        assert next(e for e in logs if e["event"] == "persons_dedup.verify")["orphaned_distinct_ids"] is None
+
+    def test_require_no_orphans_runs_the_scan_and_reports_the_count(self, persons_conn, tmp_path):
+        doomed = _add_person(persons_conn, _uuid(97))
+        _add_distinct_id(persons_conn, doomed, "did-97")
+        _orphan_a_distinct_id(persons_conn, doomed)
+
+        with capture_logs() as logs:
+            with pytest.raises(CommandError, match="orphaned distinct id"):
+                _run("verify", tmp_path, require_no_orphans=True)
+
         assert next(e for e in logs if e["event"] == "persons_dedup.verify")["orphaned_distinct_ids"] == 1
 
     def test_require_no_orphans_restores_the_stricter_gate(self, persons_conn, tmp_path):
