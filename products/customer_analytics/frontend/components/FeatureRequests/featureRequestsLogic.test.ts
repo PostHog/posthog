@@ -215,6 +215,8 @@ describe('featureRequestsLogic', () => {
             previous: null,
             results: [createdRequest],
         })
+        await expectLogic(logic, () => logic.actions.setCreatedByFilter([1, 2])).toFinishAllListeners()
+        listSpy.mockClear()
 
         await expectLogic(logic, () => logic.actions.setFeatureRequestsPage(2))
             .toDispatchActions(['loadFeatureRequests', 'loadFeatureRequestsSuccess'])
@@ -226,6 +228,7 @@ describe('featureRequestsLogic', () => {
                 limit: FEATURE_REQUESTS_PAGE_SIZE,
                 offset: FEATURE_REQUESTS_PAGE_SIZE,
                 archive_state: 'active',
+                created_by_ids: [1, 2],
                 request_ordering: '-updated_at',
             })
         )
@@ -241,6 +244,7 @@ describe('featureRequestsLogic', () => {
             priority: 'high,none',
             product_area: 'area-1,area-2',
             account: 'account-1',
+            created_by: '1,2,invalid,-3',
             archive: 'all',
             sort: 'title',
             page: '3',
@@ -252,6 +256,7 @@ describe('featureRequestsLogic', () => {
             priorityFilter: ['high', 'none'],
             productAreaFilter: ['area-1', 'area-2'],
             accountFilter: ['account-1'],
+            createdByFilter: [1, 2],
             archiveState: 'all',
             requestOrdering: 'title',
             featureRequestsPage: 3,
@@ -262,6 +267,7 @@ describe('featureRequestsLogic', () => {
             priority: 'high,none',
             product_area: 'area-1,area-2',
             account: 'account-1',
+            created_by: '1,2',
             archive: 'all',
             sort: 'title',
             page: '3',

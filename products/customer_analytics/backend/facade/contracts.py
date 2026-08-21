@@ -672,6 +672,7 @@ class FeatureRequestListFilters:
     priorities: tuple[str, ...] = ()
     product_area_ids: tuple[UUID, ...] = ()
     account_ids: tuple[UUID, ...] = ()
+    created_by_ids: tuple[int, ...] = ()
     archive_state: str = "active"
     ordering: str = "-updated_at"
 

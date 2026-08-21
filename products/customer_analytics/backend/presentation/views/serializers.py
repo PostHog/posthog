@@ -540,6 +540,11 @@ class FeatureRequestListQuerySerializer(serializers.Serializer):
         child=serializers.UUIDField(),
         help_text="Accessible account IDs to include. Multiple values use OR semantics.",
     )
+    created_by_ids = CommaSeparatedListField(
+        required=False,
+        child=serializers.IntegerField(min_value=1),
+        help_text="Creator user IDs to include. Multiple values use OR semantics.",
+    )
     archive_state = serializers.ChoiceField(
         required=False,
         default="active",

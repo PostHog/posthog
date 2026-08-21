@@ -781,9 +781,15 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
     def test_list_combines_filters_orders_priorities_and_hides_archived_requests(self) -> None:
         first = self.client.post(self.requests_url, self._payload(), format="json").json()
+        other_creator = User.objects.create_and_join(
+            self.organization, "feature-request-creator@example.com", "testtest"
+        )
+        self._set_access_level(other_creator, "editor")
+        self.client.force_login(other_creator)
         second_payload = self._payload()
         second_payload["title"] = "Session replay export"
         second = self.client.post(self.requests_url, second_payload, format="json").json()
+        self.client.force_login(self.user)
         third_payload = self._payload()
         third_payload["title"] = "Unprioritized export"
         third = self.client.post(self.requests_url, third_payload, format="json").json()
@@ -819,6 +825,10 @@ class TestFeatureRequestsAPI(APIBaseTest):
             },
         )
         archived = self.client.get(self.requests_url, {"archive_state": "archived"})
+        created_by_other = self.client.get(
+            self.requests_url,
+            {"archive_state": "all", "created_by_ids": str(other_creator.id)},
+        )
         ordered = self.client.get(
             self.requests_url,
             {"archive_state": "all", "request_ordering": "-priority"},
@@ -827,6 +837,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(active.status_code, status.HTTP_200_OK)
         self.assertEqual([request["id"] for request in active.json()["results"]], [first["id"]])
         self.assertEqual([request["id"] for request in archived.json()["results"]], [second["id"]])
+        self.assertEqual([request["id"] for request in created_by_other.json()["results"]], [second["id"]])
         self.assertEqual(
             [request["id"] for request in ordered.json()["results"]],
             [second["id"], first["id"], third["id"]],
