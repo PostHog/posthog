@@ -208,21 +208,13 @@ def resolve_trunk_merge_queue_table(team: Team, user_access_control: "UserAccess
     (``_accessible_sources``): a user denied every TrunkIo source resolves None, degrading to the
     proxy exactly like the unsynced state.
     """
-    schemas = (
-        ExternalDataSchema.objects.filter(
-            team_id=team.pk,
-            source__in=_accessible_sources(team, ExternalDataSourceType.TRUNKIO, user_access_control),
-            name=TRUNK_MERGE_QUEUE_SCHEMA,
-            should_sync=True,
-        )
-        .exclude(deleted=True)
-        .order_by("source__created_at", "source__id")
-        .select_related("table")
-    )
-    for schema in schemas:
-        table = schema.table
-        if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
-            return table.name
+    for source in _accessible_sources(team, ExternalDataSourceType.TRUNKIO, user_access_control):
+        for schema in _synced_schemas(team=team, source=source):
+            if schema.name != TRUNK_MERGE_QUEUE_SCHEMA:
+                continue
+            table = schema.table
+            if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
+                return table.name
     return None
 
 
@@ -310,7 +302,7 @@ def _github_sources(team: Team, user_access_control: "UserAccessControl | None" 
     ``resolve_github_tables`` defaults from, so a picker's first entry matches the default source.
     Access scope comes from ``_accessible_sources``, shared with the Trunk resolver.
     """
-    return _accessible_sources(team, ExternalDataSourceType.GITHUB, user_access_control).order_by("created_at", "id")
+    return _accessible_sources(team, ExternalDataSourceType.GITHUB, user_access_control)
 
 
 def _accessible_sources(
@@ -322,7 +314,11 @@ def _accessible_sources(
     or picker can reach a source the user can't access; ``None`` (system/Temporal/CLI contexts)
     skips it, leaving team scoping. This is the single place that access scope is decided.
     """
-    sources = ExternalDataSource.objects.filter(team_id=team.pk, source_type=source_type).exclude(deleted=True)
+    sources = (
+        ExternalDataSource.objects.filter(team_id=team.pk, source_type=source_type)
+        .exclude(deleted=True)
+        .order_by("created_at", "id")
+    )
     if user_access_control is not None:
         sources = user_access_control.filter_queryset_by_access_level(sources)
         if not user_access_control.has_resource_access("external_data_source"):
@@ -391,6 +387,14 @@ def _as_source_uuid(source_id: str) -> UUID:
         raise ValueError(f"source_id must be a UUID, got: {source_id!r}") from err
 
 
+def _synced_schemas(*, team: Team, source: ExternalDataSource) -> QuerySet[ExternalDataSchema]:
+    return (
+        ExternalDataSchema.objects.filter(team_id=team.pk, source_id=source.id, should_sync=True)
+        .exclude(deleted=True)
+        .select_related("table")
+    )
+
+
 def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[str, dict[str, str]]:
     """Map ``{repository: {endpoint: table name}}`` for a source's actively-synced curated schemas.
 
@@ -402,13 +406,8 @@ def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[st
     bare row with no legacy repo groups under ``''`` — the pre-multi-repo single-repo shape.
     """
     legacy_repo = _source_repository(source) or None
-    schemas = (
-        ExternalDataSchema.objects.filter(team_id=team.pk, source_id=source.id, should_sync=True)
-        .exclude(deleted=True)
-        .select_related("table")
-    )
     by_repo: dict[str, dict[str, str]] = {}
-    for schema in schemas:
+    for schema in _synced_schemas(team=team, source=source):
         repository, endpoint = github_schema_repo_endpoint(schema.schema_metadata, schema.name, legacy_repo)
         if endpoint not in _CURATED_ENDPOINTS:
             continue
