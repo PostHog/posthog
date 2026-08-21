@@ -213,6 +213,7 @@ export class CyclotronV2Worker {
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
+    private readonly priorityDequeue: boolean
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = new Pool({
@@ -229,6 +230,7 @@ export class CyclotronV2Worker {
         // CyclotronV2Manager), so deriving this from the queue name keeps the
         // worker's ORDER BY in lockstep with where the sort key actually exists.
         this.fairDequeue = config.queueName === 'email'
+        this.priorityDequeue = config.priorityDequeue ?? false
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -356,6 +358,13 @@ export class CyclotronV2Worker {
      */
     protected async fairDequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
+        // With priorityDequeue, priority class leads the sort so transactional-class
+        // sends aren't stuck behind a broadcast backlog; the per-team interleave
+        // still orders jobs within each class. Served by
+        // idx_cyclotron_jobs_email_priority_fair_dequeue.
+        const orderBy = this.priorityDequeue
+            ? 'priority ASC, dequeue_seq ASC NULLS FIRST'
+            : 'dequeue_seq ASC NULLS FIRST'
         const result = await this.pool.query<RawJobRow>(
             `WITH available AS (
                 SELECT id
@@ -363,7 +372,7 @@ export class CyclotronV2Worker {
                 WHERE status = 'available'
                   AND queue_name = $1
                   AND scheduled <= NOW()
-                ORDER BY dequeue_seq ASC NULLS FIRST
+                ORDER BY ${orderBy}
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
@@ -496,6 +505,10 @@ export class CyclotronV2Worker {
                 if (options?.queueName !== undefined) {
                     params.push(options.queueName)
                     setClauses.push(`queue_name = $${params.length}`)
+                }
+                if (options?.priority !== undefined) {
+                    params.push(options.priority)
+                    setClauses.push(`priority = $${params.length}`)
                 }
 
                 // Cross-queue routing into the email queue: assign a fresh

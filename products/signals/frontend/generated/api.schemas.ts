@@ -1880,9 +1880,16 @@ export interface SignalScoutSlackDestinationApi {
     thread_reports?: boolean
 }
 
+export interface SignalScoutWebhookDestinationApi {
+    /** Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it. */
+    hog_function_id: string
+}
+
 export interface SignalScoutOutputDestinationsApi {
     /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
     slack?: SignalScoutSlackDestinationApi | null
+    /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+    webhook?: SignalScoutWebhookDestinationApi | null
 }
 
 /**
@@ -2108,6 +2115,16 @@ export interface SignalScoutConfigApi {
     readonly auto_pause_exempt: boolean
     /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
     tags?: string[]
+    /**
+     * The product that stood this scout up for one of its own objects. Null when a person created it.
+     * @nullable
+     */
+    readonly source_product: string | null
+    /**
+     * Id of the owning object in `source_product`, e.g. a Replay Vision scanner id.
+     * @nullable
+     */
+    readonly source_id: string | null
     readonly created_at: string
 }
 
@@ -3844,10 +3861,9 @@ export interface ForgetResponseApi {
  * * `engineering_analytics` - Engineering analytics
  * * `google_search_console` - Google Search Console
  */
-export type SignalSourceConfigSourceProductEnumApi =
-    (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
+export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
-export const SignalSourceConfigSourceProductEnumApi = {
+export const SignalSourceProductEnumApi = {
     SessionReplay: 'session_replay',
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
@@ -3948,7 +3964,7 @@ export type SignalSourceConfigApiConfig = { [key: string]: unknown }
 
 export interface SignalSourceConfigApi {
     readonly id: string
-    source_product: SignalSourceConfigSourceProductEnumApi
+    source_product: SignalSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
     /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
@@ -3975,7 +3991,7 @@ export type PatchedSignalSourceConfigApiConfig = { [key: string]: unknown }
 
 export interface PatchedSignalSourceConfigApi {
     readonly id?: string
-    source_product?: SignalSourceConfigSourceProductEnumApi
+    source_product?: SignalSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
     /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */

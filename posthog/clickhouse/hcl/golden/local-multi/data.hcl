@@ -377,7 +377,7 @@ database "posthog" {
       cluster_name    = "posthog"
       remote_database = "posthog"
       remote_table    = "sharded_billing_usage_records"
-      sharding_key    = "sipHash64(team_id)"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 
@@ -4981,7 +4981,7 @@ database "posthog" {
   }
 
   table "sharded_billing_usage_records" {
-    order_by     = ["team_id", "producer_id", "record_id", "version"]
+    order_by     = ["team_id", "event_timestamp", "producer_id", "record_id", "version"]
     partition_by = "toYYYYMM(event_timestamp)"
     settings = {
       index_granularity = "8192"

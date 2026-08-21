@@ -34,8 +34,10 @@ async def create_signals_scout_coordinator_schedule(client: Client) -> None:
     The coordinator runs on the existing signals task queue (currently
     `VIDEO_EXPORT_TASK_QUEUE`, shared with the rest of the signals temporal worker).
     `ScheduleOverlapPolicy.SKIP` is a defense-in-depth guard against pathologically
-    slow ticks; the coordinator itself dispatches children fire-and-forget so its
-    lifetime is normally seconds and overlap should never fire in practice.
+    slow ticks. The coordinator paces its fan-out across a smear window well under the tick,
+    and `execution_timeout` caps it at one whole interval, so a tick that somehow burns its
+    activity retry budget is killed rather than left running to starve the next tick under
+    `SKIP` — its undispatched scouts stay unstamped and re-dispatch on that next tick.
     """
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -43,6 +45,7 @@ async def create_signals_scout_coordinator_schedule(client: Client) -> None:
             asdict(CoordinatorWorkflowInput()),
             id=SIGNALS_SCOUT_COORDINATOR_SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            execution_timeout=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES),
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),

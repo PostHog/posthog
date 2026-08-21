@@ -2,6 +2,7 @@ from typing import Any
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
+from django.http import Http404
 
 import structlog
 import django_filters
@@ -9,6 +10,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -991,6 +994,20 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         if not self.action.endswith("update"):
             queryset = queryset.filter(deleted=False)
         return queryset
+
+    def safely_get_object(self, queryset: QuerySet[Evaluation]) -> Evaluation:
+        evaluation_id = self.kwargs["pk"]
+        try:
+            # Matches what DRF's own get_object() does, including coercing an unparseable pk to a
+            # 404, so only the message differs.
+            return get_object_or_404(queryset, pk=evaluation_id)
+        except Http404:
+            # DRF's bare "Not found." points a caller at nothing it can act on. A name passed where
+            # the id belongs lands here too, since it can't parse as a UUID.
+            raise NotFound(
+                f"No evaluation '{evaluation_id}' in this project. "
+                "List the project's evaluations to look one up by name."
+            )
 
     @staticmethod
     def _get_config_length(instance) -> int:

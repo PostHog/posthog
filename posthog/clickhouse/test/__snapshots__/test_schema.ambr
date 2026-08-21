@@ -1178,7 +1178,7 @@
   , _partition UInt64
   
   )
-  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', sipHash64(team_id))
+  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
   
   '''
 # ---
@@ -6677,7 +6677,7 @@
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp)
   PARTITION BY toYYYYMM(event_timestamp)
-  ORDER BY (team_id, producer_id, record_id, version)
+  ORDER BY (team_id, event_timestamp, producer_id, record_id, version)
   
   '''
 # ---
@@ -9207,7 +9207,7 @@
   , _partition UInt64
   
   )
-  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', sipHash64(team_id))
+  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
   
   '''
 # ---
@@ -11716,7 +11716,7 @@
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp)
   PARTITION BY toYYYYMM(event_timestamp)
-  ORDER BY (team_id, producer_id, record_id, version)
+  ORDER BY (team_id, event_timestamp, producer_id, record_id, version)
   
   '''
 # ---

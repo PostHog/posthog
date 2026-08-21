@@ -467,7 +467,13 @@ export class HogFlowExecutorService {
             hogExecutorOptions?: HogExecutorExecuteAsyncOptions
         }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
+        // queuePriority is carried over explicitly: createInvocationResult resets it to
+        // 0, and the email routing downstream stashes the entry priority as the value to
+        // restore when a job leaves the email queue — a reset here would stash 0 for any
+        // run whose email action isn't the first action executed.
+        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queuePriority: invocation.queuePriority,
+        })
         result.finished = false // Typically we are never finished unless we error or exit
 
         try {
