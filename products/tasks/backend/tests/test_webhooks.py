@@ -2110,9 +2110,17 @@ class TestAttributionDbAliases(TestCase):
             self.assertEqual(_attribution_db_aliases(), ["default"])
 
     @patch("products.tasks.backend.webhooks.router.db_for_read", return_value="replica")
-    def test_includes_a_replica_the_router_reads_from(self, _mock_db_for_read):
+    def test_skips_the_primary_when_every_model_reads_from_the_replica(self, _mock_db_for_read):
+        # Symmetric to the above: a fully replica-opted deployment must not be made to wait on
+        # the primary either, since opening it is just as unbounded.
         with self._with_replica_configured():
-            self.assertEqual(_attribution_db_aliases(), ["default", "replica"])
+            self.assertEqual(_attribution_db_aliases(), ["replica"])
+
+    @patch("products.tasks.backend.webhooks.router.db_for_read")
+    def test_covers_every_alias_the_models_read_from(self, mock_db_for_read):
+        mock_db_for_read.side_effect = lambda model: "replica" if model is User else "default"
+        with self._with_replica_configured():
+            self.assertEqual(sorted(_attribution_db_aliases()), ["default", "replica"])
 
 
 class TestBoundedAttributionLookup(TestCase):

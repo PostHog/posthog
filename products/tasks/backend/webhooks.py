@@ -608,17 +608,20 @@ _ATTRIBUTION_MODELS = (Team, User, OrganizationMembership, UserSocialAuth, UserI
 
 
 def _attribution_db_aliases() -> list[str]:
-    """DB aliases the org-member lookup can actually read from.
+    """The aliases the org-member lookup actually reads from, deduped, in model order.
 
     Bounding an alias means opening it, and opening is itself unbounded -- ``postgres_config``
-    sets no ``connect_timeout`` on the main aliases. Reaching for a replica the router would
-    never use could therefore stall the webhook on connection setup before the cap is even
-    installed, which is the exact failure this function exists to prevent. So ask the router
-    instead of assuming.
+    sets no ``connect_timeout`` on these aliases. So take the set from the router rather than
+    assuming: reaching for an alias the resolver never uses could stall the webhook on
+    connection setup before the cap is installed, which is the failure this exists to prevent.
+    That cuts both ways -- a fully replica-opted deployment must not be made to wait on the
+    primary either.
     """
-    aliases = ["default"]
-    if "replica" in settings.DATABASES and any(router.db_for_read(model) == "replica" for model in _ATTRIBUTION_MODELS):
-        aliases.append("replica")
+    aliases: list[str] = []
+    for model in _ATTRIBUTION_MODELS:
+        alias = router.db_for_read(model) or "default"
+        if alias not in aliases and alias in settings.DATABASES:
+            aliases.append(alias)
     return aliases
 
 
@@ -854,6 +857,13 @@ def _installation_id(payload: dict) -> str | None:
     return None if installation_id is None else str(installation_id)
 
 
+# The run lookup these feed reads TaskRun off the writer, and they run on the request path
+# outside the bounded attribution block. Pin them to the writer too: a replica-opted
+# Integration or Team would otherwise let a slow replica stall a delivery whose own lookup
+# never needed it, and replica lag could hide a freshly connected installation.
+_SCOPE_DB_ALIAS = "default"
+
+
 def _installation_team_ids(payload: dict) -> list[int]:
     """Teams whose GitHub Integration matches the delivery's installation, in deterministic order.
 
@@ -866,7 +876,8 @@ def _installation_team_ids(payload: dict) -> list[int]:
 
     # One installation can map to multiple teams; order_by makes attribution deterministic.
     return list(
-        Integration.objects.filter(kind="github", integration_id=external_id)
+        Integration.objects.using(_SCOPE_DB_ALIAS)
+        .filter(kind="github", integration_id=external_id)
         .order_by("team_id")
         .values_list("team_id", flat=True)
     )
@@ -894,11 +905,19 @@ def _task_run_scope_team_ids(payload: dict) -> list[int]:
 
     # Left lazy on purpose: Django inlines these as subqueries, so the whole widening is one
     # indexed round-trip rather than three.
-    user_ids = UserIntegration.objects.filter(kind="github", integration_id=external_id).values_list(
-        "user_id", flat=True
+    user_ids = (
+        UserIntegration.objects.using(_SCOPE_DB_ALIAS)
+        .filter(kind="github", integration_id=external_id)
+        .values_list("user_id", flat=True)
     )
-    org_ids = OrganizationMembership.objects.filter(user_id__in=user_ids).values_list("organization_id", flat=True)
-    team_ids.update(Team.objects.filter(organization_id__in=org_ids).values_list("id", flat=True))
+    org_ids = (
+        OrganizationMembership.objects.using(_SCOPE_DB_ALIAS)
+        .filter(user_id__in=user_ids)
+        .values_list("organization_id", flat=True)
+    )
+    team_ids.update(
+        Team.objects.using(_SCOPE_DB_ALIAS).filter(organization_id__in=org_ids).values_list("id", flat=True)
+    )
 
     return sorted(team_ids)
 
