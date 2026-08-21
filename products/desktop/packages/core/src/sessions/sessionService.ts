@@ -47,6 +47,7 @@ import {
   type StoredLogEntry,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  sessionSupportsSideQuestion,
   type TaskRunArtifact,
   type TaskRunStatus,
   TRANSCRIPT_TAIL_WINDOW,
@@ -61,6 +62,7 @@ import {
   isTerminalStatus,
   type Task,
 } from "@posthog/shared/domain-types";
+import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
 import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
@@ -317,6 +319,7 @@ export interface SessionTrpc {
     reconnect: TrpcMutation;
     cancel: TrpcMutation;
     prompt: TrpcMutation;
+    sideQuestion: TrpcMutation;
     cancelPrompt: TrpcMutation;
     cancelPermission: TrpcMutation;
     respondToPermission: TrpcMutation;
@@ -1672,9 +1675,14 @@ export function isPermissionRequestAlreadySurfaced(
   );
 }
 
-/** The steering capability on a loosely-typed agent start/reconnect result. */
-function readSteering(result: unknown): string | undefined {
-  return (result as { steering?: string } | undefined)?.steering;
+/** The negotiated capabilities on a loosely-typed agent start/reconnect result. */
+function readCapabilities(result: unknown): {
+  steering?: string;
+  sideQuestion?: boolean;
+} {
+  const { steering, sideQuestion } =
+    (result as { steering?: string; sideQuestion?: boolean } | undefined) ?? {};
+  return { steering, sideQuestion };
 }
 
 // Live streaming emits agent_message_chunk; SessionLogWriter coalesces a chunk
@@ -2328,7 +2336,7 @@ export class SessionService {
         this.d.store.updateSession(taskRunId, {
           status: "connected",
           configOptions,
-          steering: readSteering(result),
+          ...readCapabilities(result),
         });
 
         // Persist the merged config options
@@ -2685,7 +2693,7 @@ export class SessionService {
       | SessionConfigOption[]
       | undefined;
     session.configOptions = configOptions;
-    session.steering = readSteering(result);
+    Object.assign(session, readCapabilities(result));
 
     // Persist the config options
     if (configOptions) {
@@ -4252,6 +4260,62 @@ export class SessionService {
   }
 
   /**
+   * Ask a one-shot "/btw" side question: a single-turn, tool-less query forked
+   * off the live transcript. The exchange never enters the conversation, so
+   * this bypasses the queue/steer machinery entirely and is valid both
+   * mid-turn and idle.
+   */
+  async askSideQuestion(taskId: string, question: string): Promise<string> {
+    if (!this.d.getIsOnline()) {
+      throw new Error(
+        "No internet connection. Please check your connection and try again.",
+      );
+    }
+
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session) throw new Error("No active session for task");
+    if (!sessionSupportsSideQuestion(session)) {
+      throw new Error("Side questions aren't supported for this session yet.");
+    }
+    if (session.status !== "connected") {
+      throw new Error("Session is not ready. Try again once it's connected.");
+    }
+
+    if (session.isCloud) {
+      return this.askCloudSideQuestion(session, question);
+    }
+
+    const result = (await this.d.trpc.agent.sideQuestion.mutate({
+      sessionId: session.taskRunId,
+      question,
+    })) as { answer: string };
+    return result.answer;
+  }
+
+  /**
+   * Cloud variant: the fork runs in the sandbox, so the question goes over the
+   * command channel. The answer comes back as the command's result rather than
+   * on the event stream, which is what keeps it out of the transcript.
+   */
+  private async askCloudSideQuestion(
+    session: AgentSession,
+    question: string,
+  ): Promise<string> {
+    const result = await this.sendCloudCommand(session, "side_question", {
+      question,
+    });
+    if (!result.success) {
+      throw new Error(result.error ?? "Side question failed");
+    }
+
+    const answer = (result.result as { answer?: unknown } | undefined)?.answer;
+    if (typeof answer !== "string" || !answer) {
+      throw new Error("Side question produced no answer");
+    }
+    return answer;
+  }
+
+  /**
    * Send the next queued message as its own prompt.
    * Called internally when a turn completes and there are queued messages.
    * Only the head message is dequeued (`max: 1`) so a queue drains one turn at
@@ -5441,14 +5505,14 @@ export class SessionService {
    */
   private async sendCloudCommand(
     session: AgentSession,
-    method: "permission_response" | "set_config_option",
+    method: "permission_response" | "set_config_option" | "side_question",
     params: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<SendCommandOutput> {
     const auth = await this.getCloudCommandAuth();
     if (!auth) {
       throw new Error("No cloud auth credentials available");
     }
-    await this.d.trpc.cloudTask.sendCommand.mutate({
+    return await this.d.trpc.cloudTask.sendCommand.mutate({
       taskId: session.taskId,
       runId: session.taskRunId,
       apiHost: auth.apiHost,
