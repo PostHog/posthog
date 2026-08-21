@@ -2,10 +2,14 @@
 
 A known-good baseline for a React + Quill data canvas. It already wires the pieces that are easy
 to get wrong — the date picker (self-sizing, no `compact`), theme-aware tokens, per-card loading
-skeletons, and reading a typed-node result correctly. Start from it on a first build: keep the
-wiring, replace the sample "total events" metric and the layout with what the user asked for.
+skeletons, reading a typed-node result correctly, and the "View query" verification dialog every
+ad-hoc data card must carry. Start from it on a first build: keep the wiring, replace the sample
+"total events" metric and the layout with what the user asked for.
 Ideally swap the inline `ph.query` typed node for a saved insight loaded with
-`ph.loadInsight(shortId, { dateRange })` (see the `querying-canvas-data` skill).
+`ph.loadInsight(shortId, { dateRange })` (see the `querying-canvas-data` skill) — then replace the
+"View query" dialog with a "View in PostHog" button calling `ph.openExternal(insightUrl)`, the URL
+minted at authoring time by the `generate-app-url` MCP tool (`/insights/{id}`), so viewers verify
+the numbers on the real insight with their own permissions applied.
 
 ```tsx
 import React, { useEffect, useState } from 'react'
@@ -16,6 +20,11 @@ import {
   CardHeader,
   CardTitle,
   DateTimePicker,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
   Heading,
   Popover,
   PopoverContent,
@@ -25,6 +34,18 @@ import {
 } from '@posthog/quill'
 import { RefreshCw } from 'lucide-react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+
+// One builder feeds both the ph.query call and the "View query" dialog, so the
+// query a viewer inspects is exactly the one that ran. `event: null` = all
+// events (works on any project).
+const totalEventsQuery = (win) => ({
+  kind: 'TrendsQuery',
+  series: [{ kind: 'EventsNode', event: null, name: 'All events', math: 'total' }],
+  dateRange: {
+    date_from: win.start.toISOString(),
+    date_to: win.end.toISOString(),
+  },
+})
 
 export default function Canvas() {
   const def = quickRanges.find((r) => r.name === 'Last 30 days') ?? quickRanges[0]
@@ -47,15 +68,8 @@ export default function Canvas() {
     setLoading(true)
     setError(null)
     // Typed query node, computed by PostHog's own runner so the numbers match
-    // the UI exactly. `event: null` = all events (works on any project).
-    ph.query({
-      kind: 'TrendsQuery',
-      series: [{ kind: 'EventsNode', event: null, name: 'All events', math: 'total' }],
-      dateRange: {
-        date_from: win.start.toISOString(),
-        date_to: win.end.toISOString(),
-      },
-    })
+    // the UI exactly.
+    ph.query(totalEventsQuery(win))
       .then((res) => {
         if (cancelled) return
         // Typed-node result: `results` is an array of SERIES OBJECTS, not rows.
@@ -137,7 +151,31 @@ export default function Canvas() {
 
       <Card size="sm">
         <CardHeader>
-          <CardTitle>Events over time</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>Events over time</CardTitle>
+            {/* Every data card carries a verification affordance. An ad-hoc
+                ph.query card shows the query it ran; a card backed by a saved
+                insight instead renders a "View in PostHog" Button calling
+                ph.openExternal(insightUrl) — the URL minted by the
+                generate-app-url MCP tool, never hand-built. */}
+            <Dialog>
+              <DialogTrigger
+                render={
+                  <Button variant="outline" size="sm">
+                    View query
+                  </Button>
+                }
+              />
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Query behind this chart</DialogTitle>
+                </DialogHeader>
+                <div className="max-h-80 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 font-mono text-xs">
+                  {JSON.stringify(totalEventsQuery(win), null, 2)}
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
