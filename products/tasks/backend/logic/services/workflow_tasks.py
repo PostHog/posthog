@@ -111,6 +111,12 @@ def create_workflow_task(
     _validate_connectors(team.id, owner_id, mcp_installation_ids)
 
     slack_binding = _resolve_slack_binding(team.id, slack_context)
+    thread_context = slack_binding.thread_context if slack_binding is not None else None
+    # Derived from the thread context rather than tested separately, because the two must
+    # travel together: a context passed without an explicit origin defaults the run to
+    # "slack", which flips actor and credential resolution to a Slack steering user the
+    # run does not have. It must keep executing as the workflow owner.
+    interaction_origin = "workflow" if thread_context is not None else None
 
     # Snapshot the connector allowlist onto the run: the sandbox mounts only what's here
     # (see loop_mcp_installation_allowlist), so a later edit of the workflow can't change
@@ -166,11 +172,8 @@ def create_workflow_task(
                 extra_run_state=extra_run_state,
                 model=model,
                 reasoning_effort=reasoning_effort,
-                slack_thread_context=slack_binding.thread_context if slack_binding is not None else None,
-                # Explicit: passing slack_thread_context alone defaults the origin to "slack",
-                # which flips actor and credential resolution to a Slack steering user the run
-                # doesn't have. The run must keep executing as the workflow owner.
-                interaction_origin="workflow" if slack_binding is not None else None,
+                slack_thread_context=thread_context,
+                interaction_origin=interaction_origin,
             )
 
             if slack_binding is not None:
