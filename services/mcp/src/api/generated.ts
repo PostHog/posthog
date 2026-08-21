@@ -38059,6 +38059,8 @@ export namespace Schemas {
       product_area_ids: string[];
       /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
       idempotency_key: string;
+      /** Optional first evidence item to create for the selected account. */
+      evidence?: FeatureRequestEvidencePayload | null;
     }
 
     export interface FeatureRequestEvidenceCreate {
@@ -89605,6 +89607,11 @@ export namespace Schemas {
      * @minLength 1
      */
     archive_state?: FeatureRequestsListArchiveState;
+    /**
+     * Creator user IDs to include. Multiple values use OR semantics.
+     * @items.minimum 1
+     */
+    created_by_ids?: number[];
     /**
      * Number of results to return per page.
      */
