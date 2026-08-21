@@ -17,6 +17,8 @@ async def test_select_repository_for_team_uses_explicit_runtime_override() -> No
 
     assert result == selected
     select.assert_awaited_once()
-    assert select.await_args.kwargs["runtime_adapter"] == "codex"
-    assert select.await_args.kwargs["model"] == "gpt-5.5"
-    assert select.await_args.kwargs["reasoning_effort"] == "high"
+    call = select.await_args
+    assert call is not None
+    assert call.kwargs["runtime_adapter"] == "codex"
+    assert call.kwargs["model"] == "gpt-5.5"
+    assert call.kwargs["reasoning_effort"] == "high"

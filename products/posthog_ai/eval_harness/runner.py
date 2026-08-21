@@ -281,3 +281,6 @@ def parse_agent_artifacts(log_content: str, duration_seconds: float, agent_finis
         tool_call_count=len(tool_outputs),
         duration_seconds=duration_seconds,
     )
+
+
+_parse_artifacts_from_log = parse_agent_artifacts
