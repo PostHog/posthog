@@ -125,22 +125,23 @@ def _add_orphan_pair_ids(conn: psycopg.Connection, uuid: str, distinct_id: str) 
 # Runs `action` on a second connection at the one moment that matters: after the command has
 # cleared its pre-flight gates and before it opens the delete transaction. Every gate-failure
 # path is unreachable without this, because staging excludes anything the gates would catch --
-# only a concurrent writer can make a staged victim undeletable. Keyed on the gate SQL rather
-# than a call count so it stays put if another pre-flight check is added.
+# only a concurrent writer can make a staged victim undeletable.
 @contextmanager
 def _concurrent_write_before_delete(monkeypatch, action):
-    real_scalar = persons_dedup_command._scalar
+    real_gates = persons_dedup_command._gates
     state = {"fired": False}
 
-    def scalar_then_interfere(conn, sql, params=None):
-        result = real_scalar(conn, sql, params)
-        if not state["fired"] and "victims >= members" in sql:
+    def gates_then_interfere(conn):
+        result = real_gates(conn)
+        # The pre-flight is the first gate call and the in-transaction re-check is the second,
+        # so firing after the first lands the write in the only window the gates can catch.
+        if not state["fired"]:
             state["fired"] = True
             with persons_db_connection(writer=True, autocommit=True) as other:
                 action(other)
         return result
 
-    monkeypatch.setattr(persons_dedup_command, "_scalar", scalar_then_interfere)
+    monkeypatch.setattr(persons_dedup_command, "_gates", gates_then_interfere)
     yield lambda: state["fired"]
 
 
@@ -753,6 +754,10 @@ class TestPersonsDedupSurvivorSelection:
         assert records[0]["reason"] == "multiple_distinct_id_owners"
         assert records[0]["live_owners"] == 2
         assert records[0]["reachable_owners"] == 1
+        # Ordered by survivor rank, so the first id is the row the product can still resolve.
+        # A transposed FILTER or ORDER BY in the aggregate would point the merge at the wrong row.
+        assert records[0]["member_ids"] == [survivor, dead_owner]
+        assert records[0]["reachable_ids"] == [survivor]
         # And the foreign key is why: the tombstoned mapping still references the row.
         _run("repair", tmp_path, apply=True)
         assert _persons(persons_conn) == 2
@@ -847,23 +852,28 @@ class TestPersonsDedupPrivilegePreflight:
             deleted_tables.add(match.group(1))
         assert deleted_tables, "no DELETE_* constants found -- did they get renamed?"
 
-        probed = {t for t, p in persons_dedup_command.REQUIRED_PRIVILEGES if p == "DELETE"}
+        probed = {t for t, p in persons_dedup_command.WRITE_PRIVILEGES if p == "DELETE"}
         assert deleted_tables <= probed, f"deletes without a DELETE grant probe: {sorted(deleted_tables - probed)}"
+
+    def test_read_modes_do_not_demand_delete_grants(self):
+        # classify and verify delete nothing, so probing DELETE would block them on a
+        # read-only role for grants they never exercise.
+        assert {p for _, p in persons_dedup_command.READ_PRIVILEGES} == {"SELECT"}
+        assert set(persons_dedup_command.READ_PRIVILEGES) <= set(persons_dedup_command.WRITE_PRIVILEGES)
 
 
 class TestPersonsDedupConnectionRouting:
-    # Both read modes accept either endpoint and differ only in their default: classify's
-    # scan must stay off the primary unless asked, verify gates the rollout so it reads the
-    # primary unless asked. Silently moving either one is the regression these guard
-    # against. Locally the reader URL falls back to the writer, so the routed kwarg is the
-    # only observable difference.
+    # Both read modes default to the replica so a multi-minute census never holds a snapshot
+    # on the primary. Silently moving either one back is the regression these guard against.
+    # Locally the reader URL falls back to the writer, so the routed kwarg is the only
+    # observable difference.
     @pytest.mark.parametrize(
         "mode,kwargs,expected_writer",
         [
             ("classify", {}, False),
             ("classify", {"reader": True}, False),
             ("classify", {"writer": True}, True),
-            ("verify", {}, True),
+            ("verify", {}, False),
             ("verify", {"writer": True}, True),
             ("verify", {"reader": True}, False),
             ("repair", {"apply": True}, True),
@@ -922,6 +932,197 @@ class TestPersonsDedupConnectionRouting:
 
     def test_a_primary_read_is_not_announced_as_a_replica_read(self, persons_conn, tmp_path):
         with capture_logs() as logs:
-            _run("verify", tmp_path)
+            _run("verify", tmp_path, writer=True)
 
         assert not [entry for entry in logs if entry["event"] == "persons_dedup.reading_from_replica"]
+
+
+class TestPersonsDedupClassifyCounters:
+    # classify's numbers decide how much work the rollout thinks is outstanding, and nothing
+    # else asserts them. One fixture holding every group shape at once, because the counters
+    # are computed in a single aggregate and a wrong FILTER shows up as one field disagreeing.
+    def _seed_every_shape(self, conn) -> None:
+        # No refs at all: both rows are orphans.
+        _add_person(conn, _uuid(90))
+        _add_person(conn, _uuid(90))
+
+        # One reachable survivor plus one orphan. Resolvable.
+        survivor = _add_person(conn, _uuid(91))
+        _add_distinct_id(conn, survivor, "did-91")
+        _add_person(conn, _uuid(91))
+
+        # Two reachable rows: needs a real person merge.
+        a = _add_person(conn, _uuid(92))
+        b = _add_person(conn, _uuid(92))
+        _add_distinct_id(conn, a, "did-92a")
+        _add_distinct_id(conn, b, "did-92b")
+
+        # Held by a tombstone, which repair will not touch.
+        live = _add_person(conn, _uuid(93))
+        _add_distinct_id(conn, live, "did-93")
+        _add_person(conn, _uuid(93), is_deleted=True)
+
+        # Referenced by everything except a distinct ID, so still resolvable.
+        keeper = _add_person(conn, _uuid(94))
+        _add_distinct_id(conn, keeper, "did-94")
+        held = _add_person(conn, _uuid(94))
+        _add_cohort_member(conn, held)
+        _add_flag_override(conn, held, "flag-94")
+        _add_recon_backup_row(conn, held, _uuid(94))
+
+    def test_classify_reports_every_counter_for_every_group_shape(self, persons_conn, tmp_path):
+        self._seed_every_shape(persons_conn)
+
+        with capture_logs() as logs:
+            _run("classify", tmp_path)
+
+        result = next(entry for entry in logs if entry["event"] == "persons_dedup.classify")
+        assert result["dup_groups"] == 5
+        assert result["all_orphaned"] == 1, "only uuid(90) has no referenced member"
+        assert result["one_referenced"] == 2, "uuid(91) and uuid(93)"
+        assert result["needs_merge"] == 2, "uuid(92) and uuid(94), which counts the held refs"
+        assert result["groups_with_distinct_ids_on_multiple_rows"] == 1, "only uuid(92)"
+        assert result["blocked_groups"] == 2, "uuid(92) needs a merge, uuid(93) holds a tombstone"
+        assert result["resolvable_groups"] == 3
+        assert result["tombstoned_members"] == 1
+        assert result["distinct_ids"] == 5
+        assert result["cohort_rows"] == 1
+        assert result["flag_overrides"] == 1
+        assert result["reconciliation_rows"] == 1
+
+    def test_a_long_step_is_bracketed_so_progress_is_visible(self, persons_conn, tmp_path):
+        # A census emits nothing while it runs, so without these a slow scan and a hung one
+        # look identical. The pid is what lets an operator check pg_stat_activity after an
+        # interrupt.
+        _add_orphan_pair(persons_conn, _uuid(95), "did-95")
+
+        with capture_logs() as logs:
+            _run("classify", tmp_path)
+
+        started = next(e for e in logs if e["event"] == "persons_dedup.step_started" and e["step"] == "classify")
+        finished = next(e for e in logs if e["event"] == "persons_dedup.step_finished" and e["step"] == "classify")
+        assert isinstance(started["pid"], int)
+        assert finished["elapsed_s"] >= 0
+
+
+class TestPersonsDedupContention:
+    def test_a_lock_timeout_retries_the_batch_and_reports_the_budget(self, persons_conn, tmp_path):
+        # Ingestion holds locks on exactly these rows by design, so expiry is a normal event.
+        # Letting LockNotAvailable escape ends the run and discards the staging census.
+        victim, _survivor = _add_orphan_pair_ids(persons_conn, _uuid(96), "did-96")
+
+        with persons_db_connection(writer=True, autocommit=True) as blocker:
+            with blocker.cursor() as cur:
+                cur.execute("BEGIN")
+                cur.execute("SELECT id FROM posthog_person WHERE team_id = %s AND id = %s FOR UPDATE", (TEAM, victim))
+                try:
+                    with pytest.raises(CommandError, match="lock contention") as raised:
+                        _run("repair", tmp_path, apply=True, lock_timeout_ms=50, max_lock_retries=1)
+                finally:
+                    cur.execute("ROLLBACK")
+
+        # Budget of 1 means it took the batch again before giving up, rather than dying on
+        # first contact.
+        assert "2 batch(es)" in str(raised.value)
+        assert _persons(persons_conn) == 2, "nothing may be deleted when the lock was never held"
+
+
+class TestPersonsDedupPlatformErrors:
+    def test_an_unavailable_recovery_probe_does_not_end_the_run(self, persons_conn, tmp_path, monkeypatch):
+        # The probe only labels a log line. Aurora withholds some introspection functions, and
+        # letting one abort the run is how the previous failure shipped.
+        real_scalar = persons_dedup_command._scalar
+
+        def refuse_recovery_probe(conn, sql, params=None):
+            if "pg_is_in_recovery" in sql:
+                raise psycopg.errors.FeatureNotSupported("not supported on this platform")
+            return real_scalar(conn, sql, params)
+
+        monkeypatch.setattr(persons_dedup_command, "_scalar", refuse_recovery_probe)
+        _add_orphan_pair(persons_conn, _uuid(97), "did-97")
+        with capture_logs() as logs:
+            _run("classify", tmp_path)
+
+        assert [e for e in logs if e["event"] == "persons_dedup.recovery_probe_unavailable"]
+        assert [e for e in logs if e["event"] == "persons_dedup.classify"], "the census still ran"
+
+    def test_a_replica_conflict_is_retried_and_other_errors_are_not(self, persons_conn, monkeypatch):
+        # Aurora cancels long reads on a reader to resolve replication conflicts, which
+        # statement_timeout = 0 does not prevent. Losing a finished census to that is worse
+        # than waiting. Anything else must surface immediately.
+        monkeypatch.setattr(persons_dedup_command, "REPLICA_RETRY_BACKOFF_BASE_S", 0.0)
+        calls = {"n": 0}
+
+        def conflict_once():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery")
+            return "census"
+
+        assert persons_dedup_command._retry_replica_conflict(persons_conn, "test", conflict_once) == "census"
+        assert calls["n"] == 2
+
+        def always_undefined():
+            raise psycopg.errors.UndefinedTable("no such table")
+
+        with pytest.raises(psycopg.errors.UndefinedTable):
+            persons_dedup_command._retry_replica_conflict(persons_conn, "test", always_undefined)
+
+    def test_a_persistent_replica_conflict_eventually_surfaces(self, persons_conn, monkeypatch):
+        monkeypatch.setattr(persons_dedup_command, "REPLICA_RETRY_BACKOFF_BASE_S", 0.0)
+
+        def always_conflict():
+            raise psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery")
+
+        with pytest.raises(psycopg.errors.SerializationFailure):
+            persons_dedup_command._retry_replica_conflict(persons_conn, "test", always_conflict, attempts=2)
+
+
+class TestPersonsDedupVerifyGate:
+    # An orphaned mapping cannot be seeded here without dropping all 64 per-partition foreign
+    # keys, so the matrix runs against the decision itself. The DB-backed wiring guard that a
+    # resolvable duplicate still fails is test_verify_fails_while_resolvable_duplicates_remain.
+    @pytest.mark.parametrize(
+        "resolvable,orphans,require_no_orphans,expected",
+        [
+            (0, 0, False, []),
+            (0, 3, False, []),
+            (0, 3, True, ["3 orphaned distinct id(s)"]),
+            (2, 0, False, ["2 resolvable duplicate group(s)"]),
+            (2, 3, False, ["2 resolvable duplicate group(s)"]),
+            (2, 3, True, ["2 resolvable duplicate group(s)", "3 orphaned distinct id(s)"]),
+        ],
+    )
+    def test_orphans_gate_only_when_required(self, resolvable, orphans, require_no_orphans, expected):
+        assert (
+            persons_dedup_command._verify_failures(
+                resolvable=resolvable, orphans=orphans, require_no_orphans=require_no_orphans
+            )
+            == expected
+        )
+
+
+class TestPersonsDedupReaderEndpoint:
+    def test_reader_is_refused_when_no_reader_url_is_configured(self, persons_conn, tmp_path, monkeypatch):
+        # The persons-DB URL silently falls back to the writer, so without this the flag whose
+        # whole purpose is keeping a census off the primary would put it on the primary.
+        monkeypatch.delenv("PERSONS_DB_READER_URL", raising=False)
+
+        with pytest.raises(CommandError, match="PERSONS_DB_READER_URL"):
+            _run("classify", tmp_path, reader=True)
+
+    def test_reader_on_a_primary_session_warns_instead_of_aborting(self, persons_conn, tmp_path):
+        # Single-node deployments point both URLs at one database, so --reader landing on the
+        # primary is normal there. The read is harmless; only the silence would be a problem.
+        with capture_logs() as logs:
+            _run("classify", tmp_path, reader=True)
+
+        assert [e for e in logs if e["event"] == "persons_dedup.reader_is_the_primary"]
+
+    def test_the_default_read_falls_back_to_the_writer_and_says_so(self, persons_conn, tmp_path, monkeypatch):
+        monkeypatch.delenv("PERSONS_DB_READER_URL", raising=False)
+
+        with capture_logs() as logs:
+            _run("classify", tmp_path)
+
+        assert [e for e in logs if e["event"] == "persons_dedup.no_reader_configured"]

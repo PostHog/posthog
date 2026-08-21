@@ -3,131 +3,103 @@
 Production has no unique index on (team_id, uuid) even though
 rust/persons_migrations/20251113000001 declares one, and person UUIDs are derived
 deterministically from (team_id, primary distinct_id). Any actor that removes a
-posthog_persondistinctid row while leaving its person behind therefore lets the next
-event mint a second person row with an identical (team_id, uuid).
+posthog_persondistinctid row while leaving its person behind therefore lets the next event
+mint a second person row with an identical (team_id, uuid).
 
-This command resolves those groups so the unique index can be built. It never creates,
-drops or alters an index -- that is separate work, gated on `--mode verify` reporting
-zero remaining groups.
+This command resolves those groups so the unique index can be built. It never creates, drops
+or alters an index; that is separate work, gated on `--mode verify` reporting zero resolvable
+groups.
 
 SAFETY MODEL
 
-Everything rests on one property, verified against the flag and cohort read paths:
+A person row owning no live posthog_persondistinctid row cannot be resolved from a distinct
+id, so nothing keyed to that person_id takes part in flag evaluation, cohort matching, or
+event attribution. Those reads all start from a distinct id
+(rust/common/types/src/person.rs:22 joins posthog_persondistinctid with is_deleted = false;
+flag_matching_utils.rs:845 and :288 build on it).
 
-    A person row owning no live posthog_persondistinctid row cannot be resolved FROM A
-    DISTINCT ID, so nothing keyed to that person_id takes part in flag evaluation, cohort
-    matching, or event attribution. Those reads all start from a distinct id
-    (rust/common/types/src/person.rs:22 joins posthog_persondistinctid with
-    is_deleted = false; flag_matching_utils.rs:845 and :288 build on it).
+"The row is unreachable" would overstate it, because the persons detail API and personhog's
+GetPersonByUuid and friends reach a person by uuid or bigint id without touching a distinct
+id. What makes the delete safe is narrower: a victim is always rn > 1 within its duplicate
+group, so a row carrying the same uuid always survives it. Every uuid-keyed lookup still finds
+a person, just the one the product can actually resolve.
 
-Say it that precisely, because the shorter version -- "the row is unreachable" -- is not
-true. Plenty of paths reach a person by uuid or by bigint id without touching a distinct
-id at all: the persons detail API accepts either, and personhog exposes GetPersonByUuid,
-GetPersonsByUuids, GetPerson and GetPersons. What makes the delete safe is narrower: a
-victim is always rn > 1 within a duplicate (team_id, uuid) group, so a row carrying the
-same uuid always survives it. Every uuid-keyed lookup still finds a person; it just finds
-the one the product can actually resolve.
-
-Two consequences of that worth stating rather than discovering:
-
-  - get_person_by_uuid takes the first row of an unordered result, so for a duplicated
-    uuid it returns an arbitrary member today. Removing the victims makes it deterministic.
-  - Static cohort population resolves uuid -> person id and does not deduplicate, so it
-    writes membership rows against victims continuously, not historically. Expect the
-    post-commit cohort sweep to find rows on an active team. That is the normal case here.
-
-Two gates enforce it from opposite directions, because proving the victims are safe is
-not the same as proving the survivor is right:
+Two gates enforce this from opposite directions, because proving the victims are safe is not
+the same as proving the survivor is right:
 
     GATE_REACHABLE_SQL           no row we delete may be reachable
     GATE_SURVIVOR_REACHABLE_SQL  if any row in the group is reachable, one we keep must be
 
-DO NOT REORDER THE LOCK AND THE GATE. Ingestion's stranded-row claim path selects exactly
-the rows this command deletes -- the unreachable holder of a (team_id, uuid) -- and
-repoints it to a live distinct id. It takes FOR UPDATE on that row, and so does
-LOCK_VICTIMS_SQL, which is the only reason the two serialize instead of racing. The gate
-must stay after the lock. This stopped being hypothetical when
-PERSON_CREATE_CLAIM_TEAM_ALLOWLIST was enabled: the teams on it are the teams with
-duplicates, so a run against them will meet a claim in flight, and the batch-level prune
-is what absorbs it.
+DO NOT REORDER THE LOCK AND THE GATE. Ingestion's stranded-row claim path selects exactly the
+rows this command deletes, the unreachable holder of a (team_id, uuid), and repoints it to a
+live distinct id. It takes FOR UPDATE on that row and so does LOCK_VICTIMS_SQL, which is the
+only reason the two serialize instead of racing. The teams on
+PERSON_CREATE_CLAIM_TEAM_ALLOWLIST are the teams with duplicates, so a run against them will
+meet a claim in flight, and the batch-level prune is what absorbs it.
 
-So a row owning zero live distinct IDs can be deleted without changing any membership
-or flag DECISION, and the feature-flag overrides that cascade away with it were already
-unreachable. Moving them onto the surviving person would do the opposite: it would
-resurrect dead data and could change which flag variant a live user receives.
+n_did = 0 is the safety condition and nothing else is. Being referenced is not the same as
+being live: a row owning no distinct ID is dead whatever else points at it, and skipping it
+only leaves cohort memberships that still count toward the size shown in the product. These
+repairs are expensive to run, so every row skipped for a reason that does not survive scrutiny
+is a re-run later.
 
-One carve-out, because "no product behaviour" would overstate it. Static cohort size
-comes from a bare COUNT(*) over posthog_cohortpeople scoped by cohort_id, with no join
-to persons, so an unreachable row's memberships are counted today even though no read
-path can act on them. Removing that row corrects the displayed count downward. That is
-a fix rather than a regression -- the count gates the realtime-evaluation threshold, so
-an inflated one can demote a cohort that should qualify -- but it is user-visible, and
-it is the one number a dedup run can move.
+DEPENDENT TABLES
 
-The three dependent tables behave differently on DELETE in production, which is why
-the reachability assertion runs before every delete and again inside the transaction:
+These behave differently on DELETE in production, which is why the reachability assertion runs
+before every delete and again inside the transaction:
 
     posthog_persondistinctid              FK NO ACTION -> Postgres blocks the delete
     posthog_featureflaghashkeyoverride    FK CASCADE   -> silently removes overrides
     posthog_cohortpeople                  no FK        -> silently orphans rows
     posthog_person_reconciliation_backup  no FK        -> silently orphans rows
 
-Only the first fails loudly, so the command cannot rely on the database to catch a
-mistake in the other three. The two without a foreign key are deleted explicitly, before
-the person row, so a failure there aborts before anything is lost.
+Only the first fails loudly, so the two without a foreign key are deleted explicitly and
+before the person row, letting a failure there abort before anything is lost. In production the
+override FK is DEFERRABLE INITIALLY DEFERRED, so that cascade runs at COMMIT rather than at the
+DELETE, and the transaction's statement_timeout has to cover it.
 
-A note on what is NOT a reason to keep a row. Being referenced is not the same as being
-live. A row owning no distinct ID is dead whatever else points at it, and refusing to
-delete it does not protect anything -- it leaves the dead row in place along with cohort
-memberships that still count toward the cohort size shown in the product. These repairs
-are expensive to run, so every row skipped for a reason that does not survive scrutiny is
-a re-run later. n_did = 0 is the safety condition; nothing else is.
+One user-visible effect. Static cohort size comes from a bare COUNT(*) over
+posthog_cohortpeople with no join to persons, so an unreachable row's memberships are counted
+today. Removing that row corrects the displayed count downward, which also un-demotes a cohort
+that the inflated count pushed past the realtime-evaluation threshold. Static cohort population
+resolves uuid to person id without deduplicating, so expect the post-commit cohort sweep to
+find rows on an active team.
 
 BLAST RADIUS OF A DELETED bigint id
 
-Audited across the repo rather than assumed. Two facts do most of the work.
+posthog_person.id comes from a sequence and nothing calls setval, so a deleted id dangles
+forever and is never handed to a different person. Every "wrong person" scenario needs id
+reuse, so the real failure mode is a dangling reference or a silent no-op.
 
-Nothing reassigns the id. posthog_person.id comes from a sequence and there is no setval
-anywhere, so a deleted id dangles forever and is never handed to a different person. Every
-"wrong person" scenario needs id reuse, so the real failure mode is a dangling reference or
-a silent no-op, not mistaken identity.
+ClickHouse stores only person.uuid, never the bigint, so a dedup needs no ClickHouse tombstone.
+That holds only because the survivor keeps the uuid: delete the last row for a uuid and
+ClickHouse is left visible but unbacked. GATE_NO_SURVIVOR_SQL prevents that. Do not weaken it.
 
-ClickHouse never stores it. Every person column in every ClickHouse table is UUID-typed --
-person, person_distinct_id2, person_static_cohort, cohortpeople, events, the override
-dictionary, all of it -- and every Kafka producer sends person.uuid, discarding the bigint.
-So a dedup needs no ClickHouse tombstone, but only because the survivor keeps the uuid and
-therefore keeps ClickHouse's row backed. GATE_NO_SURVIVOR_SQL is what holds that up: delete
-the last row for a uuid and ClickHouse would be left visible-but-unbacked. Do not weaken it.
+Outside the persons DB the bigint survives in places this command cannot repair, all of which
+fail safe. Drain these before a large run rather than reasoning about them mid-flight:
 
-Outside the persons DB the bigint survives in a handful of places, none of which this
-command can repair, and all of which fail safe:
-
-    posthog_activitylog.item_id     a Person row's audit trail becomes unreachable; only
-                                    the "deleted" entry carries the uuid to find it by
-    Temporal delete-persons input   a queued run holding a victim id resolves nothing for
-                                    it and under-deletes silently
+    posthog_activitylog.item_id     the audit trail becomes reachable only by uuid
+    Temporal delete-persons input   a queued run under-deletes silently
     split_person Celery payload     raises, retries once, dies
     Dagster run config / event log  stale resume watermarks and failure metadata
 
-Drain those queues before a large run rather than reasoning about them mid-flight.
+BACKUPS
 
-Deleted rows and their dependent rows are written to a local JSONL file, fsync'd, after
-the victims are locked and before the delete runs. Locking first matters: an insert into
-posthog_featureflaghashkeyoverride takes FOR KEY SHARE on the parent person row, so
-reading dependents before the lock would let a row appear afterwards, cascade away, and
-never reach the backup. Writing before the delete means a rolled back transaction leaves
-a harmless superset, and a deleted row can never be missing. Copy that file off the pod;
-it is the only undo.
+Deleted rows and their dependents are written to a local JSONL file, fsync'd, after the victims
+are locked and before the delete runs. Locking first matters: an insert into
+posthog_featureflaghashkeyoverride takes FOR KEY SHARE on the parent person row, so reading
+dependents before the lock would let a row appear afterwards, cascade away, and never reach the
+backup. Writing before the delete means a rolled back or retried batch leaves a harmless
+superset, while a deleted row can never be missing. Copy that file off the pod; it is the only
+undo.
 
 TOMBSTONES
 
-A row with is_deleted = true is a tombstone, not a dead row: the write path revives it in
-place so the revived key outranks its own ClickHouse tombstone, which needs the version
-this row is holding. Deleting one would drop that version floor, so tombstoned rows are
-never staged, and they lose the survivor ranking to any live member of their group. That
-leaves a group of only tombstoned rows unresolved, which verify reports rather than hides.
-No production team can be in that state yet -- every is_deleted writer is gated on a team
-allowlist that is only enabled where the unique (team_id, uuid) index already exists.
+A row with is_deleted = true is a tombstone rather than a dead row: the write path revives it in
+place so the revived key outranks its own ClickHouse tombstone, which needs the version this row
+holds. Deleting one would drop that version floor, so tombstoned rows are never staged and lose
+the survivor ranking to any live member of their group. A group of only tombstoned rows stays
+unresolved, which verify reports rather than hides.
 """
 
 from __future__ import annotations
@@ -135,9 +107,11 @@ from __future__ import annotations
 import os
 import json
 import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
 from django.core.management.base import BaseCommand, CommandError
@@ -166,12 +140,10 @@ PERSON_COLUMNS = (
     "is_deleted",
 )
 
-# Reference counts per member row of a duplicate group.
-# posthog_person_reconciliation_backup (the Dagster property-reconciliation pre-image
-# table) is counted defensively: a row it references stops being deletable. The
-# personhog lifecycle/shadow tables are deliberately NOT consulted -- personhog does not
-# run in production, its tables are empty there, and their ACLs are owner-only, so a
-# subquery against them fails with permission denied for the operator role.
+# Reference counts per member row of a duplicate group. n_recon is reported but does not
+# block a delete. The personhog lifecycle and shadow tables are deliberately not consulted:
+# their ACLs are owner-only, so a subquery against them fails with permission denied for the
+# operator role.
 _MEMBERS_CTE = """
 WITH dups AS (
     SELECT team_id, uuid FROM posthog_person
@@ -180,11 +152,11 @@ WITH dups AS (
 ),
 members AS (
     SELECT p.team_id, p.uuid, p.id, p.version, p.is_identified, p.created_at, p.is_deleted,
-           -- Two counts, because two different questions. n_did is what the foreign key
-           -- sees, so it decides whether a row can be deleted at all: the FK is NO ACTION
-           -- and counts tombstoned mappings too, so staging a row with any mapping would
-           -- fail the delete. n_did_live is what the product sees -- the flag path requires
-           -- pdi.is_deleted = false -- so it decides which row is worth keeping.
+           -- n_did is what the foreign key sees, so it decides whether a row can be deleted
+           -- at all: the FK is NO ACTION and counts tombstoned mappings, so staging a row
+           -- with any mapping would fail the delete. n_did_live is what the product sees,
+           -- because the flag path requires pdi.is_deleted = false, so it decides which row
+           -- is worth keeping.
            (SELECT count(*) FROM posthog_persondistinctid pdi
              WHERE pdi.team_id = p.team_id AND pdi.person_id = p.id) AS n_did,
            (SELECT count(*) FROM posthog_persondistinctid pdi
@@ -216,7 +188,9 @@ ranked AS (
     FROM scored
 ),
 -- One row per duplicate group, in the terms the staging queries below use, so
--- classify and verify report exactly what repair will and will not resolve.
+-- classify and verify report exactly what repair will and will not resolve. Every
+-- number classify reports is derivable from here, so it aggregates this once rather
+-- than making a separate pass over `ranked` per statistic.
 per_group AS (
     SELECT uuid,
            count(*) AS members,
@@ -224,31 +198,33 @@ per_group AS (
            count(*) FILTER (WHERE n_did_live > 0) AS reachable_owners,
            count(*) FILTER (WHERE is_deleted) AS tombstoned,
            count(*) FILTER (WHERE n_recon > 0) AS recon_held,
+           count(*) FILTER (WHERE refs > 0) AS referenced_members,
+           sum(n_did)::bigint AS distinct_ids,
            sum(n_ff)::bigint AS flag_overrides,
            sum(n_cohort)::bigint AS cohort_rows,
+           sum(n_recon)::bigint AS recon_rows,
            count(*) FILTER (WHERE rn > 1 AND n_did = 0 AND NOT is_deleted) AS stageable
     FROM ranked GROUP BY uuid
 )
 """
 
+# Column order is load-bearing: _classify unpacks this row positionally.
 CLASSIFY_SQL = (
     _MEMBERS_CTE
     + """
 SELECT
-    (SELECT count(*) FROM (SELECT uuid FROM ranked GROUP BY uuid) x),
-    (SELECT count(*) FROM (SELECT uuid FROM ranked GROUP BY uuid
-                            HAVING count(*) FILTER (WHERE refs > 0) = 0) x),
-    (SELECT count(*) FROM (SELECT uuid FROM ranked GROUP BY uuid
-                            HAVING count(*) FILTER (WHERE refs > 0) = 1) x),
-    (SELECT count(*) FROM (SELECT uuid FROM ranked GROUP BY uuid
-                            HAVING count(*) FILTER (WHERE refs > 0) > 1) x),
-    (SELECT count(*) FROM (SELECT uuid FROM ranked GROUP BY uuid
-                            HAVING count(*) FILTER (WHERE n_did > 0) > 1) x),
-    (SELECT count(*) FROM per_group WHERE live_owners > 1 OR members - stageable > 1),
-    (SELECT count(*) FROM ranked WHERE is_deleted),
-    COALESCE(sum(n_did), 0), COALESCE(sum(n_cohort), 0), COALESCE(sum(n_ff), 0),
-    COALESCE(sum(n_recon), 0)
-FROM ranked
+    count(*),
+    count(*) FILTER (WHERE referenced_members = 0),
+    count(*) FILTER (WHERE referenced_members = 1),
+    count(*) FILTER (WHERE referenced_members > 1),
+    count(*) FILTER (WHERE live_owners > 1),
+    count(*) FILTER (WHERE live_owners > 1 OR members - stageable > 1),
+    COALESCE(sum(tombstoned), 0),
+    COALESCE(sum(distinct_ids), 0),
+    COALESCE(sum(cohort_rows), 0),
+    COALESCE(sum(flag_overrides), 0),
+    COALESCE(sum(recon_rows), 0)
+FROM per_group
 """
 )
 
@@ -262,27 +238,14 @@ SELECT team_id, id, uuid FROM ranked WHERE rn > 1 AND refs = 0 AND NOT is_delete
 )
 
 # Repair: a non-survivor owning NO distinct IDs. Unreachable by definition, so its
-# feature-flag overrides, cohort rows and reconciliation backup are dead data that go with
-# it. n_did = 0 is the whole safety condition and it is doing more work than it looks:
-# because it counts tombstoned mappings as well as live ones, no row a foreign key would
-# refuse to delete can be staged, and no row the product can still resolve can be either.
+# feature-flag overrides, cohort rows and reconciliation backup are dead data that go with it.
+# n_did = 0 does more work than it looks: because it counts tombstoned mappings as well as live
+# ones, it excludes both rows a foreign key would refuse to delete and rows the product can
+# still resolve.
 #
-# Two conditions used to sit here and have been removed, because each refused a delete we
-# can prove is safe, and every skipped row is a re-run later:
-#
-#   n_recon = 0
-#       A reconciliation backup row does not make a person live. Its restore path reads the
-#       person by id and returns early when the row is gone
-#       (person_property_reconciliation_restore.py:326), and the caller counts that as a
-#       skip. So the delete is safe; the backup row goes with the person rather than being
-#       left to warn on every future restore and retain a deleted person's properties.
-#
-#   uuid IN (groups with at most one distinct-ID owner)
-#       This never protected a live row -- n_did = 0 already does that, with or without it.
-#       Its only effect was to skip dead rows that happened to share a group with two live
-#       ones, leaving known-orphaned rows behind and their cohort memberships still counted.
-#       The group stays blocked for the merge either way; classify still reports it, because
-#       that accounting keys on the count of live owners, not on this clause.
+# A reconciliation backup row is not a reason to skip a delete. Its restore path reads the
+# person by id and returns early when the row is gone
+# (person_property_reconciliation_restore.py:326), which the caller counts as a skip.
 STAGE_UNREACHABLE_SQL = (
     _MEMBERS_CTE
     + f"""
@@ -313,25 +276,31 @@ FROM per_group
 # reconciliation and tombstone cases need to be told apart from it.
 BLOCKED_DETAIL_SQL = (
     _MEMBERS_CTE
-    + """
+    + """,
+-- `ranked` is referenced more than once, so Postgres materializes it without an index.
+-- Aggregating the ids here costs one grouped pass; correlating a subquery against
+-- `ranked` per blocked group would re-scan that whole tuplestore each time.
+group_ids AS (
+    SELECT uuid,
+           array_agg(id ORDER BY rn) AS member_ids,
+           array_agg(id ORDER BY rn) FILTER (WHERE n_did_live > 0) AS reachable_ids
+    FROM ranked GROUP BY uuid
+)
 SELECT g.uuid,
-       -- Mirrors the WHERE below, branch for branch, so the reason names the condition that
-       -- actually refused the group. Two rows owning distinct IDs is the merge case, split by
-       -- whether the product can still reach both; a tombstone is the other. A reconciliation
-       -- backup row no longer refuses anything, so it is a reported column, not a reason --
-       -- ranking it here attributed tombstone-blocked groups to the backup. 'other' should be
-       -- unreachable: the survivor ranking puts any row owning a distinct ID first, so a group
-       -- with one live owner and no tombstone always resolves down to a single member.
+       -- Mirrors the WHERE below branch for branch, so the reason names the condition that
+       -- actually refused the group. A reconciliation backup row is reported but is never the
+       -- reason, because it does not refuse a delete. 'other' should be unreachable: the
+       -- survivor ranking puts any row owning a distinct ID first, so a group with one live
+       -- owner and no tombstone always resolves to a single member.
        CASE WHEN g.reachable_owners > 1 THEN 'multiple_reachable_rows'
             WHEN g.live_owners > 1      THEN 'multiple_distinct_id_owners'
             WHEN g.tombstoned > 0       THEN 'tombstoned_member'
             ELSE 'other' END AS reason,
        g.members, g.reachable_owners, g.live_owners, g.tombstoned, g.recon_held,
        g.flag_overrides, g.cohort_rows,
-       (SELECT array_agg(r.id ORDER BY r.rn) FROM ranked r WHERE r.uuid = g.uuid) AS member_ids,
-       (SELECT array_agg(r.id ORDER BY r.rn) FROM ranked r
-         WHERE r.uuid = g.uuid AND r.n_did_live > 0) AS reachable_ids
+       ids.member_ids, ids.reachable_ids
 FROM per_group g
+JOIN group_ids ids ON ids.uuid = g.uuid
 WHERE g.live_owners > 1 OR g.members - g.stageable > 1
 ORDER BY g.uuid
 """
@@ -347,10 +316,10 @@ DELETE FROM {VICTIMS_TABLE} v USING {VICTIMS_TABLE}_batch b
 WHERE v.team_id = b.team_id AND v.id = b.id
 """
 
-# Drop from the staged set the batch members a concurrent writer made undeletable. Aborting
-# the whole run instead would discard a staging scan that costs minutes on the large teams,
-# and on a team still receiving writes it can stop the run finishing at all. Only the staged
-# set is touched -- no person row is modified. Three ways a victim stops being one:
+# Drop from the staged set the batch members a concurrent writer made undeletable. Only the
+# staged set is touched; no person row is modified. Aborting instead would discard a staging
+# scan that costs minutes, and on a team still receiving writes could stop the run finishing at
+# all. Three ways a victim stops being one:
 #   1. it no longer exists, because something else removed it;
 #   2. it gained a reference since staging, so it is now reachable;
 #   3. its group lost the survivor, so the staged victims are all that remains of the key.
@@ -382,11 +351,11 @@ WHERE EXISTS (SELECT 1 FROM posthog_persondistinctid pdi
                WHERE pdi.team_id = v.team_id AND pdi.person_id = v.id)
 """
 
-# The mirror of the reachable gate. That one proves no victim is reachable; this proves the
-# row we keep is the right one. Staging should already guarantee it -- a victim needs n_did = 0
-# -- so this is an assertion, and a non-zero result means the model is wrong rather than that a
-# writer raced us. Scoped to the batch's keys, so it costs a handful of index probes rather
-# than another pass over the team.
+# The mirror of the reachable gate: that one proves no victim is reachable, this proves the
+# row we keep is the right one. Staging already guarantees it because a victim needs n_did = 0,
+# so a non-zero result means the model is wrong rather than that a writer raced us. Scoped to
+# the batch's keys, so it costs a handful of index probes rather than another pass over the
+# team.
 GATE_SURVIVOR_REACHABLE_SQL = f"""
 SELECT count(*) FROM (SELECT DISTINCT team_id, uuid FROM {VICTIMS_TABLE}_batch) g
 WHERE EXISTS (
@@ -412,6 +381,13 @@ SELECT count(*) FROM (
              WHERE p.team_id = v.team_id AND p.uuid = v.uuid) AS members
     FROM {VICTIMS_TABLE}_batch v GROUP BY v.team_id, v.uuid
 ) g WHERE victims >= members
+"""
+
+# All three gates in one statement so they share a snapshot. Run separately under READ
+# COMMITTED each takes its own, so a writer landing in between can produce a failure
+# message describing a state that never existed at any instant.
+GATES_SQL = f"""
+SELECT ({GATE_REACHABLE_SQL}), ({GATE_NO_SURVIVOR_SQL}), ({GATE_SURVIVOR_REACHABLE_SQL})
 """
 
 LOCK_VICTIMS_SQL = f"""
@@ -494,34 +470,58 @@ WHERE pdi.team_id = %(team)s
 """
 
 
-# Every (table, privilege) pair the command exercises. Probed up front so a missing
-# grant aborts cleanly before any work, instead of surfacing as a raw permission
-# error mid-CTE (lifecycle_op_person in production is owner-only, which is exactly
-# how such a gap presents).
-REQUIRED_PRIVILEGES = (
+# Probed up front so a missing grant aborts before any work rather than surfacing as a
+# raw permission error mid-CTE. Scoped by mode: demanding DELETE for a read-only census
+# would block classify and verify on grants they never exercise.
+READ_PRIVILEGES = (
     ("posthog_person", "SELECT"),
-    ("posthog_person", "DELETE"),
     ("posthog_persondistinctid", "SELECT"),
     ("posthog_featureflaghashkeyoverride", "SELECT"),
     ("posthog_cohortpeople", "SELECT"),
-    ("posthog_cohortpeople", "DELETE"),
     ("posthog_person_reconciliation_backup", "SELECT"),
+)
+# posthog_featureflaghashkeyoverride needs no DELETE: its rows go via the FK's ON DELETE
+# CASCADE, and Postgres runs referential actions as the referencing table's owner.
+WRITE_PRIVILEGES = (
+    *READ_PRIVILEGES,
+    ("posthog_person", "DELETE"),
+    ("posthog_cohortpeople", "DELETE"),
     ("posthog_person_reconciliation_backup", "DELETE"),
 )
-# posthog_featureflaghashkeyoverride needs only SELECT: its rows go via the FK's
-# ON DELETE CASCADE, and Postgres runs referential actions with the privileges of the
-# referencing table's owner rather than the caller's, so no DELETE grant is required.
+
+# Aurora cancels a long read-only query on a reader with 40001, or drops the session with
+# 57P01, when the reader has to catch up. statement_timeout = 0 does not prevent either.
+REPLICA_CONFLICT_SQLSTATES = frozenset({"40001", "57P01"})
+# Exponent base for the retry backoff. A module constant so tests can drive the retry path
+# without waiting on it.
+REPLICA_RETRY_BACKOFF_BASE_S = 2.0
+
+# Contention with live ingestion, not a defect: expiry means back off and take the batch
+# again. QueryCanceled here is always a server-side timeout, because psycopg converts an
+# operator interrupt into KeyboardInterrupt, which is a BaseException and passes through.
+WRITE_RETRY_ERRORS = (
+    psycopg.errors.LockNotAvailable,
+    psycopg.errors.QueryCanceled,
+    psycopg.errors.DeadlockDetected,
+)
+
+T = TypeVar("T")
 
 
-def _check_privileges(conn: psycopg.Connection) -> list[str]:
-    missing = []
-    with conn.cursor() as cur:
-        for table, privilege in REQUIRED_PRIVILEGES:
-            cur.execute("SELECT has_table_privilege(%s, %s)", (table, privilege))
-            row = cur.fetchone()
-            if not (row and row[0]):
-                missing.append(f"{privilege} on {table}")
-    return missing
+def _check_privileges(conn: psycopg.Connection, required: tuple[tuple[str, str], ...]) -> list[str]:
+    values = ", ".join(["(%s, %s)"] * len(required))
+    sql = f"SELECT t.tbl, t.priv, has_table_privilege(t.tbl::text, t.priv::text) FROM (VALUES {values}) AS t(tbl, priv)"
+    params = [value for pair in required for value in pair]
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+    except psycopg.errors.UndefinedTable as exc:
+        raise CommandError(
+            f"a table this command needs is missing from the persons database: {exc}. "
+            "Check that rust/persons_migrations has been applied here."
+        ) from exc
+    return [f"{priv} on {tbl}" for tbl, priv, granted in rows if not granted]
 
 
 def _scalar(conn: psycopg.Connection, sql: str, params: dict | None = None) -> int:
@@ -531,15 +531,100 @@ def _scalar(conn: psycopg.Connection, sql: str, params: dict | None = None) -> i
     return int(row[0]) if row else 0
 
 
+def _gates(conn: psycopg.Connection) -> tuple[int, int, int]:
+    """Reachable victims, groups that would be emptied, groups that would lose their survivor.
+
+    A missing row raises rather than reading as zero, because zero here means "safe to delete".
+    """
+    with conn.cursor() as cur:
+        cur.execute(GATES_SQL)
+        row = cur.fetchone()
+    if row is None:
+        raise CommandError("gate query returned no row; refusing to delete")
+    return int(row[0]), int(row[1]), int(row[2])
+
+
+def _verify_failures(*, resolvable: int, orphans: int, require_no_orphans: bool) -> list[str]:
+    """What makes a team fail the gate.
+
+    Orphaned mappings are reported but do not gate by default: repair can neither create one
+    (a victim needs zero distinct IDs, and the FK is NO ACTION) nor remove one, since the
+    command holds no DELETE grant on posthog_persondistinctid. Failing on them would block
+    the rollout on damage this command cannot fix.
+    """
+    failures = []
+    if resolvable:
+        failures.append(f"{resolvable} resolvable duplicate group(s)")
+    if orphans and require_no_orphans:
+        failures.append(f"{orphans} orphaned distinct id(s)")
+    return failures
+
+
+def _rollback_quietly(conn: psycopg.Connection) -> None:
+    try:
+        with conn.cursor() as cur:
+            cur.execute("ROLLBACK")
+    except psycopg.Error:
+        pass
+
+
+def _is_replica(conn: psycopg.Connection) -> bool | None:
+    """None when the platform will not answer.
+
+    Aurora documents aurora_replica_status() as its own way to tell a reader from a writer
+    and says nothing about pg_is_in_recovery(), so treat the answer as advisory. Nothing
+    load-bearing may depend on it: a statement whose only consumer is a log field must not
+    be able to end a run.
+    """
+    try:
+        return bool(_scalar(conn, "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END"))
+    except psycopg.Error as exc:
+        logger.warning("persons_dedup.recovery_probe_unavailable", sqlstate=exc.sqlstate, error=str(exc))
+        return None
+
+
+def _retry_replica_conflict(conn: psycopg.Connection, step: str, run: Callable[[], T], *, attempts: int = 3) -> T:
+    """Retry a read that a replica cancelled to resolve a replication conflict.
+
+    The failed statement leaves the transaction aborted, so roll back before retrying or the
+    next BEGIN fails with 25P02.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            return run()
+        except psycopg.Error as exc:
+            if exc.sqlstate not in REPLICA_CONFLICT_SQLSTATES or attempt == attempts:
+                raise
+            _rollback_quietly(conn)
+            logger.warning("persons_dedup.replica_conflict_retry", step=step, attempt=attempt, sqlstate=exc.sqlstate)
+            time.sleep(min(30.0, REPLICA_RETRY_BACKOFF_BASE_S**attempt))
+    raise AssertionError("unreachable")
+
+
+@contextmanager
+def _step(name: str, **fields: Any) -> Iterator[None]:
+    """Bracket a statement that can run for many minutes.
+
+    Without a start line a slow scan and a hung one look identical from the terminal. The
+    backend pid is here so that after an interrupt the operator can confirm in
+    pg_stat_activity that the query really stopped: psycopg cancels server-side, but it
+    opens a fresh connection to do so and gives up after five seconds.
+    """
+    logger.info("persons_dedup.step_started", step=name, **fields)
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        logger.info("persons_dedup.step_finished", step=name, elapsed_s=round(time.monotonic() - started, 1), **fields)
+
+
 def _check_session_stability(conn: psycopg.Connection) -> None:
     """Abort if the connection does not behave like one stable backend session.
 
-    The US census run proved this failure mode is real: queries were canceled at the
-    server's 30-minute statement_timeout even though the session had SET it to 0,
-    which is the signature of a pooler (pgbouncer transaction mode, proxy multiplexing)
-    routing consecutive statements to different backends. On such a connection this
-    command is unusable -- its temp tables and session settings silently vanish between
-    statements. Detect it up front instead of failing intermittently mid-run.
+    A pooler in transaction mode routes consecutive statements to different backends, which
+    silently discards this command's temp tables and session settings. The signature is a
+    statement canceled at the server's default statement_timeout despite the session having set
+    it to 0. Detect it up front instead of failing intermittently mid-run.
     """
     pids = set()
     for _ in range(3):
@@ -588,18 +673,38 @@ class Command(BaseCommand):
             default=200,
             help="pause between batches so writers blocked on our row locks drain (0 disables)",
         )
+        parser.add_argument(
+            "--lock-timeout-ms",
+            type=int,
+            default=2000,
+            help="cap on waiting for a victim's row lock; 0 waits forever and blocks ingestion for as long",
+        )
+        parser.add_argument(
+            "--txn-statement-timeout-ms",
+            type=int,
+            default=300_000,
+            help="cap on each statement inside the delete transaction; 0 holds row locks for as long as it takes",
+        )
+        parser.add_argument(
+            "--max-lock-retries",
+            type=int,
+            default=100,
+            help="give up after this many batches lost to lock contention",
+        )
+        parser.add_argument(
+            "--require-no-orphans",
+            action="store_true",
+            help="verify: also fail when the team has orphaned distinct IDs, which repair cannot create or remove",
+        )
 
     def _assert_explicit_target(self, use_writer: bool) -> None:
         """Refuse to run against a silently defaulted database, and log the one chosen.
 
-        posthog.persons_db falls back to a localhost URL built from PG* when the persons
-        URL is unset. That default is right for a developer and wrong for this command: in
-        a deployed pod PG* usually point at the main cluster, so an unset variable turns a
-        destructive run against the persons database into a destructive run against
-        whatever `posthog_persons` resolves to there -- or a confusing connection error.
-        The variable is injected by the charts in every deployment, so requiring it costs
-        nothing operationally and removes the failure mode entirely. Tests set it in
-        conftest; a developer without it gets told which variable to set.
+        posthog.persons_db falls back to a localhost URL built from PG* when the persons URL is
+        unset, and on a deployed pod PG* usually point at the main cluster. That would turn a
+        destructive run against the persons database into one against whatever
+        `posthog_persons` resolves to there. Host and dbname are logged because that is what
+        tells the operator the toolbox is pointed at persons and not the main cluster.
         """
         var = "PERSONS_DB_WRITER_URL" if use_writer else "PERSONS_DB_READER_URL"
         if not os.getenv("PERSONS_DB_WRITER_URL") and not os.getenv("PERSONS_DB_READER_URL"):
@@ -640,33 +745,40 @@ class Command(BaseCommand):
         if options["batch_size"] < 1:
             raise CommandError("--batch-size must be at least 1")
 
-        # Both read modes accept either endpoint; they differ only in which one they pick
-        # when the operator does not say.
-        #
-        # classify defaults to the replica. It scans the team's whole slice of
-        # posthog_person and then runs per-member subqueries across four more tables, so
-        # on the large teams it is the expensive one, and a long read on the primary pins
-        # the xmin horizon that the concurrent index builds already hold open. Staleness
-        # costs nothing here: classify plans work, it does not gate it.
-        #
-        # verify defaults to the primary because its exit code gates the rollout, and two
-        # statements against a team-scoped index cost little next to what the primary
-        # already serves. Staleness would only ever make it fail, never pass, because a
-        # lagging replica still shows the duplicates a repair just deleted. That makes
-        # --reader a safe way to keep even this read off the primary.
-        if mode == "classify":
-            use_writer = options["writer"]
-        elif mode == "verify":
-            use_writer = not options["reader"]
-        else:
+        for flag in ("lock_timeout_ms", "txn_statement_timeout_ms", "max_lock_retries"):
+            if options[flag] < 0:
+                raise CommandError(f"--{flag.replace('_', '-')} cannot be negative")
+
+        # Both read modes default to the replica. The census scans the team's whole slice of
+        # posthog_person, and holding that snapshot on the primary pins the xmin horizon and
+        # delays vacuum on the hottest table in ingestion. Staleness is one-directional and
+        # therefore safe: a replica lags behind deletes, so it can only over-report
+        # duplicates, never miss them.
+        reader_configured = bool(os.getenv("PERSONS_DB_READER_URL"))
+        if mode not in READ_MODES or options["writer"]:
             use_writer = True
+        elif options["reader"]:
+            if not reader_configured:
+                raise CommandError(
+                    "--reader needs PERSONS_DB_READER_URL to be set. Without it the persons-DB "
+                    "URL falls back to the writer, so this read would run on the primary. Set "
+                    "the variable, or pass --writer if the primary is what you want."
+                )
+            use_writer = False
+        else:
+            use_writer = not reader_configured
+            if use_writer:
+                logger.warning("persons_dedup.no_reader_configured", mode=mode)
         self._assert_explicit_target(use_writer)
 
         with persons_db_connection(writer=use_writer, autocommit=True) as conn:
             with conn.cursor() as cur:
                 cur.execute("SET statement_timeout = 0")
 
-            missing = _check_privileges(conn)
+            backend_pid = _scalar(conn, "SELECT pg_backend_pid()")
+            on_replica = _is_replica(conn)
+
+            missing = _check_privileges(conn, READ_PRIVILEGES if mode in READ_MODES else WRITE_PRIVILEGES)
             if missing:
                 raise CommandError(
                     "operator role lacks required grants: " + ", ".join(missing) + ". "
@@ -674,23 +786,35 @@ class Command(BaseCommand):
                 )
 
             if mode in READ_MODES:
-                # Say when the answer came from a replica, so a run that disagrees with a
-                # later one is explainable.
-                if not use_writer and _scalar(conn, "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END"):
+                # Warn rather than abort: single-node deployments point both URLs at the same
+                # database, so this is normal there and the read is harmless either way. The
+                # operator still needs to know the load did not go where they asked.
+                if options["reader"] and on_replica is False:
+                    logger.warning("persons_dedup.reader_is_the_primary", mode=mode)
+                if on_replica:
                     logger.info("persons_dedup.reading_from_replica", team_id=team)
                 if mode == "classify":
-                    self._classify(conn, team, Path(options["outdir"]))
+                    self._classify(conn, team, Path(options["outdir"]), pid=backend_pid)
                 else:
-                    self._verify(conn, team)
+                    self._verify(
+                        conn,
+                        team,
+                        pid=backend_pid,
+                        from_replica=bool(on_replica),
+                        require_no_orphans=options["require_no_orphans"],
+                    )
                 return
 
-            if _scalar(conn, "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END"):
+            # A None probe means the platform would not say. Carry on rather than abort: a
+            # real replica rejects the DELETE as a read-only transaction before anything is
+            # removed, so that error is the actual backstop.
+            if on_replica:
                 raise CommandError("connected to a replica; this mode needs the writer")
 
             _check_session_stability(conn)
 
             stage_sql = STAGE_UNREFERENCED_SQL if mode == "delete-unreferenced" else STAGE_UNREACHABLE_SQL
-            self._run(conn, team, stage_sql, options, apply_changes=apply_changes, mode=mode)
+            self._run(conn, team, stage_sql, options, apply_changes=apply_changes, mode=mode, pid=backend_pid)
 
     BLOCKED_COLUMNS = (
         "uuid",
@@ -706,19 +830,25 @@ class Command(BaseCommand):
         "reachable_ids",
     )
 
-    def _dump_blocked(self, conn: psycopg.Connection, team: int, outdir: Path) -> dict[str, int]:
+    def _dump_blocked(self, conn: psycopg.Connection, team: int, outdir: Path, *, pid: int) -> dict[str, int]:
         """Write one record per group this command refuses, and return the reason tally.
 
         The counts alone cannot be acted on: resolving a group needs to know which rows it
         holds, which of them are still reachable, and what hangs off them. Written next to
         the delete backups so a run leaves everything the follow-up work needs.
         """
-        with conn.cursor() as cur:
-            cur.execute("BEGIN")
-            cur.execute("SET LOCAL statement_timeout = 0")
-            cur.execute(BLOCKED_DETAIL_SQL, {"team": team})
-            rows = cur.fetchall()
-            cur.execute("COMMIT")
+
+        def read() -> Any:
+            with conn.cursor() as cur:
+                cur.execute("BEGIN")
+                cur.execute("SET LOCAL statement_timeout = 0")
+                cur.execute(BLOCKED_DETAIL_SQL, {"team": team})
+                rows = cur.fetchall()
+                cur.execute("COMMIT")
+            return rows
+
+        with _step("blocked_detail", team_id=team, pid=pid):
+            rows = _retry_replica_conflict(conn, "blocked_detail", read)
         if not rows:
             return {}
 
@@ -737,17 +867,20 @@ class Command(BaseCommand):
         logger.info("persons_dedup.blocked_detail_written", team_id=team, groups=len(rows), path=str(path))
         return tally
 
-    def _classify(self, conn: psycopg.Connection, team: int, outdir: Path) -> None:
-        # SET LOCAL is transaction-scoped, so this scan keeps its unlimited timeout even
-        # on a connection where the session-level SET was silently dropped by a pooler
-        # (observed on the US census: reader queries canceled at the server's 30-minute
-        # default despite SET statement_timeout = 0).
-        with conn.cursor() as cur:
-            cur.execute("BEGIN")
-            cur.execute("SET LOCAL statement_timeout = 0")
-            cur.execute(CLASSIFY_SQL, {"team": team})
-            row = cur.fetchone()
-            cur.execute("COMMIT")
+    def _classify(self, conn: psycopg.Connection, team: int, outdir: Path, *, pid: int) -> None:
+        # SET LOCAL is transaction-scoped, so the scan keeps its unlimited timeout even on a
+        # connection where a pooler dropped the session-level SET.
+        def read() -> Any:
+            with conn.cursor() as cur:
+                cur.execute("BEGIN")
+                cur.execute("SET LOCAL statement_timeout = 0")
+                cur.execute(CLASSIFY_SQL, {"team": team})
+                row = cur.fetchone()
+                cur.execute("COMMIT")
+            return row
+
+        with _step("classify", team_id=team, pid=pid):
+            row = _retry_replica_conflict(conn, "classify", read)
         assert row is not None
         groups, orphaned, one_ref, needs_merge, multi_did, blocked, tombstoned, dids, cohort, ff, recon = (
             int(v) for v in row
@@ -779,24 +912,47 @@ class Command(BaseCommand):
             # A count is not actionable. Write the per-group detail and report the split by
             # reason, so the groups this command refuses can be resolved without re-deriving
             # which rows they hold or why each was refused.
-            tally = self._dump_blocked(conn, team, outdir)
+            tally = self._dump_blocked(conn, team, outdir, pid=pid)
             logger.warning("persons_dedup.blocked_by_reason", team_id=team, groups=blocked, **tally)
 
-    def _verify(self, conn: psycopg.Connection, team: int) -> None:
-        with conn.cursor() as cur:
-            cur.execute("BEGIN")
-            cur.execute("SET LOCAL statement_timeout = 0")
-            # Both counts come from one statement on purpose. Read committed takes a fresh
-            # snapshot per statement, so counting the groups and the blocked subset separately
-            # lets a write land between them -- and since resolvable is the difference, that
-            # reports a resolvable group the team does not have, or a negative count. One
-            # statement over one snapshot cannot disagree with itself, and it saves a second
-            # group-by pass over the whole team.
-            cur.execute(COUNT_BLOCKED_SQL, {"team": team})
-            blocked_row = cur.fetchone()
-            cur.execute(VERIFY_ORPHANS_SQL, {"team": team})
-            orphans_row = cur.fetchone()
-            cur.execute("COMMIT")
+    def _verify(
+        self,
+        conn: psycopg.Connection,
+        team: int,
+        *,
+        pid: int,
+        from_replica: bool,
+        require_no_orphans: bool,
+    ) -> None:
+        def read_groups() -> Any:
+            with conn.cursor() as cur:
+                cur.execute("BEGIN")
+                cur.execute("SET LOCAL statement_timeout = 0")
+                # Both counts come from one statement on purpose. Read committed takes a fresh
+                # snapshot per statement, so counting the groups and the blocked subset
+                # separately lets a write land between them, and resolvable is their
+                # difference, so it could come out negative.
+                cur.execute(COUNT_BLOCKED_SQL, {"team": team})
+                row = cur.fetchone()
+                cur.execute("COMMIT")
+            return row
+
+        def read_orphans() -> Any:
+            with conn.cursor() as cur:
+                cur.execute("BEGIN")
+                cur.execute("SET LOCAL statement_timeout = 0")
+                cur.execute(VERIFY_ORPHANS_SQL, {"team": team})
+                row = cur.fetchone()
+                cur.execute("COMMIT")
+            return row
+
+        # Separate transactions: the two counts measure independent invariants and each is
+        # compared against zero on its own, so sharing a snapshot only makes the one we hold
+        # last longer.
+        with _step("verify_groups", team_id=team, pid=pid):
+            blocked_row = _retry_replica_conflict(conn, "verify_groups", read_groups)
+        with _step("verify_orphans", team_id=team, pid=pid):
+            orphans_row = _retry_replica_conflict(conn, "verify_orphans", read_orphans)
         dups = int(blocked_row[0]) if blocked_row else 0
         blocked = int(blocked_row[1]) if blocked_row else 0
         orphans = int(orphans_row[0]) if orphans_row else 0
@@ -809,15 +965,19 @@ class Command(BaseCommand):
             resolvable_groups=resolvable,
             orphaned_distinct_ids=orphans,
         )
-        # Exiting non-zero on any remaining group made this unusable as a gate on the teams
-        # that matter: the merge-required remainder is expected and is a separate workstream,
-        # so a run that leaves only those has done everything this command can do. Only
-        # groups repair could still resolve, or orphaned mappings, are a failure.
-        if resolvable or orphans:
-            raise CommandError(
-                f"team {team}: {resolvable} resolvable duplicate group(s), "
-                f"{orphans} orphaned distinct id(s); {blocked} group(s) need a real merge"
-            )
+        # The gate is "nothing repair could still resolve". The merge-required remainder is
+        # expected and is separate work, so leaving only those means this command is done.
+        failures = _verify_failures(resolvable=resolvable, orphans=orphans, require_no_orphans=require_no_orphans)
+        if failures:
+            message = f"team {team}: {' and '.join(failures)} remain; {blocked} group(s) need a real merge."
+            if from_replica:
+                message += (
+                    " This read came from the reader replica, which may not have applied the "
+                    "most recent deletes yet. Rerun to confirm, or pass --writer to read the primary."
+                )
+            raise CommandError(message)
+        if orphans:
+            logger.warning("persons_dedup.orphaned_distinct_ids", team_id=team, orphans=orphans)
         if blocked:
             logger.warning("persons_dedup.blocked_remainder", team_id=team, groups=blocked)
 
@@ -830,6 +990,7 @@ class Command(BaseCommand):
         *,
         apply_changes: bool,
         mode: str,
+        pid: int,
     ) -> None:
         if not apply_changes:
             logger.info("persons_dedup.dry_run", team_id=team, mode=mode)
@@ -848,11 +1009,12 @@ class Command(BaseCommand):
             # The staging scan reads every duplicate group for the team and can run for
             # minutes on the large ones; SET LOCAL keeps its timeout immunity
             # transaction-scoped rather than trusting the session-level SET.
-            cur.execute("BEGIN")
-            cur.execute("SET LOCAL statement_timeout = 0")
-            cur.execute(stage_sql, {"team": team})
-            staged = cur.rowcount
-            cur.execute("COMMIT")
+            with _step("stage", team_id=team, mode=mode, pid=pid):
+                cur.execute("BEGIN")
+                cur.execute("SET LOCAL statement_timeout = 0")
+                cur.execute(stage_sql, {"team": team})
+                staged = cur.rowcount
+                cur.execute("COMMIT")
             # Temp tables get no autovacuum or autoanalyze. Without this index every
             # TAKE_BATCH full-scans and sorts the victims table, and the retired rows
             # only go dead, so the scan never gets cheaper as the run progresses. Built
@@ -873,6 +1035,7 @@ class Command(BaseCommand):
         checked = 0
         batches = 0
         pruned_total = 0
+        lock_retries = 0
         # A live-leak team can make a staged victim reachable mid-run, which is expected and
         # is handled per batch below. A large share going that way is not expected and means
         # the staging query and the gate disagree, so stop rather than grind through the set.
@@ -890,9 +1053,7 @@ class Command(BaseCommand):
                 break
             batches += 1
 
-            reachable = _scalar(conn, GATE_REACHABLE_SQL)
-            no_survivor = _scalar(conn, GATE_NO_SURVIVOR_SQL)
-            wrong_survivor = _scalar(conn, GATE_SURVIVOR_REACHABLE_SQL)
+            reachable, no_survivor, wrong_survivor = _gates(conn)
             if reachable or no_survivor or wrong_survivor:
                 raise CommandError(
                     f"gate failed for team {team}: {reachable} victim(s) are reachable, "
@@ -909,98 +1070,115 @@ class Command(BaseCommand):
                     cur.execute(RETIRE_BATCH_SQL)
                 continue
 
-            with conn.cursor() as cur:
-                cur.execute("BEGIN")
-                cur.execute("SET LOCAL lock_timeout = '2s'")
-                # The session runs with statement_timeout = 0 for the big staging scan;
-                # inside the write transaction we hold FOR UPDATE row locks that live
-                # ingestion can block on (updatePersonsBatch matches persons by
-                # (team_id, uuid), which duplicates share), so every statement here
-                # must be bounded.
-                cur.execute("SET LOCAL statement_timeout = '5min'")
-                cur.execute(LOCK_VICTIMS_SQL, {"team": team})
-                locked = cur.rowcount
-                # Re-check inside the transaction: these teams still receive writes, and a
-                # concurrent insert could have made a victim reachable since the pre-flight.
-                # Both gates are re-checked, not just reachability, so the failure message
-                # below describes what was actually verified.
-                cur.execute(GATE_REACHABLE_SQL)
-                gate_row = cur.fetchone()
-                cur.execute(GATE_NO_SURVIVOR_SQL)
-                survivor_row = cur.fetchone()
-                cur.execute(GATE_SURVIVOR_REACHABLE_SQL)
-                wrong_survivor_row = cur.fetchone()
-                now_reachable = int(gate_row[0]) if gate_row else 0
-                now_emptied = int(survivor_row[0]) if survivor_row else 0
-                now_wrong_survivor = int(wrong_survivor_row[0]) if wrong_survivor_row else 0
-                # Not prunable, and never a race: staging cannot produce this, so reaching it
-                # means the survivor rule and the reachability rule disagree. Stop the team.
-                if now_wrong_survivor:
-                    cur.execute("ROLLBACK")
-                    raise CommandError(
-                        f"team {team}: {now_wrong_survivor} group(s) would lose their only "
-                        f"reachable row. This is not a concurrent-writer race; the survivor "
-                        f"rule is wrong for this data. {deleted} row(s) already deleted."
+            batch_started = time.monotonic()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("BEGIN")
+                    # The session runs unbounded for the staging census, but inside this
+                    # transaction we hold FOR UPDATE locks that live ingestion blocks on
+                    # (updatePersonsBatch matches persons by (team_id, uuid), which duplicates
+                    # share), so every statement here is bounded. set_config(..., true) is
+                    # SET LOCAL with a bound parameter. statement_timeout also covers COMMIT,
+                    # where the feature-flag override cascade runs when its FK is deferred.
+                    cur.execute("SELECT set_config('lock_timeout', %s, true)", (f"{options['lock_timeout_ms']}ms",))
+                    cur.execute(
+                        "SELECT set_config('statement_timeout', %s, true)",
+                        (f"{options['txn_statement_timeout_ms']}ms",),
                     )
-                if locked != in_batch or now_reachable or now_emptied:
-                    cur.execute("ROLLBACK")
-                    logger.warning(
-                        "persons_dedup.batch_raced",
-                        team_id=team,
-                        batch=batches,
-                        locked=locked,
-                        staged=in_batch,
-                        reachable=now_reachable,
-                        would_empty=now_emptied,
-                    )
-                    pruned = self._prune_batch(conn)
-                    pruned_total += pruned
-                    # Nothing pruned means the gate failed for a reason this does not
-                    # explain, and the next iteration would take the same batch forever.
-                    if pruned == 0:
+                    cur.execute(LOCK_VICTIMS_SQL, {"team": team})
+                    locked = cur.rowcount
+                    # Re-check inside the transaction: these teams still receive writes, and a
+                    # concurrent insert could have made a victim reachable since the pre-flight.
+                    now_reachable, now_emptied, now_wrong_survivor = _gates(conn)
+                    # Not prunable, and never a race: staging cannot produce this, so reaching it
+                    # means the survivor rule and the reachability rule disagree. Stop the team.
+                    if now_wrong_survivor:
+                        cur.execute("ROLLBACK")
                         raise CommandError(
-                            f"in-transaction gate failed for team {team} "
-                            f"(locked {locked}/{in_batch}, reachable {now_reachable}, "
-                            f"would empty {now_emptied}) and no victim was prunable; rolled back"
+                            f"team {team}: {now_wrong_survivor} group(s) would lose their only "
+                            f"reachable row. This is not a concurrent-writer race; the survivor "
+                            f"rule is wrong for this data. {deleted} row(s) already deleted."
                         )
-                    if pruned_total > prune_budget:
+                    if locked != in_batch or now_reachable or now_emptied:
+                        cur.execute("ROLLBACK")
+                        logger.warning(
+                            "persons_dedup.batch_raced",
+                            team_id=team,
+                            batch=batches,
+                            locked=locked,
+                            staged=in_batch,
+                            reachable=now_reachable,
+                            would_empty=now_emptied,
+                        )
+                        pruned = self._prune_batch(conn)
+                        pruned_total += pruned
+                        # Nothing pruned means the gate failed for a reason this does not
+                        # explain, and the next iteration would take the same batch forever.
+                        if pruned == 0:
+                            raise CommandError(
+                                f"in-transaction gate failed for team {team} "
+                                f"(locked {locked}/{in_batch}, reachable {now_reachable}, "
+                                f"would empty {now_emptied}) and no victim was prunable; rolled back"
+                            )
+                        if pruned_total > prune_budget:
+                            raise CommandError(
+                                f"team {team}: {pruned_total} victim(s) became unresolvable mid-run, "
+                                f"over the {prune_budget} budget; staging and the gate disagree. "
+                                f"{deleted} row(s) already deleted, rerun to resume"
+                            )
+                        continue
+
+                    # Back up after the lock, not before it. An insert into
+                    # posthog_featureflaghashkeyoverride takes FOR KEY SHARE on the parent
+                    # person row, so the FOR UPDATE above blocks one; reading dependents
+                    # earlier would let a row appear afterwards, get cascaded, and never
+                    # reach the backup. Still written and fsync'd before the delete, so a
+                    # rollback leaves a superset rather than a gap.
+                    backed_up = self._backup(conn, team, backup_path)
+                    if backed_up != in_batch:
+                        cur.execute("ROLLBACK")
+                        raise CommandError(f"backed up {backed_up} row(s) but staged {in_batch}; rolled back")
+
+                    cur.execute(DELETE_COHORT_SQL)
+                    cur.execute(DELETE_RECON_BACKUP_SQL)
+                    cur.execute(DELETE_PERSONS_SQL, {"team": team})
+                    removed = cur.rowcount
+                    if removed != in_batch:
+                        cur.execute("ROLLBACK")
+                        raise CommandError(f"deleted {removed} but staged {in_batch}; rolled back")
+
+                    # posthog_cohortpeople has no foreign key, so the row lock above cannot
+                    # block an insert into it. A cohort recalculation could have added a row
+                    # after DELETE_COHORT_SQL ran, which would survive as an orphan.
+                    cur.execute(CHECK_COHORT_ORPHANS_SQL)
+                    orphan_row = cur.fetchone()
+                    if orphan_row and orphan_row[0]:
+                        cur.execute("ROLLBACK")
                         raise CommandError(
-                            f"team {team}: {pruned_total} victim(s) became unresolvable mid-run, "
-                            f"over the {prune_budget} budget; staging and the gate disagree. "
-                            f"{deleted} row(s) already deleted, rerun to resume"
+                            f"{orphan_row[0]} cohort row(s) appeared for a victim mid-transaction; rolled back"
                         )
-                    continue
-
-                # Back up after the lock, not before it. An insert into
-                # posthog_featureflaghashkeyoverride takes FOR KEY SHARE on the parent
-                # person row, so the FOR UPDATE above blocks one; reading dependents
-                # earlier would let a row appear afterwards, get cascaded, and never
-                # reach the backup. Still written and fsync'd before the delete, so a
-                # rollback leaves a superset rather than a gap.
-                backed_up = self._backup(conn, team, backup_path)
-                if backed_up != in_batch:
-                    cur.execute("ROLLBACK")
-                    raise CommandError(f"backed up {backed_up} row(s) but staged {in_batch}; rolled back")
-
-                cur.execute(DELETE_COHORT_SQL)
-                cur.execute(DELETE_RECON_BACKUP_SQL)
-                cur.execute(DELETE_PERSONS_SQL, {"team": team})
-                removed = cur.rowcount
-                if removed != in_batch:
-                    cur.execute("ROLLBACK")
-                    raise CommandError(f"deleted {removed} but staged {in_batch}; rolled back")
-
-                # posthog_cohortpeople has no foreign key, so the row lock above cannot
-                # block an insert into it. A cohort recalculation could have added a row
-                # after DELETE_COHORT_SQL ran, which would survive as an orphan.
-                cur.execute(CHECK_COHORT_ORPHANS_SQL)
-                orphan_row = cur.fetchone()
-                if orphan_row and orphan_row[0]:
-                    cur.execute("ROLLBACK")
+                    cur.execute("COMMIT")
+            except WRITE_RETRY_ERRORS as exc:
+                # Contention with live ingestion, not a defect. The batch table still holds
+                # the same rows, so taking it again after a pause is idempotent; aborting
+                # here would throw away a staging census that costs minutes.
+                _rollback_quietly(conn)
+                lock_retries += 1
+                logger.warning(
+                    "persons_dedup.batch_contended",
+                    team_id=team,
+                    batch=batches,
+                    sqlstate=exc.sqlstate,
+                    retries=lock_retries,
+                )
+                if lock_retries > options["max_lock_retries"]:
                     raise CommandError(
-                        f"{orphan_row[0]} cohort row(s) appeared for a victim mid-transaction; rolled back"
-                    )
-                cur.execute("COMMIT")
+                        f"team {team}: gave up after {lock_retries} batch(es) lost to lock "
+                        f"contention, last {exc.sqlstate}. {deleted} row(s) were deleted. "
+                        f"Rerun to resume, or raise --max-lock-retries."
+                    ) from exc
+                time.sleep(max(options["sleep_ms"], 250) / 1000.0)
+                continue
 
             with conn.cursor() as cur:
                 cur.execute(SWEEP_COHORT_ORPHANS_SQL)
@@ -1018,7 +1196,14 @@ class Command(BaseCommand):
             deleted += removed
             if options["sleep_ms"] > 0:
                 time.sleep(options["sleep_ms"] / 1000.0)
-            logger.info("persons_dedup.batch_done", team_id=team, batch=batches, deleted=removed, total=deleted)
+            logger.info(
+                "persons_dedup.batch_done",
+                team_id=team,
+                batch=batches,
+                deleted=removed,
+                total=deleted,
+                elapsed_s=round(time.monotonic() - batch_started, 2),
+            )
 
         if not apply_changes:
             logger.info(
@@ -1033,6 +1218,7 @@ class Command(BaseCommand):
             batches=batches,
             deleted=deleted,
             pruned=pruned_total,
+            lock_retries=lock_retries,
             backup=str(backup_path),
         )
 
