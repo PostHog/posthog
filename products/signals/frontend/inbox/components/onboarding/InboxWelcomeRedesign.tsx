@@ -47,7 +47,7 @@ function CommandCta(): JSX.Element {
         <button
             type="button"
             onClick={handleCopy}
-            aria-label="Copy self-driving setup command"
+            aria-label={`Copy self-driving setup command: ${SELF_DRIVING_WIZARD_COMMAND}`}
             className="InboxWelcomeRedesign__cta flex cursor-pointer flex-wrap items-center justify-center gap-x-3 gap-y-2.5 border-none py-2.5 pl-4 pr-2.5 text-left"
         >
             <span className="whitespace-nowrap font-mono text-sm text-white">
