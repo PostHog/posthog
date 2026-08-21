@@ -4,6 +4,7 @@ from posthog.schema import (
     CompareFilter,
     EventPropertyFilter,
     PropertyOperator,
+    PropertyType,
     SessionPropertyFilter,
     WebAnalyticsAssistantFilters,
 )
@@ -36,7 +37,7 @@ class TestWebAnalyticsPropertyValues(ClickhouseDestroyTablesMixin, APIBaseTest):
         flush_persons_and_events()
 
         toolkit = WebAnalyticsFilterOptionsToolkit(self.team, self.user)
-        values = toolkit._retrieve_event_property_values("$browser")
+        values = toolkit._retrieve_property_values("$browser", PropertyType.EVENT)
 
         assert set(values) == {"Chrome", "Firefox"}
 

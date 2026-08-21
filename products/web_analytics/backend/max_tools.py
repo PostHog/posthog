@@ -23,7 +23,6 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.job_owners import JobOwners
 from posthog.models import Team, User
 from posthog.models.health_issue import HealthIssue
-from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
@@ -119,23 +118,23 @@ class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
     ) -> str:
         if property_type == "person":
             with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
-                values = await database_sync_to_async(get_person_property_values_for_key)(
-                    property_name, self._team, value=None
+                values = await database_sync_to_async(self._retrieve_property_values)(
+                    property_name, PropertyType.PERSON
                 )
         elif property_type in ("event", "session"):
             with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
-                values = await database_sync_to_async(self._retrieve_event_property_values)(property_name)
+                values = await database_sync_to_async(self._retrieve_property_values)(property_name, PropertyType.EVENT)
         else:
             return TaxonomyErrorMessages.property_not_found(property_name, property_type)
 
         return self._format_property_values(property_name, values, sample_count=len(values))
 
-    def _retrieve_event_property_values(self, property_name: str) -> list:
+    def _retrieve_property_values(self, property_name: str, property_type: PropertyType) -> list:
         # Web analytics event and session property values both live on events.properties, so they
         # share the EVENT path of PropertyValuesQueryRunner (there is no SESSION property type).
         runner = PropertyValuesQueryRunner(
             team=self._team,
-            query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key=property_name),
+            query=PropertyValuesQuery(property_type=property_type, property_key=property_name),
             user=self._user,
         )
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self._user)

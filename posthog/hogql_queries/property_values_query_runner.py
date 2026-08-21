@@ -18,6 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.utils import (
@@ -27,10 +28,7 @@ from posthog.caching.utils import (
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import PropertyDefinition
 from posthog.models.event.new_events_schema import use_new_events_schema
-from posthog.queries.property_values import (
-    get_event_property_values_from_aggregated_table,
-    get_person_property_values_for_key,
-)
+from posthog.queries.property_values import get_event_property_values_from_aggregated_table
 from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
@@ -54,8 +52,9 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     def to_query(self) -> ast.SelectQuery:
         if self.query.property_type == PropertyType.EVENT:
             return self._event_query()
-        # Person queries use raw SQL for speed (4s vs 30s) — move here when HogQL persons table gets faster
-        raise NotImplementedError("Person property values use raw SQL via _calculate_person()")
+        if self.query.property_key == "distinct_id":
+            return self._distinct_id_query()
+        return self._person_query()
 
     def _calculate(self) -> PropertyValuesQueryResponse:
         if self.query.property_type == PropertyType.PERSON:
@@ -143,18 +142,88 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     def _calculate_person(self) -> PropertyValuesQueryResponse:
-        # Use the raw SQL person query — the HogQL persons virtual table does full argMax dedup
-        # which is correct but much slower (30s vs 4s on large teams). The raw SQL approximates
-        # dedup with uniq(id) - uniqIf(id, is_deleted != 0) and caps at 100k rows, which is
-        # fast enough and good enough for autocomplete.
-        rows = cast(
-            list, get_person_property_values_for_key(self.query.property_key, self.team, self.query.search_value)
+        result = execute_hogql_query(
+            self.to_query(),
+            team=self.team,
+            user=self.user,
+            context=HogQLContext(team_id=self.team.pk, user=self.user),
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
         return PropertyValuesQueryResponse(
-            results=self._format_person_results(rows),
+            results=self._format_person_results(result.results),
             timings=self.timings.to_list(),
+            hogql=result.hogql,
             modifiers=self.modifiers,
         )
+
+    def _person_query(self) -> ast.SelectQuery:
+        # Deliberately approximate: the deduplicating `persons` table pays a full argMax
+        # GROUP BY over every person row before anything else runs (30s on large teams).
+        # Autocomplete instead samples 100k raw rows and discounts ids with a tombstone,
+        # trading staleness for latency.
+        if self.query.search_value:
+            inner_where = parse_expr(
+                "value ILIKE {pattern}",
+                {"pattern": ast.Constant(value=self._ilike_pattern(self.query.search_value))},
+            )
+        else:
+            inner_where = parse_expr("isNotNull(value) AND value != ''")
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT value, uniq(id) - uniqIf(id, is_deleted != 0) AS c
+                FROM (
+                    SELECT toString({property_expr}) AS value, is_deleted, id
+                    FROM raw_persons
+                    WHERE {inner_where}
+                    ORDER BY id DESC
+                    LIMIT 100000
+                )
+                GROUP BY value
+                HAVING c > 0
+                ORDER BY c DESC
+                LIMIT 20
+                """,
+                placeholders={
+                    "property_expr": ast.Field(chain=["properties", self.query.property_key]),
+                    "inner_where": inner_where,
+                },
+            ),
+        )
+
+    def _distinct_id_query(self) -> ast.SelectQuery:
+        # distinct_id lives in the mapping table, not in person properties — the generic
+        # person path would always return an empty list. argMax hides tombstoned rows;
+        # c is always 1 since GROUP BY already deduplicates.
+        where: ast.Expr = ast.Constant(value=True)
+        if self.query.search_value:
+            where = parse_expr(
+                "distinct_id ILIKE {pattern}",
+                {"pattern": ast.Constant(value=self._ilike_pattern(self.query.search_value))},
+            )
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT distinct_id AS value, 1 AS c
+                FROM raw_person_distinct_ids
+                WHERE {where}
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+                ORDER BY value ASC
+                LIMIT 20
+                """,
+                placeholders={"where": where},
+            ),
+        )
+
+    @staticmethod
+    def _ilike_pattern(search_value: str) -> str:
+        escaped = search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
 
     def _event_query(self) -> ast.SelectQuery:
         key = self.query.property_key
@@ -202,12 +271,11 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             conditions.append(ast.Or(exprs=event_conditions) if len(event_conditions) > 1 else event_conditions[0])
 
         if self.query.search_value:
-            escaped = self.query.search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
                     left=string_expr,
-                    right=ast.Constant(value=f"%{escaped}%"),
+                    right=ast.Constant(value=self._ilike_pattern(self.query.search_value)),
                 )
             )
 
