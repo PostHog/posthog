@@ -245,7 +245,9 @@ def is_path_whitelisted(path):
 
 
 def is_two_factor_enforcement_in_effect(request: HttpRequest):
-    session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+    # OpenAPI schema generation drives permissions over a session-less mock request, so guard the read.
+    session = getattr(request, "session", None)
+    session_created_at = session.get(settings.SESSION_COOKIE_CREATED_AT_KEY) if session is not None else None
 
     if not session_created_at:
         return False

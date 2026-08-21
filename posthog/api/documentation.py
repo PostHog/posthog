@@ -86,7 +86,8 @@ class PostHogAutoSchema(AutoSchema):
     def _resolve_path_parameters(self, variables):
         from drf_spectacular.plumbing import get_view_model, resolve_django_path_parameter, resolve_regex_path_parameter
 
-        model = get_view_model(self.view, emit_warnings=False)
+        # Live schema generation can run without a view instance; fall back to string-typed params.
+        model = get_view_model(self.view, emit_warnings=False) if self.view is not None else None
         parameters = []
 
         for variable in variables:
@@ -164,6 +165,8 @@ class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
 
     def get_security_requirement(self, auto_schema):
         view = auto_schema.view
+        if view is None:
+            return []
         request = view.request
 
         for permission in auto_schema.view.get_permissions():
