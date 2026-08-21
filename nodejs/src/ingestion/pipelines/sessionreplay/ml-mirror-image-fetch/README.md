@@ -422,7 +422,7 @@ that scenario.
 
 **13.4** A URL ref does not contain a team identifier, a team pseudonym, or a key derived from one team. The same canonical URL produces the same ref for every team.
 
-**13.5** A URL ref has the form `imageurl:<hash>`. The producer calculates `global_url_key` with the existing `pseudonymize(ml_pseudonymization_secret, "image-url-key", "global-v1")` construction. The hash is the first 22 base64url characters of `HMAC-SHA256(global_url_key, canonical_url)`. Every producer must use this construction.
+**13.5** A URL ref has the form `imageurl:<hash>`. The producer calculates `GLOBAL_URL_KEY` with the existing `pseudonymize(ml_pseudonymization_secret, "image-url-key", "global-v1")` construction. The hash is the first 22 base64url characters of `HMAC-SHA256(GLOBAL_URL_KEY, canonical_url)`. Every producer must use this construction.
 
 **13.6** The mirror stores the ref in a sibling attribute named `data-anon-image-ref-<attribute>`. For example, the ref for `src` is stored in `data-anon-image-ref-src`. The source attribute keeps its image placeholder.
 
