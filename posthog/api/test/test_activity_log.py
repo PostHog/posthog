@@ -510,6 +510,3 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
         assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
         assert exported_asset.source_credential_id == str(token.id)
-        api_export = exported_asset.export_context["api_export"]
-        assert api_export["kind"] == "project_api_path"
-        assert api_export["path"].startswith(f"/api/projects/{self.team.id}/advanced_activity_logs/")

@@ -977,7 +977,9 @@ def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[s
 class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)
-        personal_api_key_id = claims.get("personal_api_key_id") if claims is not None else None
+        if claims is None:
+            return None
+        personal_api_key_id = claims.get("personal_api_key_id")
         if not personal_api_key_id:
             return None
         try:
@@ -1005,7 +1007,9 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
 class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)
-        oauth_access_token_id = claims.get("oauth_access_token_id") if claims is not None else None
+        if claims is None:
+            return None
+        oauth_access_token_id = claims.get("oauth_access_token_id")
         if not oauth_access_token_id:
             return None
         try:

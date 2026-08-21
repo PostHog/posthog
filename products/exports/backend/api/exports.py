@@ -16,6 +16,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.request import Request
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
+from posthog.api.query import required_scopes_for_query_payload
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, groups
@@ -41,6 +42,7 @@ from products.exports.backend.models.exported_asset import (
     get_content_response,
     is_valid_session_recording_id,
 )
+from products.exports.backend.source_authentication import get_export_source_authentication
 from products.exports.backend.stuck_exports import STUCK_EXPORT_MESSAGE, is_stuck_export
 from products.product_analytics.backend.facade.models import Insight
 
@@ -118,8 +120,12 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         export_context = data.get("export_context") or {}
-        if "path" in export_context or "api_export" in export_context:
-            raise ValidationError({"export_context": ["API endpoint exports cannot be created through this endpoint."]})
+        if export_context.get("path") and (
+            str(export_context.get("method", "GET")).upper() != "GET" or export_context.get("body") is not None
+        ):
+            raise ValidationError(
+                {"export_context": ["Exports from API endpoints only support GET requests without a request body."]}
+            )
         # Truthiness, not `is not None`: an absent or empty id is a no-op everywhere downstream,
         # and rejecting it here would 400 exports that never touch a recording.
         session_recording_id = export_context.get("session_recording_id")
@@ -197,6 +203,13 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
+        source_authentication = get_export_source_authentication(request.successful_authenticator)
+        if source_authentication is not None:
+            validated_data.update(source_authentication)
+        elif (validated_data.get("export_context") or {}).get("path"):
+            raise ValidationError(
+                {"export_context": ["Exports from API endpoints do not support this authentication method."]}
+            )
         self._assert_may_export_session_recording(validated_data)
         return self._create_asset(validated_data, user=request.user, reason=None)
 
@@ -481,6 +494,16 @@ class ExportedAssetViewSet(
     # Both FKs are read on every retrieve to authorize the asset, so fetch them with it.
     queryset = ExportedAsset.objects.select_related("dashboard", "insight").order_by("-created_at")
     serializer_class = ExportedAssetSerializer
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        if self.action != "create":
+            return None
+        export_context = request.data.get("export_context") if isinstance(request.data, dict) else None
+        source = export_context.get("source") if isinstance(export_context, dict) else None
+        if source is None:
+            return None
+        query_scopes = required_scopes_for_query_payload(source) or ["query:read"]
+        return ["export:write", *query_scopes]
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         return ExportedAssetCreateSerializer if self.action == "create" else ExportedAssetSerializer

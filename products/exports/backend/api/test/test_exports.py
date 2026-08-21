@@ -22,8 +22,10 @@ from posthog.hogql.errors import QueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.filters.filter import Filter
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings import (
     HOGQL_INCREASED_MAX_EXECUTION_TIME,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -97,27 +99,59 @@ class TestExports(APIBaseTest):
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png", created_by=cls.user
         )
 
-    @parameterized.expand(
-        [
-            ("raw_path", {"path": "/api/projects/1/persons/"}),
-            (
-                "internal_operation",
-                {"api_export": {"kind": "project_api_path", "path": "/api/projects/1/persons/"}},
-            ),
-        ]
-    )
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    def test_rejects_api_endpoint_exports(self, _name: str, export_context: dict, mock_exporter_task) -> None:
+    def test_api_path_export_rejects_mutating_requests(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports/",
             {
                 "export_format": "text/csv",
-                "export_context": export_context,
+                "export_context": {
+                    "path": f"/api/organizations/{self.organization.id}/invites/",
+                    "method": "POST",
+                    "body": {"target_email": "security-test@example.com", "level": 8},
+                },
             },
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_exporter_task.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_query_scope", ["export:write"], status.HTTP_403_FORBIDDEN),
+            ("query_scope", ["export:write", "query:read"], status.HTTP_201_CREATED),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_query_export_requires_query_scope(
+        self, _name: str, scopes: list[str], expected_status: int, mock_exporter_task
+    ) -> None:
+        token = generate_random_token_personal()
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="query export key",
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports/",
+            {
+                "export_format": "text/csv",
+                "export_context": {"source": {"kind": "HogQLQuery", "query": "select 1"}},
+            },
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_201_CREATED:
+            exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+            assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
+            assert exported_asset.source_credential_id == personal_api_key.id
+            mock_exporter_task.assert_called_once()
+        else:
+            mock_exporter_task.assert_not_called()
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
@@ -194,7 +228,7 @@ class TestExports(APIBaseTest):
         assert mock_exporter_task.call_args[0][0].id == data["id"]
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    def test_rejects_legacy_insight_api_path_export(self, mock_exporter_task) -> None:
+    def test_accepts_legacy_insight_api_path_export(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
@@ -204,8 +238,8 @@ class TestExports(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        mock_exporter_task.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_exporter_task.assert_called_once()
 
     @patch("products.exports.backend.tasks.image_exporter._export_to_png")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
@@ -526,7 +560,7 @@ class TestExports(APIBaseTest):
                 team=self.team,
                 created_by=self.user,
                 export_format=ExportedAsset.ExportFormat.CSV,
-                export_context={"api_export": {"kind": "project_api_path", "path": path}},
+                export_context={"path": path},
                 source_authentication=ExportedAsset.SourceAuthentication.SESSION,
             )
 
@@ -1801,7 +1835,7 @@ class TestExportMixin(APIBaseTest):
                 asset = ExportedAsset.objects.create(
                     team=self.team,
                     created_by=self.user,
-                    export_context={"api_export": {"kind": "project_api_path", "path": path}},
+                    export_context={"path": path},
                     export_format=ExportedAsset.ExportFormat.CSV,
                     source_authentication=ExportedAsset.SourceAuthentication.SESSION,
                 )

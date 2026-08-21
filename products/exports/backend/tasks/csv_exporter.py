@@ -8,9 +8,10 @@ from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, NoReturn, Optional, Protocol
-from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 from django.http import QueryDict
+from django.utils import timezone
 
 import requests
 import structlog
@@ -26,6 +27,7 @@ from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPO
 from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.query import LimitContext
 
+from posthog.api.query import required_scopes_for_query_payload
 from posthog.api.services.query import process_query_dict
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions import ClickHouseQuerySizeExceeded
@@ -38,6 +40,8 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models.oauth import OAuthAccessToken
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.tasks.exporter import EXPORT_TIMER
@@ -408,25 +412,18 @@ def _raise_invalid_export_authorization(exported_asset: ExportedAsset, reason: s
     raise ValueError("This export could not verify its original authorization. Create a new export and try again.")
 
 
-def _resolve_api_export_path(exported_asset: ExportedAsset, resource: dict) -> str:
-    api_export = resource.get("api_export")
-    if not isinstance(api_export, dict) or api_export.get("kind") != "project_api_path":
-        _raise_invalid_export_authorization(exported_asset, "unsupported_api_export")
-    path = api_export.get("path")
-    parsed_path = urlparse(path) if isinstance(path, str) else None
-    if (
-        parsed_path is None
-        or parsed_path.scheme
-        or parsed_path.netloc
-        or not unquote(parsed_path.path).startswith(f"/api/projects/{exported_asset.team_id}/")
-        or ".." in unquote(parsed_path.path).split("/")
-    ):
-        _raise_invalid_export_authorization(exported_asset, "invalid_api_export_path")
-    return path
-
-
 def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any]:
-    path = _resolve_api_export_path(exported_asset, resource)
+    path: str = resource["path"]
+    method: str = resource.get("method", "GET")
+    body = resource.get("body", None)
+    if method.upper() != "GET" or body is not None:
+        logger.error(
+            "csv_exporter.unsupported_api_request",
+            exported_asset_id=exported_asset.id,
+            method=method,
+            has_body=body is not None,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
     source_authentication = exported_asset.source_authentication
     if source_authentication is None:
         _raise_invalid_export_authorization(exported_asset, "missing_authentication_source")
@@ -455,7 +452,7 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
     total = 0
     while total < CSV_EXPORT_LIMIT:
         try:
-            response = make_api_call(access_token, None, limit, "GET", next_url, path)
+            response = make_api_call(access_token, body, limit, method, next_url, path)
         except HTTPError as e:
             # The underlying resource (e.g. a cohort) can be deleted or become unresolvable
             # mid-export, which surfaces as a 404 partway through pagination. Treat that as
@@ -522,11 +519,55 @@ def _query_supports_limit(query: dict) -> bool:
         return False
 
 
+def _credential_has_required_scopes(granted_scopes: list[str], required_scopes: list[str]) -> bool:
+    if "*" in granted_scopes:
+        return True
+    for required_scope in required_scopes:
+        valid_scopes = [required_scope]
+        if required_scope.endswith(":read"):
+            valid_scopes.append(required_scope.replace(":read", ":write"))
+        if not any(scope in granted_scopes for scope in valid_scopes):
+            return False
+    return True
+
+
+def _assert_query_export_authorization(exported_asset: ExportedAsset, query: dict) -> None:
+    source_authentication = exported_asset.source_authentication
+    if source_authentication is None or source_authentication == ExportedAsset.SourceAuthentication.SESSION:
+        return
+    if exported_asset.created_by_id is None:
+        _raise_invalid_export_authorization(exported_asset, "missing_export_creator")
+
+    required_scopes = ["export:write", *(required_scopes_for_query_payload(query) or ["query:read"])]
+    if source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
+        credential = PersonalAPIKey.objects.filter(
+            id=exported_asset.source_credential_id,
+            user_id=exported_asset.created_by_id,
+            user__is_active=True,
+        ).first()
+        granted_scopes = list(credential.scopes or []) if credential is not None else []
+    elif source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN:
+        credential = OAuthAccessToken.objects.filter(
+            id=exported_asset.source_credential_id,
+            user_id=exported_asset.created_by_id,
+            user__is_active=True,
+            application__isnull=False,
+            expires__gt=timezone.now(),
+        ).first()
+        granted_scopes = str(credential.scope or "").split() if credential is not None else []
+    else:
+        _raise_invalid_export_authorization(exported_asset, "unsupported_authentication_source")
+
+    if not _credential_has_required_scopes(granted_scopes, required_scopes):
+        _raise_invalid_export_authorization(exported_asset, "source_credential_lacks_query_scope")
+
+
 def get_from_query(
     exported_asset: ExportedAsset, limit: int, resource: dict, analytics_props: Optional[AnalyticsProps] = None
 ) -> Generator[Any]:
     query = resource.get("source")
     assert query is not None
+    _assert_query_export_authorization(exported_asset, query)
 
     breakdown_filter = query.get("breakdownFilter") if query else None
     supports_limit = _query_supports_limit(query)
