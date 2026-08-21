@@ -258,67 +258,61 @@ class TaskRunUpdateSerializer(serializers.Serializer):
 
 class TaskRunSkillBundleMetadataSerializer(serializers.Serializer):
     skill_name = serializers.CharField(
-        required=False,
         allow_blank=False,
         max_length=255,
         help_text="Name of the local skill included in a skill_bundle artifact.",
     )
     skill_source = serializers.ChoiceField(
-        required=False,
         choices=TASK_RUN_SKILL_SOURCE_CHOICES,
         help_text="Local source for the uploaded skill bundle, such as user or repo.",
     )
     content_sha256 = serializers.RegexField(
-        required=False,
         regex=r"^[a-f0-9]{64}$",
         help_text="SHA-256 hex digest of the uploaded skill bundle bytes.",
     )
     bundle_format = serializers.ChoiceField(
-        required=False,
         choices=TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES,
         help_text="Archive format used for the local skill bundle.",
     )
     schema_version = serializers.IntegerField(
-        required=False,
         min_value=1,
         help_text="Version of the local skill bundle metadata schema.",
     )
+
+
+class TaskRunPostHogReferenceMetadataSerializer(serializers.Serializer):
     reference_type = serializers.ChoiceField(
-        required=False,
         choices=["posthog_object"],
         help_text="Reference metadata type. posthog_object identifies a live PostHog object.",
     )
     object_kind = serializers.ChoiceField(
-        required=False,
         choices=POSTHOG_OBJECT_KIND_CHOICES,
         help_text="PostHog object kind used to resolve the reference.",
     )
     object_id = serializers.CharField(
-        required=False,
         max_length=16384,
         help_text="Exact PostHog object identifier, flag key, event name, or SQL query.",
     )
     source_message_ids = serializers.ListField(
-        required=False,
         child=serializers.CharField(max_length=255),
         max_length=100,
         help_text="Completed assistant message identifiers that referenced the object.",
     )
     occurrence_count = serializers.IntegerField(
-        required=False,
         min_value=1,
         help_text="Number of distinct completed assistant messages that referenced the object.",
     )
 
-    def validate(self, attrs):
-        if attrs.get("reference_type") == "posthog_object":
-            required = ["object_kind", "object_id", "source_message_ids", "occurrence_count"]
-        else:
-            required = ["skill_name", "skill_source", "content_sha256", "bundle_format", "schema_version"]
-        missing = [field for field in required if field not in attrs]
-        if missing:
-            raise serializers.ValidationError(dict.fromkeys(missing, "This field is required."))
-        return attrs
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="TaskRunArtifactMetadata",
+        serializers=[TaskRunSkillBundleMetadataSerializer, TaskRunPostHogReferenceMetadataSerializer],
+        resource_type_field_name=None,
+    )
+)
+class TaskRunArtifactMetadataField(serializers.JSONField):
+    pass
 
 
 class TaskRunPostHogReferenceMetadataSerializer(serializers.Serializer):
