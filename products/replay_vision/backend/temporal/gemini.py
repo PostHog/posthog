@@ -1,5 +1,7 @@
 """Gemini API key resolution and error classification for Replay Vision."""
 
+import ssl
+
 from django.conf import settings
 
 import httpx
@@ -19,11 +21,13 @@ _TRANSIENT_STATUS_CODES = frozenset({408, 409, 429, 500, 502, 503, 504})
 
 # Connection-level failures raised before any HTTP response exists (DNS, TLS, resets, read timeouts). The
 # google-genai SDK uses aiohttp when installed and httpx otherwise, and lets both stacks' transport errors
-# propagate raw; an unreachable provider is the same user story as a 5xx. Anything outside these two
-# hierarchies stays unclassified on purpose, because it can come from our own code.
+# propagate raw; an unreachable provider is the same user story as a 5xx. `ssl.SSLError` subclasses `OSError`,
+# so it matches neither transport hierarchy and must be listed on its own. Anything outside these types stays
+# unclassified on purpose, because it can come from our own code.
 _PROVIDER_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     httpx.TransportError,
     aiohttp.ClientConnectionError,
+    ssl.SSLError,
 )
 
 

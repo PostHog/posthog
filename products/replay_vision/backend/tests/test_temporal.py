@@ -1,3 +1,4 @@
+import ssl
 import time
 import uuid
 import datetime as dt
@@ -2745,11 +2746,13 @@ class TestClassifyGeminiError:
             ("httpx_connect", httpx.ConnectError("connection reset by peer")),
             ("httpx_read_timeout", httpx.ReadTimeout("timed out")),
             ("aiohttp_disconnected", aiohttp.ServerDisconnectedError()),
+            ("ssl_error", ssl.SSLError("[X509] PEM lib")),
         ]
     )
     def test_maps_transport_errors_to_provider_transient(self, _label: str, error: Exception) -> None:
         # These carry no HTTP response, so the status-code mapping can't see them; an unreachable provider is
-        # the same user story as a 5xx and must not land as internal_error.
+        # the same user story as a 5xx and must not land as internal_error. `ssl.SSLError` subclasses `OSError`,
+        # so it needs its own listing to avoid falling through to internal_error.
         assert classify_gemini_error(error) is FailureKind.PROVIDER_TRANSIENT
 
     def test_leaves_non_provider_exceptions_unclassified(self) -> None:
