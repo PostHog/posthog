@@ -4,6 +4,20 @@ import { useEffect } from 'react'
 import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import {
+    DEFAULT_EXPERIMENT_TAB,
+    type ExperimentTab,
+    experimentSceneLogic,
+} from 'scenes/experiments/experimentSceneLogic'
+import { DistributionModal, DistributionTable } from 'scenes/experiments/ExperimentView/DistributionTable'
+import { ExperimentWarningBanner } from 'scenes/experiments/ExperimentView/ExperimentWarningBanners'
+import { LoadingState } from 'scenes/experiments/ExperimentView/LoadingState'
+import { PageHeaderCustom } from 'scenes/experiments/ExperimentView/PageHeader'
+import {
+    ReleaseConditionsModal,
+    ReleaseConditionsTable,
+} from 'scenes/experiments/ExperimentView/ReleaseConditionsTable'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
@@ -24,24 +38,6 @@ import {
     LegacyResultsQuery,
     LegacyExploreButton,
 } from 'products/experiments/frontend/legacy'
-
-import { experimentLogic } from '../../../../frontend/src/scenes/experiments/experimentLogic'
-import {
-    DEFAULT_EXPERIMENT_TAB,
-    type ExperimentTab,
-    experimentSceneLogic,
-} from '../../../../frontend/src/scenes/experiments/experimentSceneLogic'
-import {
-    DistributionModal,
-    DistributionTable,
-} from '../../../../frontend/src/scenes/experiments/ExperimentView/DistributionTable'
-import { ExperimentWarningBanner } from '../../../../frontend/src/scenes/experiments/ExperimentView/ExperimentWarningBanners'
-import { LoadingState } from '../../../../frontend/src/scenes/experiments/ExperimentView/LoadingState'
-import { PageHeaderCustom } from '../../../../frontend/src/scenes/experiments/ExperimentView/PageHeader'
-import {
-    ReleaseConditionsModal,
-    ReleaseConditionsTable,
-} from '../../../../frontend/src/scenes/experiments/ExperimentView/ReleaseConditionsTable'
 
 const getFirstPrimaryMetric = (experiment: Experiment): ExperimentTrendsQuery | ExperimentFunnelsQuery | null => {
     if (experiment.metrics.length) {

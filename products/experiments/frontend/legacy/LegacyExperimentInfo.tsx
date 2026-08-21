@@ -10,21 +10,20 @@ import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
+import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
+import {
+    getExperimentStatus,
+    isExperimentPaused,
+    isSingleVariantShipped,
+    getShippedVariantKey,
+} from 'scenes/experiments/experimentsLogic'
+import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { LegacyExperimentDates, legacyExperimentLogic } from 'products/experiments/frontend/legacy'
-
-import { CONCLUSION_DISPLAY_CONFIG } from '../../../../frontend/src/scenes/experiments/constants'
-import {
-    getExperimentStatus,
-    isExperimentPaused,
-    isSingleVariantShipped,
-    getShippedVariantKey,
-} from '../../../../frontend/src/scenes/experiments/experimentsLogic'
-import { StatusTag } from '../../../../frontend/src/scenes/experiments/ExperimentView/StatusTag'
 
 /**
  * @deprecated

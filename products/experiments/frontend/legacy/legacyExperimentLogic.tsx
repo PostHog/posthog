@@ -3,6 +3,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { isLegacyExperimentQuery, isLegacySharedMetric } from 'scenes/experiments/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,9 +18,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { Experiment } from '~/types'
-
-import { modalsLogic } from '../../../../frontend/src/scenes/experiments/modalsLogic'
-import type { ExperimentIdType } from '../../../../frontend/src/types'
+import type { ExperimentIdType } from '~/types'
 
 export interface LegacyExperimentLogicProps {
     experiment: Experiment
@@ -181,6 +180,7 @@ const loadLegacyMetrics = async ({
         | null
     )[] = []
 
+    // eslint-disable-next-line no-new-array
     const currentErrors = new Array(metrics.length).fill(null)
 
     let successfulCount = 0

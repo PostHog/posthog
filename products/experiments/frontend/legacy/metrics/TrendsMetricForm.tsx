@@ -7,6 +7,9 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SelectableCard } from 'scenes/experiments/components/SelectableCard'
+import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from 'scenes/experiments/constants'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,10 +20,6 @@ import { Query } from '~/queries/Query/Query'
 import { AnyEntityNode, ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
-
-import { SelectableCard } from '../../../../../frontend/src/scenes/experiments/components/SelectableCard'
-import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../../../../../frontend/src/scenes/experiments/constants'
-import { experimentLogic } from '../../../../../frontend/src/scenes/experiments/experimentLogic'
 
 export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { experiment, isExperimentLaunched, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
