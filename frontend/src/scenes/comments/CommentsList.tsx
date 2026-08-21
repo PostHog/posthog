@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import * as phoneCall from '@posthog/brand/hoggies/png/phone-call'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 
@@ -17,7 +17,9 @@ export interface CommentsListProps extends CommentsLogicProps {
 }
 
 export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JSX.Element => {
-    const { key, commentsWithReplies, commentsInitialLoading } = useValues(commentsLogic(props))
+    const { key, commentsWithReplies, commentsInitialLoading, commentsInitialLoadFailed } = useValues(
+        commentsLogic(props)
+    )
     const { loadComments, setReplyingComment, clearRichContentEditor } = useActions(commentsLogic(props))
 
     // If the comment list focus changes we should load the comments
@@ -38,7 +40,24 @@ export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JS
     return (
         <BindLogic logic={commentsLogic} props={props}>
             <div className="flex flex-col">
-                {commentsInitialLoading ? (
+                {/* Failure before loading, rather than the usual loading-then-error order: the poll
+                    retries a thread that never loaded, so both are true at once every 20 seconds, and
+                    checking loading first would swap the error for a skeleton and back each time.
+                    Retrying clears the failure, so the button still gets its skeleton. */}
+                {commentsInitialLoadFailed ? (
+                    <div className="p-2">
+                        <LemonBanner
+                            type="error"
+                            action={{
+                                children: 'Try again',
+                                onClick: () => loadComments(),
+                                'data-attr': 'comments-load-retry',
+                            }}
+                        >
+                            Couldn't load the discussion.
+                        </LemonBanner>
+                    </div>
+                ) : commentsInitialLoading ? (
                     <div className="deprecated-space-y-2">
                         <LemonSkeleton className="h-10 w-full" />
                     </div>

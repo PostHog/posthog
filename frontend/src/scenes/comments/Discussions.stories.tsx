@@ -57,3 +57,13 @@ export const Threads: Story = {}
 export const ReplyingToThread: Story = {
     args: { replyingTo: 'thread-0001' },
 }
+
+export const LoadFailed: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/comments': () => [500, { detail: 'nope' }],
+            },
+        }),
+    ],
+}
