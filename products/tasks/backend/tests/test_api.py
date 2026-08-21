@@ -29,6 +29,7 @@ from rest_framework.test import APIClient
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
@@ -36,6 +37,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import absolute_uri
 
+from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
@@ -66,6 +68,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_key,
 )
 from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
     AgentPeerMessage,
     Channel,
     CodeInvite,
@@ -234,6 +237,37 @@ class BaseTaskAPITest(TestCase):
         )
         self.organization.members.add(user)
         return user
+
+    def _sandbox_oauth_client(
+        self,
+        task_id: uuid.UUID,
+        *,
+        client_id: str = ARRAY_APP_CLIENT_ID_DEV,
+        bound: bool = True,
+        internal_scope: bool = False,
+    ) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Task artifact uploader",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=f"task:read task:write{' internal_run:read' if internal_scope else ''}",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id if bound else None,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
 
 
 class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
@@ -4972,37 +5006,6 @@ _OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
-    def _sandbox_oauth_client(
-        self,
-        task_id: uuid.UUID,
-        *,
-        client_id: str = ARRAY_APP_CLIENT_ID_DEV,
-        bound: bool = True,
-        internal_scope: bool = False,
-    ) -> APIClient:
-        application = OAuthApplication.objects.create(
-            name="Task artifact uploader",
-            client_id=client_id,
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            algorithm="RS256",
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            user=self.user,
-        )
-        access_token = OAuthAccessToken.objects.create(
-            user=self.user,
-            application=application,
-            token=f"pha_task_agent_{uuid.uuid4().hex}",
-            expires=django_timezone.now() + timedelta(hours=1),
-            scope=f"task:read task:write{' internal_run:read' if internal_scope else ''}",
-            scoped_teams=[self.team.id],
-            sandbox_task_id=task_id if bound else None,
-        )
-        client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
-        return client
-
     def _create_run_for_origin(self, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
@@ -6335,6 +6338,46 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
+    def test_upload_artifacts_response_omits_url_for_reference_entries(self, mock_tag, mock_write):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[
+                {
+                    "id": "phref_checkout",
+                    "name": "Checkout funnel",
+                    "type": "reference",
+                    "source": "posthog_object",
+                    "uploaded_at": "2026-08-20T00:00:00+00:00",
+                    "uploaded_by": "agent",
+                    "metadata": {
+                        "reference_type": "posthog_object",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_ids": ["turn-1-message-1"],
+                        "occurrence_count": 1,
+                    },
+                }
+            ],
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+            {"artifacts": [{"name": "plan.md", "type": "plan", "content": "# Plan", "content_type": "text/markdown"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        entries = {entry["id"]: entry for entry in response.json()["artifacts"]}
+        # A reference artifact has no file behind it, so the response must not advertise a download link.
+        self.assertNotIn("url", entries["phref_checkout"])
+        uploaded = next(entry for entry in response.json()["artifacts"] if entry["type"] == "plan")
+        self.assertIn("url", uploaded)
+
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
     def test_upload_artifacts_accepts_base64_content(self, mock_tag, mock_write):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -6414,7 +6457,22 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["type"], "skill_bundle")
         self.assertEqual(artifact["metadata"], metadata)
 
-    def test_upload_artifacts_rejects_skill_bundle_without_metadata(self):
+    @parameterized.expand(
+        [
+            ("without_metadata", None),
+            (
+                "with_reference_metadata",
+                {
+                    "reference_type": "posthog_object",
+                    "object_kind": "insight",
+                    "object_id": "9pQx3",
+                    "source_message_ids": ["turn-1"],
+                    "occurrence_count": 1,
+                },
+            ),
+        ]
+    )
+    def test_upload_artifacts_rejects_skill_bundle(self, _name, metadata):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -6429,6 +6487,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         "content": "c2tpbGw=",
                         "content_encoding": "base64",
                         "content_type": "application/zip",
+                        **({"metadata": metadata} if metadata else {}),
                     }
                 ]
             },
@@ -8203,6 +8262,182 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
+    @patch("products.tasks.backend.presentation.views.api.is_sandbox_agent_request", return_value=True)
+    @patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+    def test_registers_idempotent_reference_artifacts_and_announces_them_once(
+        self, _enabled: MagicMock, _agent: MagicMock
+    ) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/"
+        reference = {
+            "name": "Checkout funnel",
+            "object_kind": "insight",
+            "object_id": "9pQx3",
+            "source_message_id": "turn-1-message-1",
+        }
+
+        first = self.client.post(url, {"references": [reference]}, format="json")
+        retry = self.client.post(url, {"references": [reference]}, format="json")
+        second_message = self.client.post(
+            url,
+            {"references": [{**reference, "source_message_id": "turn-2-message-1"}]},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(retry.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_message.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual(len(run.artifacts), 1)
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["type"], "reference")
+        self.assertEqual(artifact["source"], "posthog_object")
+        self.assertNotIn("storage_path", artifact)
+        self.assertEqual(artifact["metadata"]["occurrence_count"], 2)
+        self.assertEqual(
+            artifact["metadata"]["source_message_ids"],
+            ["turn-1-message-1", "turn-2-message-1"],
+        )
+        events = TaskThreadMessage.objects.for_team(self.team.id).filter(
+            task=task,
+            event="artifact_created",
+            payload__artifact_id=artifact["id"],
+        )
+        self.assertEqual(events.count(), 1)
+        self.assertEqual(events.get().payload["reference_type"], "posthog_object")
+
+    @patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+    def test_non_creator_cannot_register_references(self, _enabled: MagicMock) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        other = self.create_organization_user()
+        self.client.force_authenticate(other)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/artifacts/references/",
+            {
+                "references": [
+                    {
+                        "name": "Checkout funnel",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_id": "turn-1-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        run.refresh_from_db()
+        self.assertEqual(run.artifacts or [], [])
+        self.assertFalse(
+            TaskThreadMessage.objects.for_team(self.team.id).filter(task=task, event="artifact_created").exists()
+        )
+
+    @patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+    def test_user_registered_reference_is_user_attributed_and_silent(self, _enabled: MagicMock) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/",
+            {
+                "references": [
+                    {
+                        "name": "Checkout funnel",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_id": "turn-1-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["uploaded_by"], "user")
+        self.assertEqual(artifact["uploaded_by_user_id"], self.user.id)
+        self.assertFalse(
+            TaskThreadMessage.objects.for_team(self.team.id).filter(task=task, event="artifact_created").exists()
+        )
+
+    def test_reference_artifacts_are_capped_per_run(self) -> None:
+        from products.tasks.backend.facade.api import MAX_RUN_REFERENCE_ARTIFACTS
+
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/"
+
+        for batch_start in range(0, MAX_RUN_REFERENCE_ARTIFACTS + 10, 50):
+            references = [
+                {
+                    "name": f"Insight {index}",
+                    "object_kind": "insight",
+                    "object_id": f"id-{index}",
+                    "source_message_id": "turn-1-message-1",
+                }
+                for index in range(batch_start, batch_start + 50)
+            ]
+            response = self.client.post(url, {"references": references}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        run.refresh_from_db()
+        reference_entries = [entry for entry in run.artifacts if entry.get("type") == "reference"]
+        self.assertEqual(len(reference_entries), MAX_RUN_REFERENCE_ARTIFACTS)
+
+        # An update to an existing entry still lands once the cap is reached.
+        update = self.client.post(
+            url,
+            {
+                "references": [
+                    {
+                        "name": "Insight 0",
+                        "object_kind": "insight",
+                        "object_id": "id-0",
+                        "source_message_id": "turn-2-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(update.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        updated = next(entry for entry in run.artifacts if entry["metadata"].get("object_id") == "id-0")
+        self.assertEqual(updated["metadata"]["occurrence_count"], 2)
+
+    def test_download_of_reference_artifact_returns_404(self) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/"
+        self.client.post(
+            url,
+            {
+                "references": [
+                    {
+                        "name": "Checkout funnel",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_id": "turn-1-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+        run.refresh_from_db()
+        artifact_id = run.artifacts[0]["id"]
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
 class TestTaskRunArtifactDismissAPI(BaseTaskAPITest):
     def _create_run_with_artifacts(self) -> tuple[Task, TaskRun]:
         task = self.create_task()
@@ -9240,6 +9475,336 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
                 status.HTTP_403_FORBIDDEN,
                 f"Expected 403 but got {response.status_code} for {scope} on {method} {url}",
             )
+
+
+class TestTaskHandoffAPI(BaseTaskAPITest):
+    def _handoff_url(self, task: Task) -> str:
+        return f"/api/projects/@current/tasks/{task.id}/handoff/"
+
+    def test_handoff_transfers_ownership_and_posts_thread_announcement(self):
+        recipient = self.create_organization_user("recipient")
+        integration = _grant_user_github_access(self.user)
+        task = self.create_task(created_by=self.user)
+        task.github_user_integration = integration
+        task.save()
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+            sandbox_task_id=task.id,
+            sandbox_run_id=uuid.uuid4(),
+        )
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["created_by"]["id"], recipient.id)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, recipient.id)
+        self.assertIsNone(task.github_user_integration_id)
+        self.assertIsInstance((task.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY), str)
+        conversation.refresh_from_db()
+        self.assertIsNone(conversation.task_id)
+        self.assertIsNone(conversation.sandbox_task_id)
+        self.assertIsNone(conversation.sandbox_run_id)
+        with team_scope(self.team.id):
+            announcement = task.thread_messages.get(event="task_handed_off")
+        self.assertEqual(announcement.author_kind, "system")
+        self.assertEqual(announcement.author_id, self.user.id)
+        self.assertEqual(
+            announcement.payload,
+            {
+                "from_user_id": self.user.id,
+                "to_user_id": recipient.id,
+                "from_display_name": "Test",
+                "to_display_name": "Other",
+            },
+        )
+
+    def test_handoff_rejects_nonterminal_runs(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Finish or cancel active runs before handing off this task.",
+                "attr": "user",
+            },
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_keeps_previous_owner_runs_read_only(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        recipient_client = APIClient()
+        recipient_client.force_authenticate(recipient)
+        run_url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+        self.assertEqual(recipient_client.get(run_url).status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            recipient_client.patch(run_url, {"stage": "build"}, format="json").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            recipient_client.post(
+                f"{run_url}living_artifacts/",
+                {"name": "old-run.md", "artifact_type": "document", "content": "old"},
+                format="json",
+            ).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_handoff_rejects_open_sandbox_session(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        now = django_timezone.now()
+        SandboxSession.objects.unscoped().create(
+            team=self.team,
+            task_run=run,
+            sandbox_id="sandbox-still-closing",
+            cpu_cores=1,
+            memory_gb=1,
+            ttl_seconds=3600,
+            created_at=now,
+            ttl_expires_at=now + timedelta(hours=1),
+        )
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["detail"],
+            "Wait for active sandboxes to shut down before handing off this task.",
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_revokes_task_bound_sandbox_oauth_tokens(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        self._sandbox_oauth_client(task.id)
+        access_token = OAuthAccessToken.objects.get(sandbox_task_id=task.id)
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token.id).exists())
+
+    def test_handoff_rejects_built_in_agent_oauth(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        application = OAuthApplication.objects.create(
+            name="Built-in agent sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=f"task:read task:write {MCP_BUILT_IN_AGENT_SCOPE}",
+            scoped_teams=[self.team.id],
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+
+        response = client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_rejects_unbound_legacy_sandbox_oauth(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        client = self._sandbox_oauth_client(task.id, bound=False, internal_scope=True)
+
+        response = client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_rejects_task_bound_sandbox_agent_from_another_task(self):
+        recipient = self.create_organization_user("recipient")
+        bound_task = self.create_task(created_by=self.user)
+        task = self.create_task(created_by=self.user)
+        client = self._sandbox_oauth_client(bound_task.id)
+
+        response = client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_moves_private_space_task_into_recipient_space(self):
+        recipient = self.create_organization_user("recipient")
+        with team_scope(self.team.id):
+            personal = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=self.user
+            )
+        task = self.create_task(created_by=self.user)
+        task.channel = personal
+        task.save()
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        with team_scope(self.team.id):
+            self.assertIsNotNone(task.channel)
+            self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
+            self.assertEqual(task.channel.created_by_id, recipient.id)
+        # The previous owner loses sight of a private-space task; the recipient can see and drive it.
+        self.assertEqual(
+            self.client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_404_NOT_FOUND
+        )
+        recipient_client = APIClient()
+        recipient_client.force_authenticate(recipient)
+        self.assertEqual(
+            recipient_client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_200_OK
+        )
+        self.assertEqual(
+            recipient_client.patch(
+                f"/api/projects/@current/tasks/{task.id}/", {"title": "Taken over"}, format="json"
+            ).status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/", {"title": "Still mine"}, format="json"
+            ).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_handoff_keeps_task_in_shared_space(self):
+        recipient = self.create_organization_user("recipient")
+        with team_scope(self.team.id):
+            shared = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+        task = self.create_task(created_by=self.user)
+        task.channel = shared
+        task.save()
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.channel_id, shared.id)
+        recipient_client = APIClient()
+        recipient_client.force_authenticate(recipient)
+        for client in (self.client, recipient_client):
+            self.assertEqual(client.get(f"/api/projects/@current/tasks/{task.id}/").status_code, status.HTTP_200_OK)
+
+    def test_handoff_requires_control_of_the_task(self):
+        colleague = self.create_organization_user("colleague")
+        with team_scope(self.team.id):
+            shared = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+        task = self.create_task(created_by=self.user)
+        task.channel = shared
+        task.save()
+        colleague_client = APIClient()
+        colleague_client.force_authenticate(colleague)
+
+        response = colleague_client.post(self._handoff_url(task), {"user": colleague.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    @parameterized.expand(
+        [
+            ("unknown_user", 999999, status.HTTP_400_BAD_REQUEST),
+            ("self_handoff", None, status.HTTP_400_BAD_REQUEST),
+            ("missing_user", "missing", status.HTTP_400_BAD_REQUEST),
+            ("non_int_user", "not-a-number", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_handoff_target_validation(self, _name, user_arg, expected_status):
+        task = self.create_task(created_by=self.user)
+        payload = {} if user_arg == "missing" else {"user": self.user.id if user_arg is None else user_arg}
+
+        response = self.client.post(self._handoff_url(task), payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_rejects_user_outside_the_organization(self):
+        outsider = User.objects.create_user(
+            email=f"outsider-{uuid.uuid4()}@example.com", first_name="Out", password="password"
+        )
+        task = self.create_task(created_by=self.user)
+
+        response = self.client.post(self._handoff_url(task), {"user": outsider.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_by_non_owner_of_team_origin_task_returns_404(self):
+        # task_control_q lets any project user DRIVE team-owned system tasks (origin
+        # product fallbacks); handing off is stricter: only the owner can give a task
+        # away, and a task with no owner has nobody who may hand it off.
+        system_task = Task.objects.create(
+            team=self.team,
+            title="Signal brief",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+            created_by=None,
+        )
+        colleague = self.create_organization_user("colleague")
+
+        response = self.client.post(self._handoff_url(system_task), {"user": colleague.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        system_task.refresh_from_db()
+        self.assertIsNone(system_task.created_by_id)
+
+    def test_handoff_rejects_recipient_without_project_access(self):
+        # Org membership alone isn't project access (private projects under access
+        # control): the recipient must pass the same check that decides what they can
+        # open, otherwise they'd end up owning a task they can't see.
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+
+        with patch.object(Team, "all_users_with_access", return_value=User.objects.none()):
+            response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        task.refresh_from_db()
+        self.assertEqual(task.created_by_id, self.user.id)
+
+    def test_handoff_strips_borrowed_mcp_credential_owner(self):
+        recipient = self.create_organization_user("recipient")
+        task = self.create_task(created_by=self.user)
+        task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+        task.state = {"mcp_builtin_agent": "signals_scout", "mcp_credential_owner_id": self.user.id, "other": 1}
+        task.save()
+
+        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertNotIn("mcp_credential_owner_id", task.state or {})
+        self.assertEqual((task.state or {}).get("other"), 1)
 
 
 class TestLivingArtifactChartRequestValidation(SimpleTestCase):
@@ -11070,6 +11635,11 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(SandboxEnvironment.objects.filter(id=env.id).exists())
 
+    def test_non_uuid_detail_path_returns_404(self):
+        # A non-UUID id (e.g. a mistyped nested route matched as a pk) must 404, not 500.
+        response = self.client.get(self.detail_url("custom_images"))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_private_environment_only_visible_to_creator(self):
         other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
         self.organization.members.add(other_user)
@@ -12354,7 +12924,14 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
 
 
 class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
-    def _create_run(self, *, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
+    def _create_run(
+        self,
+        *,
+        origin_product: Task.OriginProduct,
+        artifacts: list[dict] | None = None,
+        conversation_type: str | None = None,
+        with_mapping: bool = False,
+    ) -> tuple[Task, TaskRun]:
         creator = self.create_organization_user("thread-starter")
         task = Task.objects.create(
             team=self.team,
@@ -12368,13 +12945,27 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             environment=TaskRun.Environment.CLOUD,
+            artifacts=artifacts or [],
         )
+        if with_mapping:
+            integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+            SlackThreadTaskMapping.objects.create(
+                team=self.team,
+                integration=integration,
+                slack_workspace_id="T_SLACK",
+                channel="D123" if conversation_type == "im" else "C123",
+                thread_ts="1234.5678",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="U123",
+                conversation_type=conversation_type,
+            )
         return task, run
 
     @parameterized.expand(
         [
             ("teammate_cannot_patch_slack_run", Task.OriginProduct.SLACK, "patch", status.HTTP_404_NOT_FOUND),
-            ("teammate_cannot_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_404_NOT_FOUND),
+            ("teammate_can_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_200_OK),
             (
                 "teammate_cannot_patch_user_created_run",
                 Task.OriginProduct.USER_CREATED,
@@ -12407,6 +12998,95 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
             response = self.client.get(url)
 
         self.assertEqual(response.status_code, expected_status)
+
+    # The agent posts artifact links into the Slack thread, so everyone reading the thread
+    # follows them — not just whoever opened it. Separate from the run-retrieve case above
+    # because this also pins `artifacts_download_by_id` into `_READ_ONLY_ACTIONS`: drop it
+    # from that tuple and the gate flips to the creator-only control predicate.
+    @parameterized.expand(
+        [
+            ("slack_run_artifact", Task.OriginProduct.SLACK, status.HTTP_302_FOUND),
+            ("user_created_run_artifact", Task.OriginProduct.USER_CREATED, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    def test_non_creator_artifact_download_by_origin(
+        self,
+        _case_name: str,
+        origin_product: Task.OriginProduct,
+        expected_status: int,
+        mock_presign: MagicMock,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        mock_presign.return_value = "https://example.com/artifact?sig=123"
+        artifact_id = uuid.uuid4().hex
+        task, run = self._create_run(
+            origin_product=origin_product,
+            artifacts=[
+                {
+                    "id": artifact_id,
+                    "name": "screenshot.png",
+                    "type": "output",
+                    "content_type": "image/png",
+                    "storage_path": "tasks/artifacts/team_1/task_2/run_3/screenshot.png",
+                }
+            ],
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+
+    # The widened read exists so everyone in a Slack thread can follow the agent's links. A DM
+    # has no such audience, so it must not be widened. The `unclassified` case pins the
+    # fail-open direction the backfill relies on: it leaves every non-DM thread NULL, so a gate
+    # that asked "is this known-shared" instead of "is this known-private" would 404 every
+    # thread that predates the column.
+    @parameterized.expand(
+        [
+            ("dm_thread_hidden", "im", status.HTTP_404_NOT_FOUND),
+            ("public_channel_thread_readable", "public_channel", status.HTTP_200_OK),
+            ("private_channel_thread_readable", "private_channel", status.HTTP_200_OK),
+            ("group_dm_thread_readable", "mpim", status.HTTP_200_OK),
+            ("unclassified_thread_readable", None, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_run_access_by_conversation_type(
+        self,
+        _case_name: str,
+        conversation_type: str | None,
+        expected_status: int,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        task, run = self._create_run(
+            origin_product=Task.OriginProduct.SLACK,
+            conversation_type=conversation_type,
+            with_mapping=True,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, expected_status)
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_cannot_patch_shared_slack_run(self, _mock_publish_stream_state_event: MagicMock) -> None:
+        task, run = self._create_run(
+            origin_product=Task.OriginProduct.SLACK,
+            conversation_type="public_channel",
+            with_mapping=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"marker": "from-teammate"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestModelCatalogueAPI(BaseTaskAPITest):

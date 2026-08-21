@@ -100,7 +100,6 @@ from products.data_warehouse.backend.facade.api import (
     unpause_cdc_extraction_schedule,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
-from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
@@ -162,6 +161,7 @@ from products.warehouse_sources.backend.facade.types import (
     ManagedWarehouseSQLMode,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
     RowFiltersField,
     SimpleExternalDataSchemaSerializer,
@@ -1130,8 +1130,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
         return api_version_deprecation_payload(instance.source_type, instance.api_version)
 
+    def _prefetched_schemas(self, instance: ExternalDataSource) -> list[ExternalDataSchema] | None:
+        prefetched = getattr(instance, "_prefetched_objects_cache", {}).get("schemas")
+        if prefetched is None:
+            return None
+        return [schema for schema in prefetched if not schema.deleted]
+
+    def _active_schemas(self, instance: ExternalDataSource) -> list[ExternalDataSchema]:
+        """Schemas that are syncing or carry an error — derived in Python from the single `schemas`
+        prefetch rather than a second DB scan of the same (potentially huge) table."""
+        prefetched = self._prefetched_schemas(instance)
+        if prefetched is not None:
+            return [schema for schema in prefetched if schema.should_sync or schema.latest_error is not None]
+        return list(instance.schemas.exclude(deleted=True).filter(Q(should_sync=True) | Q(latest_error__isnull=False)))
+
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
+        active_schemas: list[ExternalDataSchema] = self._active_schemas(instance)
         # Negative statuses should ignore schemas the user has disabled — those can linger in
         # active_schemas via the latest_error prefetch but shouldn't drag the source into a failed state.
         syncing_schemas = [schema for schema in active_schemas if schema.should_sync]
@@ -1164,10 +1178,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource):
-        prefetched_schemas = getattr(instance, "_prefetched_objects_cache", {}).get("schemas")
+        prefetched_schemas = self._prefetched_schemas(instance)
         if prefetched_schemas is not None:
             schema_with_error = next(
-                (schema for schema in prefetched_schemas if not schema.deleted and schema.latest_error is not None),
+                (schema for schema in prefetched_schemas if schema.latest_error is not None),
                 None,
             )
         else:
@@ -1181,6 +1195,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             schemas = [schema for schema in prefetched_schemas if not schema.deleted]
         else:
             schemas = list(instance.schemas.exclude(deleted=True).order_by("name"))
+        # The source list embeds every schema of every source; large projects have tens of thousands.
+        # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
+        # and reserve the full serializer for single-source reads.
+        if self.context.get("schemas_list_only"):
+            return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=self.context).data
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
@@ -1505,18 +1524,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             schemas = list(
                 ExternalDataSchema.objects.filter(team_id=instance.team_id, source_id=updated_source.id)
                 .exclude(deleted=True)
+                # This is the update() response path, which serializes the full column shape
+                # (include_columns=True) — building columns reads table.credential.access_key per schema,
+                # so keep the credential joined here to avoid an N+1.
                 .select_related("table__credential", "table__external_data_source")
                 .order_by("name")
             )
-            active_schemas = list(
-                ExternalDataSchema.objects.filter(team_id=instance.team_id, source_id=updated_source.id)
-                .exclude(deleted=True)
-                .filter(Q(should_sync=True) | Q(latest_error__isnull=False))
-                .select_related("source", "table__credential", "table__external_data_source")
-            )
+            # `get_status`/`get_latest_error` derive the active/errored subset from this prefetch, so no
+            # separate `active_schemas` query is needed.
             updated_source_any = cast(Any, updated_source)
             updated_source_any._prefetched_objects_cache = {"schemas": schemas}
-            updated_source_any.active_schemas = active_schemas
 
         return updated_source
 
@@ -2067,6 +2084,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # never does (it only reads name/row_count). Gate both to single-source reads.
         include_columns = self.action != "list"
         context["include_columns"] = include_columns
+        # The list serializes a trimmed per-schema shape; single-source reads serialize the full one.
+        context["schemas_list_only"] = self.action == "list"
         if include_columns:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
@@ -2076,6 +2095,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         queryset = queryset.exclude(deleted=True)
         canonical_source = _canonical_legacy_managed_warehouse_source(queryset.filter(team_id=self.team_id))
         queryset = _hide_noncanonical_managed_warehouse_sources(queryset, canonical_source)
+
+        # `table__credential` holds EncryptedTextField key material. The list never reads it (trimmed
+        # schema shape, include_columns=False), so joining it across every schema — tens of thousands on
+        # large sources — is pure waste there and is dropped. Every other action serializes columns
+        # (include_columns=True), and building them reads `table.credential.access_key` per schema
+        # (see DataWarehouseTable.hogql_definition), so keep the join off the list path only.
+        schema_select = ["table__external_data_source"]
+        if self.action != "list":
+            schema_select.append("table__credential")
 
         return (
             queryset
@@ -2092,22 +2120,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     )[:1],
                     to_attr="ordered_jobs",
                 ),
+                # The one place schemas are read during serialization. `active_schemas` used to be a
+                # second prefetch over the same rows — it's now derived in Python from this one (see
+                # `_active_schemas`), so the schema table is scanned once.
                 Prefetch(
                     "schemas",
                     queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
                     .exclude(deleted=True)
-                    .select_related("table__credential", "table__external_data_source")
+                    .select_related(*schema_select)
                     .order_by("name"),
-                ),
-                Prefetch(
-                    "schemas",
-                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
-                    .exclude(deleted=True)
-                    .filter(
-                        Q(should_sync=True) | Q(latest_error__isnull=False)
-                    )  # OR to include schemas with errors or marked for sync
-                    .select_related("source", "table__credential", "table__external_data_source"),
-                    to_attr="active_schemas",
                 ),
             )
             .order_by(self.ordering)
@@ -4831,24 +4852,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             .order_by(self.ordering)
         )
-        managed_warehouse_enabled = managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team)
-        managed_source = None
-        if managed_warehouse_enabled:
-            managed_candidates = connection_sources.filter(ExternalDataSource.ready_managed_warehouse_q()).only(
-                "id",
-                "team_id",
-                "prefix",
-                "description",
-                "connection_metadata",
-                "source_type",
-                "access_method",
-                "direct_query_enabled",
-                "job_inputs",
-            )
-            managed_source = next(
-                (source for source in managed_candidates if source.is_dynamic_managed_warehouse),
-                None,
-            ) or next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+        managed_candidates = connection_sources.filter(ExternalDataSource.ready_managed_warehouse_q()).only(
+            "id",
+            "team_id",
+            "prefix",
+            "description",
+            "connection_metadata",
+            "source_type",
+            "access_method",
+            "direct_query_enabled",
+            "job_inputs",
+        )
+        managed_source = next(
+            (source for source in managed_candidates if source.is_dynamic_managed_warehouse),
+            None,
+        ) or next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+        if managed_source is not None:
             external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
         else:
             canonical_source = _canonical_legacy_managed_warehouse_source(connection_sources)

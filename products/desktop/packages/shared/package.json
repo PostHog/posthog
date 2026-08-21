@@ -16,10 +16,6 @@
       "types": "./dist/announcements.d.ts",
       "import": "./dist/announcements.js"
     },
-    "./agent-platform-types": {
-      "types": "./dist/agent-platform-types.d.ts",
-      "import": "./dist/agent-platform-types.js"
-    },
     "./domain-types": {
       "types": "./dist/domain-types.d.ts",
       "import": "./dist/domain-types.js"

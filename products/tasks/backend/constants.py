@@ -217,6 +217,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "experiment-ship-variant",
     "external-data-schemas-resync",
     "external-data-sources-repair-cdc-create",
+    "feature-requests-remove-evidence-create",
     "heatmaps-saved-regenerate",
     "inbox-reports-bulk-set-state",
     "inbox-reports-set-state",

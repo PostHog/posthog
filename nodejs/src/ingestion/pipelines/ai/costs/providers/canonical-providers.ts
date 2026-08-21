@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-20 10:08:39 UTC
+// Generated at: 2026-08-21 10:08:31 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -53,6 +53,8 @@ export type CanonicalProvider =
     | 'crusoe-bf16'
     | 'crusoe-fp8'
     | 'darkbloom'
+    | 'darkbloom-fp4'
+    | 'darkbloom-fp8'
     | 'decart-fp4'
     | 'deepinfra'
     | 'deepinfra-base'
@@ -125,7 +127,6 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita'
     | 'novita-bf16'
-    | 'novita-fast'
     | 'novita-fp16'
     | 'novita-fp4'
     | 'novita-fp8'
@@ -160,7 +161,6 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sail-research-fp4'
     | 'sail-research-fp8'
-    | 'sail-research-int4'
     | 'sakana'
     | 'sambanova'
     | 'sambanova-fp8'
@@ -169,6 +169,7 @@ export type CanonicalProvider =
     | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
+    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'

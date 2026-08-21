@@ -1,3 +1,4 @@
+import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import type React from "react";
@@ -19,6 +20,7 @@ export const Sidebar: React.FC<{ children: React.ReactNode }> = ({
       isResizing={isResizing}
       setIsResizing={setIsResizing}
       side="left"
+      resizeTooltip={<NavResizeTooltip />}
     >
       {children}
     </ResizableSidebar>
