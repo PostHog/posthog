@@ -172,6 +172,7 @@ __all__ = [
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
+    "apply_task_run_model_config",
     "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
@@ -2183,6 +2184,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_terminal_bookkeeping_complete",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
+        # is_interactive_signals_run reads its presence the same way, to tell a pipeline-started
+        # signals run from one a person started; forging it would move the run off the interactive
+        # budget and out of its per-run spend ceiling.
         "ai_stage",
         # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
         # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
@@ -2278,6 +2282,28 @@ def task_run_matches_current_ownership(run_id: str | UUID, task_id: str | UUID, 
     return run is not None and run.matches_task_ownership()
 
 
+def _shared_slack_thread_q() -> Q:
+    """Slack tasks whose thread is not a direct message.
+
+    Phrased as "not private" rather than "is a channel" so a mapping we never classified — a
+    row predating the column, or a lookup Slack refused — keeps the team-wide read access it
+    has today instead of silently narrowing to the thread starter.
+
+    The ``origin_product`` test leads so the subquery is only reached for Slack tasks; every
+    other task short-circuits on an indexed column before touching the mapping table.
+    """
+    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
+        PRIVATE_CONVERSATION_TYPES,
+        SlackThreadTaskMapping,
+    )
+
+    private_thread = SlackThreadTaskMapping.objects.filter(
+        task_id=OuterRef("pk"),
+        conversation_type__in=sorted(PRIVATE_CONVERSATION_TYPES),
+    )
+    return Q(origin_product=Task.OriginProduct.SLACK) & Q(~Exists(private_thread))
+
+
 def task_accessible_for_run_view(
     task_id: str | UUID,
     team_id: int,
@@ -2296,10 +2322,20 @@ def task_accessible_for_run_view(
 
     Task-bound sandbox callers set ``bypass_visibility`` only after the view verifies that
     the OAuth token's ``sandbox_task_id`` matches this task.
+
+    Tasks from a shared Slack conversation are readable by the whole team. Such a thread is
+    multiplayer: every member of the conversation already sees the agent's replies and follows
+    the links in them, so gating those links on the one person who opened the thread makes the
+    reply unusable for everyone else. The task itself is filed in its creator's personal space,
+    so ``task_visibility_q`` alone would hide it. Read-only on purpose — driving the run stays
+    with the creator, whose credentials the sandbox runs under.
+
+    Threads from a direct message are excluded: a DM has no audience beyond its author, so
+    there is nobody the widened read is for. See ``PRIVATE_CONVERSATION_TYPES``.
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
     if not bypass_visibility:
-        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id)
+        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
         task_filter = task_filter.filter(scope_q)
     return task_filter.exists()
 
@@ -3944,6 +3980,76 @@ def signal_task_run_peer_message(
         detail="Message accepted for delivery. It will reach the target as a queued turn; delivery is not confirmed synchronously.",
         message_id=str(message.id),
     )
+
+
+def apply_task_run_model_config(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    actor_user_id: int | None = None,
+) -> bool:
+    """Switch a live run's model and/or reasoning effort on its agent server.
+
+    The runtime adapter is not switchable — it is the harness process the sandbox was
+    started with — so the model has to belong to the adapter the run is already on; the
+    agent-server rejects anything else outright. Returns whether every requested change
+    landed, and writes the ones that did back to ``state`` so readers of the run agree
+    with what the sandbox is actually running.
+
+    Model first, then effort: which efforts exist depends on the model, and the
+    agent-server rebuilds its effort options the moment the model changes.
+    """
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        send_set_config_option,
+    )
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        create_sandbox_connection_token,
+    )
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        get_actor_distinct_id,
+    )
+
+    # (agent-server option id, value, run-state key), in the order they must be sent.
+    requested = [
+        (config_id, value, state_key)
+        for config_id, value, state_key in (("model", model, "model"), ("effort", reasoning_effort, "reasoning_effort"))
+        if value
+    ]
+    if not requested:
+        return False
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return False
+
+    actor = User.objects.filter(id=actor_user_id).first() if actor_user_id else None
+    distinct_id = get_actor_distinct_id(actor) if actor else None
+    if model and get_model_access_error(model, distinct_id=distinct_id) is not None:
+        # The entitlement check the run-create path applies, so a follow-up can't reach a
+        # gated model the caller could not have started the run on.
+        logger.warning("Model access denied switching task run %s to %s", run.id, model)
+        return False
+
+    auth_token = (
+        create_sandbox_connection_token(run, user_id=actor.id, distinct_id=distinct_id)
+        if actor and actor.id and distinct_id
+        else None
+    )
+
+    applied: dict[str, Any] = {}
+    for config_id, value, state_key in requested:
+        result = send_set_config_option(run, config_id, value, auth_token=auth_token)
+        if not result.success:
+            logger.warning("Failed to set %s=%s on task run %s: %s", config_id, value, run.id, result.error)
+            break
+        applied[state_key] = value
+
+    if applied:
+        TaskRun.update_state_atomic(run.id, updates=applied)
+    return len(applied) == len(requested)
 
 
 def get_task_run_sandbox_connection(
