@@ -76,13 +76,17 @@ from posthog.models.team import Team
 from products.conversations.backend.facade.api import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
+    ConversationMessageSender as ConversationMessageSender,
+    ConversationMessageSummary as ConversationMessageSummary,
     EmailThreadAddress as EmailThreadAddress,
     EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured,
+    SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
     list_account_email_thread_messages,
     list_account_email_threads,
+    list_account_ticket_messages,
     list_account_tickets,
     trigger_immediate_channel_summary,
 )
@@ -3876,7 +3880,33 @@ def get_account_support_tickets(
     account = _resolve_account(team_id, account_id=account_id)
     if account is None or not account.external_id:
         return []
-    return list_account_tickets(team_id, account.external_id, limit=limit)
+    return list_account_tickets(team_id, account.external_id, user_access_control, limit=limit)
+
+
+def get_account_support_ticket_messages(
+    team_id: int,
+    account_id: str,
+    ticket_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[SupportTicketMessage], int] | None:
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+        raise ResourceForbiddenError()
+    account = _resolve_account(team_id, account_id=account_id)
+    if account is None or not account.external_id:
+        return None
+    return list_account_ticket_messages(
+        team_id,
+        account.external_id,
+        ticket_id,
+        user_access_control,
+        offset=offset,
+        limit=limit,
+    )
 
 
 def get_account_email_threads(
