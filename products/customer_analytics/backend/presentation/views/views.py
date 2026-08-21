@@ -90,6 +90,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     FeatureRequestUpdateSerializer,
     FeatureRequestVersionSerializer,
     MeetingSerializer,
+    SupportTicketMessageSerializer,
     SupportTicketSerializer,
 )
 
@@ -1437,6 +1438,50 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
 
+    @extend_schema(
+        operation_id="accounts_support_ticket_messages_list",
+        parameters=[_ACCOUNT_ID_PARAM],
+        responses={200: SupportTicketMessageSerializer(many=True)},
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"support_tickets/(?P<ticket_id>[^/.]+)",
+        url_name="support-ticket-detail",
+        pagination_class=AccountEmailThreadMessagePagination,
+    )
+    def support_ticket(self, request: Request, ticket_id: str, *args, **kwargs) -> Response:
+        try:
+            parsed_ticket_id = str(UUID(ticket_id))
+        except ValueError:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
+        assert limit is not None
+        offset = paginator.get_offset(request)
+        try:
+            result = api.get_account_support_ticket_messages(
+                self.team_id,
+                self.kwargs["pk"],
+                parsed_ticket_id,
+                self.user_access_control,
+                offset=offset,
+                limit=limit,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        if result is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        messages, count = result
+        paginator.request = request
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.count = count
+        serializer = SupportTicketMessageSerializer(instance=messages, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountEmailThreadSerializer(many=True)})
     @action(methods=["GET"], detail=True, url_path="email_threads")
     def email_threads(self, request: Request, *args, **kwargs) -> Response:
@@ -1542,7 +1587,7 @@ class AccountViewSet(
                 return mixin_result
         # Ticket content behind an account-scoped viewset — a token holding only
         # account:read must not read it.
-        if view.action in {"support_tickets", "email_threads", "email_thread"}:
+        if view.action in {"support_tickets", "support_ticket", "email_threads", "email_thread"}:
             return ["account:read", "ticket:read"]
         return None
 
