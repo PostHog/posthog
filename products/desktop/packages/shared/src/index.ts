@@ -6,6 +6,7 @@ export {
   labelSchema,
   openAgentActionInput,
   type ShowAction,
+  type ShowActionButton,
   showActionSchema,
   splitShowAction,
 } from "./agent-actions";

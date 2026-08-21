@@ -72,11 +72,14 @@ export type ShowAction = z.infer<typeof showActionSchema>;
 
 export const openAgentActionInput = z.object({ action: agentActionSchema });
 
-/** Split a button back into the text on it and the verb behind it. */
-export function splitShowAction(button: ShowAction): {
+/** One button as the renderer draws it: its text, and the verb behind it. */
+export interface ShowActionButton {
   label: string;
   action: AgentAction;
-} {
+}
+
+/** Split a button back into the text on it and the verb behind it. */
+export function splitShowAction(button: ShowAction): ShowActionButton {
   const { label, ...action } = button;
   return { label, action };
 }

@@ -1,9 +1,10 @@
 import {
-  type AgentAction,
   readMcpToolDescriptor,
+  type ShowActionButton,
   showActionSchema,
   splitShowAction,
 } from "@posthog/shared";
+import { z } from "zod";
 
 const SHOW_ACTIONS_TOOL = "show_actions";
 
@@ -12,11 +13,9 @@ export function isShowActionsCall(meta: unknown): boolean {
   return readMcpToolDescriptor(meta)?.tool === SHOW_ACTIONS_TOOL;
 }
 
-/** One button a `show_actions` call is offering: its text, and the verb behind it. */
-export interface ShowActionButton {
-  label: string;
-  action: AgentAction;
-}
+// The envelope only has to be an object holding an array; each entry is judged
+// on its own below, so one bad action does not discard the rest.
+const showActionsInputSchema = z.object({ actions: z.array(z.unknown()) });
 
 /**
  * The buttons to draw for a `show_actions` call. An action that fails the shared
@@ -24,11 +23,10 @@ export interface ShowActionButton {
  * is never offered in the first place.
  */
 export function readShowActions(rawInput: unknown): ShowActionButton[] {
-  if (!rawInput || typeof rawInput !== "object") return [];
-  const { actions } = rawInput as { actions?: unknown };
-  if (!Array.isArray(actions)) return [];
+  const envelope = showActionsInputSchema.safeParse(rawInput);
+  if (!envelope.success) return [];
 
-  return actions.flatMap((entry) => {
+  return envelope.data.actions.flatMap((entry) => {
     const parsed = showActionSchema.safeParse(entry);
     return parsed.success ? [splitShowAction(parsed.data)] : [];
   });

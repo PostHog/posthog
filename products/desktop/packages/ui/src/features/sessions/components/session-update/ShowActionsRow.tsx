@@ -12,15 +12,14 @@ import { useMutation } from "@tanstack/react-query";
  */
 export function ShowActionsRow({ toolCall }: ToolViewProps) {
   const trpc = useHostTRPC();
-  // A click that opens nothing is the failure this tool exists to avoid, so both
-  // ways it can happen are surfaced: the call itself failing, and the host having
-  // no handler for the link it built (`handleUrl` answering false).
+  // A click that opens nothing is the failure this tool exists to avoid. One
+  // handler covers both ways it happens: the call rejecting leaves `opened`
+  // undefined, and the host finding no handler for the link answers false.
   const openAction = useMutation(
     trpc.deepLink.openAgentAction.mutationOptions({
-      onSuccess: (opened) => {
+      onSettled: (opened) => {
         if (!opened) toast.error("Couldn't open that");
       },
-      onError: () => toast.error("Couldn't open that"),
     }),
   );
   const buttons = readShowActions(toolCall.rawInput);
