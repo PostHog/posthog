@@ -31474,6 +31474,9 @@ export namespace Schemas {
       readonly provider_key_name: string | null;
     }
 
+    /**
+     * An evaluation that scores LLM generations, traces, or sessions.
+     */
     export interface Evaluation {
       readonly id: string;
       /**
@@ -31530,6 +31533,11 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -58979,6 +58987,9 @@ export namespace Schemas {
       max_age_seconds?: number;
     };
 
+    /**
+     * An evaluation that scores LLM generations, traces, or sessions.
+     */
     export interface PatchedEvaluation {
       readonly id?: string;
       /**
@@ -59035,6 +59046,11 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedEvaluationDirectory {

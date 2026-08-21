@@ -150,7 +150,7 @@ class TestEvaluationDirectoriesApi(APIBaseTest):
         membership = OrganizationMembership.objects.get(user=limited_user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
-            resource="llm_analytics",
+            resource="evaluation",
             access_level="none",
             organization_member=membership,
         )
