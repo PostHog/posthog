@@ -216,6 +216,15 @@ class TestScanForMaskedSecrets(MaskedSecretsDatabaseTest):
         assert {finding.hog_function_id for finding in scan.findings} == created
         assert scan.scanned_count == 3
 
+    def test_hitting_the_scan_ceiling_is_reported_rather_than_silently_truncating(self) -> None:
+        self._create_hog_function(secret_value="sk-live-abc")
+        self._create_hog_function(secret_value="sk-live-abc")
+
+        scan = scan_for_masked_secrets(max_scanned=1)
+
+        assert scan.scanned_count == 1
+        assert scan.truncated is True
+
 
 class TestScanHogFlowsForMaskedSecrets(MaskedSecretsDatabaseTest):
     def test_reports_a_persisted_marker_and_ignores_a_real_secret(self) -> None:

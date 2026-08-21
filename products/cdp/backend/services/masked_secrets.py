@@ -34,6 +34,11 @@ DEFAULT_BATCH_SIZE = 500
 # bites rather than being handed a silently short list.
 DEFAULT_MAX_RESULTS = 1000
 
+# Bounds the rows one admin request walks. max_results caps findings only, so a sparse sweep
+# would otherwise scan both tables end to end inside the web request and outlive the proxy
+# timeout. The management command passes no ceiling — a shell has nothing to time out.
+DEFAULT_MAX_SCANNED = 50_000
+
 
 @frozen
 class MaskedSecretFinding:
@@ -166,6 +171,7 @@ def scan_for_masked_secrets(
     include_deleted: bool = False,
     batch_size: int = DEFAULT_BATCH_SIZE,
     max_results: int | None = DEFAULT_MAX_RESULTS,
+    max_scanned: int | None = None,
 ) -> MaskedSecretScan:
     queryset = (
         HogFunction.objects.select_related("team", "team__organization")
@@ -198,6 +204,9 @@ def scan_for_masked_secrets(
     truncated = False
 
     for hog_function in _keyset_batches(queryset, batch_size):
+        if max_scanned is not None and scanned_count >= max_scanned:
+            truncated = True
+            break
         scanned_count += 1
         masked_live_inputs = _masked_input_keys(hog_function.encrypted_inputs)
         masked_draft_inputs = _masked_input_keys(hog_function.draft_encrypted_inputs)
@@ -224,7 +233,9 @@ def scan_for_masked_secrets(
                 updated_at=hog_function.updated_at,
                 masked_live_inputs=masked_live_inputs,
                 masked_draft_inputs=masked_draft_inputs,
-                configuration_url=f"{hog_function.url}/configuration",
+                # Not `hog_function.url`: that hardcodes the destinations route, which is the
+                # wrong page for transformations, site apps, and source webhooks.
+                configuration_url=absolute_uri(f"/project/{team.id}/functions/{hog_function.id}"),
             )
         )
 
@@ -237,6 +248,7 @@ def scan_hog_flows_for_masked_secrets(
     include_archived: bool = False,
     batch_size: int = DEFAULT_BATCH_SIZE,
     max_results: int | None = DEFAULT_MAX_RESULTS,
+    max_scanned: int | None = None,
 ) -> HogFlowMaskedSecretScan:
     queryset = (
         HogFlow.objects.select_related("team", "team__organization")
@@ -266,6 +278,9 @@ def scan_hog_flows_for_masked_secrets(
     truncated = False
 
     for hog_flow in _keyset_batches(queryset, batch_size):
+        if max_scanned is not None and scanned_count >= max_scanned:
+            truncated = True
+            break
         scanned_count += 1
         masked_live_inputs = _flow_masked_input_keys(hog_flow.encrypted_inputs)
         masked_draft_inputs = _flow_masked_input_keys(hog_flow.draft_encrypted_inputs)

@@ -13,6 +13,7 @@ from posthog.management.commands.rerun_google_ads_failed_invocations import MAX_
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from products.cdp.backend.services.masked_secrets import (
     DEFAULT_MAX_RESULTS,
+    DEFAULT_MAX_SCANNED,
     scan_for_masked_secrets,
     scan_hog_flows_for_masked_secrets,
     summarize_by_organization,
@@ -221,11 +222,13 @@ class HogFunctionAdmin(admin.ModelAdmin):
                     team_ids=team_ids,
                     include_deleted=form.cleaned_data["include_deleted"],
                     max_results=max_results,
+                    max_scanned=DEFAULT_MAX_SCANNED,
                 )
                 flow_scan = scan_hog_flows_for_masked_secrets(
                     team_ids=team_ids,
                     include_archived=form.cleaned_data["include_archived"],
                     max_results=max_results,
+                    max_scanned=DEFAULT_MAX_SCANNED,
                 )
                 organizations = summarize_by_organization([*scan.findings, *flow_scan.findings])
                 if scan.truncated or flow_scan.truncated:
@@ -236,8 +239,9 @@ class HogFunctionAdmin(admin.ModelAdmin):
                     )
                     messages.warning(
                         request,
-                        f"The {capped} scan stopped at the cap of {max_results}, so more are affected than this "
-                        "shows. Raise the cap or scan a narrower set of teams, then try again.",
+                        f"The {capped} scan stopped before covering every row, so more may be affected than "
+                        "this shows. Scan a narrower set of teams, or run the "
+                        "find_masked_hog_function_secrets management command for the full sweep.",
                     )
                 elif not scan.findings and not flow_scan.findings:
                     messages.success(
