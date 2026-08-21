@@ -205,11 +205,26 @@ export function AlertEvaluationHistoryChart({
             thresholds.map((threshold) => ({
                 value: threshold.value,
                 label: threshold.label,
-                labelPosition: threshold.direction === 'upper' ? ('end' as const) : ('start' as const),
+                labelPosition: 'start' as const,
                 variant: 'alert' as const,
             })),
         [thresholds]
     )
+
+    const yDomain = useMemo((): readonly [number, number] | undefined => {
+        if (thresholds.length === 0 || values.length === 0) {
+            return undefined
+        }
+        const dataMin = Math.min(...values)
+        const dataMax = Math.max(...values)
+        const min = Math.min(dataMin, ...thresholds.map((threshold) => threshold.value))
+        const max = Math.max(dataMax, ...thresholds.map((threshold) => threshold.value))
+        if (min === dataMin && max === dataMax) {
+            return undefined
+        }
+        const headroom = (max - min) * 0.05 || 1
+        return [min < dataMin ? min - headroom : min, max > dataMax ? max + headroom : max]
+    }, [thresholds, values])
 
     const renderTooltip = (ctx: ScatterTooltipContext<HistoryPointMeta>): JSX.Element => {
         const { point } = ctx
@@ -287,7 +302,7 @@ export function AlertEvaluationHistoryChart({
                             domain: [-0.5, Math.max(points.length - 0.5, 0.5)],
                             tickFormatter: (value) => labels[Math.round(value)] ?? '',
                         },
-                        yAxis: { tickFormatter: (value) => formatValue(value) },
+                        yAxis: { domain: yDomain, tickFormatter: (value) => formatValue(value) },
                         showGrid: true,
                         tooltip: { enabled: true },
                     }}
