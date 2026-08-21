@@ -40,6 +40,8 @@ interface TrendsPieChartProps {
     showPersonsModal?: boolean
 }
 
+const DONUT_INNER_RADIUS_RATIO = 0.6
+
 const handleChartError = (error: Error, info: ErrorInfo): void => {
     posthog.captureException(error, {
         feature: 'trends-pie-chart',
@@ -144,7 +146,7 @@ export function TrendsPieChart({
             showLabelOnSlice: !!showLabelOnSeries,
             isPercent: isPercentStackView,
             disableHoverOffset: !!pieChartVizOptions?.disableHoverOffset,
-            innerRadiusRatio: isDonut ? 0.6 : undefined,
+            innerRadiusRatio: isDonut ? DONUT_INNER_RADIUS_RATIO : undefined,
             legend: legendConfig,
         }),
         [

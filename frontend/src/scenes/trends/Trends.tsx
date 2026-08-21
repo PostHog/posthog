@@ -3,6 +3,7 @@ import { Suspense } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -120,7 +121,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 />
             )
         }
-        if (display === ChartDisplayType.ActionsPie || display === ChartDisplayType.ActionsDonut) {
+        if (display && PIE_DISPLAY_TYPES.includes(display)) {
             return <TrendsPieChart context={context} inSharedMode={inSharedMode} showPersonsModal={showPersonsModal} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
