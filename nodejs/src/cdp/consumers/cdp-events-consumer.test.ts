@@ -329,38 +329,38 @@ describe('CdpEventsConsumer', () => {
 
                 // The disable transition emits the customer-facing internal event through the
                 // wired-up producer — this is what internal_destination alerts trigger on.
-                expect(
-                    mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_internal_events_test')
-                ).toMatchObject([
-                    {
-                        topic: 'cdp_internal_events_test',
-                        value: {
-                            team_id: 2,
-                            event: {
-                                event: '$hog_function_state_changed',
-                                properties: {
-                                    hog_function_id: fnFetchNoFilters.id,
-                                    state: 'disabled',
-                                    previous_state: 'healthy',
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_internal_events_test')).toMatchObject(
+                    [
+                        {
+                            topic: 'cdp_internal_events_test',
+                            value: {
+                                team_id: 2,
+                                event: {
+                                    event: '$hog_function_state_changed',
+                                    properties: {
+                                        hog_function_id: fnFetchNoFilters.id,
+                                        state: 'disabled',
+                                        previous_state: 'healthy',
+                                    },
                                 },
                             },
                         },
-                    },
-                    {
-                        topic: 'cdp_internal_events_test',
-                        value: {
-                            team_id: 2,
-                            event: {
-                                event: '$hog_function_state_changed',
-                                properties: {
-                                    hog_function_id: fnPrinterPageviewFilters.id,
-                                    state: 'disabled',
-                                    previous_state: 'healthy',
+                        {
+                            topic: 'cdp_internal_events_test',
+                            value: {
+                                team_id: 2,
+                                event: {
+                                    event: '$hog_function_state_changed',
+                                    properties: {
+                                        hog_function_id: fnPrinterPageviewFilters.id,
+                                        state: 'disabled',
+                                        previous_state: 'healthy',
+                                    },
                                 },
                             },
                         },
-                    },
-                ])
+                    ]
+                )
             })
 
             {
