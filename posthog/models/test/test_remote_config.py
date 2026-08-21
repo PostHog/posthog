@@ -60,7 +60,19 @@ class TestProjectTriggerGroupsToV1Fields(SimpleTestCase):
                     {"sampleRate": 0.2, "conditions": {"matchType": "all", "events": ["a"]}},
                     {"sampleRate": 0.5, "conditions": {"matchType": "all", "events": ["b"]}},
                 ],
-                {"eventTriggers": ["a", "b"], "triggerMatchType": "all", "sampleRate": "0.5"},
+                {"eventTriggers": ["a", "b"], "triggerMatchType": "any", "sampleRate": "0.5"},
+            ),
+            (
+                "multiple_all_groups_widen_to_any",
+                [
+                    {"sampleRate": 1, "conditions": {"matchType": "all", "urls": [{"url": "/x", "matching": "regex"}]}},
+                    {"sampleRate": 1, "conditions": {"matchType": "all", "events": ["a"]}},
+                ],
+                {
+                    "urlTriggers": [{"url": "/x", "matching": "regex"}],
+                    "eventTriggers": ["a"],
+                    "triggerMatchType": "any",
+                },
             ),
             (
                 "flag_condition_projects_linked_flag",

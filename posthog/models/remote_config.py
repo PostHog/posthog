@@ -98,9 +98,12 @@ def project_trigger_groups_to_v1_fields(groups: list[dict]) -> dict[str, Any]:
         fields["eventTriggers"] = event_triggers
     if linked_flag is not None:
         fields["linkedFlag"] = linked_flag
-    # Groups are OR'd together, so "any" is the closest single match type when they differ.
+    # A single group's match type maps faithfully. But groups are OR'd, so unioning several groups'
+    # conditions under "all" would AND conditions that belong to different groups (e.g. a URL-only
+    # group and an event-only group become URL AND event) and silently drop sessions that match only
+    # one group. "any" is the safe over-approximation whenever more than one group is projected.
     if match_types:
-        fields["triggerMatchType"] = match_types.pop() if len(match_types) == 1 else "any"
+        fields["triggerMatchType"] = match_types.pop() if len(groups) == 1 else "any"
     # Groups are OR'd together, so the highest sample rate approximates the union.
     if sample_rates:
         max_rate = max(sample_rates)
