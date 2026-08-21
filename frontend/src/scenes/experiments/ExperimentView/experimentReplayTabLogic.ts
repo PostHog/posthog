@@ -28,6 +28,11 @@ import {
     eventUsageLogic,
 } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import {
+    applySessionLinkability,
+    getExposureFallbackFilter,
+    getViewRecordingFiltersForVariant,
+} from 'scenes/experiments/utils'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -186,6 +191,7 @@ export interface experimentReplayTabLogicValues {
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
     sessionEventDeltasLoading: boolean
+    usingExposureFallback: boolean
     variantKeys: string[]
 }
 
@@ -315,6 +321,9 @@ export interface experimentReplayTabLogicActions {
     reportTabViewed: () => {
         value: true
     }
+    scannerCrossSellClicked: () => {
+        value: true
+    }
     selectWatchCard: (card: ExperimentWatchCardApi | null) => {
         card: ExperimentWatchCardApi | null
     }
@@ -351,6 +360,7 @@ export interface experimentReplayTabLogicMeta {
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
+        usingExposureFallback: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
         metricOptions: (
             linkabilityLoaded: boolean,
             unlinkableEventNames: Set<string>,
@@ -444,6 +454,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         watchHighlightOpened: (card: ExperimentWatchCardApi, position: number) => ({ card, position }),
         prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
         reportTabViewed: true,
+        scannerCrossSellClicked: true,
     }),
     loaders(({ values, props, actions }) => ({
         sessionBucket: [
@@ -644,6 +655,21 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // filter could only match zero sessions. Those stay listed with their reason rather than
         // vanishing, which reads as the metric having been forgotten. Fails open while the check
         // loads.
+        // The recordings tab itself is now person-scoped, but a scanner filters recordings by a
+        // persisted RecordingsQuery, which can't express person-scoped exposure (the experiment_exposure
+        // filter refuses userless callers). So the cross-sell scanner link still needs the old
+        // event/property exposure filter, and this tells it whether to use the server-side-exposure
+        // fallback shape. Fails open (false) while the linkability check loads.
+        usingExposureFallback: [
+            (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
+            (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, experiment: Experiment): boolean =>
+                linkabilityLoaded &&
+                applySessionLinkability(
+                    getViewRecordingFiltersForVariant(experiment),
+                    unlinkableEventNames,
+                    getExposureFallbackFilter(experiment)
+                ).usedExposureFallback,
+        ],
         metricOptions: [
             (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
             (
@@ -1005,6 +1031,13 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 variant_count: values.variantKeys.length,
                 metric_count: values.metricOptions.length,
                 linkable_metric_count: values.metricOptions.filter((option) => !option.unlinkable).length,
+            })
+        },
+        scannerCrossSellClicked: () => {
+            void addProductIntentForCrossSell({
+                from: ProductKey.EXPERIMENTS,
+                to: ProductKey.REPLAY_VISION,
+                intent_context: ProductIntentContext.EXPERIMENT_CREATE_SCANNER,
             })
         },
         prefetchSessionContexts: async ({ sessionIds }, breakpoint) => {

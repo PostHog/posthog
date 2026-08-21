@@ -6338,6 +6338,46 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
+    def test_upload_artifacts_response_omits_url_for_reference_entries(self, mock_tag, mock_write):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[
+                {
+                    "id": "phref_checkout",
+                    "name": "Checkout funnel",
+                    "type": "reference",
+                    "source": "posthog_object",
+                    "uploaded_at": "2026-08-20T00:00:00+00:00",
+                    "uploaded_by": "agent",
+                    "metadata": {
+                        "reference_type": "posthog_object",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_ids": ["turn-1-message-1"],
+                        "occurrence_count": 1,
+                    },
+                }
+            ],
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+            {"artifacts": [{"name": "plan.md", "type": "plan", "content": "# Plan", "content_type": "text/markdown"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        entries = {entry["id"]: entry for entry in response.json()["artifacts"]}
+        # A reference artifact has no file behind it, so the response must not advertise a download link.
+        self.assertNotIn("url", entries["phref_checkout"])
+        uploaded = next(entry for entry in response.json()["artifacts"] if entry["type"] == "plan")
+        self.assertIn("url", uploaded)
+
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
     def test_upload_artifacts_accepts_base64_content(self, mock_tag, mock_write):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -6417,7 +6457,22 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["type"], "skill_bundle")
         self.assertEqual(artifact["metadata"], metadata)
 
-    def test_upload_artifacts_rejects_skill_bundle_without_metadata(self):
+    @parameterized.expand(
+        [
+            ("without_metadata", None),
+            (
+                "with_reference_metadata",
+                {
+                    "reference_type": "posthog_object",
+                    "object_kind": "insight",
+                    "object_id": "9pQx3",
+                    "source_message_ids": ["turn-1"],
+                    "occurrence_count": 1,
+                },
+            ),
+        ]
+    )
+    def test_upload_artifacts_rejects_skill_bundle(self, _name, metadata):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -6432,6 +6487,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         "content": "c2tpbGw=",
                         "content_encoding": "base64",
                         "content_type": "application/zip",
+                        **({"metadata": metadata} if metadata else {}),
                     }
                 ]
             },
@@ -8201,6 +8257,182 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{uuid.uuid4()}/cancel/", {}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
+    @patch("products.tasks.backend.presentation.views.api.is_sandbox_agent_request", return_value=True)
+    @patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+    def test_registers_idempotent_reference_artifacts_and_announces_them_once(
+        self, _enabled: MagicMock, _agent: MagicMock
+    ) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/"
+        reference = {
+            "name": "Checkout funnel",
+            "object_kind": "insight",
+            "object_id": "9pQx3",
+            "source_message_id": "turn-1-message-1",
+        }
+
+        first = self.client.post(url, {"references": [reference]}, format="json")
+        retry = self.client.post(url, {"references": [reference]}, format="json")
+        second_message = self.client.post(
+            url,
+            {"references": [{**reference, "source_message_id": "turn-2-message-1"}]},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(retry.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_message.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual(len(run.artifacts), 1)
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["type"], "reference")
+        self.assertEqual(artifact["source"], "posthog_object")
+        self.assertNotIn("storage_path", artifact)
+        self.assertEqual(artifact["metadata"]["occurrence_count"], 2)
+        self.assertEqual(
+            artifact["metadata"]["source_message_ids"],
+            ["turn-1-message-1", "turn-2-message-1"],
+        )
+        events = TaskThreadMessage.objects.for_team(self.team.id).filter(
+            task=task,
+            event="artifact_created",
+            payload__artifact_id=artifact["id"],
+        )
+        self.assertEqual(events.count(), 1)
+        self.assertEqual(events.get().payload["reference_type"], "posthog_object")
+
+    @patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+    def test_non_creator_cannot_register_references(self, _enabled: MagicMock) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        other = self.create_organization_user()
+        self.client.force_authenticate(other)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/artifacts/references/",
+            {
+                "references": [
+                    {
+                        "name": "Checkout funnel",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_id": "turn-1-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        run.refresh_from_db()
+        self.assertEqual(run.artifacts or [], [])
+        self.assertFalse(
+            TaskThreadMessage.objects.for_team(self.team.id).filter(task=task, event="artifact_created").exists()
+        )
+
+    @patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+    def test_user_registered_reference_is_user_attributed_and_silent(self, _enabled: MagicMock) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/",
+            {
+                "references": [
+                    {
+                        "name": "Checkout funnel",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_id": "turn-1-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["uploaded_by"], "user")
+        self.assertEqual(artifact["uploaded_by_user_id"], self.user.id)
+        self.assertFalse(
+            TaskThreadMessage.objects.for_team(self.team.id).filter(task=task, event="artifact_created").exists()
+        )
+
+    def test_reference_artifacts_are_capped_per_run(self) -> None:
+        from products.tasks.backend.facade.api import MAX_RUN_REFERENCE_ARTIFACTS
+
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/"
+
+        for batch_start in range(0, MAX_RUN_REFERENCE_ARTIFACTS + 10, 50):
+            references = [
+                {
+                    "name": f"Insight {index}",
+                    "object_kind": "insight",
+                    "object_id": f"id-{index}",
+                    "source_message_id": "turn-1-message-1",
+                }
+                for index in range(batch_start, batch_start + 50)
+            ]
+            response = self.client.post(url, {"references": references}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        run.refresh_from_db()
+        reference_entries = [entry for entry in run.artifacts if entry.get("type") == "reference"]
+        self.assertEqual(len(reference_entries), MAX_RUN_REFERENCE_ARTIFACTS)
+
+        # An update to an existing entry still lands once the cap is reached.
+        update = self.client.post(
+            url,
+            {
+                "references": [
+                    {
+                        "name": "Insight 0",
+                        "object_kind": "insight",
+                        "object_id": "id-0",
+                        "source_message_id": "turn-2-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(update.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        updated = next(entry for entry in run.artifacts if entry["metadata"].get("object_id") == "id-0")
+        self.assertEqual(updated["metadata"]["occurrence_count"], 2)
+
+    def test_download_of_reference_artifact_returns_404(self) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/"
+        self.client.post(
+            url,
+            {
+                "references": [
+                    {
+                        "name": "Checkout funnel",
+                        "object_kind": "insight",
+                        "object_id": "9pQx3",
+                        "source_message_id": "turn-1-message-1",
+                    }
+                ]
+            },
+            format="json",
+        )
+        run.refresh_from_db()
+        artifact_id = run.artifacts[0]["id"]
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -12692,7 +12924,14 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
 
 
 class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
-    def _create_run(self, *, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
+    def _create_run(
+        self,
+        *,
+        origin_product: Task.OriginProduct,
+        artifacts: list[dict] | None = None,
+        conversation_type: str | None = None,
+        with_mapping: bool = False,
+    ) -> tuple[Task, TaskRun]:
         creator = self.create_organization_user("thread-starter")
         task = Task.objects.create(
             team=self.team,
@@ -12706,13 +12945,27 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             environment=TaskRun.Environment.CLOUD,
+            artifacts=artifacts or [],
         )
+        if with_mapping:
+            integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+            SlackThreadTaskMapping.objects.create(
+                team=self.team,
+                integration=integration,
+                slack_workspace_id="T_SLACK",
+                channel="D123" if conversation_type == "im" else "C123",
+                thread_ts="1234.5678",
+                task=task,
+                task_run=run,
+                mentioning_slack_user_id="U123",
+                conversation_type=conversation_type,
+            )
         return task, run
 
     @parameterized.expand(
         [
             ("teammate_cannot_patch_slack_run", Task.OriginProduct.SLACK, "patch", status.HTTP_404_NOT_FOUND),
-            ("teammate_cannot_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_404_NOT_FOUND),
+            ("teammate_can_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_200_OK),
             (
                 "teammate_cannot_patch_user_created_run",
                 Task.OriginProduct.USER_CREATED,
@@ -12745,6 +12998,95 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
             response = self.client.get(url)
 
         self.assertEqual(response.status_code, expected_status)
+
+    # The agent posts artifact links into the Slack thread, so everyone reading the thread
+    # follows them — not just whoever opened it. Separate from the run-retrieve case above
+    # because this also pins `artifacts_download_by_id` into `_READ_ONLY_ACTIONS`: drop it
+    # from that tuple and the gate flips to the creator-only control predicate.
+    @parameterized.expand(
+        [
+            ("slack_run_artifact", Task.OriginProduct.SLACK, status.HTTP_302_FOUND),
+            ("user_created_run_artifact", Task.OriginProduct.USER_CREATED, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    def test_non_creator_artifact_download_by_origin(
+        self,
+        _case_name: str,
+        origin_product: Task.OriginProduct,
+        expected_status: int,
+        mock_presign: MagicMock,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        mock_presign.return_value = "https://example.com/artifact?sig=123"
+        artifact_id = uuid.uuid4().hex
+        task, run = self._create_run(
+            origin_product=origin_product,
+            artifacts=[
+                {
+                    "id": artifact_id,
+                    "name": "screenshot.png",
+                    "type": "output",
+                    "content_type": "image/png",
+                    "storage_path": "tasks/artifacts/team_1/task_2/run_3/screenshot.png",
+                }
+            ],
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+
+    # The widened read exists so everyone in a Slack thread can follow the agent's links. A DM
+    # has no such audience, so it must not be widened. The `unclassified` case pins the
+    # fail-open direction the backfill relies on: it leaves every non-DM thread NULL, so a gate
+    # that asked "is this known-shared" instead of "is this known-private" would 404 every
+    # thread that predates the column.
+    @parameterized.expand(
+        [
+            ("dm_thread_hidden", "im", status.HTTP_404_NOT_FOUND),
+            ("public_channel_thread_readable", "public_channel", status.HTTP_200_OK),
+            ("private_channel_thread_readable", "private_channel", status.HTTP_200_OK),
+            ("group_dm_thread_readable", "mpim", status.HTTP_200_OK),
+            ("unclassified_thread_readable", None, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_run_access_by_conversation_type(
+        self,
+        _case_name: str,
+        conversation_type: str | None,
+        expected_status: int,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        task, run = self._create_run(
+            origin_product=Task.OriginProduct.SLACK,
+            conversation_type=conversation_type,
+            with_mapping=True,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, expected_status)
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_cannot_patch_shared_slack_run(self, _mock_publish_stream_state_event: MagicMock) -> None:
+        task, run = self._create_run(
+            origin_product=Task.OriginProduct.SLACK,
+            conversation_type="public_channel",
+            with_mapping=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"marker": "from-teammate"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestModelCatalogueAPI(BaseTaskAPITest):

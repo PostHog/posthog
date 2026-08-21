@@ -75,6 +75,7 @@ import {
   serializeError,
   TypedEventEmitter,
 } from "@posthog/shared";
+import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
@@ -626,9 +627,13 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   ): {
     append: string;
   } {
-    // Overrides replace coding guidance, but rich tags must stay available in every agent response.
+    // Overrides replace task guidance, but product engineering and rich-output rules stay available.
     if (systemPromptOverride) {
-      return { append: appendRichOutputPrompt(systemPromptOverride) };
+      return {
+        append: appendRichOutputPrompt(
+          prependProductEngineerPrompt(systemPromptOverride),
+        ),
+      };
     }
 
     let prompt = `PostHog context: use project ${credentials.projectId} on ${credentials.apiHost}. When using PostHog MCP tools, operate only on this project.`;
@@ -701,7 +706,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       prompt += `\n\nThe user has granted you access to additional directories outside the working directory. You may read and edit files in these paths just like the working directory:\n<additional_directories>\n${dirs}\n</additional_directories>`;
     }
 
-    return { append: appendRichOutputPrompt(prompt) };
+    return {
+      append: appendRichOutputPrompt(prependProductEngineerPrompt(prompt)),
+    };
   }
 
   async startSession(params: StartSessionInput): Promise<SessionResponse> {

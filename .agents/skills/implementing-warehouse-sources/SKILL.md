@@ -657,7 +657,9 @@ Requirements and behavior:
 
 ## OAuth configuration
 
-Before implementing OAuth, **check if the integration already exists** — search `posthog/models/integration.py` loosely for the service name before concluding it's new.
+Before implementing OAuth, **check if the integration already exists** — search the `posthog/models/integration/` package loosely for the service name before concluding it's new.
+The kinds live in `model.py` and the OAuth wiring in `oauth.py`; a provider only gets its own module when it carries business logic beyond the OAuth config, as Slack, GitHub, and Stripe do.
+`__init__.py` only re-exports the public surface, so keep importing from `posthog.models.integration` but make edits in the defining module.
 
 If new:
 
@@ -668,10 +670,10 @@ If new:
    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
    ```
 
-2. **Integration kind**. In `posthog/models/integration.py`:
-   - Add to `IntegrationKind` enum.
-   - Add to `OauthIntegration.supported_kinds`.
-   - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`.
+2. **Integration kind**.
+   - Add to the `IntegrationKind` enum in `posthog/models/integration/model.py`.
+   - Add to `OauthIntegration.supported_kinds` in `posthog/models/integration/oauth.py`.
+   - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
      fail-closed message, so code and charts can ship before the secret values exist.
    - If the provider's token response has **no account identifier** (e.g. Resend), decode the
