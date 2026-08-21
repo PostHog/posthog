@@ -192,6 +192,19 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
+  it("exposes chartable tiles by insight short id, skipping tiles without one", () => {
+    const preview = shapeDashboardPreview({
+      id: 12,
+      name: "Growth",
+      tiles: [
+        { insight: { name: "DAU", short_id: "abc123" } },
+        { insight: { name: "Text tile without insight id" } },
+        { text: { body: "A text tile" } },
+      ],
+    } as unknown as Schemas.Dashboard);
+    expect(preview.tiles).toEqual([{ shortId: "abc123", name: "DAU" }]);
+  });
+
   // The remainder counts unnamed tiles too: named tiles are shown, but every
   // tile that filtered out of the name list still has to appear in "+N more".
   it.each([

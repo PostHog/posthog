@@ -29,6 +29,11 @@ export interface EvidencePreview {
   spark?: { points: number[]; render: "line" | "bar" };
   sections?: EvidenceDetailSection[];
   /**
+   * A dashboard's tiles, each resolvable to a live insight chart, so a full
+   * page can render the metrics themselves rather than describe them.
+   */
+  tiles?: Array<{ shortId: string; name: string | null }>;
+  /**
    * Canonical id when it differs from the cited one (a feature flag cited by
    * key, an event cited by name), so the caller can build the object's URL.
    */
@@ -600,10 +605,22 @@ export function shapeDashboardPreview(
   }
   const filters = isRecord(dashboard.filters) ? dashboard.filters : {};
   const variables = isRecord(dashboard.variables) ? dashboard.variables : {};
+  const chartTiles = tiles.flatMap((tile) => {
+    if (!isRecord(tile) || !isRecord(tile.insight)) return [];
+    const shortId = tile.insight.short_id;
+    if (typeof shortId !== "string" || !shortId) return [];
+    return [
+      {
+        shortId,
+        name: typeof tile.insight.name === "string" ? tile.insight.name : null,
+      },
+    ];
+  });
   return {
     title: dashboard.name || "Untitled dashboard",
     detail: dashboard.description || undefined,
     facts,
+    tiles: chartTiles,
     sections: [
       ...detailSection("Dashboard", [
         ["Tiles", count(tiles.length, "tile")],

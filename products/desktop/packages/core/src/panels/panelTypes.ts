@@ -48,6 +48,8 @@ export type TabData =
       type: "artifact";
       runId: string;
       artifactId: string;
+      /** PostHog object kind (e.g. "flag") when the artifact is a PostHog reference. */
+      objectKind?: string;
     }
   | {
       type: "other";

@@ -14,6 +14,24 @@ import { getObjectKind } from "@posthog/ui/utils/objectKinds";
 import { PostHogObjectDetails } from "./PostHogObjectDetails";
 
 function ObjectContent({ preview }: { preview: EvidenceCardData }) {
+  // A dashboard is its metrics: render each tile's insight as a live chart
+  // and skip the descriptive cards, which only restate what the charts show.
+  if (preview.tiles && preview.tiles.length > 0) {
+    return (
+      <div className="flex flex-col gap-3">
+        {preview.detail && (
+          <Text className="text-muted-foreground">{preview.detail}</Text>
+        )}
+        {preview.tiles.map((tile, index) => (
+          <MessageChartCard
+            key={`${tile.shortId}:${index}`}
+            spec={{ mode: "insight", shortId: tile.shortId }}
+            blockKey={`artifact:dashboard-tile:${index}:${tile.shortId}`}
+          />
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-3">
       {(preview.detail || (preview.facts?.length ?? 0) > 0) && (
@@ -103,8 +121,17 @@ export function PostHogObjectPage({
             <div className="mb-2 flex items-center gap-1.5 text-muted-foreground text-xs uppercase tracking-wide">
               <ObjectIcon size={14} />
               <span>{object.kindLabel}</span>
-              <span>·</span>
-              <span>{object.source}</span>
+              {/* Skip the product when it just restates the kind ("Feature
+                  flag · Feature flags"); keep it when it adds context
+                  ("Insight · Product analytics"). */}
+              {!object.source
+                .toLowerCase()
+                .startsWith(object.kindLabel.toLowerCase()) && (
+                <>
+                  <span>·</span>
+                  <span>{object.source}</span>
+                </>
+              )}
             </div>
             <Heading size="xl" className="truncate">
               {title}

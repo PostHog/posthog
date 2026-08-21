@@ -25,6 +25,8 @@ export interface EvidenceCardData {
   /** Mini chart of the primary series. */
   spark?: { points: number[]; render: "line" | "bar" };
   sections?: EvidenceDetailSection[];
+  /** A dashboard's tiles, each resolvable to a live insight chart. */
+  tiles?: Array<{ shortId: string; name: string | null }>;
   /** Canonical id when it differs from the cited one (a flag cited by key). */
   resolvedId?: string;
 }
