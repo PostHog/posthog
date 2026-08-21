@@ -870,10 +870,21 @@ class Team(UUIDTClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
+        from posthog.schema import HogQLQueryModifiers
+
         from posthog.hogql.query import execute_hogql_query
 
+        from posthog.schema_enums import PersonsArgMaxVersion
+
         with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
-            return execute_hogql_query("SELECT count() FROM persons", team=self).results[0][0]
+            return execute_hogql_query(
+                "SELECT count() FROM persons",
+                team=self,
+                query_type="persons_seen_so_far",
+                # Pin v1 because the v2 persons path pushes the executor's default LIMIT into its
+                # dedup subquery, which caps a bare count() at ~101 for teams pinned to v2.
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1),
+            ).results[0][0]
 
     @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
