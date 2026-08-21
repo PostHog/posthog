@@ -67,7 +67,7 @@ def link_github_reference(
     in the project can see the repo; otherwise the link is stored bare, typed as an issue.
     """
     existing = TicketGithubLink.objects.filter(
-        ticket=ticket, repo__iexact=reference.repo, number=reference.number
+        team_id=ticket.team_id, ticket=ticket, repo__iexact=reference.repo, number=reference.number
     ).first()
     if existing is not None:
         return existing, False
@@ -87,7 +87,9 @@ def link_github_reference(
     except IntegrityError:
         # Lost a race with an identical concurrent link: the unique constraint already holds the row.
         return (
-            TicketGithubLink.objects.get(ticket=ticket, repo__iexact=reference.repo, number=reference.number),
+            TicketGithubLink.objects.get(
+                team_id=ticket.team_id, ticket=ticket, repo__iexact=reference.repo, number=reference.number
+            ),
             False,
         )
     return link, True

@@ -1422,7 +1422,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def github_links(self, request, *args, **kwargs):
         """List the GitHub issues and pull requests linked to a ticket."""
         ticket = self.get_object()
-        links = list(TicketGithubLink.objects.filter(ticket=ticket).select_related("created_by").order_by("created_at"))
+        links = list(
+            TicketGithubLink.objects.filter(team_id=self.team_id, ticket=ticket)
+            .select_related("created_by")
+            .order_by("created_at")
+        )
         if has_stale_github_links(links):
             schedule_github_link_refresh(self.team_id, str(ticket.id))
         return Response(TicketGithubLinkSerializer(links, many=True).data)
@@ -1475,7 +1479,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             link_uuid = uuid.UUID(link_id or "")
         except ValueError:
             link_uuid = None
-        link = TicketGithubLink.objects.filter(ticket=ticket, id=link_uuid).first() if link_uuid else None
+        link = (
+            TicketGithubLink.objects.filter(team_id=self.team_id, ticket=ticket, id=link_uuid).first()
+            if link_uuid
+            else None
+        )
         if link is None:
             return Response(
                 {"detail": "Link not found.", "error_type": "github_link_not_found"},

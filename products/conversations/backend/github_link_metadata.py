@@ -106,7 +106,7 @@ def refresh_stale_github_links(team_id: int, ticket_id: str) -> int:
     """
     cutoff = timezone.now() - METADATA_STALE_AFTER
     stale = list(
-        TicketGithubLink.objects.filter(ticket_id=ticket_id)
+        TicketGithubLink.objects.filter(team_id=team_id, ticket_id=ticket_id)
         .filter(Q(metadata_synced_at__isnull=True) | Q(metadata_synced_at__lt=cutoff))
         .order_by("created_at")[:MAX_REFRESHES_PER_RUN]
     )
