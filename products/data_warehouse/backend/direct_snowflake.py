@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from products.warehouse_sources.backend.facade.enums import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 if TYPE_CHECKING:
@@ -52,13 +53,13 @@ def upsert_direct_snowflake_table(
     if existing_table is None:
         return DataWarehouseTable.objects.create(
             name=schema_name,
-            format=DataWarehouseTable.TableFormat.Parquet,
+            format=DataWarehouseTableFormat.Parquet,
             team_id=source.team_id,
             url_pattern=DIRECT_SNOWFLAKE_URL_PATTERN,
             external_data_source=source,
             columns=columns,
             options=options,
-            created_via=DataWarehouseTable.CreatedVia.SOURCE,
+            created_via=DataWarehouseTableCreatedVia.SOURCE,
         )
 
     existing_table.name = schema_name

@@ -15,6 +15,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTeamMembership,
 )
 from products.managed_warehouse.backend.facade.team_state import team_backfill_membership
+from products.warehouse_sources.backend.facade.enums import ExternalDataSourceAccessMethod
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 if TYPE_CHECKING:
@@ -212,7 +213,7 @@ def _schema_table_statuses(
     source_filter: dict[str, object] = {
         "team_id": team_id,
         "deleted": False,
-        "access_method": ExternalDataSource.AccessMethod.WAREHOUSE,
+        "access_method": ExternalDataSourceAccessMethod.WAREHOUSE,
     }
     if source_id is not None:
         source_filter["id"] = source_id

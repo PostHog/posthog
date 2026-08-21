@@ -18,6 +18,7 @@ from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import UserAccessControl
 
+from products.warehouse_sources.backend.facade.enums import ExternalDataSourceAccessMethod
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 
@@ -132,7 +133,7 @@ def _matching_table_names(
     pure_direct_ids = {
         source_id
         for source_id, source in sources_by_id.items()
-        if source.access_method == ExternalDataSource.AccessMethod.DIRECT
+        if source.access_method == ExternalDataSourceAccessMethod.DIRECT
     }
     dual_mode_ids = set(sources_by_id) - pure_direct_ids
 

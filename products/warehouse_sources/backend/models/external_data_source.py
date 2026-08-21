@@ -10,6 +10,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.facade import enums
 from products.warehouse_sources.backend.types import (
     DIRECT_ENGINE_BY_SOURCE_TYPE,
     ExternalDataSourceType,
@@ -32,30 +33,13 @@ class ExternalDataSourceManager(models.Manager):
 
 
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    class AccessMethod(models.TextChoices):
-        WAREHOUSE = "warehouse", "warehouse"
-        DIRECT = "direct", "direct"
-
-    class CreatedVia(models.TextChoices):
-        WEB = "web", "web"
-        API = "api", "api"
-        MCP = "mcp", "mcp"
-        WIZARD = "wizard", "wizard"
-        SELF_DRIVING = "self_driving", "self_driving"
-
-    class Status(models.TextChoices):
-        RUNNING = "Running", "Running"
-        PAUSED = "Paused", "Paused"
-        ERROR = "Error", "Error"
-        COMPLETED = "Completed", "Completed"
-        CANCELLED = "Cancelled", "Cancelled"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    AccessMethod = enums.ExternalDataSourceAccessMethod
+    CreatedVia = enums.ExternalDataSourceCreatedVia
+    Status = enums.ExternalDataSourceStatus
 
     # Deprecated, use `ExternalDataSchema.SyncFrequency`
-    class SyncFrequency(models.TextChoices):
-        DAILY = "day", "Daily"
-        WEEKLY = "week", "Weekly"
-        MONTHLY = "month", "Monthly"
-        # TODO provide flexible schedule definition
+    SyncFrequency = enums.ExternalDataSourceSyncFrequency
 
     source_id = models.CharField(max_length=400)
     connection_id = models.CharField(max_length=400)

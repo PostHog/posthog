@@ -42,6 +42,7 @@ from products.marketing_analytics.backend.demo import (
 )
 from products.marketing_analytics.backend.demo.events import MarketingEventGenerator
 from products.marketing_analytics.backend.demo.world import CAMPAIGNS, FREE_CHANNELS
+from products.warehouse_sources.backend.facade.enums import ExternalDataSourceStatus
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSource,
@@ -149,7 +150,7 @@ class Command(BaseCommand):
                 team=team,
                 source_id="marketing-demo-bigquery",
                 connection_id="marketing-demo-bigquery",
-                status=ExternalDataSource.Status.COMPLETED,
+                status=ExternalDataSourceStatus.COMPLETED,
                 source_type="BigQuery",
                 prefix="",
             )

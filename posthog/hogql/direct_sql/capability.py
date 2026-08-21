@@ -1,3 +1,4 @@
+from products.warehouse_sources.backend.facade.enums import ExternalDataSourceAccessMethod
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 
@@ -15,7 +16,7 @@ def is_direct_capable(source: ExternalDataSource) -> bool:
     """
     if source.direct_engine is None:
         return False
-    if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+    if source.access_method == ExternalDataSourceAccessMethod.DIRECT:
         return True
     return source.direct_query_enabled
 

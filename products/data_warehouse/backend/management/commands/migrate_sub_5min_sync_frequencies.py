@@ -11,6 +11,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     bulk_update_external_data_job_schedules,
     sync_cdc_extraction_schedule,
 )
+from products.warehouse_sources.backend.facade.enums import ExternalDataSchemaSyncType
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
@@ -50,7 +51,7 @@ class Command(BaseCommand):
         cdc_sources = {
             schema.source.id: schema.source
             for schema in live_schemas
-            if schema.sync_type == ExternalDataSchema.SyncType.CDC
+            if schema.sync_type == ExternalDataSchemaSyncType.CDC
         }
 
         for schema in schemas:

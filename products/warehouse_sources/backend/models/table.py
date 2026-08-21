@@ -45,6 +45,7 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.facade import enums
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -283,27 +284,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     # Use if it's certain externaldataschemas aren't needed
     raw_objects = DataWarehouseTableQuerySet.as_manager()
 
-    class TableFormat(models.TextChoices):
-        CSV = "CSV", "CSV"
-        CSVWithNames = "CSVWithNames", "CSVWithNames"
-        Parquet = "Parquet", "Parquet"
-        JSON = "JSONEachRow", "JSON"
-        Delta = "Delta", "Delta"
-        DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
-
-    class CreatedVia(models.TextChoices):
-        # The first five mirror `ExternalDataSource.CreatedVia` value-for-value, so table and source
-        # attribution can be counted together. The last three have no source equivalent — they cover
-        # the tables PostHog creates itself, which a request surface would otherwise misattribute to
-        # whoever happened to trigger the run.
-        WEB = "web", "web"
-        API = "api", "api"
-        MCP = "mcp", "mcp"
-        WIZARD = "wizard", "wizard"
-        SELF_DRIVING = "self_driving", "self_driving"
-        SOURCE = "source", "source"
-        MATERIALIZED_VIEW = "materialized_view", "materialized_view"
-        DEMO = "demo", "demo"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    TableFormat = enums.DataWarehouseTableFormat
+    CreatedVia = enums.DataWarehouseTableCreatedVia
 
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)

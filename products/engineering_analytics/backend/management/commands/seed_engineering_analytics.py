@@ -64,6 +64,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
+from products.warehouse_sources.backend.facade.enums import DataWarehouseTableFormat, ExternalDataSourceStatus
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSchema,
@@ -1091,7 +1092,7 @@ class Command(BaseCommand):
                 team=team,
                 source_id=SEED_SOURCE_ID,
                 connection_id=SEED_SOURCE_ID,
-                status=ExternalDataSource.Status.COMPLETED,
+                status=ExternalDataSourceStatus.COMPLETED,
                 source_type=ExternalDataSourceType.GITHUB,
                 prefix=prefix,
                 job_inputs={"repository": SEED_REPOSITORY},
@@ -1137,7 +1138,7 @@ class Command(BaseCommand):
                 "Use a different --prefix (or another team) to seed fixture data."
             )
         if existing is not None:
-            existing.format = DataWarehouseTable.TableFormat.CSVWithNames
+            existing.format = DataWarehouseTableFormat.CSVWithNames
             existing.url_pattern = url_pattern
             existing.credential = credential
             existing.external_data_source = source
@@ -1155,7 +1156,7 @@ class Command(BaseCommand):
             table = DataWarehouseTable.objects.create(
                 team=team,
                 name=table_name,
-                format=DataWarehouseTable.TableFormat.CSVWithNames,
+                format=DataWarehouseTableFormat.CSVWithNames,
                 url_pattern=url_pattern,
                 credential=credential,
                 external_data_source=source,

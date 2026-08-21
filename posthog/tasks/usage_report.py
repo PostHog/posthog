@@ -72,6 +72,7 @@ from products.tasks.backend.facade.billing import (
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
 )
+from products.warehouse_sources.backend.facade.enums import ExternalDataJobStatus, ExternalDataSchemaStatus
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
@@ -2031,7 +2032,7 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
                 finished_at__gte=begin,
                 finished_at__lte=end,
                 billable=True,
-                status=ExternalDataJob.Status.COMPLETED,
+                status=ExternalDataJobStatus.COMPLETED,
             )
             .values("team_id")
             .annotate(total=Sum("rows_synced"))
@@ -2042,7 +2043,7 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
             finished_at__gte=begin,
             finished_at__lte=end,
             billable=True,
-            status=ExternalDataJob.Status.COMPLETED,
+            status=ExternalDataJobStatus.COMPLETED,
         )
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
@@ -2059,7 +2060,7 @@ def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: d
                 finished_at__gte=begin,
                 finished_at__lte=end,
                 billable=True,
-                status=ExternalDataJob.Status.COMPLETED,
+                status=ExternalDataJobStatus.COMPLETED,
             )
             .values("team_id")
             .annotate(total=Sum("rows_synced"))
@@ -2070,7 +2071,7 @@ def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: d
             finished_at__gte=begin,
             finished_at__lte=end,
             billable=True,
-            status=ExternalDataJob.Status.COMPLETED,
+            status=ExternalDataJobStatus.COMPLETED,
             pipeline__created_at__gte=end - timedelta(days=7),
         )
         .values("team_id")
@@ -2112,8 +2113,8 @@ def get_teams_with_active_external_data_schemas_in_period() -> list:
     return list(
         ExternalDataSchema.objects.filter(
             status__in=[
-                ExternalDataSchema.Status.RUNNING,
-                ExternalDataSchema.Status.COMPLETED,
+                ExternalDataSchemaStatus.RUNNING,
+                ExternalDataSchemaStatus.COMPLETED,
             ]
         )
         .values("team_id")

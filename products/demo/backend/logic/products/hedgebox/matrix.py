@@ -82,6 +82,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight, InsightViewed
+from products.warehouse_sources.backend.facade.enums import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
 
 from .models import HedgeboxAccount, HedgeboxPerson
@@ -2424,7 +2425,7 @@ class HedgeboxMatrix(Matrix):
         if existing_table:
             if existing_table.external_data_source is not None:
                 return
-            existing_table.format = DataWarehouseTable.TableFormat.CSVWithNames
+            existing_table.format = DataWarehouseTableFormat.CSVWithNames
             existing_table.url_pattern = url_pattern
             existing_table.credential = credential
             existing_table.columns = columns
@@ -2443,13 +2444,13 @@ class HedgeboxMatrix(Matrix):
         DataWarehouseTable.objects.create(
             team=team,
             name=table_name,
-            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            format=DataWarehouseTableFormat.CSVWithNames,
             url_pattern=url_pattern,
             credential=credential,
             columns=columns,
             options={"csv_allow_double_quotes": True},
             created_by=user,
-            created_via=DataWarehouseTable.CreatedVia.DEMO,
+            created_via=DataWarehouseTableCreatedVia.DEMO,
         )
 
     @classmethod

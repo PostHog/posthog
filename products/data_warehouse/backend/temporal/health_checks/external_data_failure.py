@@ -9,6 +9,7 @@ from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
+from products.warehouse_sources.backend.facade.enums import ExternalDataSchemaStatus
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 # A schema carrying a fresh column_type_widened marker is scheduled to reset and re-sync itself on
@@ -82,9 +83,9 @@ class ExternalDataFailureCheck(HealthCheck):
                 deleted=False,
             )
             .filter(
-                Q(status=ExternalDataSchema.Status.FAILED)
-                | Q(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
-                | Q(status=ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW)
+                Q(status=ExternalDataSchemaStatus.FAILED)
+                | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED)
+                | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW)
                 | Q(should_sync=False, latest_error__isnull=False)
             )
             .select_related("source")

@@ -22,6 +22,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.facade import enums
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
@@ -151,26 +152,10 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
 
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    class Status(models.TextChoices):
-        RUNNING = "Running", "Running"
-        PAUSED = "Paused", "Paused"
-        FAILED = "Failed", "Failed"
-        COMPLETED = "Completed", "Completed"
-        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
-        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
-
-    class SyncType(models.TextChoices):
-        FULL_REFRESH = "full_refresh", "full_refresh"
-        INCREMENTAL = "incremental", "incremental"
-        APPEND = "append", "append"
-        WEBHOOK = "webhook", "webhook"
-        CDC = "cdc", "cdc"
-        XMIN = "xmin", "xmin"
-
-    class SyncFrequency(models.TextChoices):
-        DAILY = "day", "Daily"
-        WEEKLY = "week", "Weekly"
-        MONTHLY = "month", "Monthly"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    Status = enums.ExternalDataSchemaStatus
+    SyncType = enums.ExternalDataSchemaSyncType
+    SyncFrequency = enums.ExternalDataSchemaSyncFrequency
 
     name = models.CharField(max_length=400)
     label = models.CharField(max_length=400, null=True, blank=True)

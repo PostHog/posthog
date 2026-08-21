@@ -34,6 +34,11 @@ from products.warehouse_sources.backend.facade.api import (
     build_file_upload_url_pattern,
     hosted_upload_s3_path,
 )
+from products.warehouse_sources.backend.facade.enums import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceAccessMethod,
+)
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
@@ -42,7 +47,6 @@ from products.warehouse_sources.backend.facade.hogql import (
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
-    ExternalDataSource,
     validate_warehouse_table_url_pattern,
 )
 from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
@@ -62,15 +66,15 @@ MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
 # wrap MCP but aren't separately tracked (the CLI, Slack, Max) land on `mcp` alongside plain MCP
 # clients, and anything without a surface of its own is a plain API caller.
 _EVENT_SOURCE_TO_CREATED_VIA = {
-    EventSource.WEB: DataWarehouseTable.CreatedVia.WEB,
-    EventSource.WIZARD: DataWarehouseTable.CreatedVia.WIZARD,
-    EventSource.POSTHOG_CODE: DataWarehouseTable.CreatedVia.SELF_DRIVING,
-    EventSource.DESKTOP: DataWarehouseTable.CreatedVia.SELF_DRIVING,
-    EventSource.MOBILE: DataWarehouseTable.CreatedVia.SELF_DRIVING,
-    EventSource.MCP: DataWarehouseTable.CreatedVia.MCP,
-    EventSource.SLACK: DataWarehouseTable.CreatedVia.MCP,
-    EventSource.CLI: DataWarehouseTable.CreatedVia.MCP,
-    EventSource.POSTHOG_AI: DataWarehouseTable.CreatedVia.MCP,
+    EventSource.WEB: DataWarehouseTableCreatedVia.WEB,
+    EventSource.WIZARD: DataWarehouseTableCreatedVia.WIZARD,
+    EventSource.POSTHOG_CODE: DataWarehouseTableCreatedVia.SELF_DRIVING,
+    EventSource.DESKTOP: DataWarehouseTableCreatedVia.SELF_DRIVING,
+    EventSource.MOBILE: DataWarehouseTableCreatedVia.SELF_DRIVING,
+    EventSource.MCP: DataWarehouseTableCreatedVia.MCP,
+    EventSource.SLACK: DataWarehouseTableCreatedVia.MCP,
+    EventSource.CLI: DataWarehouseTableCreatedVia.MCP,
+    EventSource.POSTHOG_AI: DataWarehouseTableCreatedVia.MCP,
 }
 
 
@@ -79,16 +83,16 @@ def resolve_created_via(request: request.Request) -> str:
 
     Read entirely from the transport (auth method, user-agent, MCP headers) rather than from the
     request body, so no caller can label its own tables as wizard- or web-created. The values line
-    up with `ExternalDataSource.CreatedVia`, which reaches the same answer from the other direction:
+    up with `ExternalDataSourceCreatedVia`, which reaches the same answer from the other direction:
     a source takes `created_via` from the body because the MCP server injects it there, then
     upgrades that value using this same transport signal.
     """
     event_source = get_event_source(request)
-    created_via = _EVENT_SOURCE_TO_CREATED_VIA.get(event_source, DataWarehouseTable.CreatedVia.API)
+    created_via = _EVENT_SOURCE_TO_CREATED_VIA.get(event_source, DataWarehouseTableCreatedVia.API)
     # Every wizard program shares the `posthog/wizard` user-agent, so a self-driving run is only
     # distinguishable by the marker it adds to that UA.
-    if created_via == DataWarehouseTable.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
-        return DataWarehouseTable.CreatedVia.SELF_DRIVING
+    if created_via == DataWarehouseTableCreatedVia.WIZARD and is_wizard_self_driving_program(request):
+        return DataWarehouseTableCreatedVia.SELF_DRIVING
     return created_via
 
 
@@ -162,7 +166,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         "(boolean), for CSV files that quote fields with doubled quotes.",
     )
     created_via = serializers.ChoiceField(
-        choices=DataWarehouseTable.CreatedVia.choices,
+        choices=DataWarehouseTableCreatedVia.choices,
         read_only=True,
         allow_null=True,
         help_text=(
@@ -461,7 +465,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         return (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
-            .exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
+            .exclude(external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
@@ -825,7 +829,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         file_format = request.data.get("format", "CSVWithNames")
 
         # Validate format against allowed choices
-        valid_formats = {c[0] for c in DataWarehouseTable.TableFormat.choices}
+        valid_formats = {c[0] for c in DataWarehouseTableFormat.choices}
         if file_format not in valid_formats:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
