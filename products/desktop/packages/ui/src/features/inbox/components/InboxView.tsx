@@ -1,7 +1,7 @@
 import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
 import { isInboxDetailPath } from "@posthog/core/inbox/reportMembership";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSelfDrivingHomeEnabled } from "@posthog/ui/features/feature-flags/useSelfDrivingHomeEnabled";
 import { InboxPageHeader } from "@posthog/ui/features/inbox/components/InboxPageHeader";
 import { SelfDrivingHome } from "@posthog/ui/features/inbox/components/SelfDrivingHome";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
@@ -53,9 +53,7 @@ export function InboxView() {
   // spaces redirect below. Detail routes and the Archive list keep their own
   // bodies: details are already tab-free, and the archive stays a deliberate
   // side room the page links to.
-  const selfDrivingHomeEnabled = useFeatureFlag(
-    "posthog-desktop-self-driving-home",
-  );
+  const selfDrivingHomeEnabled = useSelfDrivingHomeEnabled();
   const isArchiveList = pathname.startsWith("/code/inbox/dismissed");
 
   if (selfDrivingHomeEnabled && !isDetailView && !isArchiveList) {
