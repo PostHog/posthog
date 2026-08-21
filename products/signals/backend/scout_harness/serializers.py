@@ -80,6 +80,7 @@ logger = structlog.get_logger(__name__)
             "report_channel": {"type": "string"},
             "skill_origin": {"type": "string"},
             "github_guidance": {"type": "boolean"},
+            "business_knowledge_maintained": {"type": "boolean"},
             "model": {"type": "string"},
             "runtime_adapter": {"type": "string"},
             "reasoning_effort": {"type": "string"},
@@ -229,8 +230,10 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "at run start. Always present: `harness_prompt_version` (id of the harness prompt build "
             "the run was given), `report_channel` (which report tools the run held: `none`, `emit`, "
             "`edit`, or `both`), "
-            "`skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got "
-            "the GitHub evidence section) — the provenance set that says which instructions the run "
+            "`skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got "
+            "the GitHub evidence section), and `business_knowledge_maintained` (whether the run got "
+            "the business-knowledge section: the product flag is on and the team's knowledge base "
+            "looks maintained) — the provenance set that says which instructions the run "
             "actually got, so runs are only compared against runs of the same shape. Present only "
             "when the run departed from a default: `model`, `runtime_adapter`, and "
             "`reasoning_effort` (routing overrode the agent-server default), and `network_access` "
@@ -495,6 +498,13 @@ class FleetFindingsSummarySerializer(serializers.Serializer):
             "touched reports (the same slice the findings page lists) and excluding reports also "
             "authored within that set (authoring supersedes an edit; a report whose authoring run "
             "falls outside the cap counts as edited)."
+        )
+    )
+    run_count = serializers.IntegerField(
+        help_text=(
+            "Number of scout runs created in the window, whether or not they produced output. "
+            "Unlike the report tallies it is not capped, so it is the fleet's activity over the "
+            "same span the output counts describe."
         )
     )
     latest_at = serializers.DateTimeField(
@@ -1953,6 +1963,15 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
             "Null while choosing a channel; no messages are sent until it is set."
         ),
     )
+    thread_reports = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, post a report as a thread: a short lead in the channel and the rest split "
+            "by the report's Markdown headings into replies. Keeps a long summary from being clipped "
+            "at Slack's section limit. Off by default, and it does not change how findings post."
+        ),
+    )
 
 
 class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
@@ -2287,8 +2306,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=(
             "Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` "
             "pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is "
-            "staying quiet. Also set automatically when someone re-enables a scout the inactivity "
-            "sweep paused, so the sweep never overrules a person twice."
+            "staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a "
+            "fresh grace window before the sweep may judge it again."
         ),
     )
     # Read through `tag_list`, not the column, so a pre-migration NULL reads as `[]`.
@@ -2534,13 +2553,12 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             target = SignalScoutConfig.Status.ACTIVE
         else:
             target = None
-        # A re-enable of an inactivity pause is a human overruling the sweep, and the sweep must
-        # never overrule them back: the same quiet fortnight that triggered the pause would
-        # otherwise re-qualify the scout the moment its fresh grace window lapses. Marking it
-        # exempt (unless the caller set the flag explicitly in the same request) makes the
-        # exemption visible and reversible where a hidden marker would not be.
         reverted_reason = instance.pause_reason
         reverted_paused_at = instance.status_changed_at
+        # Only feeds the revert metric below. A resume deliberately leaves `auto_pause_exempt`
+        # alone: the move back to `active` re-anchors `in_cold_start_grace`, so the sweep
+        # already waits a full fresh window and re-derives its verdict before judging the scout
+        # again, and permanent immunity stays the explicit flag's choice.
         resumed_from_inactivity_pause = (
             target == SignalScoutConfig.Status.ACTIVE
             and instance.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
@@ -2556,8 +2574,6 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
                 # Same rule as `transition_status_by_system`: a resume starts with a clean
                 # failure streak, or the next failed run re-trips the breaker off stale evidence.
                 validated_data["consecutive_failure_count"] = 0
-            if resumed_from_inactivity_pause:
-                validated_data.setdefault("auto_pause_exempt", True)
         updated = super().update(instance, validated_data)
         if resumed_from_inactivity_pause:
             # The false-positive metric for the sweep: a re-enable soon after the pause means the

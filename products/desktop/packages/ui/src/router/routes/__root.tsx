@@ -8,10 +8,9 @@ import { Button, ButtonGroup } from "@posthog/quill";
 import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
-import { DeepLinkApprovalModal } from "@posthog/ui/features/agent-applications/components/DeepLinkApprovalModal";
-import { useApprovalDeepLink } from "@posthog/ui/features/agent-applications/hooks/useApprovalDeepLink";
 import { AnnouncementBanner } from "@posthog/ui/features/announcements/AnnouncementBanner";
 import { AnnouncementsHost } from "@posthog/ui/features/announcements/AnnouncementsHost";
+import { useServerArchiveSync } from "@posthog/ui/features/archive/useServerArchiveSync";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
@@ -114,12 +113,6 @@ function RootLayout() {
   // Width of the Channels sidebar below — used to right-align the back/forward
   // buttons in the title bar with the sidebar's (and project switcher's) right edge.
   const channelsSidebarWidth = useChannelsSidebarStore((state) => state.width);
-  // Suppress the title-bar width transition during a live drag so it tracks
-  // the sidebar frame-for-frame; when the sidebar toggles open/closed, both
-  // animate with the same curve (see ResizableSidebar).
-  const sidebarIsResizing = useChannelsSidebarStore(
-    (state) => state.isResizing,
-  );
   // Forward availability isn't exposed by the router (and history.length counts
   // pre-app entries, so it can't be compared to __TSR_index). Track the newest
   // index we've reached: only a PUSH wipes the forward stack, so it resets the
@@ -238,9 +231,9 @@ function RootLayout() {
   useChannelDeepLink();
   useLoopDeepLink();
   useShareLinkInterceptor();
-  const approvalDeepLink = useApprovalDeepLink();
   useSetupDiscovery();
   useNewTaskDeepLink();
+  useServerArchiveSync();
 
   // hydrateTask is no longer needed — the URL is the source of truth and the
   // task cache populates the route automatically.
@@ -329,8 +322,10 @@ function RootLayout() {
           onOpenChange={(open) => (open ? null : closeShortcutsSheet())}
         />
         <GlobalEventHandlers
+          allTasks={tasks ?? []}
           onToggleCommandMenu={toggleCommandMenu}
           onToggleShortcutsSheet={toggleShortcutsSheet}
+          visualTaskOrder={visualTaskOrder}
         />
         {/* The settings shell has never mounted the tab strip, so nothing here
             was stopping Cmd+W from closing the window. */}
@@ -375,11 +370,6 @@ function RootLayout() {
               // without Window Controls Overlay.
               paddingLeft: isMac ? "env(titlebar-area-x, 78px)" : "78px",
               width: sidebarOpen ? channelsSidebarWidth : undefined,
-              // Same curve/duration as ResizableSidebar's SLIDE_EASING so the
-              // title bar tracks the sidebar edge.
-              transition: sidebarIsResizing
-                ? "none"
-                : "width 0.2s cubic-bezier(0, 0, 0.2, 1)",
             }}
           >
             <Flex align="center" gap="2" className="no-drag">
@@ -503,8 +493,10 @@ function RootLayout() {
           onOpenChange={(open) => (open ? null : closeShortcutsSheet())}
         />
         <GlobalEventHandlers
+          allTasks={tasks ?? []}
           onToggleCommandMenu={toggleCommandMenu}
           onToggleShortcutsSheet={toggleShortcutsSheet}
+          visualTaskOrder={visualTaskOrder}
         />
         {/* Renders nothing — owns ⌘1-9 under the channels layout. Mounted here
             rather than in the switcher, which only exists once a channel is
@@ -531,12 +523,6 @@ function RootLayout() {
           mode={feedbackMode}
           onFinished={handleFeedbackFinished}
         />
-        {approvalDeepLink.pending ? (
-          <DeepLinkApprovalModal
-            pending={approvalDeepLink.pending}
-            onClose={approvalDeepLink.clear}
-          />
-        ) : null}
         <ExistingWorktreeDialog />
         <HedgehogMode />
       </Flex>

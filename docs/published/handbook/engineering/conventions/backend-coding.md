@@ -133,6 +133,14 @@ A good test should:
 - They give greater confidence (because you avoid the mistake of just testing a mock) but they're slower
 - They are generally less brittle in response to changes because they test at a higher level than developer tests (e.g. they test a Django API not a class used inside it)
 
+#### Temporary migration tests
+
+A dedicated data migration test protects the rollout. Remove the test after the migration has run in every supported environment, the rollback window has closed, and no supported upgrade still relies on the old data state.
+
+Delete an expired migration test instead of marking it skipped. Keep the migration file. Fresh-schema CI continues to check that the migration chain applies.
+
+Keep tests for migration tooling, migration safety checks, reusable backfill systems, and backfills that people can still run.
+
 ### Dataclasses
 
 Prefer a small dataclass over a tuple when returning or passing multiple values: always when two or more elements share a type (callers can silently swap them, e.g. `(start, end)` timestamps or `(username, password)` credentials), and when there are roughly 3+ elements, where positional access hurts readability.
@@ -158,7 +166,7 @@ Don't unpack them back into positional locals (`a, b = result.a, result.b`), whi
 Name dataclasses after the domain concept (`ClickHouseCredentials`, `BillingPeriod`), never `*Info`/`*Data`/`*Tuple`; use a `*Result` suffix only when the function's outcome genuinely is the concept.
 Mark secret fields with `field(repr=False)` so they stay out of logs and tracebacks.
 
-Enforcement: a new bare `@dataclass` without an explicit `frozen=` choice fails the ratchet in `posthog/test/test_dataclass_defaults.py` (existing uses are grandfathered in its baseline) and is flagged inline by the `prefer-frozen-dataclasses` semgrep rule.
+Enforcement: a new bare `@dataclass` without an explicit `frozen=` choice fails the ratchet in `posthog/test/repo_invariants/test_dataclass_defaults.py` (existing uses are grandfathered in its baseline) and is flagged inline by the `prefer-frozen-dataclasses` semgrep rule.
 
 ### Querying ClickHouse
 

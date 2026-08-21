@@ -766,7 +766,7 @@ const pagePerformanceTab = (
             key: ProductTab.PAGE_PERFORMANCE,
             label: (
                 <div className="flex items-center gap-1">
-                    Page performance
+                    Search & AI
                     <LemonTag type="completion" className="uppercase">
                         Alpha
                     </LemonTag>

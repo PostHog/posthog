@@ -1,5 +1,6 @@
 """Activities for the per-backfill tick workflow: gatekeeping, candidate walk, cursor advance, schedule ops."""
 
+import time
 import asyncio
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from posthog.schema import RecordingsQuery
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 
 from products.replay_vision.backend.enqueue_claims import claim_enqueue_slot_prefix
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -24,7 +26,12 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
     BackfillStatus,
     ReplayScannerBackfill,
 )
-from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
+from products.replay_vision.backend.queries import excluded_sessions
+from products.replay_vision.backend.queries.scanner_candidate_query import (
+    BACKFILL_CANDIDATE_QUERY_TYPE,
+    BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE,
+    WindowedCandidateQuery,
+)
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight,
@@ -43,6 +50,7 @@ from products.replay_vision.backend.temporal.backfill_types import (
 from products.replay_vision.backend.temporal.constants import (
     BACKFILL_SCHEDULE_ID_PREFIX,
     BACKFILL_SCHEDULE_TYPE,
+    FIND_BACKFILL_CANDIDATES_TIMEOUT,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
 )
@@ -154,11 +162,12 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
             f"ReplayScannerBackfill {inputs.backfill_id} has malformed frozen query: {exc}", non_retryable=True
         ) from exc
 
-    candidates = BackfillCandidateQuery(
+    candidate_query = WindowedCandidateQuery(
         team=backfill.team,
         query=query,
         window_start=backfill.window_start,
         window_end=backfill.window_end,
+        query_type=BACKFILL_CANDIDATE_QUERY_TYPE,
         sampling_rate=snapshot.sampling_rate,
         # Same salt as the live sweep, so a sampled scanner backfills the same deterministic bucket it scans live.
         sampling_salt=str(backfill.scanner_id),
@@ -167,7 +176,10 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         cursor_end_time=backfill.cursor_end_time,
         cursor_session_id=backfill.cursor_session_id or None,
         candidate_limit=inputs.candidate_limit,
-    ).run()
+        skip_negative_blocklists=True,
+    )
+    started_at = time.monotonic()
+    candidates = candidate_query.run()
 
     # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on.
     # Postgres rather than that count's fail-soft ClickHouse read, whose hiccup would report every session
@@ -180,7 +192,20 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
             session_id__in=[c.session_id for c in candidates],
         ).values_list("session_id", "completed_at")
     )
-    dispatchable = [c for c in candidates if c.session_id not in succeeded_at]
+    unobserved = [c for c in candidates if c.session_id not in succeeded_at]
+    # After the Postgres filter, so the scan covers only ids that could still be dispatched.
+    excluded = excluded_sessions.excluded_session_ids(
+        team=backfill.team,
+        candidate_query=candidate_query,
+        candidates=unobserved,
+        query_type=BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE,
+        scanner_id=str(backfill.scanner_id),
+        seconds_remaining=FIND_BACKFILL_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at),
+    )
+    # Same quarantine as the live sweep: a session past the stuck threshold cannot render, and the
+    # cursor steps over it exactly like an excluded session.
+    stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in unobserved])
+    dispatchable = [c for c in unobserved if c.session_id not in excluded and c.session_id not in stuck]
     # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
     # count as work done; earlier successes were already excluded at creation.
     overtaken = {
@@ -201,6 +226,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         scanner_in_flight_rows=rows["scanner"],
         backfill_id=backfill.id,
         backfill_in_flight_rows=rows["backfill"],
+        scheduled=True,
     )
 
     # The cursor may step over an already-observed session, because nothing will ever need doing for

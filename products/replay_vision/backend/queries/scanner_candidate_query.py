@@ -2,7 +2,7 @@
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import cast
+from typing import Literal, cast
 
 import structlog
 from opentelemetry import trace
@@ -39,6 +39,15 @@ _PARTITION_LOOKBACK = dt.timedelta(hours=26)
 # session up to ~3h long plus skew; sessions whose matching events are older surface via the periodic
 # deep sweep instead (see `find_scanner_candidates_activity`), which scans the full lookback.
 SWEEP_EVENTS_LOOKBACK = dt.timedelta(hours=4)
+
+# ClickHouse query-log tags. The read meter matches on these to attribute spend per pass, so a tag
+# that drifts from its caller silently stops that pass being throttled.
+BACKFILL_CANDIDATE_QUERY_TYPE = "ReplayVisionBackfillCandidateQuery"
+BACKFILL_COUNT_QUERY_TYPE = "ReplayVisionBackfillCountQuery"
+DEEP_SWEEP_CANDIDATE_QUERY_TYPE = "ReplayVisionDeepSweepCandidateQuery"
+SWEEP_CANDIDATE_QUERY_TYPE = "ReplayVisionScannerCandidateQuery"
+EXCLUDED_SESSIONS_QUERY_TYPE = "ReplayVisionExcludedSessionsQuery"
+BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE = "ReplayVisionBackfillExcludedSessionsQuery"
 
 SAMPLE_RATE_PRECISION = 10_000
 # Smallest non-zero rate the modulo bucketing can express (one bucket); the API rejects non-zero rates below it.
@@ -199,20 +208,20 @@ class ScannerCandidateQuery:
             skip_negative_blocklists=skip_negative_blocklists,
         )
 
-    @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
-        """Which of `session_ids` this scanner's negative filters exclude, as queries to run.
-
-        Delegates so the exclusion inherits the window and preprocessed filters this query fetched
-        with. Empty when nothing is excluded.
-        """
+        """Delegates, so the exclusion inherits the window and filters this query fetched with."""
         return self._inner.excluded_sessions_queries(session_ids)
 
+    def matches_on_events(self) -> bool:
+        """Whether `events_lookback` can cost this query candidates, so a deep pass has work to do."""
+        return self._inner.matches_on_events()
+
+    @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
         rows = execute_candidate_query(
             self.get_query(),
             team=self._team,
-            query_type="ReplayVisionScannerCandidateQuery",
+            query_type=SWEEP_CANDIDATE_QUERY_TYPE,
             max_execution_time_seconds=self._max_execution_time_seconds,
             scanner_id=self._scanner_id,
         )
@@ -245,28 +254,41 @@ class ScannerCandidateQuery:
             ],
             select_from=ast.JoinExpr(table=cast(ast.SelectQuery, inner), alias="sessions"),
             where=ast.And(exprs=where_exprs),
-            order_by=[
-                ast.OrderExpr(expr=ast.Field(chain=["session_end"]), order="ASC"),
-                ast.OrderExpr(expr=ast.Field(chain=["sessions", "session_id"]), order="ASC"),
-            ],
+            order_by=keyset_order_by(ascending=True),
             limit=ast.Constant(value=self._candidate_limit),
         )
 
     def _watermark_predicate(self) -> ast.Expr:
-        end_time = ast.Field(chain=["sessions", "end_time"])
-        watermark = ast.Constant(value=self._last_swept_at)
-        strict = ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=end_time, right=watermark)
-        if self._last_seen_session_id is None:
-            return strict
-        # Lexicographic tuple comparison gives keyset semantics for resuming past saturated batches.
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Gt,
-            left=ast.Tuple(exprs=[end_time, ast.Field(chain=["sessions", "session_id"])]),
-            right=ast.Tuple(exprs=[watermark, ast.Constant(value=self._last_seen_session_id)]),
-        )
+        return keyset_predicate(self._last_swept_at, self._last_seen_session_id, ascending=True)
 
     def _sampling_predicate(self) -> ast.Expr | None:
         return sampling_predicate(self._sampling_rate, self._sampling_salt)
+
+
+def keyset_order_by(ascending: bool) -> list[ast.OrderExpr]:
+    """Ordering the keyset predicate below assumes; the two have to move together."""
+    direction: Literal["ASC", "DESC"] = "ASC" if ascending else "DESC"
+    return [
+        ast.OrderExpr(expr=ast.Field(chain=["session_end"]), order=direction),
+        ast.OrderExpr(expr=ast.Field(chain=["sessions", "session_id"]), order=direction),
+    ]
+
+
+def keyset_predicate(end_time: dt.datetime, session_id: str | None, ascending: bool) -> ast.Expr:
+    """Resume strictly past `(end_time, session_id)`, in whichever direction the query is ordered.
+
+    Falls back to comparing the timestamp alone when there is no tiebreaker, which is the first pass
+    over a window. Shared because a walk ordered one way and resumed the other silently skips rows.
+    """
+    field = ast.Field(chain=["sessions", "end_time"])
+    op = ast.CompareOperationOp.Gt if ascending else ast.CompareOperationOp.Lt
+    if not session_id:
+        return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=end_time))
+    return ast.CompareOperation(
+        op=op,
+        left=ast.Tuple(exprs=[field, ast.Field(chain=["sessions", "session_id"])]),
+        right=ast.Tuple(exprs=[ast.Constant(value=end_time), ast.Constant(value=session_id)]),
+    )
 
 
 def sampling_predicate(sampling_rate: float, sampling_salt: str) -> ast.Expr | None:
@@ -299,14 +321,18 @@ def sampling_predicate(sampling_rate: float, sampling_salt: str) -> ast.Expr | N
     )
 
 
-class BackfillCandidateQuery:
-    """Enumerate a backfill's candidate sessions inside a closed historical window.
+class WindowedCandidateQuery:
+    """Enumerate a scanner's candidate sessions inside a closed historical window.
 
     Same eligibility, sampling, and surfacing predicates as `ScannerCandidateQuery`, but bounded on both
     sides and walked newest-first: batches descend from `window_end` via a `(end_time, session_id)` keyset
     cursor. `count()` runs the identical predicate set without cursor or limit, so the creation-time
     enumeration is exactly the set the ticks will walk (the window is closed, so it can only shrink as
     recordings expire from retention — never grow).
+
+    Two callers walk windows this way: backfills over a user-chosen range, and the sweep's deep pass
+    over the range behind its own watermark. Each names its own reads, so a shared class cannot make
+    one path's ClickHouse cost look like the other's.
     """
 
     def __init__(
@@ -316,16 +342,24 @@ class BackfillCandidateQuery:
         query: RecordingsQuery,
         window_start: dt.datetime,
         window_end: dt.datetime,
+        # Tags this caller's reads in `system.query_log`; required so a new caller names itself.
+        query_type: str,
         sampling_rate: float,
         sampling_salt: str,
         sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
         cursor_end_time: dt.datetime | None = None,
         cursor_session_id: str | None = None,
+        # Oldest-first. The catch-up pass walks this way so a batch that fills up can advance its
+        # watermark to the last row instead of holding it: nothing older is left behind.
+        ascending: bool = False,
         exclude_observed_by_scanner: str | None = None,
         # Session ids to drop inside the query. Unlike `exclude_observed_by_scanner` this comes from
         # the caller rather than from the `$recording_observed` event, so it can carry observations in
         # any state and cannot be influenced by ingested events.
         exclude_session_ids: list[str] | None = None,
+        # Only for callers that drop negative-filter matches from the rows they fetched. The quote
+        # path counts rather than dispatching, so it keeps the in-query blocklist and stays exact.
+        skip_negative_blocklists: bool = False,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
         scanner_id: str | None = None,
@@ -343,6 +377,8 @@ class BackfillCandidateQuery:
         self._team = team
         self._window_start = window_start
         self._window_end = window_end
+        self._query_type = query_type
+        self._ascending = ascending
         self._cursor_end_time = cursor_end_time
         self._cursor_session_id = cursor_session_id
         self._exclude_observed_by_scanner = exclude_observed_by_scanner
@@ -371,21 +407,26 @@ class BackfillCandidateQuery:
             query=inner_query,
             extra_having_predicates=extra_having,
             session_ids_to_exclude=exclude_session_ids,
+            skip_negative_blocklists=skip_negative_blocklists,
         )
 
-    @tracer.start_as_current_span("BackfillCandidateQuery.run")
+    def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
+        """Delegates, so the exclusion inherits the window and filters this query fetched with."""
+        return self._inner.excluded_sessions_queries(session_ids)
+
+    @tracer.start_as_current_span("WindowedCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
         rows = execute_candidate_query(
             self.get_query(),
             team=self._team,
-            query_type="ReplayVisionBackfillCandidateQuery",
+            query_type=self._query_type,
             max_execution_time_seconds=self._max_execution_time_seconds,
             scanner_id=self._scanner_id,
         )
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
-    @tracer.start_as_current_span("BackfillCandidateQuery.count")
-    def count(self) -> int:
+    @tracer.start_as_current_span("WindowedCandidateQuery.count")
+    def count(self, *, query_type: str) -> int:
         counted = ast.SelectQuery(
             select=[ast.Call(name="count", args=[])],
             select_from=ast.JoinExpr(table=self._windowed_candidates(), alias="candidates"),
@@ -393,7 +434,7 @@ class BackfillCandidateQuery:
         rows = execute_candidate_query(
             counted,
             team=self._team,
-            query_type="ReplayVisionBackfillCountQuery",
+            query_type=query_type,
             max_execution_time_seconds=self._max_execution_time_seconds,
             scanner_id=self._scanner_id,
         )
@@ -404,10 +445,7 @@ class BackfillCandidateQuery:
         if (cursor := self._cursor_predicate()) is not None:
             assert isinstance(query.where, ast.And)
             query.where.exprs.append(cursor)
-        query.order_by = [
-            ast.OrderExpr(expr=ast.Field(chain=["session_end"]), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["sessions", "session_id"]), order="DESC"),
-        ]
+        query.order_by = keyset_order_by(self._ascending)
         query.limit = ast.Constant(value=self._candidate_limit)
         return query
 
@@ -486,16 +524,4 @@ class BackfillCandidateQuery:
     def _cursor_predicate(self) -> ast.Expr | None:
         if self._cursor_end_time is None:
             return None
-        end_time = ast.Field(chain=["sessions", "end_time"])
-        if not self._cursor_session_id:
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt, left=end_time, right=ast.Constant(value=self._cursor_end_time)
-            )
-        # Mirror of the sweep's ascending keyset: lexicographic tuple comparison, walked downward.
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Lt,
-            left=ast.Tuple(exprs=[end_time, ast.Field(chain=["sessions", "session_id"])]),
-            right=ast.Tuple(
-                exprs=[ast.Constant(value=self._cursor_end_time), ast.Constant(value=self._cursor_session_id)]
-            ),
-        )
+        return keyset_predicate(self._cursor_end_time, self._cursor_session_id, ascending=self._ascending)

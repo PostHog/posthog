@@ -15,6 +15,17 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+DASHBOARD_GRID_SPACING_GAPS = {
+    "tight": 8,
+    "condensed": 12,
+    "standard": 16,
+    "relaxed": 32,
+    "wide": 48,
+}
+
+DASHBOARD_GRID_COMPACTION_MODES = ("vertical", "horizontal", "stable")
+
+
 class DashboardManager(RootTeamManager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)
@@ -78,6 +89,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         "product_analytics.Insight", related_name="dashboards", through="DashboardTile", blank=True
     )  # type: models.ManyToManyField
     quick_filter_ids = models.JSONField(default=list, blank=True, null=True)
+    customization = models.JSONField(default=dict, db_default={}, blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)

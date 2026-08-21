@@ -25,6 +25,8 @@ KID = "reg-key"
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
+_DECLARES_PROVISIONING = {"provisioning": True}
+
 
 def _jwks() -> dict:
     jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(KEY.public_key()))
@@ -45,10 +47,11 @@ class TestClientRegistration(ProvisioningTestBase):
         super().setUp()
         cache.clear()
 
-    def _register(self, body: dict, *, jwks: dict | None = None, metadata_error: Exception | None = None):
-        """Drive the endpoint with both outbound fetches stubbed. They are separate patches
-        because the metadata document and the JWKS are fetched by different modules."""
-        metadata = {
+    def _document(self, *, com_posthog: object = _DECLARES_PROVISIONING) -> dict:
+        """The document a client wanting to register publishes. Passing com_posthog=None leaves
+        the namespace out, which is the shape of a third party that never asked for any of
+        this."""
+        document: dict[str, object] = {
             "client_id": CIMD_URL,
             "client_name": "New Partner",
             "redirect_uris": ["https://newpartner.example.com/callback"],
@@ -57,6 +60,21 @@ class TestClientRegistration(ProvisioningTestBase):
             "token_endpoint_auth_method": "private_key_jwt",
             "jwks_uri": JWKS_URI,
         }
+        if com_posthog is not None:
+            document["com.posthog"] = com_posthog
+        return document
+
+    def _register(
+        self,
+        body: dict,
+        *,
+        document: dict | None = None,
+        jwks: dict | None = None,
+        metadata_error: Exception | None = None,
+    ):
+        """Drive the endpoint with both outbound fetches stubbed. They are separate patches
+        because the metadata document and the JWKS are fetched by different modules."""
+        metadata = document if document is not None else self._document()
         metadata_patch = (
             patch(
                 "posthog.api.oauth.cimd.fetch_client_json_document",
@@ -233,6 +251,69 @@ class TestClientRegistration(ProvisioningTestBase):
         app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
         assert app.is_provisioning_partner
         assert app.provisioning.active
+
+    @parameterized.expand(
+        [
+            ("no_com_posthog_namespace", None),
+            ("declares_false", {"provisioning": False}),
+            # A truthy string is a malformed declaration, not consent: reading it as one would
+            # grant a stranger the capabilities off someone else's typo.
+            ("declares_a_truthy_string", {"provisioning": "true"}),
+        ]
+    )
+    def test_a_document_that_does_not_opt_in_is_not_promoted(self, _name, com_posthog):
+        # A CIMD client_id is a public URL, so anyone can name a third party's OAuth client
+        # here. Promoting it would hand the caller that client's identity and account-request
+        # quota, and flip the client's own token exchanges onto private_key_jwt, which its
+        # runtime may never send.
+        self._make_partner(
+            is_provisioning_partner=False,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            jwks_uri=None,
+            _provisioning_config=provisioning_config(active=False, can_create_accounts=False),
+        )
+
+        res = self._register({"client_id": CIMD_URL}, document=self._document(com_posthog=com_posthog))
+
+        assert res.status_code == 400, res.json()
+        checks = {check["name"]: check for check in res.json()["checks"]}
+        assert checks["provisioning_enabled"]["ok"] is False
+        assert '"com.posthog": {"provisioning": true}' in checks["provisioning_enabled"]["detail"]
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        assert app.is_provisioning_partner is False
+        assert app.provisioning.can_create_accounts is False
+        assert app.client_type == OAuthApplication.CLIENT_PUBLIC
+
+    def test_a_document_we_could_not_store_is_not_promoted(self):
+        # A rejected save leaves the row describing the previous document. Promoting off it
+        # would grant provisioning, and derive client_type from a stored key set, that the
+        # client's current document does not describe, while the response called the fetch fine.
+        self._make_partner(
+            is_provisioning_partner=False,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            jwks_uri=None,
+            _provisioning_config=provisioning_config(active=False, can_create_accounts=False),
+        )
+        document = self._document()
+        # Passes CIMD document validation, which does not look at fragments, and is refused by
+        # the model.
+        document["redirect_uris"] = ["https://newpartner.example.com/callback#fragment"]
+
+        res = self._register({"client_id": CIMD_URL}, document=document)
+
+        assert res.status_code == 400, res.json()
+        checks = {check["name"]: check for check in res.json()["checks"]}
+        assert checks["metadata_document"]["ok"] is False
+        assert "fragment not allowed" in checks["metadata_document"]["detail"]
+        # The opt-in may well be in the document we refused, so the answer points at the
+        # rejection rather than sending the client's owner after a key they already published.
+        assert '"com.posthog"' not in checks["provisioning_enabled"]["detail"]
+        assert "metadata_document" in checks["provisioning_enabled"]["detail"]
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        assert app.is_provisioning_partner is False
+        assert app.provisioning.can_create_accounts is False
+        assert app.client_type == OAuthApplication.CLIENT_PUBLIC
+        assert app.redirect_uris == "https://newpartner.example.com/callback"
 
     def test_deactivated_partner_is_not_reactivated_by_re_registering(self):
         # Only a client that is not yet a partner gets the defaults applied. Registering again

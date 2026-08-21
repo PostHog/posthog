@@ -5919,6 +5919,72 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             assert abs(row[4] - 100.0) < 1.0, f"Each touchpoint should get ~$100, got {row[4]}"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
+    def test_multi_touch_count_field_counts_conversions_not_touchpoint_rows(self):
+        """One purchase across three touchpoints is one customer, not three.
+
+        `count(*)` here runs over the exploded rows, and cost per customer divides spend by it —
+        so counting rows reports a third of the true figure with nothing to signal it.
+        """
+        self._create_multi_touch_scenario()
+
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="mt_count",
+            conversion_goal_name="Multi Touch count",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            counts_as_customer=True,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        config = MarketingAnalyticsConfig()
+        config.attribution_mode = AttributionMode.LINEAR
+        config.attribution_window_days = 90
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
+
+        date_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-31")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(date_conditions)
+        # Same shape the aggregator builds: the count rides along on the value query's grouping.
+        cte_query.select.append(ast.Alias(alias="conversions", expr=processor.get_count_field()))
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 3, f"Expected 3 touchpoint rows, got {len(response.results)}"
+        total_conversions = sum(row[-1] for row in response.results)
+        assert abs(total_conversions - 1.0) < 0.01, f"One purchase is one customer, got {total_conversions}"
+
+    def test_count_field_stays_a_row_count_for_a_goal_that_scans_directly(self):
+        """A zero-length window skips the attribution pipeline, so there are no exploded rows
+        and no `attribution_weight` column to read — even with a multi-touch mode selected."""
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="direct",
+            conversion_goal_name="Direct scan",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        config = MarketingAnalyticsConfig()
+        config.attribution_mode = AttributionMode.LINEAR
+        config.attribution_window_days = 0
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
+
+        assert processor.uses_attribution_pipeline is False
+        assert "attribution_weight" not in processor.get_count_field().to_hogql()
+
     def test_multi_touch_dau_counts_unique_users_per_campaign(self):
         self._create_multi_touch_scenario()
 

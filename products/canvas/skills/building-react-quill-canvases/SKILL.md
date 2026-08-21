@@ -20,10 +20,14 @@ typed-node result reading. Keep that wiring; replace the sample metric and layou
 
 ## Imports
 
-Import only from: `react`, `react-dom`, `react-dom/client`, `@posthog/quill`, `recharts`,
-`lucide-react`, `dayjs`. Anything else — including dynamic `import()`, `require()`, `fetch()`,
-`<script>` tags, or remote code — fails validation. Use `@posthog/quill` for UI, `recharts` for
-charts, `lucide-react` for icons, `dayjs` for dates.
+Use React, Quill, Recharts, Lucide, and Day.js for the standard application shell. The platform
+also admits ten optional libraries for specialized work. Read
+[references/platform-libraries.md](references/platform-libraries.md) before choosing one.
+
+Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
+validation. Direct `fetch()` requires an exact HTTPS origin in `capabilities.network.origins`,
+and works only in the **published** canvas — the edit-mode preview blocks all direct network
+access regardless of declaration, so verify origin-fetching code after publishing, not in preview.
 
 ## Quill component rules
 
@@ -45,6 +49,10 @@ control or a styled `<div>` standing in for one:
 
 ## Styling and theme
 
+- Give the canvas's outermost element `h-screen` (`height: 100vh`) so it fills the iframe viewport.
+  Do not use `h-full` there: a published canvas's artifact shell gives its `html`, `body`, and
+  `#root` elements no explicit height, so a percentage root height collapses to content height.
+  Nested elements may use `h-full` once their parent establishes a height.
 - Style with Tailwind utilities and Quill components; reserve inline `style` for genuinely dynamic
   runtime values (fixed sizes use arbitrary-value utilities like `h-[280px]`).
 - Write specific interface copy. Never use lorem ipsum or placeholder labels in a finished canvas.

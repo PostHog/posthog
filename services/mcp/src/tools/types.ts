@@ -26,6 +26,7 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
+    oauthClientId: string | undefined
     mcpClientName: string | undefined
     mcpClientVersion: string | undefined
     mcpProtocolVersion: string | undefined

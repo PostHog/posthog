@@ -1340,6 +1340,30 @@ class BatchQueue:
         return float(row[0])
 
     @staticmethod
+    async def get_claimable_batch_count(conn: psycopg.AsyncConnection[Any]) -> int:
+        """How many batches are state-eligible for claiming right now (queue depth).
+
+        The depth companion to :meth:`get_oldest_unclaimed_batch_age_seconds`:
+        the claim's per-run, schema-busy, and lease gates are deliberately not
+        applied (they need per-row probes; this must stay one cheap partial-index
+        scan), and neither is the retry-backoff gate (it needs the fleet's backoff
+        config, and this probe stays parameter-free), so the count reads slightly
+        high. Bounded by ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim
+        query can see.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT count(*)
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+                  AND b.latest_state IN ('pending', 'waiting_retry')
+                """
+            )
+            row = await cur.fetchone()
+        return int(row[0]) if row else 0
+
+    @staticmethod
     def get_oldest_non_terminal_batch_age_seconds(
         conn: psycopg.Connection[Any],
         *,

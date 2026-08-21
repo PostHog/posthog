@@ -14,6 +14,7 @@ export type SettingsCategory =
   | "terminal"
   | "harness"
   | "shortcuts"
+  | "quick-ask"
   | "github"
   | "slack"
   | "signals"
@@ -36,6 +37,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "terminal",
   "harness",
   "shortcuts",
+  "quick-ask",
   "github",
   "slack",
   "signals",
@@ -66,6 +68,7 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   terminal: "Terminal",
   harness: "Harness",
   shortcuts: "Shortcuts",
+  "quick-ask": "Quick ask",
   github: "GitHub",
   slack: "Slack",
   signals: "Self-driving",

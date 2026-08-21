@@ -28,6 +28,16 @@ export const SCOUT_RUNS_PER_SCOUT = 25
 export const SCOUT_RUNS_PER_SCOUT_LABEL = `last ${SCOUT_RUNS_PER_SCOUT} runs`
 
 /**
+ * The span every fleet-level number on the roster describes: runs, reports filed and edited, and
+ * scratchpad entries learned. Per-scout depth is a run count, but summing "last 25 each" across a
+ * fleet is bounded by fleet size, so the fleet headline needs a common time span - and a week is
+ * the shortest one that gives a daily scout enough runs to say anything.
+ */
+export const SCOUT_ROSTER_WINDOW_DAYS = 7
+export const SCOUT_ROSTER_WINDOW_HOURS = SCOUT_ROSTER_WINDOW_DAYS * 24
+export const SCOUT_ROSTER_WINDOW_LABEL = `last ${SCOUT_ROSTER_WINDOW_DAYS} days`
+
+/**
  * Empty-state copy for a scout the window returned nothing for. Deliberately not "no runs in the
  * last 30 days": the endpoint's staleness guard stretches with each scout's own cadence, so the
  * cutoff a given scout was judged against is not a number the client knows.

@@ -9,6 +9,7 @@ vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
   }),
 }));
 
+import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { useThreadNavigationStore } from "@posthog/ui/features/sessions/threadNavigationStore";
 import { ActivityTimeline } from "./ActivityTimeline";
 
@@ -37,10 +38,14 @@ const conversationItems = [
   },
 ];
 
-function renderTimeline(canOpenInPlace?: boolean, items = conversationItems) {
+function renderTimeline(
+  canOpenInPlace?: boolean,
+  items: ConversationItem[] = conversationItems,
+  timelineTask: Task = task,
+) {
   return render(
     <ActivityTimeline
-      task={task}
+      task={timelineTask}
       timeline={[]}
       messages={[]}
       // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the rows under test
@@ -55,6 +60,18 @@ beforeEach(() => {
 });
 
 describe("ActivityTimeline", () => {
+  it("attributes an internal Signals task to its report", () => {
+    renderTimeline(false, [], {
+      ...task,
+      created_by: undefined,
+      origin_product: "signal_report",
+    });
+
+    expect(
+      screen.getByText("PostHog started this task from a Signals report"),
+    ).toBeInTheDocument();
+  });
+
   it("names each message row by its own content, not a shared template", () => {
     renderTimeline(true);
 
@@ -78,6 +95,31 @@ describe("ActivityTimeline", () => {
     fireEvent.click(screen.getByRole("button", { name: /first thing/ }));
 
     expect(screen.getByText(/and more detail/)).toBeInTheDocument();
+  });
+
+  it("places a delayed initial placeholder at task creation", () => {
+    renderTimeline(false, [
+      {
+        type: "user_message",
+        id: "initial-optimistic",
+        content: "initial request",
+        timestamp: Date.parse("2026-07-17T12:00:00Z"),
+        pinToTop: true,
+      },
+      {
+        type: "user_message",
+        id: "later-message",
+        content: "later follow-up",
+        timestamp: Date.parse("2026-07-17T10:00:00Z"),
+      },
+    ]);
+
+    expect(
+      screen.getAllByRole("button").map((button) => button.textContent),
+    ).toEqual([
+      expect.stringContaining("initial request"),
+      expect.stringContaining("later follow-up"),
+    ]);
   });
 
   it("renders structured references natively in conversation previews", () => {

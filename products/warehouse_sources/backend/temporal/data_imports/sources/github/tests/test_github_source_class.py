@@ -396,6 +396,33 @@ class TestGithubSource:
         assert schema.supports_incremental is False
         assert schema.should_sync_default is True
 
+    @pytest.mark.parametrize("endpoint", ["check_runs", "commit_statuses"])
+    def test_commit_fan_out_schemas_are_webhook_only(self, endpoint):
+        # Both fan out over commits, so any poll mode costs one API call per commit on every sync
+        # against a shared, rate-limited budget. The zero lookback floor is what stops the picker
+        # from offering that mode; if it regressed, a user could select incremental and a large
+        # repository would pay the per-commit fan-out indefinitely. They stay deselected by
+        # default because of their volume, unlike the deploy and review tables.
+        config = _pat_config("acme/widgets")
+        schema = {s.name: s for s in self.source.get_schemas(config, self.team_id)}[endpoint]
+
+        assert schema.supports_webhooks is True
+        assert schema.webhook_only is True
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+        assert schema.should_sync_default is False
+
+    @pytest.mark.parametrize("endpoint", ["issue_comments", "pull_request_comments", "commit_comments"])
+    def test_comment_schemas_stay_pollable_alongside_the_webhook(self, endpoint):
+        # The comment webhooks are a freshness win, not a load guard: their poll is the bootstrap
+        # feed that fills the table before webhook_enabled can flip (it needs initial_sync_complete),
+        # so giving them a zero lookback floor would strand them empty until the first delivery.
+        config = _pat_config("acme/widgets")
+        schema = {s.name: s for s in self.source.get_schemas(config, self.team_id)}[endpoint]
+
+        assert schema.supports_webhooks is True
+        assert schema.webhook_only is False
+
     def test_get_access_token_returns_pat(self):
         config = GithubSourceConfig(
             auth_method=GithubAuthMethodConfig(

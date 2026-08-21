@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.client.limit import RateLimit, get_llm_analytics_rate_limiter
+from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
 from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
 
 
@@ -21,7 +21,8 @@ def llm_analytics_slots():
     """Counts concurrency slots taken per query, with the limiter forced on (it is inert in tests)."""
     limiter = get_llm_analytics_rate_limiter()
     with patch.object(limiter, "applicable", lambda *args, **kwargs: True):
-        with patch.object(RateLimit, "use", return_value=("key", "task")) as use, patch.object(RateLimit, "release"):
+        slot = ConcurrencySlot(running_tasks_key="key", task_id="task")
+        with patch.object(RateLimit, "use", return_value=slot) as use, patch.object(RateLimit, "release"):
             yield use
 
 

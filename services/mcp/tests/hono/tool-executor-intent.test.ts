@@ -49,6 +49,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),

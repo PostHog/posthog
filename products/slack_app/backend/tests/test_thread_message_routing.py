@@ -6,12 +6,19 @@ from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.models import (
+    SlackSettings,
+    SlackThreadTaskMapping,
+    SlackUserProfileCache,
+    UntaggedFollowupMode,
+)
 
 
 class TestRouteThreadMessage(TestCase):
@@ -89,6 +96,15 @@ class TestRouteThreadMessage(TestCase):
             mentioning_slack_user_id="U_ALICE",
         )
 
+        # Follow-ups are off until the thread creator turns them on, so every
+        # routing test that expects a dispatch needs Alice opted in. The
+        # mode-specific tests below overwrite this row.
+        self.creator_settings = SlackSettings.objects.create(
+            slack_workspace_id="T_SLACK",
+            slack_user_id="U_ALICE",
+            untagged_followup_mode=UntaggedFollowupMode.AUTO,
+        )
+
         # All routing tests assume the per-org feature flag is on. The
         # dedicated ``test_feature_flag_off_dropped`` test stops the patcher
         # to exercise the off path.
@@ -112,11 +128,11 @@ class TestRouteThreadMessage(TestCase):
         defaults.update(overrides)
         return defaults
 
-    def _route(self, event: dict) -> str:
+    def _route(self, event: dict, slack_team_id: str = "T_SLACK") -> str:
         from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
 
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        return route_posthog_code_event_to_relevant_region(request, event, "T_SLACK")
+        return route_posthog_code_event_to_relevant_region(request, event, slack_team_id)
 
     # --- Cheap pre-DB gates ------------------------------------------------
 
@@ -162,6 +178,34 @@ class TestRouteThreadMessage(TestCase):
             result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
         mock_start.assert_not_called()
+
+    # --- Workflow trigger region hand-off ----------------------------------
+
+    @parameterized.expand(
+        [
+            ("owned here", "T_SLACK", None, False),
+            ("owned by the other region", "T_OTHER_REGION", None, True),
+            # Nothing to trigger on, so no reason to spend a hop looking for a region that wants it.
+            ("an edit, owned by the other region", "T_OTHER_REGION", "message_changed", False),
+        ]
+    )
+    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
+    def test_top_level_post_reaches_the_region_owning_the_workspace(self, _name, slack_team_id, subtype, expect_proxy):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, ROUTE_PROXIED
+
+        # thread_ts == ts, so a top-level post
+        event = self._make_event(thread_ts="1001.0000")
+        if isinstance(subtype, str):
+            event["subtype"] = subtype
+        with (
+            patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=True),
+            patch("products.slack_app.backend.api._proxy_event_to_region") as mock_proxy,
+            patch("products.slack_app.backend.slack_workflow_events.produce_internal_event"),
+        ):
+            result = self._route(event, slack_team_id=slack_team_id)
+
+        assert result == (ROUTE_PROXIED if expect_proxy else ROUTE_HANDLED_LOCALLY)
+        assert mock_proxy.called is expect_proxy
 
     # --- Mapping + FF gate -------------------------------------------------
 
@@ -349,6 +393,40 @@ class TestRouteThreadMessage(TestCase):
         assert result == ROUTE_HANDLED_LOCALLY
         mock_start.assert_called_once()
         assert mock_start.call_args.kwargs["untagged_followup"] is True
+
+    # --- Thread creator's follow-up mode ----------------------------------
+
+    def _set_creator_mode(self, mode: str | None) -> None:
+        self.creator_settings.untagged_followup_mode = mode
+        self.creator_settings.save(update_fields=["untagged_followup_mode"])
+
+    @parameterized.expand(
+        [
+            ("auto_other_person", UntaggedFollowupMode.AUTO, "U_BOB", True),
+            # `ask` still dispatches here: the prompt is raised inside the workflow,
+            # once the classifier has judged the reply worth forwarding.
+            ("ask_other_person", UntaggedFollowupMode.ASK, "U_BOB", True),
+            ("ask_creator", UntaggedFollowupMode.ASK, "U_ALICE", True),
+            ("never_other_person", UntaggedFollowupMode.NEVER, "U_BOB", False),
+            # `never` means nobody, the creator included.
+            ("never_creator", UntaggedFollowupMode.NEVER, "U_ALICE", False),
+            # Never picked: the feature is opt-in, so an untouched row behaves as `never`.
+            ("unset", None, "U_BOB", False),
+        ]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_webhook_dispatches_unless_the_creator_switched_followups_off(self, _name, mode, author, expect_workflow):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        self._set_creator_mode(mode)
+        with patch(
+            "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+        ) as mock_start:
+            result = self._route(self._make_event(user=author))
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_start.called is expect_workflow
+        if expect_workflow:
+            assert mock_start.call_args.kwargs["untagged_followup"] is True
 
     # --- Symmetry with the app_mention path -------------------------------
 

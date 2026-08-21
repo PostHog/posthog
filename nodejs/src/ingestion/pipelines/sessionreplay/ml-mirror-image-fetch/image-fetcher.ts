@@ -1,5 +1,7 @@
 import { InvalidRequestError, ResolutionError, SecureRequestError, fetchStreamed } from '~/common/utils/request'
 
+import { WebBotAuthRequestSigner } from './web-bot-auth'
+
 /**
  * The raster set the anonymizer keeps on a collected ref, so a fetched image and an inline one reach
  * the scrub lane as the same kind of thing.
@@ -75,7 +77,7 @@ export interface ImageFetcher {
     fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult>
 }
 
-const USER_AGENT = 'PostHogSessionReplayBot/1.0 (+https://posthog.com/docs/session-replay/image-bot)'
+const USER_AGENT = 'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)'
 
 const REQUEST_HEADERS: Record<string, string> = {
     'user-agent': USER_AGENT,
@@ -88,15 +90,18 @@ const REQUEST_HEADERS: Record<string, string> = {
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
 /**
- * This sends no credential of any kind: no cookie, no `Authorization`, and no `Referer`. This lane
- * must not reach an image behind a login, and a `Referer` would tell the origin which page of the
- * customer's site the image sat on.
+ * This sends no user credential: no cookie, no `Authorization`, and no `Referer`. This lane must not
+ * reach an image behind a login, and a `Referer` would tell the origin which page of the customer's
+ * site the image sat on. Web Bot Auth identifies PostHog as the operator of the request.
  *
  * Every refusal is an outcome rather than a throw. This runs inside a Kafka batch, one URL at a
  * time, and a throw would abandon the URLs after it in the same batch.
  */
 export class HttpImageFetcher implements ImageFetcher {
-    constructor(private readonly policy: RedirectPolicy) {}
+    constructor(
+        private readonly policy: RedirectPolicy,
+        private readonly webBotAuthSigner: WebBotAuthRequestSigner
+    ) {}
 
     public async fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult> {
         const deadlineMs = Date.now() + options.timeoutMs
@@ -149,7 +154,8 @@ export class HttpImageFetcher implements ImageFetcher {
     }
 
     private async hop(url: string, timeoutMs: number, maxBytes: number): Promise<HopResult> {
-        const response = await fetchStreamed(url, { headers: REQUEST_HEADERS, timeoutMs })
+        const headers = { ...REQUEST_HEADERS, ...this.webBotAuthSigner.headersForGet(url) }
+        const response = await fetchStreamed(url, { headers, timeoutMs })
         const status = response.status
 
         if (REDIRECT_STATUSES.has(status)) {
