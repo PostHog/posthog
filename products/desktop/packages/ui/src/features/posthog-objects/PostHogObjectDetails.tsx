@@ -106,27 +106,24 @@ function SeriesHeadline({ points }: { points: number[] }) {
 type Section = NonNullable<EvidencePreview["sections"]>[number];
 
 /**
- * A card holding one fact is chrome, not content: append single-field
- * sections onto the last real card (or combine them when nothing else
- * exists), so no field pays for a full card of its own.
+ * Merge sections that share a heading into one card, so a field never lands
+ * under a title that belongs to a different section. A uniquely-titled section
+ * keeps its own card even when it holds a single field: a correct one-field
+ * card beats folding a fact under a heading that contradicts it.
  */
-function foldSections(sections: Section[]): Section[] {
-  const multi = sections.filter((section) => section.fields.length > 1);
-  const single = sections.filter((section) => section.fields.length === 1);
-  if (single.length === 0) return sections;
-  if (multi.length === 0) {
-    return [
-      { title: sections[0].title, fields: single.flatMap((s) => s.fields) },
-    ];
+export function foldSections(sections: Section[]): Section[] {
+  const byTitle = new Map<string, Section>();
+  const order: string[] = [];
+  for (const section of sections) {
+    const existing = byTitle.get(section.title);
+    if (existing) {
+      existing.fields = [...existing.fields, ...section.fields];
+    } else {
+      byTitle.set(section.title, { ...section, fields: [...section.fields] });
+      order.push(section.title);
+    }
   }
-  return multi.map((section, index) =>
-    index === multi.length - 1
-      ? {
-          ...section,
-          fields: [...section.fields, ...single.flatMap((s) => s.fields)],
-        }
-      : section,
-  );
+  return order.map((title) => byTitle.get(title) as Section);
 }
 
 export function PostHogObjectDetails({
