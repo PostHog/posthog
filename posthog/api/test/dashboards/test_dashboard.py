@@ -4,8 +4,9 @@ import datetime
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 from django.utils.timezone import now
@@ -690,6 +691,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             updated["customization"],
             {"tile_spacing": "condensed", "layout_compaction": "horizontal"},
         )
+        expected_flag_call = call(
+            self.team.api_token,
+            self.user.distinct_id,
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            flag_keys=["dashboard-customization"],
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
+            evaluation_runtime="all",
+        )
+        self.assertTrue(all(flag_call == expected_flag_call for flag_call in _mock_get_flags.call_args_list))
 
     @patch(
         "products.dashboards.backend.feature_flags.get_flags_from_service",

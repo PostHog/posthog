@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django.conf import settings
+
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.permissions import _FORCE_ENABLED_FLAGS
 
@@ -29,6 +31,7 @@ def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> b
             distinct_id,
             groups={"organization": organization_id, "project": project_id},
             flag_keys=[flag],
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
             evaluation_runtime="all",
         )
     except Exception:
