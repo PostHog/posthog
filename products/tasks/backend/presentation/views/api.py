@@ -2506,6 +2506,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 pk, task_id, self.team_id, method=method, params=params, success=agent_response.ok
             )
             if agent_response.ok:
+                tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(agent_response.json())
 
             try:
