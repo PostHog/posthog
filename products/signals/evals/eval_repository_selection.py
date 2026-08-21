@@ -1,12 +1,12 @@
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.signals.backend.temporal.types import render_signals_to_text
-from products.signals.eval.agentic.braintrust import decode_repo_selection, deterministic_scorers
-from products.signals.eval.agentic.cases.repo_selection import CASES
-from products.signals.eval.agentic.runners import run_repo_selection
-from products.signals.eval.agentic.scorers_repo_selection import default_repo_selection_scorers
-from products.signals.eval.agentic.seeders import seed_repository_catalog
-from products.signals.eval.agentic.suite import run_suite
+from products.signals.evals.agentic.braintrust import decode_repo_selection, deterministic_scorers
+from products.signals.evals.agentic.cases.repo_selection import CASES
+from products.signals.evals.agentic.runners import run_repo_selection
+from products.signals.evals.agentic.scorers_repo_selection import default_repo_selection_scorers
+from products.signals.evals.agentic.seeders import seed_repository_catalog
+from products.signals.evals.agentic.suite import run_suite
 
 SUITE_KIND = SuiteKind.SANDBOXED
 

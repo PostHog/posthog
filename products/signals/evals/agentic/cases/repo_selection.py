@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from products.signals.eval.agentic.datasets import RepoSelectionCase, RepoSelectionExpectation, SignalSpec
+from products.signals.evals.agentic.datasets import RepoSelectionCase, RepoSelectionExpectation, SignalSpec
 
 
 def _case(

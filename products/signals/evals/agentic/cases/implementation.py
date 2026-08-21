@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from products.signals.eval.agentic.datasets import ImplementationCase, ImplementationExpectation
+from products.signals.evals.agentic.datasets import ImplementationCase, ImplementationExpectation
 
 _REPOSITORY = "posthog/hedgebox"
 

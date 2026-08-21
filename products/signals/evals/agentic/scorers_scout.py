@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from products.signals.eval.agentic.datasets import EvalCase, ScoutCase
-from products.signals.eval.agentic.runners import ScoutDecisionOutput
-from products.signals.eval.agentic.scoring import DeterministicScorer, Score
+from products.signals.evals.agentic.datasets import EvalCase, ScoutCase
+from products.signals.evals.agentic.runners import ScoutDecisionOutput
+from products.signals.evals.agentic.scoring import DeterministicScorer, Score
 
 
 def _normalize_term_text(text: str) -> str:

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from products.signals.eval.agentic.datasets import EvalCase, RepoSelectionCase
-from products.signals.eval.agentic.scoring import DeterministicScorer, Score
+from products.signals.evals.agentic.datasets import EvalCase, RepoSelectionCase
+from products.signals.evals.agentic.scoring import DeterministicScorer, Score
 
 
 class RepoSelectionCorrectnessScorer(DeterministicScorer):

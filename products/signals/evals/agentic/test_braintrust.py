@@ -2,9 +2,13 @@ import asyncio
 
 from products.posthog_ai.eval_harness.scorers.contract import Score
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.eval.agentic.braintrust import ImplementationFixJudge, SignalsScorerAdapter, decode_repo_selection
-from products.signals.eval.agentic.datasets import ImplementationCase, RepoSelectionCase, RepoSelectionExpectation
-from products.signals.eval.agentic.scorers_repo_selection import RepoSelectionCorrectnessScorer
+from products.signals.evals.agentic.braintrust import (
+    ImplementationFixJudge,
+    SignalsScorerAdapter,
+    decode_repo_selection,
+)
+from products.signals.evals.agentic.datasets import ImplementationCase, RepoSelectionCase, RepoSelectionExpectation
+from products.signals.evals.agentic.scorers_repo_selection import RepoSelectionCorrectnessScorer
 
 
 def test_adapter_exposes_domain_score_to_braintrust() -> None:

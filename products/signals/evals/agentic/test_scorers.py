@@ -19,7 +19,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.eval.agentic.datasets import (
+from products.signals.evals.agentic.datasets import (
     ImplementationCase,
     ImplementationExpectation,
     RepoSelectionCase,
@@ -30,15 +30,15 @@ from products.signals.eval.agentic.datasets import (
     ScoutExpectation,
     SignalSpec,
 )
-from products.signals.eval.agentic.runners import ImplementationOutput, ScoutDecisionOutput
-from products.signals.eval.agentic.scorers_implementation import default_implementation_scorers
-from products.signals.eval.agentic.scorers_repo_selection import (
+from products.signals.evals.agentic.runners import ImplementationOutput, ScoutDecisionOutput
+from products.signals.evals.agentic.scorers_implementation import default_implementation_scorers
+from products.signals.evals.agentic.scorers_repo_selection import (
     RepoSelectionCorrectnessScorer,
     default_repo_selection_scorers,
 )
-from products.signals.eval.agentic.scorers_research import DataEvidenceScorer, default_research_scorers
-from products.signals.eval.agentic.scorers_scout import ScoutSummaryTermsScorer, default_scout_scorers
-from products.signals.eval.agentic.scoring import ScoringContext
+from products.signals.evals.agentic.scorers_research import DataEvidenceScorer, default_research_scorers
+from products.signals.evals.agentic.scorers_scout import ScoutSummaryTermsScorer, default_scout_scorers
+from products.signals.evals.agentic.scoring import ScoringContext
 
 _CTX = ScoringContext()
 

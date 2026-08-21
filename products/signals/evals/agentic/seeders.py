@@ -7,14 +7,14 @@ from django.utils import timezone
 from posthog.models.integration import Integration
 from posthog.models.integration_repository_cache import IntegrationRepositoryCacheEntry
 
-from products.signals.eval.agentic.repos import REGISTRY
+from products.signals.evals.agentic.repos import REGISTRY
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 
 def seed_research_sessions(context: CustomPromptSandboxContext) -> dict[str, object]:
     from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
-    from products.signals.eval.agentic.cases.research import SESSION_IDS
+    from products.signals.evals.agentic.cases.research import SESSION_IDS
 
     now = datetime.now(UTC)
     for index, session_id in enumerate(SESSION_IDS):

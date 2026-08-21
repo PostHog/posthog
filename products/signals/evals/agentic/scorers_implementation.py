@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from products.signals.eval.agentic.datasets import EvalCase, ImplementationCase
-from products.signals.eval.agentic.scoring import DeterministicScorer, Score
+from products.signals.evals.agentic.datasets import EvalCase, ImplementationCase
+from products.signals.evals.agentic.scoring import DeterministicScorer, Score
 
 
 def _exp(case: EvalCase):

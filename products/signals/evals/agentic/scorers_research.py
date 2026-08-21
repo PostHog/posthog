@@ -11,8 +11,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
-from products.signals.eval.agentic.datasets import EvalCase, ResearchCase
-from products.signals.eval.agentic.scoring import DeterministicScorer, Score
+from products.signals.evals.agentic.datasets import EvalCase, ResearchCase
+from products.signals.evals.agentic.scoring import DeterministicScorer, Score
 
 if TYPE_CHECKING:
     from products.signals.backend.report_generation.research import ReportResearchOutput

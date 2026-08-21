@@ -1,10 +1,10 @@
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.signals.eval.agentic.braintrust import ScoutDecisionQualityJudge, decode_scout, deterministic_scorers
-from products.signals.eval.agentic.cases.scout import CASES
-from products.signals.eval.agentic.runners import run_scout
-from products.signals.eval.agentic.scorers_scout import default_scout_scorers
-from products.signals.eval.agentic.suite import run_suite
+from products.signals.evals.agentic.braintrust import ScoutDecisionQualityJudge, decode_scout, deterministic_scorers
+from products.signals.evals.agentic.cases.scout import CASES
+from products.signals.evals.agentic.runners import run_scout
+from products.signals.evals.agentic.scorers_scout import default_scout_scorers
+from products.signals.evals.agentic.suite import run_suite
 
 SUITE_KIND = SuiteKind.SANDBOXED
 

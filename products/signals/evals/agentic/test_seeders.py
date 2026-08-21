@@ -3,8 +3,8 @@ from typing import cast
 
 from unittest.mock import patch
 
-from products.signals.eval.agentic.cases.research import SESSION_IDS
-from products.signals.eval.agentic.seeders import seed_research_sessions
+from products.signals.evals.agentic.cases.research import SESSION_IDS
+from products.signals.evals.agentic.seeders import seed_research_sessions
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 

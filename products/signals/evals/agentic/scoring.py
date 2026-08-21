@@ -7,7 +7,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from products.signals.eval.agentic.datasets import EvalCase
+    from products.signals.evals.agentic.datasets import EvalCase
 
 
 class ScoreType(str, Enum):

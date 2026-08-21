@@ -27,7 +27,7 @@ report carrying no priority.
 
 from __future__ import annotations
 
-from products.signals.eval.agentic.datasets import ResearchCase, ResearchExpectation, SignalSpec
+from products.signals.evals.agentic.datasets import ResearchCase, ResearchExpectation, SignalSpec
 
 _REPOSITORY = "posthog/hedgebox"
 

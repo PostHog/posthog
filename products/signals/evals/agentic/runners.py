@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.runner import parse_agent_artifacts
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.eval.agentic.datasets import ImplementationCase, RepoSelectionCase, ResearchCase, ScoutCase
+from products.signals.evals.agentic.datasets import ImplementationCase, RepoSelectionCase, ResearchCase, ScoutCase
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 
 logger = logging.getLogger(__name__)
@@ -165,7 +165,7 @@ async def run_implementation(
     sandbox_context: CustomPromptSandboxContext,
     ctx: EvalContext,
 ) -> dict[str, Any]:
-    from products.signals.eval.agentic.repos import REGISTRY
+    from products.signals.evals.agentic.repos import REGISTRY
     from products.tasks.backend.facade import api as tasks_facade
 
     repository = REGISTRY[case.repo].full_name if case.repo in REGISTRY else case.repo

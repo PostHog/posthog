@@ -8,7 +8,7 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.engines.types import CaseHooks
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.workflow import WorkflowPublicEval
-from products.signals.eval.agentic.datasets import EvalCase
+from products.signals.evals.agentic.datasets import EvalCase
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 CaseT = TypeVar("CaseT", bound=EvalCase)

@@ -1,7 +1,7 @@
-from products.signals.eval.agentic.cases.implementation import CASES as IMPLEMENTATION_CASES
-from products.signals.eval.agentic.cases.repo_selection import CASES as REPOSITORY_SELECTION_CASES
-from products.signals.eval.agentic.cases.research import CASES as RESEARCH_CASES
-from products.signals.eval.agentic.repos import REGISTRY
+from products.signals.evals.agentic.cases.implementation import CASES as IMPLEMENTATION_CASES
+from products.signals.evals.agentic.cases.repo_selection import CASES as REPOSITORY_SELECTION_CASES
+from products.signals.evals.agentic.cases.research import CASES as RESEARCH_CASES
+from products.signals.evals.agentic.repos import REGISTRY
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 
 

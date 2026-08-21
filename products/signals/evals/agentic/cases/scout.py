@@ -6,7 +6,7 @@ event, metric, report id, owner, and repository is synthetic. They are for model
 
 from __future__ import annotations
 
-from products.signals.eval.agentic.datasets import ScoutCase, ScoutExpectation
+from products.signals.evals.agentic.datasets import ScoutCase, ScoutExpectation
 
 
 def _case(
