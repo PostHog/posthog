@@ -59,7 +59,8 @@ def dimension_to_column(dimension: str) -> str:
     return dimension.split(":", 1)[-1]
 
 
-@dataclass
+# Mutable: `__post_init__` narrows `metrics` in place to the scope Plausible accepts.
+@dataclass(frozen=False)
 class PlausibleEndpointConfig:
     name: str
     # Plausible Stats API v2 query dimensions. `time:day` is prepended automatically, so list only
