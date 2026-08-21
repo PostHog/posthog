@@ -1,3 +1,5 @@
+import clsx from 'clsx'
+
 import { IconInfo, IconWarning } from '@posthog/icons'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
@@ -26,9 +28,11 @@ function summarize(predicates: PredicateIndexUsage[]): { text: string; scanning:
 
 interface QueryIndexUsageBarProps {
     predicates: PredicateIndexUsage[]
+    /** A refresh is in flight, so the report still describes the SQL the server last saw. */
+    refreshing?: boolean
 }
 
-export function QueryIndexUsageBar({ predicates }: QueryIndexUsageBarProps): JSX.Element | null {
+export function QueryIndexUsageBar({ predicates, refreshing }: QueryIndexUsageBarProps): JSX.Element | null {
     if (predicates.length === 0) {
         return null
     }
@@ -39,19 +43,19 @@ export function QueryIndexUsageBar({ predicates }: QueryIndexUsageBarProps): JSX
         <LemonCollapse
             embedded
             size="small"
-            className="border-b rounded-none"
+            className={clsx('border-b rounded-none', refreshing && 'opacity-60')}
             panels={[
                 {
                     key: 'index-usage',
                     dataAttr: 'sql-editor-index-usage',
                     header: (
                         <span className="flex items-center gap-2 text-xs">
-                            {scanning ? (
-                                <IconWarning className="text-warning" />
-                            ) : (
+                            {refreshing || !scanning ? (
                                 <IconInfo className="text-secondary" />
+                            ) : (
+                                <IconWarning className="text-warning" />
                             )}
-                            {text}
+                            {refreshing ? 'Checking filters' : text}
                         </span>
                     ),
                     content: <QueryIndexUsageTable predicates={predicates} />,

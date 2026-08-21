@@ -83,3 +83,11 @@ export const EveryFilterIndexed: Story = {
         </div>
     ),
 }
+
+export const RefreshingAfterAnEdit: Story = {
+    render: () => (
+        <div className="max-w-3xl">
+            <QueryIndexUsageBar predicates={PREDICATES} refreshing />
+        </div>
+    ),
+}
