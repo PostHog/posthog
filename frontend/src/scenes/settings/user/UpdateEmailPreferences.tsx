@@ -347,7 +347,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                 <SimpleSwitch
                     setting="all_weekly_digest_disabled"
                     label="Weekly digest"
-                    description="The weekly digest keeps you up to date with everything that's happening in your PostHog organizations"
+                    description="The weekly digest keeps you up to date with what's happening in your PostHog organizations. You only get it in weeks when a project has new activity, so a quiet or brand-new project can skip a week."
                     dataAttr="weekly_digest_enabled"
                     inverse={true}
                 />
