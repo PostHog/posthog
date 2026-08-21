@@ -934,6 +934,7 @@ def _post_repo_picker_message(
     action_id: str,
     workflow_id: str | None = None,
     allow_no_repo: bool = False,
+    ephemeral: bool = False,
 ) -> None:
     context_data = {
         "integration_id": integration.id,
@@ -980,13 +981,33 @@ def _post_repo_picker_message(
             }
         )
 
-    # The picker asks one person to choose, so only they see it. ``chat.postEphemeral`` carries no
-    # ``metadata`` field, which is why the context token rides in the block ids instead, and returns
-    # no ``ts`` that ``chat.update`` can address — resolution replaces it through the interaction's
-    # ``response_url``, or posts a fresh ephemeral note when there was no interaction to carry one.
-    post_slack_ephemeral(
-        slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=guidance, blocks=blocks
-    )
+    # A picker raised by a command concerns only the person who ran it. ``chat.postEphemeral``
+    # carries no ``metadata`` field, which is why the context token rides in the block ids above,
+    # and returns no ``ts`` that ``chat.update`` can address, so the stored ``message_ts`` is None
+    # and resolution goes through the interaction's ``response_url`` instead. A picker raised by a
+    # task stays in the thread, where the task it belongs to is already visible.
+    if ephemeral:
+        post_slack_ephemeral(
+            slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=guidance, blocks=blocks
+        )
+        message_ts = None
+    else:
+        response = post_slack_thread_reply(
+            slack.client,
+            channel=channel,
+            thread_ts=thread_ts,
+            text=guidance,
+            blocks=blocks,
+            metadata={
+                "event_type": "posthog_code_repo_picker",
+                "event_payload": {"context_token": context_token, "workflow_id": workflow_id},
+            },
+        )
+        if response is None:
+            # No prompt left to route, so there is nothing to ask about and nothing to await.
+            return
+        response_data = normalize_slack_response(response)
+        message_ts = response_data.get("ts") if isinstance(response_data.get("ts"), str) else None
 
     if workflow_id:
         _set_pending_repo_picker(
@@ -997,7 +1018,7 @@ def _post_repo_picker_message(
             user_id=user_id,
             workflow_id=workflow_id,
             context_token=context_token,
-            message_ts=None,
+            message_ts=message_ts,
         )
 
     # Pre-warm the repo list cache so the external_select options request
@@ -1086,6 +1107,36 @@ def _settle_repo_picker(response_url: str, text: str) -> None:
     )
 
 
+def _replace_repo_picker_message(
+    *,
+    integration_id: int,
+    slack_team_id: str,
+    channel: str,
+    message_ts: str,
+    text: str,
+) -> None:
+    """Swap a channel-visible picker for its outcome, so the dropdown stops inviting a second choice."""
+    try:
+        # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
+        integration = Integration.objects.get(
+            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
+        )
+        slack = SlackIntegration(integration)
+        slack.client.chat_update(
+            channel=channel,
+            ts=message_ts,
+            text=text,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+        )
+    except Exception:
+        logger.warning(
+            "slack_app_repo_picker_update_failed",
+            integration_id=integration_id,
+            channel=channel,
+            message_ts=message_ts,
+        )
+
+
 def _post_repo_picker_outcome(
     *,
     integration_id: int,
@@ -1095,10 +1146,11 @@ def _post_repo_picker_outcome(
     slack_user_id: str,
     text: str,
 ) -> None:
-    """Report a picker outcome that arrived without an interaction, so there is no ``response_url``.
+    """Report the outcome of an ephemeral picker resolved without an interaction.
 
-    Resolving the picker by typing a repo in the thread leaves the original ephemeral prompt on
-    screen until Slack reloads it. A fresh ephemeral note is the only way to confirm the choice.
+    Typing the repo in the thread carries no ``response_url``, and ``chat.update`` cannot address
+    an ephemeral message, so the original prompt stays on screen until Slack reloads it. A fresh
+    ephemeral note is the only way left to confirm the choice.
     """
     try:
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
@@ -1185,14 +1237,26 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
         slack_user_id=slack_user_id,
     )
 
-    _post_repo_picker_outcome(
-        integration_id=integration.id,
-        slack_team_id=integration.integration_id,
-        channel=channel,
-        thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
-        text=f"Repository selected: `{selected_repo}`",
-    )
+    # A stored ``message_ts`` means the picker is a real channel message, which can be edited in
+    # place. An ephemeral one has none, so the choice is confirmed with a fresh ephemeral note.
+    message_ts = pending_picker.get("message_ts")
+    if isinstance(message_ts, str) and message_ts:
+        _replace_repo_picker_message(
+            integration_id=integration.id,
+            slack_team_id=integration.integration_id,
+            channel=channel,
+            message_ts=message_ts,
+            text=f"*Repository selected:* `{selected_repo}`",
+        )
+    else:
+        _post_repo_picker_outcome(
+            integration_id=integration.id,
+            slack_team_id=integration.integration_id,
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+            text=f"Repository selected: `{selected_repo}`",
+        )
 
     logger.info(
         "slack_app_pending_picker_resolved_from_followup",
@@ -3962,15 +4026,45 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
 
 
 def _replace_repo_picker_with_selection(payload: dict, context: dict | None, selected_repo: str) -> None:
-    response_url = payload.get("response_url", "")
-    if not response_url:
+    _settle_repo_picker_from_click(payload, context, f"*Repository selected:* `{selected_repo}`")
+
+
+def _settle_repo_picker_from_click(payload: dict, context: dict | None, text: str) -> None:
+    """Replace a clicked picker with its outcome, by whichever route the message allows.
+
+    ``chat.update`` cannot address an ephemeral picker, so those settle through the interaction's
+    ``response_url``. A channel-visible picker is edited in place, which keeps its permalink and
+    its position in the thread.
+    """
+    integration_id = context.get("integration_id") if context else None
+    if payload.get("container", {}).get("is_ephemeral"):
+        response_url = payload.get("response_url", "")
+        if response_url:
+            _settle_repo_picker(response_url, text)
+            return
+        logger.info("slack_app_repo_picker_click_missing_response_url", integration_id=integration_id)
+        return
+
+    slack_team_id = payload.get("team", {}).get("id")
+    channel = context.get("channel") if context else payload.get("channel", {}).get("id")
+    message_ts = payload.get("message", {}).get("ts")
+    if not integration_id or not slack_team_id or not channel or not message_ts:
         logger.info(
             "slack_app_repo_submit_missing_picker_update_context",
-            integration_id=context.get("integration_id") if context else None,
+            integration_id=integration_id,
+            slack_team_id=slack_team_id,
+            channel=channel,
+            message_ts=message_ts,
         )
         return
 
-    _settle_repo_picker(response_url, f"*Repository selected:* `{selected_repo}`")
+    _replace_repo_picker_message(
+        integration_id=integration_id,
+        slack_team_id=slack_team_id,
+        channel=channel,
+        message_ts=message_ts,
+        text=text,
+    )
 
 
 def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
@@ -3998,9 +4092,7 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
                 thread_ts=context["thread_ts"],
                 slack_user_id=pending_picker_user_id,
             )
-        response_url = payload.get("response_url", "")
-        if response_url:
-            _settle_repo_picker(response_url, "*Continuing without a repository.*")
+        _settle_repo_picker_from_click(payload, context, "*Continuing without a repository.*")
         return HttpResponse(status=200)
     except Exception as e:
         logger.warning("slack_app_repo_none_signal_failed", workflow_id=workflow_id, error=str(e))

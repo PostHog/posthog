@@ -126,6 +126,7 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
                 POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
                 False,
                 user_id,
+                True,
             ],
             start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -139,7 +140,7 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
         except TimeoutError:
             await workflow.execute_activity(
                 post_posthog_code_picker_timeout_activity,
-                args=[picker_inputs, channel, thread_ts],
+                args=[picker_inputs, channel, thread_ts, True],
                 start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )

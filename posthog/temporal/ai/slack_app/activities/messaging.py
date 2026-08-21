@@ -62,8 +62,13 @@ def post_posthog_code_repo_picker_activity(
     guidance: str,
     allow_no_repo: bool,
     user_id: int,
+    ephemeral: bool = False,
 ) -> None:
-    """Post the repository picker block in the Slack thread."""
+    """Post the repository picker block.
+
+    ``ephemeral`` is set by the command workflow, where the picker is part of a command that
+    concerns only its caller. A task's picker stays visible in the thread it belongs to.
+    """
     inputs = coerce_mention_workflow_inputs(inputs)
 
     from products.slack_app.backend.api import _post_repo_picker_message
@@ -88,6 +93,7 @@ def post_posthog_code_repo_picker_activity(
         action_id="posthog_code_repo_select",
         workflow_id=workflow_id,
         allow_no_repo=allow_no_repo,
+        ephemeral=ephemeral,
     )
 
 
@@ -216,7 +222,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
 @activity.defn
 @close_db_connections
 def post_posthog_code_picker_timeout_activity(
-    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, ephemeral: bool = False
 ) -> None:
     from products.slack_app.backend.api import _clear_pending_repo_picker
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -248,8 +254,8 @@ def post_posthog_code_picker_timeout_activity(
     )
     slack = SlackIntegration(integration)
     text = "Repository selection expired. Please mention PostHog again to retry."
-    # Matches the picker it is expiring: only the person who was asked to choose sees it.
-    if isinstance(slack_user_id, str) and slack_user_id:
+    # Goes wherever the picker it is expiring went.
+    if ephemeral and isinstance(slack_user_id, str) and slack_user_id:
         post_slack_ephemeral(slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
         return
 
