@@ -2217,6 +2217,26 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+    def signal_client_activity(self) -> None:
+        from products.tasks.backend.redis import get_tasks_cache
+
+        cache_key = f"tasks:task_run:client_activity:{self.id}"
+        if not get_tasks_cache().add(cache_key, True, timeout=60):
+            return
+
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(ProcessTaskWorkflow.client_activity))
+        except Exception as e:
+            logger.warning("task_run.client_activity_signal_failed", task_run_id=str(self.id), error=str(e))
+
     @property
     def log_url(self) -> str:
         """Generate the S3 path for this run's logs."""
