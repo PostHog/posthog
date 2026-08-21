@@ -64,6 +64,17 @@ describe("reportCharts", () => {
       },
       "open-only",
     ],
+    [
+      {
+        kind: "InsightVizNode",
+        source: {
+          kind: "FunnelsQuery",
+          funnelsFilter: { funnelVizType: "steps" },
+          compareFilter: { compare: true },
+        },
+      },
+      "open-only",
+    ],
     [{ kind: "InsightVizNode", source: { kind: "LifecycleQuery" } }, "run"],
     [
       { kind: "InsightVizNode", source: { kind: "RetentionQuery" } },

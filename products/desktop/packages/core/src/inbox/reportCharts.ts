@@ -86,9 +86,18 @@ export function planReportChart(query: unknown): ReportChartPlan {
         ? source.funnelsFilter
         : null;
       const vizType = filter?.funnelVizType;
-      return vizType === undefined || vizType === "steps"
-        ? { kind: "run", source, render: "bar" }
-        : { kind: "open-only" };
+      if (vizType !== undefined && vizType !== "steps") {
+        return { kind: "open-only" };
+      }
+      // Compare merges current and previous periods into one response the
+      // categorical bar chart cannot disambiguate, so degrade to a link-out card.
+      const compareFilter = isRecord(source.compareFilter)
+        ? source.compareFilter
+        : null;
+      if (compareFilter?.compare === true) {
+        return { kind: "open-only" };
+      }
+      return { kind: "run", source, render: "bar" };
     }
     if (source.kind !== "TrendsQuery" && source.kind !== "StickinessQuery") {
       return { kind: "open-only" };
