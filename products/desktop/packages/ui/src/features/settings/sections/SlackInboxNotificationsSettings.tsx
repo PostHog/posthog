@@ -12,10 +12,7 @@ import {
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { SignalDefaultChannelSettings } from "@posthog/ui/features/settings/sections/SignalDefaultChannelSettings";
 import { SignalSlackNotificationsSettings } from "@posthog/ui/features/settings/sections/SignalSlackNotificationsSettings";
-import {
-  SlackWorkspaceConnection,
-  SlackWorkspaceConnectionCallouts,
-} from "@posthog/ui/features/settings/sections/SlackWorkspaceConnection";
+import { SlackWorkspaceConnectionBlock } from "@posthog/ui/features/settings/sections/SlackWorkspaceConnection";
 import { useMemo } from "react";
 
 interface SlackInboxNotificationsSettingsProps {
@@ -87,10 +84,7 @@ export function SlackInboxNotificationsSettings({
       ) : null}
 
       {showWorkspaceConnection ? (
-        <>
-          <SlackWorkspaceConnection isLoading={isLoading} />
-          <SlackWorkspaceConnectionCallouts />
-        </>
+        <SlackWorkspaceConnectionBlock isLoading={isLoading} />
       ) : null}
 
       {showConfiguration ? (

@@ -62,10 +62,11 @@ export function SlackSettings() {
         }
       >
         <SlackWorkspaceConnection
+          slackConnect={slackConnect}
           isLoading={isLoading}
           showConnectAnother={false}
         />
-        <SlackWorkspaceConnectionCallouts />
+        <SlackWorkspaceConnectionCallouts slackConnect={slackConnect} />
       </SettingsSection>
 
       {hasSlackIntegration ? (
