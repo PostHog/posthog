@@ -20,7 +20,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     BREAKPOINTS,
     BREAKPOINT_COLUMN_COUNTS,
@@ -34,7 +34,7 @@ import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedIns
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
@@ -92,6 +92,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         highlightedInsightId,
         refreshStatus,
         dashboardStreaming,
+        dashboardLoading,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
         effectiveBreakdownColors,
@@ -112,6 +113,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         removeTile,
         duplicateTile,
         refreshDashboardItem,
+        loadDashboard,
         refreshDashboardWidgets,
         scheduleRefreshDashboardWidgets,
         applyWidgetIssueMetadataChange,
@@ -132,6 +134,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
         : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
+    const retryFailedDashboardTile = isSharedView()
+        ? undefined
+        : () => loadDashboard({ action: DashboardLoadAction.Update })
+    const refreshDashboardTile = isSharedView() ? undefined : refreshDashboardItem
 
     // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
     // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
@@ -542,6 +548,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                     <MemoizedDashboardErrorTileItem
                                         key={tile.id}
                                         tile={tile}
+                                        onRetry={retryFailedDashboardTile}
+                                        retryLoading={dashboardLoading}
                                         onRemove={commonTileProps.removeFromDashboard}
                                         showResizeHandles={showResizeHandles}
                                         canEnterEditModeFromEdge={canEnterEditModeFromEdge}
@@ -582,7 +590,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         updateColor={(color) => updateTileColor(tile.id, color)}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}
-                                        refresh={() => refreshDashboardItem({ tile })}
+                                        refresh={
+                                            refreshDashboardTile ? () => refreshDashboardTile({ tile }) : undefined
+                                        }
                                         rename={() => renameInsight(insight)}
                                         duplicate={() => duplicateTile(tile)}
                                         setOverride={() => setTileOverride(tile)}
