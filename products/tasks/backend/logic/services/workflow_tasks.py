@@ -241,21 +241,19 @@ def _render_run_message(prompt: str, event: dict[str, Any] | None) -> str:
 
 
 def _render_event_json(event: dict[str, Any]) -> str:
-    """The event as JSON, with every angle bracket escaped.
+    """The event as JSON, with its own closing tag escaped.
 
     `json.dumps` escapes quotes and control characters but leaves `<` and `>`, so a Slack
-    message containing `</triggering_event>` would close the block and have the rest of
-    itself read as instructions. Anyone who can post in the channel can write that.
+    message carrying a verbatim `</triggering_event>` would close the data block and have
+    the rest of itself read as instructions. Anyone who can post in the channel can write
+    that. Escaped the way `render_loop_run_message` escapes its own wrapper.
     """
-    serialized = _escape_angle_brackets(json.dumps(event, default=str))
-    if len(serialized) <= EVENT_PROMPT_MAX_CHARS:
-        return serialized
-
-    serialized = _escape_angle_brackets(json.dumps(_trimmed_event(event), default=str))
+    serialized = json.dumps(event, default=str)
+    if len(serialized) > EVENT_PROMPT_MAX_CHARS:
+        serialized = json.dumps(_trimmed_event(event), default=str)
     if len(serialized) > EVENT_PROMPT_MAX_CHARS:
         serialized = serialized[:EVENT_PROMPT_MAX_CHARS] + " [truncated]"
-    # json.dumps leaves `<`/`>` alone, so event text could otherwise carry a verbatim
-    # `</triggering_event>` and close the data block. Escape it as render_loop_run_message does.
+    # After truncation, so a cut cannot leave a half-escaped tag behind.
     return serialized.replace("</triggering_event>", "&lt;/triggering_event&gt;")
 
 
@@ -273,12 +271,6 @@ def _trimmed_event(event: dict[str, Any]) -> dict[str, Any]:
     if not str(properties.get("text") or "").strip():
         return event
     return {**event, "properties": {k: v for k, v in properties.items() if k != "slack_event"}}
-
-
-def _escape_angle_brackets(serialized: str) -> str:
-    # < / > are valid JSON escapes for the same characters, so the value still
-    # reads normally to the agent while no substring of it can spell a closing tag.
-    return serialized.replace("<", "\\u003c").replace(">", "\\u003e")
 
 
 @frozen
