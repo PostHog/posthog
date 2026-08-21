@@ -167,6 +167,12 @@ MIN_SESSIONS_PER_TOOL = 400
 # budget is what lets mid/low tools cluster into real themes rather than noise.
 MAX_CALLS_PER_TOOL = 1500
 
+# Sender-controlled tool names only ever expand the ``_SESSION_TOOLS_SQL``
+# grouping. One session honestly uses a handful of distinct tools, so bound how
+# many distinct tools a single session can contribute to the per-tool buckets —
+# an attacker emitting thousands of unique names can't fan out the aggregation.
+MAX_DISTINCT_TOOLS_PER_SESSION_BUCKET = 500
+
 # execute_hogql_query injects LIMIT 100 into any query without an explicit
 # LIMIT — far below what the per-session queries return at production scale
 # (one-plus rows per corpus session). Cap explicitly at the HogQL per-query
@@ -429,11 +435,18 @@ def fetch_window_stats(team: Team, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -
     )
 
 
-# Sessions that recorded at least one intent, with the set of effective tools
-# each session used, bucketed per tool. This is the input to stratified
-# sampling: choosing session ids per tool rather than uniformly across the
-# window. Without the per-tool bucket, a uniform sample of a dominant-tool
-# window silently erases every low/mid-volume tool (logs/tracing/metrics).
+# Intent-bearing sessions bucketed by effective tool. Both dimensions are
+# sender-controlled, so each is bounded *before* the GROUP BY materializes
+# aggregation state: the inner queries cap the number of intent-bearing
+# sessions (cityHash sample, same scheme as ``sample_corpus_sessions``) and the
+# per-session distinct tool count, so an attacker submitting many unique tool
+# names can't fan out the outer group. Only intent-bearing sessions enter the
+# buckets, which is what lets stratified sampling reach a low/mid-volume tool
+# directly instead of through an independent uniform sample.
+#
+# ``cityHash64`` here and in ``sample_corpus_sessions`` is a fast pseudo-random
+# ordering, not a security boundary — the memory/CPU protection comes from the
+# numeric caps, not the hash.
 _SESSION_TOOLS_SQL = """
 SELECT
     $session_id AS session_id,
@@ -441,9 +454,20 @@ SELECT
 FROM events
 WHERE event = {event}
     AND timestamp >= now() - INTERVAL {lookback_days} DAY
-    AND $session_id != ''
+    AND $session_id IN (
+        SELECT $session_id
+        FROM events
+        WHERE event = {event}
+            AND timestamp >= now() - INTERVAL {lookback_days} DAY
+            AND $session_id != ''
+            AND coalesce(toString(properties.$mcp_intent), '') != ''
+        GROUP BY $session_id
+        ORDER BY cityHash64($session_id)
+        LIMIT {max_candidate_sessions}
+    )
     AND notEmpty({tool_expr_where})
 GROUP BY session_id, tool
+LIMIT {max_distinct_tools} BY session_id
 LIMIT {max_rows}
 """
 
@@ -451,13 +475,14 @@ LIMIT {max_rows}
 def fetch_tools_by_session(
     team: Team,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    max_candidate_sessions: int = MAX_CORPUS_SESSIONS,
 ) -> dict[str, set[str]]:
-    """Return ``{tool: {session_ids}}`` for the sampling window.
+    """Return ``{tool: {intent-bearing session_ids}}`` for the sampling window.
 
-    Only sessions that recorded at least one intent are eligible for the
-    corpus, so this is filtered the same way as ``sample_corpus_sessions`` and
-    the caller intersects with the intent-bearing sample. Keyed by tool so the
-    stratifier can guarantee per-tool floors.
+    The candidate pool is the deterministic cityHash sample of intent-bearing
+    sessions (``max_candidate_sessions``), so every tool's bucket is drawn from
+    that pool directly; the stratifier then guarantees per-tool floors without
+    any independent uniform sample gating it.
     """
     query = parse_select(
         _SESSION_TOOLS_SQL,
@@ -467,6 +492,8 @@ def fetch_tools_by_session(
             "tool_expr_where": parse_expr(EFFECTIVE_TOOL_SQL),
             "lookback_days": ast.Constant(value=lookback_days),
             "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
+            "max_candidate_sessions": ast.Constant(value=max_candidate_sessions),
+            "max_distinct_tools": ast.Constant(value=MAX_DISTINCT_TOOLS_PER_SESSION_BUCKET),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
         },
     )
@@ -492,33 +519,44 @@ def stratify_session_ids(
     sessions (its full set when smaller), then fills any remaining budget with
     the highest-volume tools, capped at ``max_total_sessions``.
 
-    Deterministic: per-tool session ids take the cityHash-style prefix of a
-    sorted order, so reruns re-hit the embedding cache.
+    Deterministic: per-tool session ids take the sorted-prefix, so reruns
+    re-hit the same ids and the embedding cache.
+
+    Every tool is visited: the budget is apportioned across tools rather than
+    consumed by the first ones, so a later (or alphabetically later equal-volume)
+    tool is never skipped, and the result is always within ``max_total_sessions``
+    regardless of how the floors interact with the budget.
     """
+    tools = sorted(tool_sessions)
+    if not tools or max_total_sessions <= 0:
+        return set()
+
+    # The budget cannot always give every tool its full floor (many tools x
+    # floor swamps max_total_sessions), so the effective per-tool floor is
+    # min(the request, an even share of the budget). Even-share is the only
+    # allocation that never starves a tool while always fitting the budget.
+    budget_floor = max(1, max_total_sessions // len(tools))
+    floor_size = max(1, min(min_sessions_per_tool, budget_floor))
+
     selected: set[str] = set()
-    # Tools ordered by ascending volume so scarce tools secure their floor before
-    # dominant tools consume the shared budget.
-    for tool in sorted(tool_sessions, key=lambda t: (len(tool_sessions[t]), t)):
-        sessions = sorted(tool_sessions[tool])
-        floor = sessions[:min_sessions_per_tool]
-        selected.update(floor)
-        if len(selected) >= max_total_sessions:
-            break
+    # Ascending volume secures scarce tools' floors before dominant tools add
+    # their own (shared ids are de-duped through ``selected``).
+    for tool in sorted(tools, key=lambda t: (len(tool_sessions[t]), t)):
+        selected.update(sorted(tool_sessions[tool])[:floor_size])
 
-    if len(selected) <= max_total_sessions:
-        return selected
-
-    # Over budget: trim the largest tools' contribution back toward the floor,
-    # never below it, until the total fits. Deterministic about which ids drop.
-    over = len(selected) - max_total_sessions
-    for tool in sorted(tool_sessions, key=lambda t: (-len(tool_sessions[t]), t)):
-        if over <= 0:
-            break
-        contributed = sorted(tool_sessions[tool])
-        droppable = [sid for sid in contributed if sid in selected][min_sessions_per_tool:]
-        for sid in droppable[:over]:
-            selected.discard(sid)
-            over -= 1
+    # Spend the remainder on the highest-volume tools, which hold the bulk of
+    # the window's calls, keeping the whole result within budget.
+    room = max_total_sessions - len(selected)
+    if room > 0:
+        for tool in sorted(tools, key=lambda t: (-len(tool_sessions[t]), t)):
+            if room <= 0:
+                break
+            for sid in sorted(tool_sessions[tool]):
+                if room <= 0:
+                    break
+                if sid not in selected:
+                    selected.add(sid)
+                    room -= 1
     return selected
 
 

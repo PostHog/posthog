@@ -551,6 +551,48 @@ class TestStratifySessionIds:
 
         assert {sid for sid in selected if sid.startswith("m-s")} == tool_sessions["query-metrics"]
 
+    def test_budget_apportions_floors_and_stays_within_total(self) -> None:
+        # Regression for the over-budget trimming bug: 3 x 250 = 750 must come
+        # back under a 700 budget, and no tool may be skipped.
+        from products.mcp_analytics.backend.intent_clustering import stratify_session_ids
+
+        tool_sessions = {f"tool_{t}": {f"tool_{t}-s{i}" for i in range(300)} for t in range(3)}
+
+        selected = stratify_session_ids(tool_sessions, min_sessions_per_tool=250, max_total_sessions=700)
+
+        assert len(selected) <= 700
+        for t in range(3):
+            assert any(sid.startswith(f"tool_{t}-s") for sid in selected), f"tool_{t} was skipped"
+
+    def test_late_tool_is_not_skipped_when_floors_fill_the_budget(self) -> None:
+        # Regression for the break that skipped every tool once earlier floors
+        # hit the budget: a late, higher-volume tool must still get a floor.
+        from products.mcp_analytics.backend.intent_clustering import stratify_session_ids
+
+        tool_sessions: dict[str, set[str]] = {
+            "alpha": {f"a-s{i}" for i in range(500)},
+            "beta": {f"b-s{i}" for i in range(500)},
+            "zeta": {f"z-s{i}" for i in range(1000)},
+        }
+
+        selected = stratify_session_ids(tool_sessions, min_sessions_per_tool=400, max_total_sessions=900)
+
+        assert any(sid.startswith("z-s") for sid in selected)
+        assert len(selected) <= 900
+
+    def test_never_exceeds_budget_when_many_tools_share_many_sessions(self) -> None:
+        # 10 tools each with 400 shared sessions: sum of floors (4000) far
+        # exceeds the budget even after de-dup (shared ids), so any overshoot
+        # must be trimmed.
+        from products.mcp_analytics.backend.intent_clustering import stratify_session_ids
+
+        shared = {f"s{i}" for i in range(400)}
+        tool_sessions = {f"tool_{t}": set(shared) for t in range(10)}
+
+        selected = stratify_session_ids(tool_sessions, min_sessions_per_tool=400, max_total_sessions=1500)
+
+        assert len(selected) <= 1500
+
 
 class TestCapPerToolCallVolume:
     """After sampling, a single high-volume tool (exec) must not be allowed to
