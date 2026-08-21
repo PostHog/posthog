@@ -1,11 +1,15 @@
 import asyncio
 
+from parameterized import parameterized
+
 from products.posthog_ai.eval_harness.scorers.contract import Score
+from products.posthog_ai.eval_harness.scorers.judged import JudgedScorer
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.evals.agentic.braintrust import (
     ImplementationFixJudge,
     RepositorySelectionJudge,
     ResearchSummaryJudge,
+    ScoutDecisionQualityJudge,
     SignalsScorerAdapter,
     decode_repo_selection,
 )
@@ -14,6 +18,7 @@ from products.signals.evals.agentic.datasets import (
     RepoSelectionCase,
     RepoSelectionExpectation,
     ResearchCase,
+    ScoutCase,
 )
 from products.signals.evals.agentic.runners import RepoSelectionOutput
 from products.signals.evals.agentic.scorers_repo_selection import RepoSelectionCorrectnessScorer
@@ -118,3 +123,19 @@ def test_repository_selection_judge_includes_reference_evidence() -> None:
     assert "staticSvgScene.ts" in prepared["expected"]
     assert "excalidraw/excalidraw" in prepared["output"]
     assert '"repository_evidence_used": false' in prepared["output"]
+
+
+@parameterized.expand(
+    [
+        ("research", ResearchSummaryJudge([ResearchCase(case_id="c", step="research")])),
+        ("repo_selection", RepositorySelectionJudge([RepoSelectionCase(case_id="c", step="repo_selection")])),
+        ("implementation", ImplementationFixJudge([ImplementationCase(case_id="c", step="implementation")])),
+        ("scout", ScoutDecisionQualityJudge([ScoutCase(case_id="c", step="scout")])),
+    ]
+)
+def test_judges_score_timeout_output_zero_instead_of_raising(_name: str, judge: JudgedScorer) -> None:
+    score = judge._prepare({"timeout": True, "error": "case timeout after 900s"}, {"case_id": "c"})
+
+    assert isinstance(score, Score)
+    assert score.score == 0.0
+    assert score.metadata["reason"] == "workflow timed out"
