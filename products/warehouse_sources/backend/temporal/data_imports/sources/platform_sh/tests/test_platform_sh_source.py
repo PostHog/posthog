@@ -1,7 +1,19 @@
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.platform_sh import AUTH_FAILED_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.source import PlatformShSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestPlatformShSourceConfig:
+    def test_source_type(self) -> None:
+        assert PlatformShSource().source_type == ExternalDataSourceType.PLATFORMSH
+
+    def test_platform_is_a_connection_host_field(self) -> None:
+        # `platform` retargets which vendor host the stored token is sent to, so changing it must
+        # force the editor to re-enter the secret.
+        assert PlatformShSource().connection_host_fields == ["platform"]
 
 
 class TestPlatformShGetSchemas:
@@ -26,3 +38,13 @@ class TestPlatformShGetSchemas:
     def test_names_filter(self) -> None:
         schemas = PlatformShSource().get_schemas(mock.Mock(), team_id=1, names=["projects", "activities"])
         assert {s.name for s in schemas} == {"projects", "activities"}
+
+
+class TestPlatformShNonRetryableErrors:
+    def test_covers_auth_failures_on_both_hosts(self) -> None:
+        # Missing any of these means a permanently-bad credential retries forever.
+        errors = PlatformShSource().get_non_retryable_errors()
+        assert AUTH_FAILED_MESSAGE in errors
+        for host in ("https://api.platform.sh", "https://api.upsun.com"):
+            assert f"401 Client Error: Unauthorized for url: {host}" in errors
+            assert f"403 Client Error: Forbidden for url: {host}" in errors

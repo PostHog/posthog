@@ -271,3 +271,16 @@ class TestG2Source:
             resumable_source_manager=_FakeResumeManager(),
         )
         assert response.primary_keys == primary_keys
+
+    def test_sort_mode_is_unset(self) -> None:
+        # No G2 list endpoint documents a `sort` param or default order, so no endpoint may claim
+        # a verified direction (see settings.py).
+        response = g2_source(
+            access_token="token-1",
+            endpoint="products",
+            product_id="",
+            api_version="v2",
+            logger=mock.MagicMock(),
+            resumable_source_manager=_FakeResumeManager(),
+        )
+        assert response.sort_mode is None

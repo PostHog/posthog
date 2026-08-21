@@ -6,12 +6,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SpotlerCRMSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.source import SpotlerCRMSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSpotlerCRMSource:
     def setup_method(self) -> None:
         self.source = SpotlerCRMSource()
         self.config = SpotlerCRMSourceConfig(access_token="test-token")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.SPOTLERCRM
 
     def test_auth_error_from_live_api_matches_non_retryable_pattern(self) -> None:
         # The live API answers 403 for a bad token (verified with curl); make sure the

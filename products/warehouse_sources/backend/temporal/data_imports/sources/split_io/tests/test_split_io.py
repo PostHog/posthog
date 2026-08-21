@@ -3,7 +3,10 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.settings import SPLIT_IO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.settings import (
+    ENDPOINTS,
+    SPLIT_IO_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io import (
     BASE_URL,
     PAGE_SIZE,
@@ -12,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.s
     _initial_url,
     _next_url,
     get_rows,
+    split_io_source,
     validate_credentials,
 )
 
@@ -356,6 +360,17 @@ class TestRetryAndErrors:
 
 
 class TestSplitIoSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = SPLIT_IO_ENDPOINTS[endpoint]
+        response = split_io_source("api-key", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        # Partitioning is intentionally off (epoch-ms timestamps).
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
     @pytest.mark.parametrize("endpoint", ["feature_flags", "segments"])
     def test_workspace_scoped_names_use_composite_primary_key(self, endpoint):
         assert SPLIT_IO_ENDPOINTS[endpoint].primary_keys == ["name", "_workspace_id"]

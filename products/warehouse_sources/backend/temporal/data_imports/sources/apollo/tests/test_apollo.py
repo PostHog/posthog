@@ -15,10 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apo
     _parse_retry_after,
     _parse_timestamp,
     _wait_apollo,
+    apollo_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.settings import APOLLO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.settings import APOLLO_ENDPOINTS, ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apollo"
 
@@ -223,6 +224,20 @@ class TestGetRows:
 
 
 class TestApolloSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = APOLLO_ENDPOINTS[endpoint]
+        response = apollo_source("key", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == ("desc" if config.sort_by_field else "asc")
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+
     @pytest.mark.parametrize("config", list(APOLLO_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.git
     _get_headers,
     _parse_next_url,
     get_rows,
+    gitlab_source,
     normalize_host,
     validate_credentials,
 )
@@ -336,6 +337,43 @@ class TestValidateCredentials:
             assert valid is False
             assert msg == gitlab_module.HTTP_NOT_ALLOWED_ERROR
             patched.return_value.get.assert_not_called()
+
+
+class TestGitLabSourceResponse:
+    @pytest.mark.parametrize(
+        "endpoint, primary_key, partition_key, sort_mode",
+        [
+            ("issues", "id", "created_at", "asc"),
+            ("merge_requests", "id", "created_at", "asc"),
+            ("commits", "id", "created_at", "desc"),
+            ("pipelines", "id", "created_at", "asc"),
+            ("releases", "tag_name", "created_at", "asc"),
+            ("milestones", "id", "created_at", "asc"),
+            ("branches", "name", None, "asc"),
+            ("tags", "name", None, "asc"),
+            ("labels", "id", None, "asc"),
+            ("members", "id", None, "asc"),
+        ],
+    )
+    def test_response_shape(self, endpoint, primary_key, partition_key, sort_mode):
+        response = gitlab_source(
+            host="https://gitlab.com",
+            personal_access_token="tok",
+            project="group/project",
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=mock.MagicMock(),
+            team_id=1,
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == [primary_key]
+        assert response.sort_mode == sort_mode
+        if partition_key:
+            assert response.partition_keys == [partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+            assert response.partition_mode is None
 
 
 class TestGetRows:

@@ -295,3 +295,30 @@ class TestValidateCredentials:
         valid, error = validate_credentials("tok", "acme")
         assert valid is False
         assert error is not None
+
+
+class TestFlyIoSourceResponse:
+    @parameterized.expand(
+        [
+            ("machines", "created_at"),
+            ("volumes", "created_at"),
+        ]
+    )
+    @mock.patch(FLY_IO_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_timestamped_endpoints_partition_on_created_at(
+        self, endpoint: str, partition_key: str, MockClientSession, MockFlyIoSession
+    ) -> None:
+        MockFlyIoSession.return_value = MockClientSession.return_value
+        response = fly_io_source("tok", endpoint, "acme", team_id=1, job_id="j")
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [partition_key]
+        assert response.primary_keys == ["id"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_apps_has_no_partitioning(self, MockClientSession) -> None:
+        # App objects carry no timestamp, so partitioning on a nonexistent column would break the sync.
+        response = fly_io_source("tok", "apps", "acme", team_id=1, job_id="j")
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+        assert response.primary_keys == ["id"]

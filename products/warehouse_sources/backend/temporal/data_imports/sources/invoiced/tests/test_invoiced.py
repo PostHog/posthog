@@ -271,3 +271,15 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("good-key")
         assert mock_session.call_args.kwargs.get("allow_redirects") is False
+
+
+class TestInvoicedSourceResponse:
+    def test_response_metadata(self) -> None:
+        response = invoiced_source(
+            "api-key", "invoices", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+
+        assert response.name == "invoices"
+        assert response.primary_keys == ["id"]
+        # Rows are requested with an explicit ascending updated_at sort.
+        assert response.sort_mode == "asc"

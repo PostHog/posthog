@@ -3,10 +3,11 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
+from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.settings import (
     THINKIFIC_COURSES_ENDPOINTS,
@@ -32,6 +33,15 @@ def _response(items: Optional[list[dict[str, Any]]], total_pages: int = 1) -> Re
     resp.status_code = 200
     resp.url = f"{THINKIFIC_BASE_URL}/courses"
     resp._content = json.dumps({"items": items or [], "meta": {"pagination": {"total_pages": total_pages}}}).encode()
+    return resp
+
+
+def _error_response(status: int, reason: str) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp.reason = reason
+    resp.url = f"{THINKIFIC_BASE_URL}/courses"
+    resp._content = json.dumps({"error": "Authentication Error"}).encode()
     return resp
 
 
@@ -219,6 +229,20 @@ class TestFanout:
         final_state = manager.save_state.call_args_list[-1].args[0]
         assert final_state.completed == ["/coupons?promotion_id=11"]
         assert final_state.current is None
+
+
+class TestErrorHandling:
+    @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
+    @mock.patch(SLEEP_PATCH)
+    def test_auth_error_raises_matchable_http_error(self, _name: str, status: int, reason: str, _sleep: Any) -> None:
+        # A 401/403 must surface as an HTTPError whose message carries the status and host, so
+        # get_non_retryable_errors can substring-match it and stop the sync loud.
+        manager = _make_manager()
+        with pytest.raises(HTTPError) as exc:
+            _run("courses", manager, [_error_response(status, reason)])
+        message = str(exc.value)
+        assert f"{status}" in message
+        assert "api.thinkific.com" in message
 
 
 class TestSourceResponse:

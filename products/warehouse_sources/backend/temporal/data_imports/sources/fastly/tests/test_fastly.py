@@ -15,9 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fas
     _build_url,
     _ensure_service_id,
     _next_page_url,
+    fastly_source,
     get_rows,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.settings import ENDPOINTS, FASTLY_ENDPOINTS
 
 
 def _fake_response(payload: Any, next_url: str | None = None) -> MagicMock:
@@ -281,3 +283,27 @@ class TestGetRowsVersionResourceFanOut:
 
         assert rows == [{"name": "origin", "version": 1, "service_id": "S2"}]
         assert [s.service_id for s in manager.saved] == ["S1", "S2"]
+
+
+class TestFastlySourceResponse:
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_source_response_primary_keys_match_settings(self, endpoint: str) -> None:
+        response = fastly_source(
+            api_key="token",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == FASTLY_ENDPOINTS[endpoint].primary_keys
+
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_source_response_partitions_on_stable_created_at(self, endpoint: str) -> None:
+        response = fastly_source(
+            api_key="token",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]

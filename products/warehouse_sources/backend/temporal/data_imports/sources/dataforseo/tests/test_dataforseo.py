@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     DataForSEORetryableError,
     _post_task,
     _raise_for_body_status,
+    dataforseo_source,
     get_rows,
     parse_targets,
     validate_credentials,
@@ -366,6 +367,29 @@ class TestGetRows:
 
 
 class TestDataForSEOSourceResponse:
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = dataforseo_source(
+            api_login="login",
+            api_password="password",
+            targets=["example.com"],
+            location_name="United States",
+            language_name="English",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+
+        config = DATAFORSEO_ENDPOINTS[endpoint]
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_primary_keys_include_target(self, endpoint: str) -> None:
         # Every endpoint fans out over the configured targets, so the injected target must be

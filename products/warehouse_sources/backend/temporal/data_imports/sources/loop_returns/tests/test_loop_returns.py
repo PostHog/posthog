@@ -487,6 +487,52 @@ class TestLoopReturnsSource:
         assert sent_params == [{}]
         assert manager.saved == []
 
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_primary_keys", "expected_partition_keys"),
+        [
+            ("returns", ["id"], ["created_at"]),
+            ("advanced_shipping_notices", ["id", "return_line_item_id"], ["created_at"]),
+            ("destinations", ["id"], None),
+        ],
+    )
+    def test_primary_and_partition_keys(
+        self, endpoint: str, expected_primary_keys: list[str], expected_partition_keys: Optional[list[str]]
+    ) -> None:
+        # An ASN key of just `id` would seed duplicates if `id` repeats per return, and every later
+        # merge would multi-match them.
+        source_response = loop_returns_source(
+            api_key=API_KEY,
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job-1",
+            api_version=API_VERSION,
+            resumable_source_manager=FakeResumableSourceManager(),
+        )
+
+        assert source_response.primary_keys == expected_primary_keys
+        assert source_response.partition_keys == expected_partition_keys
+
+    @pytest.mark.parametrize(
+        ("should_use_incremental_field", "expected_sort_mode"),
+        [(True, "desc"), (False, "asc")],
+    )
+    def test_incremental_syncs_defer_the_watermark_write(
+        self, should_use_incremental_field: bool, expected_sort_mode: str
+    ) -> None:
+        # Loop documents no ordering within a window, so an "asc" claim would checkpoint a
+        # watermark past rows a crashed run never fetched.
+        source_response = loop_returns_source(
+            api_key=API_KEY,
+            endpoint="returns",
+            team_id=1,
+            job_id="job-1",
+            api_version=API_VERSION,
+            resumable_source_manager=FakeResumableSourceManager(),
+            should_use_incremental_field=should_use_incremental_field,
+        )
+
+        assert source_response.sort_mode == expected_sort_mode
+
 
 class TestCredentialValidation:
     def _session(self, responses: list[Response]) -> MagicMock:

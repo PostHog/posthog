@@ -11,10 +11,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
     CircleciInsightsResumeConfig,
     CircleciInsightsRetryableError,
     _format_start_date,
+    circleci_insights_source,
     get_rows,
     org_slugs_from_projects,
     parse_project_slugs,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.settings import (
+    CIRCLECI_INSIGHTS_ENDPOINTS,
+    ENDPOINTS,
 )
 
 PATCH_SESSION = "products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.circleci_insights.make_tracked_session"
@@ -551,3 +556,25 @@ class TestPageCap:
         assert len(batches) == 2
         logger.warning.assert_called_once()
         assert "page cap" in logger.warning.call_args.args[0]
+
+
+class TestCircleciInsightsSourceResponse:
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = CIRCLECI_INSIGHTS_ENDPOINTS[endpoint]
+        response = circleci_insights_source("token", "gh/a/one", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
+    def test_workflow_runs_declares_desc_sort(self):
+        # The runs listing returns newest-first; declaring asc would corrupt the
+        # incremental watermark checkpointing.
+        response = circleci_insights_source("token", "gh/a/one", "workflow_runs", mock.MagicMock(), _make_manager())
+        assert response.sort_mode == "desc"

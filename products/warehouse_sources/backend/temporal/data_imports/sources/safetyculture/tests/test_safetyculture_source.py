@@ -3,14 +3,13 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.safetyculture import (
     SafetyCultureSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.settings import (
-    ENDPOINTS,
-    SAFETYCULTURE_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source import SafetyCultureSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSafetyCultureSource:
@@ -19,13 +18,45 @@ class TestSafetyCultureSource:
         self.team_id = 123
         self.config = SafetyCultureSourceConfig(api_token="sc-token")
 
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        by_name = {s.name: s for s in schemas}
-        for name, endpoint_config in SAFETYCULTURE_ENDPOINTS.items():
-            assert by_name[name].supports_incremental is endpoint_config.supports_incremental
-            assert by_name[name].supports_append is endpoint_config.supports_incremental
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.SAFETYCULTURE
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+        assert config.name.value == "SafetyCulture"
+        assert config.label == "SafetyCulture"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # A finished source is visible — it must not carry the scaffolding flag.
+        assert not config.unreleasedSource
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/safetyculture"
+
+        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
+        assert field_names == ["api_token"]
+
+    def test_no_connection_host_fields(self) -> None:
+        # The only field is the secret API token; the base URL is hardcoded, so there is no
+        # non-secret field an editor could retarget to reuse a preserved token against another host.
+        assert self.source.connection_host_fields == []
+
+    @parameterized.expand(
+        [
+            ("401 Client Error: Unauthorized for url: https://api.safetyculture.io/feed/users",),
+            ("403 Client Error: Forbidden for url: https://api.safetyculture.io/feed/inspections?archived=both",),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("500 Server Error: Internal Server Error for url: https://api.safetyculture.io/feed/users",),
+            ("429 Client Error: Too Many Requests for url: https://api.safetyculture.io/feed/inspections",),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
 
     @parameterized.expand(
         [

@@ -1,6 +1,10 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simplecast import (
     SimpleCastSourceConfig,
@@ -9,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast
     SIMPLECAST_API_VERSION_2_0,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.source import SimpleCastSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSimpleCastSource:
@@ -16,6 +21,63 @@ class TestSimpleCastSource:
         self.source = SimpleCastSource()
         self.team_id = 123
         self.config = SimpleCastSourceConfig(api_key="sc-token")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.SIMPLECAST
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+        assert config.name.value == "SimpleCast"
+        assert config.label == "SimpleCast"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # A finished source is visible — it must not carry the scaffolding flag.
+        assert not config.unreleasedSource
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/simplecast"
+
+        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
+        assert field_names == ["api_key"]
+
+    def test_no_connection_host_fields(self) -> None:
+        # The only field is the secret API token; the base URL is hardcoded, so there is no non-secret
+        # field an editor could retarget to reuse a preserved token against another account.
+        assert self.source.connection_host_fields == []
+
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.simplecast.com/podcasts?limit=100&offset=0",
+            ),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://api.simplecast.com/podcasts?limit=100&offset=0",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.simplecast.com/podcasts"),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.simplecast.com/podcasts"),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.source._validate_credentials"
+    )
+    def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
+        # The method is a thin wrapper: it must pass the token through and return the helper's result
+        # unchanged. The status->message mapping itself is covered in test_simplecast.py.
+        mock_validate.return_value = (False, "Invalid Simplecast API token")
+        result = self.source.validate_credentials(self.config, self.team_id)
+        mock_validate.assert_called_once_with("sc-token")
+        assert result == (False, "Invalid Simplecast API token")
 
     def test_supports_legacy_and_2_0_with_2_0_default(self) -> None:
         # 2.0 is the live Simplecast API and the new default; the legacy placeholder stays supported

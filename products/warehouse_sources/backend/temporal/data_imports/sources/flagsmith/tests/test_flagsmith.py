@@ -13,11 +13,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.
     _initial_url,
     _pinned_next_url,
     _read_bounded,
+    flagsmith_source,
     get_rows,
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import FLAGSMITH_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import (
+    ENDPOINTS,
+    FLAGSMITH_ENDPOINTS,
+)
 
 API_BASE = f"{DEFAULT_BASE_URL}/api/v1"
 SESSION_PATH = (
@@ -441,6 +445,20 @@ class TestReadBounded:
 
 
 class TestFlagsmithSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = FLAGSMITH_ENDPOINTS[endpoint]
+        response = flagsmith_source("key", None, endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     def test_users_use_composite_primary_key(self):
         # A user can belong to more than one organisation, so `id` alone would collide.
         assert FLAGSMITH_ENDPOINTS["users"].primary_keys == ["id", "_organisation_id"]

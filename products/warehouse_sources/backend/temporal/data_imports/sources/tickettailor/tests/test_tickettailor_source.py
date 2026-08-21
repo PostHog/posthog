@@ -1,10 +1,13 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tickettailor import (
     TicketTailorSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.source import TicketTailorSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTicketTailorSource:
@@ -12,6 +15,55 @@ class TestTicketTailorSource:
         self.source = TicketTailorSource()
         self.team_id = 123
         self.config = TicketTailorSourceConfig(api_key="tt-key")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.TICKETTAILOR
+
+    def test_no_connection_host_fields(self) -> None:
+        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
+        # field an editor could retarget to reuse a preserved key against another server.
+        assert self.source.connection_host_fields == []
+
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.tickettailor.com/v1/orders?limit=100",
+            ),
+            # Ticket Tailor answers invalid/deleted keys with 403.
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.tickettailor.com/v1/events?limit=100"),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://api.tickettailor.com/v1/orders",
+            ),
+            (
+                "rate_limited",
+                "429 Client Error: Too Many Requests for url: https://api.tickettailor.com/v1/events",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.source.validate_credentials"
+    )
+    def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:
+        # The status-to-message mapping lives in tickettailor.validate_credentials; here we only
+        # assert the source probes with the configured key and returns the delegate's verdict.
+        mock_validate.return_value = (False, "Invalid Ticket Tailor API key")
+        result = self.source.validate_credentials(self.config, self.team_id)
+        mock_validate.assert_called_once_with("tt-key")
+        assert result == (False, "Invalid Ticket Tailor API key")
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.source.tickettailor_source"

@@ -254,6 +254,15 @@ class TestHarvestTransport:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
 
+    @parameterized.expand([("time_entries", "created_at"), ("invoices", "created_at"), ("roles", None)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_partitioning_matches_the_endpoint_config(
+        self, endpoint: str, partition_key: str | None, MockSession: mock.MagicMock
+    ) -> None:
+        response = _source(endpoint)
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.partition_mode == ("datetime" if partition_key else None)
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_sort_mode_is_desc(self, MockSession: mock.MagicMock) -> None:
         # Harvest lists newest-first by a domain date and exposes no sort param, so rows never

@@ -3,6 +3,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamtailor import (
     TeamtailorSourceConfig,
 )
@@ -11,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor
     API_VERSION_20240404,
     API_VERSION_20240904,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTeamtailorSource:
@@ -18,6 +21,52 @@ class TestTeamtailorSource:
         self.source = TeamtailorSource()
         self.team_id = 123
         self.config = TeamtailorSourceConfig(api_key="tt-key")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.TEAMTAILOR
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+        assert config.name.value == "Teamtailor"
+        assert config.label == "Teamtailor"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # A finished source is visible — it must not carry the scaffolding flag.
+        assert not config.unreleasedSource
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/teamtailor"
+
+        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
+        assert field_names == ["api_key"]
+
+    def test_no_connection_host_fields(self) -> None:
+        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
+        # field an editor could retarget to reuse a preserved key against another account.
+        assert self.source.connection_host_fields == []
+
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.teamtailor.com/v1/candidates?page%5Bsize%5D=30",
+            ),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.teamtailor.com/v1/jobs?page%5Bsize%5D=30"),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://api.teamtailor.com/v1/candidates",
+            ),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.teamtailor.com/v1/jobs"),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
 
     def test_version_declarations_default_to_current(self) -> None:
         # New sources start on the newest stable version; the legacy pin stays selectable.

@@ -3,10 +3,17 @@ from typing import Any
 from unittest import mock
 from unittest.mock import MagicMock
 
+from parameterized import parameterized
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.source import BuildkiteSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildkite import (
     BuildkiteSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> BuildkiteSourceConfig:
@@ -17,6 +24,60 @@ class TestBuildkiteSource:
     def setup_method(self) -> None:
         self.source = BuildkiteSource()
         self.team_id = 123
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.BUILDKITE
+
+    def test_connection_host_fields_includes_organization(self) -> None:
+        # The token is sent to api.buildkite.com against <organization>, so retargeting the
+        # organization must force re-entry of the token.
+        assert self.source.connection_host_fields == ["organization"]
+
+    @parameterized.expand(
+        [
+            # Only builds exposes a server-side timestamp filter, so it's the only incremental endpoint.
+            ("builds", True),
+            ("organizations", False),
+            ("pipelines", False),
+            ("agents", False),
+        ]
+    )
+    def test_incremental_support_per_endpoint(self, endpoint: str, expected: bool) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
+        assert schemas[endpoint].supports_incremental is expected
+        assert schemas[endpoint].supports_append is expected
+
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.buildkite.com/v2/organizations/my-org/builds?per_page=100",
+            ),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://api.buildkite.com/v2/organizations/my-org/agents",
+            ),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("read_timeout", "HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out."),
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.buildkite.com/v2"),
+            ("rate_limited", "HTTP 429 for https://api.buildkite.com/v2/organizations/my-org/builds"),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable)
+
+    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
+        # Each declared endpoint should have a curated description so it isn't sent to the LLM.
+        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
+        assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()

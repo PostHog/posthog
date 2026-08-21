@@ -11,6 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ukcompanieshouse import (
     UkCompaniesHouseSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.settings import (
     COMPANIES,
     ENDPOINT_SPECS,
@@ -21,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uk_compani
     NO_COMPANY_NUMBERS_ERROR,
     UkCompaniesHouseSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_TARGET = "products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source.validate_companies_house_credentials"
 TRANSPORT_TARGET = "products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source.uk_companies_house_source"
@@ -50,6 +54,23 @@ class TestUkCompaniesHouseSource:
         self.source = UkCompaniesHouseSource()
         self.config = UkCompaniesHouseSourceConfig(api_key="test-key", company_numbers="6400\nSC123456")
 
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.UKCOMPANIESHOUSE
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas is a static endpoint catalog with no I/O, so it is safe for public docs.
+        assert self.source.lists_tables_without_credentials is True
+
+    def test_get_schemas_lists_every_endpoint_as_full_refresh(self) -> None:
+        schemas = self.source.get_schemas(self.config, team_id=123)
+
+        assert [schema.name for schema in schemas] == list(ENDPOINTS)
+        # No Companies House list endpoint takes an updated-since filter, so nothing may claim
+        # incremental support.
+        assert all(schema.supports_incremental is False for schema in schemas)
+        assert all(schema.supports_append is False for schema in schemas)
+        assert all(schema.description for schema in schemas)
+
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_primary_keys_are_unique_table_wide(self, endpoint: str) -> None:
         # Every child table aggregates rows from every configured company, so the company the row
@@ -59,6 +80,9 @@ class TestUkCompaniesHouseSource:
             assert spec.primary_key == ["company_number"]
         else:
             assert spec.parent_field in spec.primary_key
+
+    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
+        assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -97,6 +121,18 @@ class TestUkCompaniesHouseSource:
         assert rows == [[{"name": "A"}]]
         assert mock_transport.call_args.kwargs["company_numbers"] == ["00006400", "SC123456"]
         assert mock_transport.call_args.kwargs["endpoint"] == OFFICERS
+
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_source_for_pipeline_response_shape(self, endpoint: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+
+        with patch(TRANSPORT_TARGET, return_value=iter([])):
+            response = self.source.source_for_pipeline(self.config, manager, _make_inputs(endpoint))
+
+        assert response.name == endpoint
+        assert response.primary_keys == ENDPOINT_SPECS[endpoint].primary_key
+        # Companies House documents no ordering, so the watermark must not be told rows arrive sorted.
+        assert response.sort_mode is None
 
     def test_source_for_pipeline_rejects_an_unknown_endpoint(self) -> None:
         with pytest.raises(ValueError, match="Unknown Companies House endpoint"):

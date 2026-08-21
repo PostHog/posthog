@@ -10,10 +10,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable.source import WorkableSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> WorkableSourceConfig:
     return WorkableSourceConfig(subdomain="acme", api_token="tok")
+
+
+class TestSourceConfig:
+    def test_source_type(self) -> None:
+        assert WorkableSource().source_type == ExternalDataSourceType.WORKABLE
+
+    def test_subdomain_is_a_connection_host_field(self) -> None:
+        # Retargeting the subdomain must re-require the token (it's where the token is sent).
+        assert WorkableSource().connection_host_fields == ["subdomain"]
 
 
 class TestValidateCredentials:

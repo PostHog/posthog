@@ -1,11 +1,14 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paperform import (
     PaperformSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source import PaperformSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPaperformSource:
@@ -13,6 +16,9 @@ class TestPaperformSource:
         self.source = PaperformSource()
         self.team_id = 123
         self.config = PaperformSourceConfig(api_key="pf-key")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.PAPERFORM
 
     def test_get_schemas_only_submissions_supports_incremental(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
@@ -26,6 +32,43 @@ class TestPaperformSource:
             for name, s in schemas.items()
             if name != "submissions"
         )
+
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.paperform.co/v1/forms?limit=100",
+            ),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://api.paperform.co/v1/spaces?limit=100",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.paperform.co/v1/forms"),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.paperform.co/v1/forms"),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source.validate_credentials"
+    )
+    def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:
+        # The status-to-message mapping lives in paperform.validate_credentials; here we only assert
+        # the source probes with the configured key and returns the delegate's verdict unchanged.
+        mock_validate.return_value = (False, "Invalid Paperform API key")
+        result = self.source.validate_credentials(self.config, self.team_id)
+        mock_validate.assert_called_once_with("pf-key")
+        assert result == (False, "Invalid Paperform API key")
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source.paperform_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

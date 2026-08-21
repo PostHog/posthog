@@ -9,8 +9,13 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.amazon_ads import (
     PAGE_SIZE,
     _base_url,
+    amazon_ads_source,
     get_rows,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import (
+    AMAZON_ADS_ENDPOINTS,
+    ENDPOINTS,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.amazon_ads"
@@ -131,3 +136,16 @@ class TestGetRows:
         mock_session.return_value.get.return_value = _json_response([])
 
         assert list(get_rows("na", "cid", "sec", "rt", "sp_campaigns", mock.MagicMock())) == []
+
+
+class TestAmazonAdsSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = AMAZON_ADS_ENDPOINTS[endpoint]
+        response = amazon_ads_source("na", "cid", "sec", "rt", endpoint, mock.MagicMock())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
+        assert response.partition_keys is None

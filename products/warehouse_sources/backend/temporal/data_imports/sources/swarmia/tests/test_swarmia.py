@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.sw
     check_credentials,
     check_endpoint_access,
     get_rows,
+    swarmia_source,
 )
 
 _TRACKED_SESSION_PATH = (
@@ -380,3 +381,33 @@ class TestHttpSampleCaptureDisabled:
         for call in mock_make_session.call_args_list:
             assert call.kwargs["capture"] is False
             assert call.kwargs["redact_values"] == ("token",)
+
+
+class TestSwarmiaSourceResponse:
+    @parameterized.expand(
+        [
+            ("pull_requests", ["start_date", "end_date", "team"], "start_date"),
+            ("dora", ["start_date", "end_date"], "start_date"),
+            ("investment", ["start_date", "end_date", "investment_category"], "start_date"),
+            ("capex", ["month", "employee_id", "capitalizable_work"], None),
+            ("capex_employees", ["month", "employee_id"], None),
+            ("fte", ["month", "author_id", "issue_key"], None),
+        ]
+    )
+    def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str | None) -> None:
+        response = swarmia_source(
+            api_key="token",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=_mock_manager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == "asc"
+        if partition_key:
+            assert response.partition_keys == [partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+            assert response.partition_mode is None

@@ -6,11 +6,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventzilla import (
     EventzillaSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestEventzillaSourceClass:
     def setup_method(self) -> None:
         self.source = EventzillaSource()
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.EVENTZILLA
 
     def test_all_schemas_are_full_refresh_only(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1)
@@ -35,3 +39,16 @@ class TestEventzillaSourceClass:
         config = EventzillaSourceConfig(api_key="key")
         with patch.object(source_module, "validate_eventzilla_credentials", return_value=valid):
             assert self.source.validate_credentials(config, team_id=1) == expected
+
+    def test_documented_tables_render_without_credentials(self) -> None:
+        # `lists_tables_without_credentials` is on, so public docs get the full static catalog.
+        assert self.source.lists_tables_without_credentials is True
+        tables = self.source.get_documented_tables()
+        assert {t["name"] for t in tables} == {
+            "events",
+            "categories",
+            "users",
+            "attendees",
+            "transactions",
+            "tickets",
+        }

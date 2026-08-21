@@ -3,12 +3,28 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.source import AivenSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aiven import AivenSourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> AivenSourceConfig:
     return AivenSourceConfig.from_dict({"api_token": "tok"})
+
+
+class TestSourceConfig:
+    def test_source_type(self) -> None:
+        assert AivenSource().source_type == ExternalDataSourceType.AIVEN
+
+
+class TestGetSchemas:
+    def test_lists_all_endpoints_full_refresh_only(self) -> None:
+        schemas = AivenSource().get_schemas(_config(), team_id=1)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+        # Aiven exposes no server-side timestamp filter, so nothing is incremental.
+        assert all(s.supports_incremental is False for s in schemas)
+        assert all(s.supports_append is False for s in schemas)
 
 
 class TestValidateCredentials:
@@ -18,3 +34,10 @@ class TestValidateCredentials:
             ok, error = AivenSource().validate_credentials(_config(), team_id=1)
         assert ok is expected
         assert (error is None) is expected
+
+
+class TestDocsAndErrors:
+    def test_documented_tables_cover_every_endpoint(self) -> None:
+        # `lists_tables_without_credentials` is True, so the static catalog renders in public docs.
+        tables = AivenSource().get_documented_tables()
+        assert {t["name"] for t in tables} == set(ENDPOINTS)

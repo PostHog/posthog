@@ -433,3 +433,23 @@ class TestPathways:
 class TestBlandAISourceResponse:
     def test_endpoints_inventory(self) -> None:
         assert ENDPOINTS == ("calls", "call_transcripts", "pathways")
+
+    @parameterized.expand(
+        [
+            ("calls", ["call_id"], ["created_at"]),
+            # The composite key keeps utterances unique table-wide; partitioning uses the parent
+            # call's stable creation time.
+            ("call_transcripts", ["call_id", "id"], ["call_created_at"]),
+            ("pathways", ["id"], None),
+        ]
+    )
+    def test_source_response_shape(
+        self, endpoint: str, primary_keys: list[str], partition_keys: list[str] | None
+    ) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.partition_keys == partition_keys
+        assert response.partition_mode == ("datetime" if partition_keys else None)
+        # Call listings request ascending=true&sort_by=created_at.
+        assert response.sort_mode == "asc"

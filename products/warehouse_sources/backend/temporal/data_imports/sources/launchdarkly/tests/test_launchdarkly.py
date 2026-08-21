@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.launchdark
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.settings import (
+    ENDPOINTS,
     LAUNCHDARKLY_ENDPOINTS,
 )
 
@@ -281,5 +282,18 @@ class TestRetryAndErrors:
 
 
 class TestLaunchDarklySourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, mock_session, endpoint):
+        mock_session.return_value.headers = {}
+        config = LAUNCHDARKLY_ENDPOINTS[endpoint]
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_key
+        # Partitioning is intentionally off (epoch-ms timestamps).
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
     def test_flags_use_composite_primary_key(self):
         assert LAUNCHDARKLY_ENDPOINTS["flags"].primary_key == ["key", "_project_key"]

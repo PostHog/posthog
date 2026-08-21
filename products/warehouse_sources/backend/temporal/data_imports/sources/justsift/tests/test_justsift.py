@@ -201,6 +201,15 @@ class TestRetryAndFailLoud:
 
 
 class TestSourceResponse:
+    @parameterized.expand([("people", ["id"]), ("fields", ["objectKey"])])
+    def test_primary_keys_match_endpoint_config(self, endpoint: str, primary_keys: list[str]) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        # No endpoint exposes a creation timestamp, so nothing is partitioned by datetime.
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
     def test_endpoint_catalog_matches_exported_tuple(self) -> None:
         assert set(JUSTSIFT_ENDPOINTS) == set(ENDPOINTS)
 

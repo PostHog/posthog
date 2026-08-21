@@ -4,7 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.source import AviationstackSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_config(access_key: str = "key") -> Any:
@@ -14,6 +18,31 @@ def _make_config(access_key: str = "key") -> Any:
 
 
 class TestAviationstackSource:
+    def test_source_type(self) -> None:
+        assert AviationstackSource().source_type == ExternalDataSourceType.AVIATIONSTACK
+
+    def test_source_config_has_single_access_key_field(self) -> None:
+        config = AviationstackSource().get_source_config
+        assert [f.name for f in config.fields] == ["access_key"]
+        access_key_field = config.fields[0]
+        assert isinstance(access_key_field, SourceFieldInputConfig)
+        # The access key is a secret credential, so it must render as a password input.
+        assert access_key_field.type == "password"
+        assert access_key_field.secret is True
+        assert access_key_field.required is True
+
+    def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
+        schemas = AviationstackSource().get_schemas(_make_config(), team_id=1)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+        # aviationstack has no server-side updated-at cursor, so nothing supports incremental.
+        assert all(s.supports_incremental is False for s in schemas)
+        assert all(s.supports_append is False for s in schemas)
+        assert all(s.incremental_fields == [] for s in schemas)
+
+    def test_get_schemas_filters_by_names(self) -> None:
+        schemas = AviationstackSource().get_schemas(_make_config(), team_id=1, names=["airlines", "airports"])
+        assert {s.name for s in schemas} == {"airlines", "airports"}
+
     @parameterized.expand(
         [
             ("valid", True, True, None),
@@ -31,6 +60,25 @@ class TestAviationstackSource:
         assert ok is expected_ok
         assert message == expected_message
 
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        inputs = MagicMock()
+        inputs.schema_name = "airlines"
+        inputs.logger = MagicMock()
+        manager = MagicMock()
+
+        response = AviationstackSource().source_for_pipeline(_make_config("abc"), manager, inputs)
+
+        assert response.name == "airlines"
+        # Reference tables carry a stable row id.
+        assert response.primary_keys == ["id"]
+
+    def test_source_for_pipeline_keyless_for_flight_feeds(self) -> None:
+        inputs = MagicMock()
+        inputs.schema_name = "flights"
+        inputs.logger = MagicMock()
+        response = AviationstackSource().source_for_pipeline(_make_config(), MagicMock(), inputs)
+        assert response.primary_keys is None
+
     @parameterized.expand(
         [
             ("http_unauthorized", "401 Client Error: Unauthorized for url: https://api.aviationstack.com"),
@@ -43,3 +91,10 @@ class TestAviationstackSource:
         errors = AviationstackSource().get_non_retryable_errors()
         assert expected_key in errors
         assert errors[expected_key]
+
+    def test_canonical_descriptions_keyed_by_endpoint(self) -> None:
+        descriptions = AviationstackSource().get_canonical_descriptions()
+        # Every documented entry must map to a real endpoint or the docs render orphaned tables.
+        assert set(descriptions.keys()) <= set(ENDPOINTS)
+        assert "flights" in descriptions
+        assert "airlines" in descriptions

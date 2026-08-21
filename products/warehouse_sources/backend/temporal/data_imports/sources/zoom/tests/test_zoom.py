@@ -274,6 +274,12 @@ class TestZoomSourceResponse:
         assert response.partition_keys == ["created_at"]
         assert response.partition_format == "week"
 
+    @patch(CLIENT_SESSION_PATCH)
+    def test_primary_keys_per_endpoint(self, _mock_session: MagicMock) -> None:
+        for endpoint in ("users", "meetings", "webinars"):
+            response = _source(endpoint, _manager())
+            assert response.primary_keys == ["id"]
+
 
 class TestValidateCredentials:
     def _token_resp(self, status: int = 200, payload: dict[str, Any] | None = None) -> MagicMock:

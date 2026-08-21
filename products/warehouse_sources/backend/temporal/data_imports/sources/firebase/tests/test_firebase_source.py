@@ -2,12 +2,16 @@ from typing import Any
 
 from unittest import mock
 
+import structlog
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import AUTH_USERS_TABLE
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source import FirebaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firebase import (
     FirebaseKeyFileConfig,
     FirebaseSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _GET_TABLES = "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source.get_tables"
 _VALIDATE = (
@@ -30,9 +34,41 @@ def firebase_config(**overrides: Any) -> FirebaseSourceConfig:
     )
 
 
+def source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
+    defaults: dict[str, Any] = {
+        "schema_name": schema_name,
+        "schema_id": "schema-id",
+        "source_id": "source-id",
+        "team_id": 1,
+        "should_use_incremental_field": False,
+        "db_incremental_field_last_value": None,
+        "db_incremental_field_earliest_value": None,
+        "incremental_field": None,
+        "incremental_field_type": None,
+        "job_id": "job-id",
+        "logger": structlog.get_logger("firebase-test"),
+        "reset_pipeline": False,
+    }
+    defaults.update(overrides)
+    return SourceInputs(**defaults)
+
+
 class TestFirebaseSource:
     def setup_method(self) -> None:
         self.source = FirebaseSource()
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.FIREBASE
+
+    def test_connection_target_fields_require_credential_re_entry_when_changed(self) -> None:
+        # The Realtime Database host, the Firestore database selector and the Realtime Database
+        # path allow-list all decide what the preserved service account key reads, so editing any
+        # of them has to force key file re-entry.
+        assert self.source.connection_host_fields == [
+            "database_id",
+            "realtime_database_url",
+            "realtime_database_paths",
+        ]
 
     def test_get_schemas_lists_discovered_tables_as_full_refresh(self) -> None:
         with mock.patch(_GET_TABLES, return_value=[AUTH_USERS_TABLE, "firestore_rooms"]):
@@ -46,3 +82,10 @@ class TestFirebaseSource:
             schemas = self.source.get_schemas(firebase_config(), team_id=1, names=["firestore_rooms"])
 
         assert [schema.name for schema in schemas] == ["firestore_rooms"]
+
+    def test_source_for_pipeline_syncs_the_requested_table(self) -> None:
+        manager = self.source.get_resumable_source_manager(source_inputs("firestore_rooms"))
+
+        response = self.source.source_for_pipeline(firebase_config(), manager, source_inputs("firestore_rooms"))
+
+        assert response.name == "firestore_rooms"

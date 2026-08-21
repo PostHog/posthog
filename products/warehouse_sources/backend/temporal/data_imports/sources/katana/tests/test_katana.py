@@ -337,6 +337,30 @@ class TestErrorHandling:
         assert session.send.call_count == 2
 
 
+class TestKatanaSourceResponse:
+    @parameterized.expand(
+        [
+            ("customers", ["id"], "created_at"),
+            ("inventory", ["variant_id", "location_id"], None),
+            ("price_lists", ["id"], None),
+            ("inventory_movements", ["id"], "created_at"),
+        ]
+    )
+    def test_source_response_shape(self, endpoint: str, expected_pk: list[str], partition_key: str | None) -> None:
+        response = katana_source(
+            api_key="k", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pk
+        assert response.sort_mode == "desc"
+        if partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
+
 class TestValidateCredentials:
     @patch(KATANA_SESSION_PATCH)
     def test_valid_key(self, mock_session_factory: MagicMock) -> None:

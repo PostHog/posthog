@@ -14,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.mat
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.settings import (
+    ENDPOINTS,
+    MATOMO_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
     VISIT_FINALITY_WINDOW_SECONDS,
 )
@@ -273,6 +275,15 @@ class TestReports:
 
 
 class TestMatomoSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = MATOMO_ENDPOINTS[endpoint]
+        response = matomo_source("https://m.example.com", "1", "token", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+
     @pytest.mark.parametrize(
         "endpoint,expected_mode,expected_keys,expected_format",
         [

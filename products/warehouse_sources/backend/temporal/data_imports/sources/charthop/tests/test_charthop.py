@@ -18,7 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.c
     charthop_source,
     resolve_org_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import CHARTHOP_V1, CHARTHOP_V2
+from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import (
+    CHARTHOP_V1,
+    CHARTHOP_V2,
+    ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -284,3 +288,22 @@ class TestResolveOrgId:
             with pytest.raises(ChartHopAPIError) as exc:
                 resolve_org_id("key", None)
         assert "401 Client Error" in str(exc.value)
+
+
+class TestChartHopSource:
+    def test_changes_partitioned_by_effective_date(self) -> None:
+        response = _source("changes", _make_manager())
+        assert response.name == "changes"
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["date"]
+
+    def test_full_refresh_endpoint_is_unpartitioned(self) -> None:
+        response = _source("persons", _make_manager())
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+    def test_all_endpoints_buildable(self) -> None:
+        for endpoint in ENDPOINTS:
+            response = _source(endpoint, _make_manager())
+            assert response.primary_keys == ["id"]

@@ -409,3 +409,34 @@ class TestValidateCredentials:
             valid, error = validate_credentials("token")
         assert valid is False
         assert error is not None
+
+
+class TestCodefreshSourceResponse:
+    @parameterized.expand(
+        [
+            ("projects", ["id"], None),
+            ("pipelines", ["id"], None),
+            ("builds", ["id"], "created"),
+            ("images", ["id"], "created"),
+            ("triggers", ["event", "pipeline"], None),
+            ("step_types", ["id"], None),
+        ]
+    )
+    def test_source_response_primary_keys_and_partition(
+        self, endpoint: str, expected_keys: list[str], partition_key: str | None
+    ) -> None:
+        response = _source(endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        if partition_key is None:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [partition_key]
+
+    def test_every_endpoint_has_a_source_response(self) -> None:
+        # Guards against an endpoint added to settings without transport wiring.
+        for endpoint in CODEFRESH_ENDPOINTS:
+            response = _source(endpoint)
+            assert response.primary_keys

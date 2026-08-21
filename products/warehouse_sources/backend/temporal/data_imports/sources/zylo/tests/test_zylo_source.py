@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zylo import ZyloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source import ZyloSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZyloSource:
@@ -12,6 +13,13 @@ class TestZyloSource:
         self.source = ZyloSource()
         self.team_id = 123
         self.config = ZyloSourceConfig(token_id="tok_id", token_secret="tok_secret")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.ZYLO
+
+    def test_get_schemas_lists_all_endpoints(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
 
     @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
     def test_get_schemas_all_support_incremental(self, endpoint: str) -> None:
@@ -21,6 +29,14 @@ class TestZyloSource:
         assert schema.supports_append is True
         fields = {f["field"] for f in schema.incremental_fields}
         assert fields == {"zylo_created_at", "zylo_modified_at"}
+
+    def test_get_schemas_filtered_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["Applications"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "Applications"
+
+    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
+        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @pytest.mark.parametrize(
         ("mock_return", "expected_valid", "expected_message"),

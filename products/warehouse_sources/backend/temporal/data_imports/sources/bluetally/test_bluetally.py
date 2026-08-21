@@ -14,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.
     bluetally_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.settings import BLUETALLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.settings import (
+    BLUETALLY_ENDPOINTS,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     DEFAULT_RETRY_ATTEMPTS,
     RESTClientRetryableError,
@@ -213,6 +216,17 @@ class TestErrors:
 
 
 class TestBluetallySourceResponse:
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, name: str, MockSession) -> None:
+        response = _source(endpoint=name)
+        assert response.name == name
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        # Stable creation timestamp drives datetime partitioning for every endpoint.
+        assert response.partition_keys == ["created_at"]
+        assert response.partition_mode == "datetime"
+
     def test_every_endpoint_partitions_on_created_at(self) -> None:
         # Guards against accidentally partitioning on a churning field like updated_at.
         assert all(cfg.partition_key == "created_at" for cfg in BLUETALLY_ENDPOINTS.values())

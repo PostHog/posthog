@@ -280,6 +280,34 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("organizations", ["id"]),
+            ("spaces", ["id"]),
+            ("collections", ["id"]),
+            ("sites", ["organization_id", "id"]),
+            ("members", ["organization_id", "id"]),
+            ("teams", ["organization_id", "id"]),
+            ("change_requests", ["space", "id"]),
+            ("comments", ["space_id", "id"]),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(
+        self, endpoint: str, expected_primary_keys: list[str], _mock_session: MagicMock
+    ) -> None:
+        response = gitbook_source(
+            api_token="gb-token",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_primary_keys
+        # No stable creation timestamp exists on every object, so we don't partition by datetime.
+        assert response.partition_mode is None
+
     def test_endpoint_catalog_is_consistent(self) -> None:
         assert set(GITBOOK_ENDPOINTS) == set(ENDPOINTS)
         # Fan-out endpoints whose ids are not documented as globally unique must carry the parent

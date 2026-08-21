@@ -169,6 +169,17 @@ class TestFlattenObservation:
 
 
 class TestRequiredDataSelector:
+    def test_error_envelope_raises_a_message_the_source_can_classify(self) -> None:
+        # An unknown indicator code comes back as HTTP 200 with an error envelope. The raised
+        # message is what `WorldBankSource.get_non_retryable_errors` matches on, so the two must
+        # stay in step.
+        with pytest.raises(ValueError) as excinfo:
+            RESTClient()._extract_response(
+                [{"message": [{"id": "120", "key": "Invalid value"}]}], DATA_SELECTOR, required=True
+            )
+
+        assert "Required data_selector '[1]' matched nothing in the response" in str(excinfo.value)
+
     def test_null_row_list_is_a_valid_empty_page(self) -> None:
         # An indicator with no observations for the requested filter answers `[metadata, null]`.
         assert RESTClient()._extract_response(_payload(None), DATA_SELECTOR, required=True) == []

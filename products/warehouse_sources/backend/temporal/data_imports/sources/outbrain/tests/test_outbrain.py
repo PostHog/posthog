@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain import (
@@ -7,7 +8,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.o
     OutbrainResumeConfig,
     _token_cache_key,
     get_rows,
+    outbrain_source,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.settings import (
+    ENDPOINTS,
+    OUTBRAIN_ENDPOINTS,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain"
@@ -26,6 +32,12 @@ def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
     resp.status_code = status_code
     resp.ok = status_code < 400
     return resp
+
+
+def _no_cache() -> mock.MagicMock:
+    cache = mock.MagicMock()
+    cache.get.return_value = None
+    return cache
 
 
 class TestTokenCaching:
@@ -213,3 +225,15 @@ class TestReportStreams:
         assert "_date" not in flat[0]
         report_url = mock_session.return_value.get.call_args_list[1].args[0]
         assert "breakdown" not in report_url
+
+
+class TestOutbrainSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = OUTBRAIN_ENDPOINTS[endpoint]
+        response = outbrain_source("u", "p", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        expected_sort = "desc" if config.incremental_fields else "asc"
+        assert response.sort_mode == expected_sort

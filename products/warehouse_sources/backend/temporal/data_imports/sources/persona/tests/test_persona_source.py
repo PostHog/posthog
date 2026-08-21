@@ -6,6 +6,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PersonaSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.source import PersonaSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestPersonaSourceConfig:
+    def test_source_type(self) -> None:
+        assert PersonaSource().source_type == ExternalDataSourceType.PERSONA
 
 
 class TestPersonaGetSchemas:
@@ -39,6 +45,20 @@ class TestPersonaGetSchemas:
         schemas = {s.name: s for s in PersonaSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas["verifications"].should_sync_default is False
         assert all(s.should_sync_default for name, s in schemas.items() if name != "verifications")
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog (no I/O), so the public docs render the table list.
+        assert PersonaSource.lists_tables_without_credentials is True
+        tables = PersonaSource().get_documented_tables()
+        assert {t["name"] for t in tables} == {
+            "inquiries",
+            "verifications",
+            "accounts",
+            "cases",
+            "transactions",
+            "events",
+            "inquiry_templates",
+        }
 
 
 class TestPersonaValidateCredentials:

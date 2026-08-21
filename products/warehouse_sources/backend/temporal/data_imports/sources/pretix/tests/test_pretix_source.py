@@ -2,8 +2,12 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pretix import PretixSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.settings import INCREMENTAL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.settings import (
+    ENDPOINTS,
+    INCREMENTAL_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source import PretixSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPretixSource:
@@ -12,10 +16,45 @@ class TestPretixSource:
         self.team_id = 123
         self.config = PretixSourceConfig(organizer="acme", api_token="test-token")
 
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.PRETIX
+
+    def test_connection_host_fields_covers_base_url(self):
+        # Retargeting the API URL must force re-entry of the token, otherwise an editor could point
+        # the preserved token at a host they control.
+        assert self.source.connection_host_fields == ["base_url"]
+
+    def test_non_retryable_errors_matches_observed_error_message(self):
+        observed_error = "401 Client Error: Unauthorized for url: https://pretix.eu/api/v1/organizers/acme/orders/"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    def test_get_schemas_lists_all_endpoints(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+
+    def test_get_schemas_incremental_flags_match_settings(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        for schema in schemas:
+            expected = schema.name in INCREMENTAL_ENDPOINTS
+            assert schema.supports_incremental is expected
+            assert schema.supports_append is expected
+            if expected:
+                assert schema.incremental_fields, f"{schema.name} should advertise incremental fields"
+            else:
+                assert schema.incremental_fields == []
+
     def test_orders_is_the_only_incremental_endpoint(self):
         # Only `orders` has a documented server-side `modified_since` filter; advertising incremental
         # on another endpoint would silently full-refresh under an incremental label.
         assert set(INCREMENTAL_ENDPOINTS) == {"orders"}
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["events", "nonexistent"])
+
+        assert [schema.name for schema in schemas] == ["events"]
 
     def test_source_for_pipeline_rejects_unknown_schema(self):
         inputs = mock.MagicMock()

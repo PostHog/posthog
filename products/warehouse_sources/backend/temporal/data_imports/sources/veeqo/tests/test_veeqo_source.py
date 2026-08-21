@@ -1,6 +1,12 @@
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.source import VeeqoSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestVeeqoSourceType:
+    def test_source_type(self) -> None:
+        assert VeeqoSource().source_type == ExternalDataSourceType.VEEQO
 
 
 class TestVeeqoSourceNonRetryableErrors:

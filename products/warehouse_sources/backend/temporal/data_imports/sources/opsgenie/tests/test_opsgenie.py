@@ -346,6 +346,19 @@ class TestValidateCredentials:
 
 
 class TestOpsgenieSourceResponse:
+    def test_alerts_partitioned_on_created_at(self) -> None:
+        response = _source("alerts", _FakeManager())
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["createdAt"]
+        assert response.partition_mode == "datetime"
+        assert response.sort_mode == "asc"
+
+    def test_unpartitioned_endpoint_has_no_partition_settings(self) -> None:
+        response = _source("users", _FakeManager())
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys is None
+        assert response.partition_mode is None
+
     @pytest.mark.parametrize("endpoint", list(OPSGENIE_ENDPOINTS.keys()))
     def test_every_endpoint_builds_a_response(self, endpoint: str) -> None:
         response = _source(endpoint, _FakeManager())

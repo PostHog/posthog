@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
+    ENDPOINTS,
     PLAUSIBLE_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
     SESSION_SCOPED_DIMENSIONS,
@@ -303,3 +304,18 @@ class TestEndpointMetricScopes:
             PlausibleEndpointConfig(
                 name="bad", breakdown_dimensions=["visit:exit_page"], metrics=["pageviews", "events"]
             )
+
+
+class TestPlausibleSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
+        config = PLAUSIBLE_ENDPOINTS[endpoint]
+        response = _source(endpoint=endpoint)
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert "date" in (response.primary_keys or [])
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["date"]

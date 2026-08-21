@@ -18,12 +18,34 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source import (
     GoogleAnalyticsSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
 def _config(property_id: str = "123456789", custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:
     return GoogleAnalyticsSourceConfig(
         property_id=property_id, google_analytics_integration_id=1, custom_reports=custom_reports
     )
+
+
+def test_source_type():
+    assert GoogleAnalyticsSource().source_type == ExternalDataSourceType.GOOGLEANALYTICS
+
+
+def test_get_schemas_returns_all_schemas_with_date_incremental():
+    schemas = GoogleAnalyticsSource().get_schemas(_config(), team_id=1)
+
+    assert {s.name for s in schemas} == set(GOOGLE_ANALYTICS_REPORT_SCHEMAS.keys())
+    for schema in schemas:
+        assert schema.supports_incremental is True
+        assert schema.supports_append is True
+        assert schema.incremental_fields == [
+            {
+                "label": "date",
+                "field": "date",
+                "type": IncrementalFieldType.Date,
+                "field_type": IncrementalFieldType.Date,
+            }
+        ]
 
 
 def test_get_schemas_default_sync_set():
@@ -42,6 +64,11 @@ def test_get_schemas_default_sync_set():
         "traffic_sources",
         "user_acquisition",
     }
+
+
+def test_get_schemas_filters_by_names():
+    schemas = GoogleAnalyticsSource().get_schemas(_config(), team_id=1, names=["website_overview", "events"])
+    assert {s.name for s in schemas} == {"website_overview", "events"}
 
 
 def test_get_schemas_includes_user_defined_custom_reports():
@@ -245,6 +272,12 @@ def test_non_retryable_errors_matches_revoked_refresh_token():
     observed_error = str(RefreshError("invalid_grant: Bad Request", {"error": "invalid_grant"}))
     non_retryable_errors = GoogleAnalyticsSource().get_non_retryable_errors()
     assert error_message_matches(observed_error, non_retryable_errors)
+
+
+def test_retryable_errors_cover_exhausted_quota_retries():
+    error_msg = "Data API quota for property '123456789' still exhausted after 5 retries (retryable)"
+    patterns = GoogleAnalyticsSource().get_retryable_errors()
+    assert any(pattern in error_msg for pattern in patterns)
 
 
 def test_retryable_errors_cover_connection_reset():

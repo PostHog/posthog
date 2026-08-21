@@ -636,3 +636,36 @@ class TestLinearSource:
 
         assert pages == [[{"id": "a"}], [{"id": "b"}]]
         manager.save_state.assert_called_once_with(LinearResumeConfig(cursor="cursor-a"))
+
+
+class TestLinearSourceNonRetryableErrors:
+    @parameterized.expand(
+        [
+            # The OAuthMixin raises "Integration not found: <id>" when the linked integration was
+            # deleted. The id varies, so matching must rely on the stable prefix.
+            ("deleted_integration", "Integration not found: 165665"),
+            ("auth_401", "401 Client Error: Unauthorized for url: https://api.linear.app/graphql"),
+            ("forbidden_403", "403 Client Error: Forbidden for url: https://api.linear.app/graphql"),
+            # NotImplementedError raised by OauthIntegration when the instance lacks Linear client id/secret.
+            ("app_not_configured", "Linear app not configured"),
+        ]
+    )
+    def test_non_retryable_errors_match(self, _name: str, observed_error: str) -> None:
+        non_retryable_errors = LinearSource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            ("transient_500", "500 Server Error for url: https://api.linear.app/graphql"),
+            ("rate_limited", "Linear: rate limited (429)"),
+            ("graphql_error", "Linear GraphQL error: Something failed"),
+            (
+                "read_timeout",
+                "Linear: transient network error - HTTPSConnectionPool(host='api.linear.app', port=443): Read timed out. (read timeout=60)",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_does_not_match_transient(self, _name: str, observed_error: str) -> None:
+        non_retryable_errors = LinearSource().get_non_retryable_errors()
+        # Transient/server errors must stay retryable so the pipeline backs off and retries.
+        assert not any(key in observed_error for key in non_retryable_errors)

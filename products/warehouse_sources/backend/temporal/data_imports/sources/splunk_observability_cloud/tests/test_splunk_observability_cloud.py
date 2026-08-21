@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.settings import (
     PAGE_SIZE,
     SIGNALFLOW_DEFAULT_LOOKBACK_DAYS,
+    SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.splunk_observability_cloud import (
     SplunkObservabilityCloudResumeConfig,
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_obs
     _to_epoch_ms,
     get_rows,
     normalize_realm,
+    splunk_observability_cloud_source,
     validate_credentials,
 )
 
@@ -366,6 +368,49 @@ class TestSignalFlow:
         params = post_kwargs["params"]
         expected_window_ms = SIGNALFLOW_DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000
         assert int(params["stop"]) - int(params["start"]) == expected_window_ms
+
+
+class TestSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS.keys()))
+    def test_primary_keys_and_partitioning_match_settings(self, endpoint: str) -> None:
+        config = SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS[endpoint]
+        response = splunk_observability_cloud_source(
+            realm="us0",
+            access_token="test-token",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=_make_manager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+
+    def test_detector_events_defers_watermark_to_job_end(self) -> None:
+        # The fan-out is not globally time-ordered, so the watermark must not
+        # checkpoint per batch (desc mode persists it only at successful job end).
+        response = splunk_observability_cloud_source(
+            realm="us0",
+            access_token="test-token",
+            endpoint="detector_events",
+            logger=MagicMock(),
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.sort_mode == "desc"
+
+    def test_metric_time_series_streams_ascending(self) -> None:
+        response = splunk_observability_cloud_source(
+            realm="us0",
+            access_token="test-token",
+            endpoint="metric_time_series",
+            logger=MagicMock(),
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.sort_mode == "asc"
 
 
 class TestRedirectHardening:

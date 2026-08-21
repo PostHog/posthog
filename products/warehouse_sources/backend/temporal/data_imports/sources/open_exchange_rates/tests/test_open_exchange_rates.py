@@ -25,6 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.open_excha
     open_exchange_rates_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.settings import (
+    OPEN_EXCHANGE_RATES_ENDPOINTS,
+)
 
 
 class _FakeResponse:
@@ -361,12 +364,37 @@ class TestGetRows:
 
 
 class TestOpenExchangeRatesSourceResponse:
+    @parameterized.expand(
+        [
+            ("currencies", ["code"]),
+            ("latest", ["base", "currency", "date"]),
+            ("historical", ["base", "currency", "date"]),
+            ("usage", ["id"]),
+        ]
+    )
+    def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
+        response = open_exchange_rates_source("key", endpoint, "USD", None, mock.MagicMock(), mock.MagicMock())
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        assert response.sort_mode == "asc"
+
     @parameterized.expand([("latest",), ("historical",)])
     def test_rate_endpoints_partition_on_stable_date(self, endpoint: str) -> None:
         response = open_exchange_rates_source("key", endpoint, "USD", None, mock.MagicMock(), mock.MagicMock())
         assert response.partition_keys == ["date"]
         assert response.partition_mode == "datetime"
         assert response.partition_format == "month"
+
+    @parameterized.expand([("currencies",), ("usage",)])
+    def test_catalog_endpoints_are_not_partitioned(self, endpoint: str) -> None:
+        response = open_exchange_rates_source("key", endpoint, "USD", None, mock.MagicMock(), mock.MagicMock())
+        assert response.partition_keys is None
+
+    def test_every_settings_endpoint_builds_a_source_response(self) -> None:
+        for endpoint in OPEN_EXCHANGE_RATES_ENDPOINTS:
+            response = open_exchange_rates_source("key", endpoint, "USD", None, mock.MagicMock(), mock.MagicMock())
+            assert response.name == endpoint
+            assert response.primary_keys == OPEN_EXCHANGE_RATES_ENDPOINTS[endpoint].primary_keys
 
     def test_default_base_currency_is_usd(self) -> None:
         assert DEFAULT_BASE_CURRENCY == "USD"

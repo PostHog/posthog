@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source import KustomerSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # The REST framework builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -23,6 +24,41 @@ class TestKustomerSource:
         self.source = KustomerSource()
         self.team_id = 123
         self.config = KustomerSourceConfig(org_name="myorg", api_key="api-key")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.KUSTOMER
+
+    def test_org_name_is_a_connection_host_field(self):
+        # The stored API key is sent to the host derived from org_name, so
+        # retargeting it must force re-entry of the secret.
+        assert self.source.connection_host_fields == ["org_name"]
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://myorg.api.kustomerapp.com/v1/customers",
+            "403 Client Error: Forbidden for url: https://myorg.api.kustomerapp.com/v1/users",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    def test_non_retryable_errors_does_not_match_server_errors(self):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(
+            key in "500 Server Error for url: https://myorg.api.kustomerapp.com/v1/customers"
+            for key in non_retryable_errors
+        )
+
+    def test_get_schemas_are_full_refresh_only(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+        # GET list endpoints have no updated-since filter; full refresh only.
+        assert all(not schema.supports_incremental for schema in schemas)
+        assert all(not schema.supports_append for schema in schemas)
+        assert all(schema.incremental_fields == [] for schema in schemas)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

@@ -295,3 +295,18 @@ class TestOuraSourceResponse:
         assert response.partition_mode == "datetime"
         assert response.partition_format == "month"
         assert response.sort_mode == "asc"
+
+    def test_heartrate_uses_composite_key_and_timestamp_partition(self) -> None:
+        response = _source("heartrate", _make_manager())
+        assert response.primary_keys == ["timestamp", "source"]
+        assert response.partition_keys == ["timestamp"]
+
+    def test_enhanced_tag_partitions_on_start_day(self) -> None:
+        response = _source("enhanced_tag", _make_manager())
+        assert response.partition_keys == ["start_day"]
+
+    @parameterized.expand([("personal_info",), ("ring_configuration",)])
+    def test_full_refresh_endpoints_are_unpartitioned(self, endpoint: str) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.partition_keys is None
+        assert response.partition_mode is None

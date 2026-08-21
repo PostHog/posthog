@@ -306,6 +306,18 @@ class TestFetch:
         with pytest.raises(requests.HTTPError, match="Latitude must be in range"):
             _fetch(session, "https://archive-api.open-meteo.com/v1/archive")
 
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    def test_transient_statuses_are_not_reported_as_permanent_rejections(self, status: int) -> None:
+        # The tracked session's adapter already retried these; surfacing them under the
+        # `get_non_retryable_errors` wording would permanently disable the source instead.
+        session = _fake_session([_response(status, {})])
+
+        with pytest.raises(requests.HTTPError) as excinfo:
+            _fetch(session, "https://api.open-meteo.com/v1/forecast")
+
+        assert "Open-Meteo rejected" not in str(excinfo.value)
+        assert "apikey=REDACTED" in str(excinfo.value)
+
     def test_falls_back_to_the_http_reason_when_the_error_body_is_not_json(self) -> None:
         response = _response(400, {})
         response.json.side_effect = ValueError("no json here")

@@ -6,12 +6,43 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tyntecsms import (
     TyntecSMSSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.settings import (
+    CONTACTS,
+    ENDPOINTS,
+    MESSAGE_STATUS,
+    PHONE_NUMBERS,
+    PHONE_REGISTRATIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.source import TyntecSMSSource
 
 
 class TestTyntecSMSSource:
     def setup_method(self) -> None:
         self.source = TyntecSMSSource()
+
+    def test_get_schemas_are_full_refresh_only(self) -> None:
+        # tyntec has no server-side timestamp filters, so no table may advertise incremental sync.
+        schemas = self.source.get_schemas(TyntecSMSSourceConfig(api_key="key"), team_id=1)
+
+        assert [schema.name for schema in schemas] == list(ENDPOINTS)
+        assert all(not schema.supports_incremental and not schema.supports_append for schema in schemas)
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_default"),
+        [
+            (MESSAGE_STATUS, True),
+            # BYON tables default off: the live gateway 404s them on accounts without the
+            # BYON service, and a default-on table would fail every fresh source's first sync.
+            (CONTACTS, False),
+            (PHONE_NUMBERS, False),
+            (PHONE_REGISTRATIONS, False),
+        ],
+    )
+    def test_should_sync_defaults(self, endpoint: str, expected_default: bool) -> None:
+        schemas = self.source.get_schemas(TyntecSMSSourceConfig(api_key="key"), team_id=1)
+        schema = next(s for s in schemas if s.name == endpoint)
+
+        assert schema.should_sync_default is expected_default
 
     def test_validate_credentials_rejects_empty_key_without_network(self) -> None:
         with patch(

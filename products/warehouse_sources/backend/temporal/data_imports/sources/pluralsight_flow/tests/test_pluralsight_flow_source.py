@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.source import (
     PluralsightFlowSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPluralsightFlowSource:
@@ -14,6 +15,37 @@ class TestPluralsightFlowSource:
         self.source = PluralsightFlowSource()
         self.team_id = 123
         self.config = PluralsightFlowSourceConfig(workspace="acme", api_key="key")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.PLURALSIGHTFLOW
+
+    def test_workspace_listed_as_connection_host_field(self):
+        # The API key is sent to <workspace>.appfireflow.com, so retargeting the workspace must
+        # re-require it.
+        assert self.source.connection_host_fields == ["workspace"]
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://acme.appfireflow.com/v3/customer/core/users/",
+            "403 Client Error: Forbidden for url: https://api.appfireflow.com/collaboration/code/metrics/",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "429 Client Error: Too Many Requests for url: https://acme.appfireflow.com/v3/customer/core/users/",
+            "500 Server Error: Internal Server Error for url: https://acme.appfireflow.com/v3/customer/core/users/",
+            "HTTPSConnectionPool(host='acme.appfireflow.com', port=443): Read timed out.",
+        ],
+    )
+    def test_non_retryable_errors_do_not_match_transient(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

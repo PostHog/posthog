@@ -271,3 +271,13 @@ class TestSourceResponse:
         response = openrouter_source("sk-or-x", endpoint, mock.Mock(), _no_resume())
         assert response.primary_keys == expected_keys
         assert response.sort_mode == "asc"
+
+    def test_activity_partitions_on_date(self):
+        response = openrouter_source("sk-or-x", "activity", mock.Mock(), _no_resume())
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["date"]
+
+    def test_catalog_tables_not_partitioned(self):
+        response = openrouter_source("sk-or-x", "models", mock.Mock(), _no_resume())
+        assert response.partition_mode is None
+        assert response.partition_keys is None

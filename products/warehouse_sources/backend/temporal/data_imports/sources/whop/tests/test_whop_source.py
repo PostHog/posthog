@@ -1,13 +1,19 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import ReleaseStatus
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whop import WhopSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
     ALL_WEBHOOK_EVENTS,
+    ENDPOINTS,
+    INCREMENTAL_ENDPOINTS,
+    MERGE_ONLY_ENDPOINTS,
     SCHEMA_TO_WEBHOOK_EVENTS,
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.source import WhopSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.whop.source.api_client"
 
@@ -19,6 +25,37 @@ class TestWhopSource:
         self.source = WhopSource()
         self.team_id = 123
         self.config = WhopSourceConfig(api_key="test-api-key", company_id="biz_test")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.WHOP
+
+    def test_get_source_config(self):
+        config = self.source.get_source_config
+
+        assert config.name.value == "Whop"
+        assert config.label == "Whop"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # The source must ship visible: unreleasedSource hides it from every user.
+        assert not config.unreleasedSource
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/whop"
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_incremental_support_matches_the_endpoint_catalog(self, endpoint):
+        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
+
+        assert schema.supports_incremental is (endpoint in INCREMENTAL_ENDPOINTS)
+        if schema.supports_incremental:
+            assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
+        else:
+            assert schema.incremental_fields == []
+        # Endpoints paged newest-first re-yield watermark boundary rows, which append would
+        # duplicate; only a merge on `id` dedupes them.
+        assert schema.supports_append is (endpoint in INCREMENTAL_ENDPOINTS and endpoint not in MERGE_ONLY_ENDPOINTS)
+
+    def test_canonical_descriptions_only_describe_real_schemas(self):
+        # A key that doesn't match a schema name is silently ignored, so the descriptions would
+        # never reach the table they were written for.
+        assert set(self.source.get_canonical_descriptions()) <= set(ENDPOINTS)
 
     def test_webhook_resource_map_routes_by_distinct_event_prefix(self):
         mapping = self.source.webhook_resource_map
@@ -112,3 +149,36 @@ class TestWhopSource:
             WEBHOOK_URL,
             sorted(SCHEMA_TO_WEBHOOK_EVENTS["refunds"]),
         )
+
+    def test_source_for_pipeline_plumbs_the_sync_inputs(self):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "payments"
+        inputs.team_id = self.team_id
+        inputs.job_id = "job-1"
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2024-05-01T00:00:00Z"
+        manager = mock.MagicMock()
+
+        with mock.patch(API_CLIENT_PATCH) as api_client:
+            self.source.source_for_pipeline(self.config, manager, inputs)
+
+        kwargs = api_client.whop_source.call_args.kwargs
+        assert kwargs["api_key"] == "test-api-key"
+        assert kwargs["company_id"] == "biz_test"
+        assert kwargs["endpoint"] == "payments"
+        assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == "2024-05-01T00:00:00Z"
+
+    def test_source_for_pipeline_withholds_the_watermark_on_a_full_refresh(self):
+        # Passing a stale watermark through on a full refresh would filter out every row that
+        # predates it, quietly shrinking the table the user asked to rebuild.
+        inputs = mock.MagicMock()
+        inputs.schema_name = "payments"
+        inputs.should_use_incremental_field = False
+        inputs.db_incremental_field_last_value = "2024-05-01T00:00:00Z"
+
+        with mock.patch(API_CLIENT_PATCH) as api_client:
+            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert api_client.whop_source.call_args.kwargs["db_incremental_field_last_value"] is None

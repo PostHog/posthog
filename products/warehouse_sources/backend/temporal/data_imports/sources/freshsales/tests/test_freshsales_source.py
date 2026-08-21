@@ -2,10 +2,12 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.source import FreshsalesSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshsales import (
     FreshsalesSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(domain: str = "acme", api_key: str = "key") -> FreshsalesSourceConfig:
@@ -13,6 +15,25 @@ def _config(domain: str = "acme", api_key: str = "key") -> FreshsalesSourceConfi
 
 
 class TestFreshsalesSource:
+    def test_source_type(self) -> None:
+        assert FreshsalesSource().source_type == ExternalDataSourceType.FRESHSALES
+
+    def test_connection_host_fields(self) -> None:
+        # The API key is sent to a host derived from `domain`, so retargeting it must re-require the key.
+        assert FreshsalesSource().connection_host_fields == ["domain"]
+
+    def test_get_schemas_full_refresh_only(self) -> None:
+        schemas = FreshsalesSource().get_schemas(_config(), team_id=1)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+        # Freshsales has no verified server-side timestamp filter, so every endpoint is full refresh.
+        assert all(s.supports_incremental is False for s in schemas)
+        assert all(s.supports_append is False for s in schemas)
+        assert all(s.incremental_fields == [] for s in schemas)
+
+    def test_get_schemas_filters_by_name(self) -> None:
+        schemas = FreshsalesSource().get_schemas(_config(), team_id=1, names=["contacts", "deals"])
+        assert {s.name for s in schemas} == {"contacts", "deals"}
+
     @parameterized.expand(
         [
             ("valid", True, None, None, None, True),

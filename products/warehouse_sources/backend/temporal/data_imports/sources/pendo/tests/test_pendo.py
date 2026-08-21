@@ -10,8 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.pend
     PendoResumeConfig,
     get_base_url,
     get_rows,
+    pendo_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.settings import ENDPOINTS, PENDO_ENDPOINTS
 
 PENDO_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.pendo.pendo"
 
@@ -232,3 +234,16 @@ class TestGetRowsAggregation:
 
         pipeline = mock_session.return_value.request.call_args.kwargs["json"]["request"]["pipeline"]
         assert {"filter": 'visitorId>"ab\\"cd"'} in pipeline
+
+
+class TestPendoSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = PENDO_ENDPOINTS[endpoint]
+        response = pendo_source("key", "us", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        # Pendo timestamps are epoch-ms, so we intentionally ship unpartitioned full-refresh tables.
+        assert response.partition_mode is None
+        assert response.partition_keys is None

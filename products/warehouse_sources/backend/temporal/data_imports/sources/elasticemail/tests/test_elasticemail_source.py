@@ -8,6 +8,12 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.source import ElasticemailSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestSourceConfig:
+    def test_source_type(self) -> None:
+        assert ElasticemailSource().source_type == ExternalDataSourceType.ELASTICEMAIL
 
 
 class TestGetSchemas:
@@ -61,3 +67,43 @@ class TestValidateCredentials:
         ElasticemailSource().validate_credentials(SimpleNamespace(api_key="key"), team_id=1, schema_name="templates")  # type: ignore[arg-type]
         assert captured["path"] == "/templates"
         assert captured["extra_params"] == {"scopeType": ["Personal", "Global"]}
+
+
+class TestNonRetryableErrors:
+    def test_auth_error_is_non_retryable(self) -> None:
+        errors = ElasticemailSource().get_non_retryable_errors()
+        observed = (
+            'ElasticEmailAuthError: Elastic Email API authentication failed (HTTP 400): {"Error":"APIKey Expired"}'
+        )
+        assert any(key in observed for key in errors)
+
+    @parameterized.expand(
+        [
+            ("read_timeout", "HTTPSConnectionPool(host='api.elasticemail.com', port=443): Read timed out."),
+            ("server_error", "ElasticEmailRetryableError: status=500"),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
+        errors = ElasticemailSource().get_non_retryable_errors()
+        assert not any(key in observed for key in errors)
+
+
+class TestResumableAndCanonical:
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        inputs = SimpleNamespace(
+            schema_name="events",
+            team_id=1,
+            job_id="job",
+            logger=MagicMock(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-01T00:00:00",
+        )
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        response = ElasticemailSource().source_for_pipeline(
+            SimpleNamespace(api_key="key"),  # type: ignore[arg-type]
+            manager,
+            inputs,  # type: ignore[arg-type]
+        )
+        assert response.name == "events"
+        assert response.primary_keys == ["TransactionID", "MsgID", "EventType", "EventDate"]

@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures
     _headers,
     _is_page_limit_response,
     _to_date_str,
+    appfigures_source,
     check_credentials,
     get_rows,
 )
@@ -276,6 +277,30 @@ class TestCheckCredentials:
         session.get.side_effect = Exception("boom")
         with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
             assert check_credentials("pat") is None
+
+
+class TestAppfiguresSourceResponse:
+    @pytest.mark.parametrize(
+        "endpoint,primary_keys,partition_key",
+        [
+            ("products", ["id"], "added_date"),
+            ("reviews", ["id"], "date"),
+            ("sales_report", ["date"], "date"),
+            ("revenue_report", ["date"], "date"),
+        ],
+    )
+    def test_response_shape(self, endpoint, primary_keys, partition_key):
+        response = appfigures_source(
+            token="pat",
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [partition_key]
+        assert response.sort_mode == "asc"
 
 
 class TestRetryableError:

@@ -199,6 +199,19 @@ class TestRetryClassification:
         assert [r["video_id"] for r in rows] == ["a"]
         assert session.send.call_count == 2
 
+    @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_auth_error_raises_matchable_httperror(self, _name, status, reason, MockSession) -> None:
+        session = MockSession.return_value
+        url = f"{TAVUS_BASE_URL}/videos?page=0&limit=100"
+        _wire(session, [_response(None, status=status, reason=reason, url=url)])
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            _rows(_source(_make_manager()))
+        # The message must carry the stable "{status} Client Error: {reason} for url: <base host>"
+        # prefix that TavusSource.get_non_retryable_errors matches on.
+        assert f"{status} Client Error: {reason} for url: {TAVUS_BASE_URL}" in str(exc_info.value)
+
 
 class TestCheckAccess:
     @parameterized.expand(
@@ -233,6 +246,22 @@ class TestCheckAccess:
 
 
 class TestTavusSourceResponse:
+    @parameterized.expand(
+        [
+            ("videos", "video_id"),
+            ("replicas", "replica_id"),
+            ("personas", "persona_id"),
+            ("conversations", "conversation_id"),
+        ]
+    )
+    def test_primary_key_matches_endpoint_config(self, endpoint: str, primary_key: str) -> None:
+        response = _source(_make_manager(), endpoint=endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == [primary_key]
+        # No endpoint exposes a curl-verified creation field, so none partition.
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
     def test_every_endpoint_uses_a_resource_specific_primary_key(self) -> None:
         assert {name: cfg.primary_keys for name, cfg in TAVUS_ENDPOINTS.items()} == {
             "videos": ["video_id"],

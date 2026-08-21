@@ -132,3 +132,32 @@ class TestOPUSWatchSource:
             assert response.partition_format == "month"
         else:
             assert response.partition_mode is None
+
+    @pytest.mark.parametrize(
+        ("should_use_incremental_field", "expected_last_value"),
+        [
+            (True, "2025-01-05T00:00:00Z"),
+            (False, None),
+        ],
+    )
+    def test_source_for_pipeline_forwards_watermark_only_for_incremental_syncs(
+        self, should_use_incremental_field: bool, expected_last_value: Optional[str]
+    ):
+        config = OPUSWatchSourceConfig(api_key="k")
+        inputs = _make_inputs(
+            "registrations",
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value="2025-01-05T00:00:00Z",
+        )
+        manager = MagicMock()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.source.opuswatch_source"
+        ) as mock_source:
+            mock_source.return_value.name = "registrations"
+            self.source.source_for_pipeline(config, manager, inputs)
+
+        kwargs = mock_source.call_args.kwargs
+        assert kwargs["should_use_incremental_field"] is should_use_incremental_field
+        assert kwargs["db_incremental_field_last_value"] == expected_last_value
+        assert kwargs["resumable_source_manager"] is manager

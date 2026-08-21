@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 from unittest import mock
 
@@ -35,6 +37,20 @@ def _field(name: str) -> SourceFieldInputConfig:
         for field in PlanetScalePostgresSource().get_source_config.fields
         if isinstance(field, SourceFieldInputConfig) and field.name == name
     )
+
+
+def test_ssh_tunnel_is_not_offered():
+    # PlanetScale exposes no SSH tunnel, so inheriting the Postgres form must not surface one.
+    assert all(field.name != "ssh_tunnel" for field in PlanetScalePostgresSource().get_source_config.fields)
+
+
+def test_generated_config_matches_the_offered_fields():
+    # The generated config is what the pipeline receives, so a field added to the form without
+    # regenerating would surface as a missing attribute mid-sync.
+    form_fields = {field.name for field in PlanetScalePostgresSource().get_source_config.fields}
+    config_fields = {field.name for field in dataclasses.fields(PlanetScalePostgresSourceConfig)}
+
+    assert form_fields == config_fields
 
 
 @pytest.mark.parametrize(

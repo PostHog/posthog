@@ -16,6 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     get_rows,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.source import (
+    ClickhouseCloudSource,
+)
 
 ORG = {"id": "org-1", "createdAt": "2026-05-01T10:00:00Z", "name": "Acme"}
 
@@ -289,6 +292,34 @@ class TestFetch:
             with pytest.raises(clickhouse_cloud.ClickhouseCloudRetryableError) as exc_info:
                 clickhouse_cloud._fetch(session, "https://api.clickhouse.cloud/v1/organizations", MagicMock())
         assert exc_info.value.retry_after == 7.0
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.clickhouse.cloud/v1/organizations"),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://api.clickhouse.cloud/v1/organizations/org-1/usageCost?from_date=2026-07-01&to_date=2026-07-15",
+            ),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = ClickhouseCloudSource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("read_timeout", "HTTPSConnectionPool(host='api.clickhouse.cloud', port=443): Read timed out."),
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://api.clickhouse.cloud/v1/organizations",
+            ),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        non_retryable = ClickhouseCloudSource().get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable)
 
 
 class TestCoerceDate:

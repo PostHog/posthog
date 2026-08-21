@@ -481,6 +481,14 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+        response = applovin_source("key", endpoint, mock.MagicMock(), FakeResumeManager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == APPLOVIN_ENDPOINTS[endpoint].primary_keys
+        assert response.sort_mode == "asc"
+
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_items_yields_rows_as_returned_by_the_api(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = [

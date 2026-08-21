@@ -4,7 +4,9 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rollbar import (
     RollbarSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.source import RollbarSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRollbarSource:
@@ -12,6 +14,40 @@ class TestRollbarSource:
         self.source = RollbarSource()
         self.team_id = 123
         self.config = RollbarSourceConfig(access_token="access-token")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.ROLLBAR
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.rollbar.com/api/1/items?page=1",
+            "403 Client Error: Forbidden for url: https://api.rollbar.com/api/1/instances",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_vendor_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
+            "500 Server Error for url: https://api.rollbar.com/api/1/items",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_vendor_error for key in non_retryable_errors)
+
+    def test_get_schemas(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+        incremental = {schema.name for schema in schemas if schema.supports_incremental}
+        # Only occurrences have a usable high-water-mark cursor (descending id
+        # keyset); items mutate in place and deploys/environments are small.
+        assert incremental == {"occurrences"}
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

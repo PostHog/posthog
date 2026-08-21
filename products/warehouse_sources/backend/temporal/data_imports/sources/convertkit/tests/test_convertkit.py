@@ -275,6 +275,28 @@ class TestValidateCredentials:
 
 
 class TestConvertKitSource:
+    @parameterized.expand(
+        [
+            ("subscribers", ["id"], "created_at"),
+            ("purchases", ["id"], "transaction_time"),
+            ("custom_fields", ["id"], None),
+            ("email_templates", ["id"], None),
+        ]
+    )
+    def test_source_response_partitioning(
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None
+    ) -> None:
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        if partition_key:
+            assert response.partition_keys == [partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+            assert response.partition_mode is None
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_threads_manager_and_yields(self, MockSession) -> None:
         session = MockSession.return_value

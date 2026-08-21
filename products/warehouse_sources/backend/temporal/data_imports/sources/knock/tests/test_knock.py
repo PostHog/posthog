@@ -161,6 +161,27 @@ class TestKnockSourceTransport:
 
         assert sent_params[0]["inserted_at[gte]"] == "2026-05-01T12:30:00"
 
+    @parameterized.expand(
+        [
+            ("messages", ["inserted_at"]),
+            ("workflow_recipient_runs", ["inserted_at"]),
+            ("users", None),
+            ("tenants", None),
+        ]
+    )
+    def test_source_response_partitioning_and_sort_mode(self, endpoint: str, partition_keys: list[str] | None) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        source_response, _, _ = self._drive(endpoint, manager, [_page(endpoint, [], after=None)])
+
+        assert source_response.primary_keys == ["id"]
+        # Knock lists return newest-first, so the pipeline must not checkpoint the
+        # watermark per batch.
+        assert source_response.sort_mode == "desc"
+        assert source_response.partition_keys == partition_keys
+        assert source_response.partition_mode == ("datetime" if partition_keys else None)
+
 
 class TestValidateCredentials:
     @parameterized.expand(

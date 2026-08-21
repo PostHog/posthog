@@ -3,6 +3,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source import CoupaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coupa import CoupaSourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCoupaSource:
@@ -12,6 +13,36 @@ class TestCoupaSource:
         self.config = CoupaSourceConfig(
             instance_url="https://myorg.coupahost.com", client_id="cid", client_secret="sec"
         )
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.COUPA
+
+    def test_connection_host_fields_cover_instance_url(self):
+        # The instance URL decides where the stored credentials get sent.
+        assert self.source.connection_host_fields == ["instance_url"]
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "400 Client Error: Bad Request for url: https://myorg.coupahost.com/oauth2/token",
+            "403 Client Error: Forbidden for url: https://myorg.coupahost.com/api/invoices",
+        ],
+    )
+    def test_non_retryable_errors_match_known_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "500 Server Error for url: https://myorg.coupahost.com/api/invoices",
+            # Mid-sync 401s on data endpoints are handled by token re-mint.
+            "401 Client Error: Unauthorized for url: https://myorg.coupahost.com/api/invoices",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source.validate_coupa_credentials"

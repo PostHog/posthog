@@ -1,10 +1,14 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.savvycal import (
     SavvyCalSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source import SavvyCalSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSavvyCalSource:
@@ -12,6 +16,52 @@ class TestSavvyCalSource:
         self.source = SavvyCalSource()
         self.team_id = 123
         self.config = SavvyCalSourceConfig(api_key="pt_secret_key")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.SAVVYCAL
+
+    def test_no_connection_host_fields(self) -> None:
+        # The only field is the secret token; the base URL is hardcoded, so there is no non-secret
+        # field an editor could retarget to reuse a preserved token against another host.
+        assert self.source.connection_host_fields == []
+
+    def test_only_events_support_incremental(self) -> None:
+        # Only /events exposes a server-side cursor (`from` on start date); advertising incremental
+        # on any other stream would silently sync nothing new.
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert schemas["events"].supports_incremental is True
+        assert [f["field"] for f in schemas["events"].incremental_fields] == ["start_at"]
+        for name in set(ENDPOINTS) - {"events"}:
+            assert schemas[name].supports_incremental is False
+            assert schemas[name].incremental_fields == []
+
+    @parameterized.expand(
+        [
+            ("401 Client Error: Unauthorized for url: https://api.savvycal.com/v1/events",),
+            ("403 Client Error: Forbidden for url: https://api.savvycal.com/v1/me",),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("500 Server Error: Internal Server Error for url: https://api.savvycal.com/v1/events",),
+            ("429 Client Error: Too Many Requests for url: https://api.savvycal.com/v1/links",),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source.validate_credentials")
+    def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
+        # The source method forwards the token to the shared validator and returns its result verbatim.
+        mock_validate.return_value = (False, "Invalid SavvyCal personal access token")
+        result = self.source.validate_credentials(self.config, self.team_id)
+        assert result == (False, "Invalid SavvyCal personal access token")
+        mock_validate.assert_called_once_with("pt_secret_key")
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source.savvycal_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

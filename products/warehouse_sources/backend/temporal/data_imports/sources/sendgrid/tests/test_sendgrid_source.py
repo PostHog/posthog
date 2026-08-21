@@ -3,11 +3,13 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendgrid import (
     SendGridSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.settings import SENDGRID_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source import SendGridSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source"
 _TRANSPORT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid"
@@ -42,6 +44,38 @@ def _config() -> SendGridSourceConfig:
 
 
 class TestSendGridSource:
+    def test_source_type(self) -> None:
+        assert SendGridSource().source_type == ExternalDataSourceType.SENDGRID
+
+    def test_incremental_endpoints_expose_their_cursor_field(self) -> None:
+        schemas = {s.name: s for s in SendGridSource().get_schemas(_config(), team_id=1)}
+        for name in ALL_ENDPOINTS:
+            expected_field = INCREMENTAL_FIELD_BY_ENDPOINT.get(name)
+            if expected_field is None:
+                assert schemas[name].supports_incremental is False
+                assert schemas[name].incremental_fields == []
+            else:
+                assert schemas[name].supports_incremental is True
+                assert {f["field"] for f in schemas[name].incremental_fields} == {expected_field}
+        # message_activity rows mutate in place as events land, so it syncs incrementally on
+        # last_event_time but must never be offered as append (stale copies would pile up).
+        assert schemas["message_activity"].supports_append is False
+        for name in INCREMENTAL_FIELD_BY_ENDPOINT.keys() - {"message_activity"}:
+            assert schemas[name].supports_append is True
+
+    def test_message_activity_is_opt_in(self) -> None:
+        # The add-on gate means most accounts 403 on this table: force-enabling it would fail
+        # their first sync, so both the schema picker default and one-shot source creation must
+        # leave it unselected.
+        schemas = SendGridSource().get_schemas(_config(), team_id=1)
+        defaults = {s.name: s.should_sync_default for s in schemas}
+        assert defaults.pop("message_activity") is False
+        assert all(defaults.values())
+
+        by_name = {schema["name"]: schema for schema in build_default_schemas(schemas)}
+        assert by_name["message_activity"] == {"name": "message_activity", "should_sync": False}
+        assert by_name["bounces"]["should_sync"] is True
+
     @pytest.mark.parametrize(
         ("status", "schema_name", "expected_ok", "expected_has_msg"),
         [

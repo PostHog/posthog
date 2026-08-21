@@ -14,6 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.ca
     normalize_subdomain,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.settings import (
+    CAMPAYN_ENDPOINTS,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient,
     RESTClientRetryableError,
@@ -251,6 +255,14 @@ class TestErrorHandling:
 
 
 class TestCampaynSource:
+    def test_all_endpoints_buildable_with_correct_primary_keys(self) -> None:
+        for endpoint in ENDPOINTS:
+            response = _source(endpoint)
+            assert response.name == endpoint
+            assert response.primary_keys == CAMPAYN_ENDPOINTS[endpoint].primary_keys
+            # No stable creation-time field exists, so nothing is partitioned.
+            assert response.partition_mode is None
+
     def test_fan_out_endpoints_key_includes_parent_list_id(self) -> None:
         assert _source("contacts").primary_keys == ["list_id", "id"]
         assert _source("forms").primary_keys == ["list_id", "id"]

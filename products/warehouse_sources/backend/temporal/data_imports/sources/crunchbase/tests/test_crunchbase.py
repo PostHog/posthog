@@ -16,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase
     crunchbase_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.settings import CRUNCHBASE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.settings import (
+    CRUNCHBASE_ENDPOINTS,
+    ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -250,6 +253,17 @@ class TestPagination:
 
 
 class TestCrunchbaseSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = CRUNCHBASE_ENDPOINTS[endpoint]
+        response = _source(endpoint=endpoint)
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
+
     @pytest.mark.parametrize("config", list(CRUNCHBASE_ENDPOINTS.values()))
     def test_field_ids_always_include_watermark_fields(self, config):
         # updated_at must be requested or the incremental watermark can't track.

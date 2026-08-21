@@ -7,13 +7,17 @@ from unittest import mock
 
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.pingdom import (
     PingdomResumeConfig,
     _to_epoch,
     pingdom_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.settings import PINGDOM_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.settings import (
+    ENDPOINTS,
+    PINGDOM_ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -212,6 +216,32 @@ class TestValidateCredentials:
 
 
 class TestPingdomSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
+        config = PINGDOM_ENDPOINTS[endpoint]
+        response = pingdom_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_alerts_duplicate_composite_key_does_not_block_incremental_sync(self, MockSession):
+        # Alert rows' composite key (checkid, time, userid, via) can collide, but that's expected
+        # for this data and must not block incremental syncing (the only incremental field this
+        # endpoint offers is `time`) - regression test for the schema-wide incremental sync outage
+        # this caused when has_duplicate_primary_keys was set unconditionally for this endpoint.
+        response = pingdom_source("token", "alerts", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        assert not response.has_duplicate_primary_keys
+        validate_incremental_sync(True, response)
+
     @pytest.mark.parametrize("config", list(PINGDOM_ENDPOINTS.values()))
     def test_partition_keys_are_stable_fields(self, config):
         if config.partition_key:

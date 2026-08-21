@@ -292,3 +292,31 @@ class TestValidateCredentials:
         validate_credentials("key", "eu")
         called_url = mock_session.return_value.get.call_args.args[0]
         assert called_url == "https://api-eu.aptrinsic.com/v1/accounts?pageSize=1"
+
+
+class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("accounts", ["id"], "createDate"),
+            ("users", ["id"], "createDate"),
+            ("features", ["id"], None),
+            ("segments", ["id"], None),
+            ("engagements", ["id"], None),
+            ("articles", ["id"], "createdDate"),
+            ("kc_bots", ["id"], "createdDate"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None, MockSession
+    ) -> None:
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        if partition_key is None:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [partition_key]

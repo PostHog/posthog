@@ -274,6 +274,15 @@ class TestValidateCredentials:
 
 
 class TestSourceResponseShape:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
+        response = _source(_make_manager(), endpoint=endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == ["key"]
+        # No stable creation timestamp is guaranteed across every object, so we don't partition.
+        assert response.partition_mode is None
+
     def test_every_endpoint_uses_key_primary_key(self) -> None:
         assert all(config.primary_keys == ["key"] for config in PARTNERSTACK_ENDPOINTS.values())
         assert set(PARTNERSTACK_ENDPOINTS) == set(ENDPOINTS)

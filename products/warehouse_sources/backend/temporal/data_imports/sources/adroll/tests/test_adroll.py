@@ -13,7 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.adr
     adroll_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.settings import ADROLL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.settings import ADROLL_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
@@ -293,3 +293,16 @@ class TestFanOutResume:
         _rows(_source("advertisables", manager))
 
         manager.save_state.assert_not_called()
+
+
+class TestAdRollSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = ADROLL_ENDPOINTS[endpoint]
+        response = _source(endpoint)
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
+        assert response.partition_keys is None

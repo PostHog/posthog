@@ -4,6 +4,7 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leexi import LeexiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.source import LeexiSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PROBE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.leexi.source.probe_endpoint"
 
@@ -13,6 +14,33 @@ class TestLeexiSource:
         self.source = LeexiSource()
         self.team_id = 123
         self.config = LeexiSourceConfig(api_key_id="key-id", api_key_secret="key-secret")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.LEEXI
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://public-api.leexi.ai/v1/calls?page=1",
+            "402 Client Error: Payment Required for url: https://public-api.leexi.ai/v1/users",
+            "403 Client Error: Forbidden for url: https://public-api.leexi.ai/v1/teams",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_vendor_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
+            "500 Server Error for url: https://public-api.leexi.ai/v1/calls",
+            "429 Client Error: Too Many Requests for url: https://public-api.leexi.ai/v1/calls",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_vendor_error for key in non_retryable_errors)
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",

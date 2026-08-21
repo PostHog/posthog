@@ -16,11 +16,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.commerceto
     _build_url,
     _format_last_modified,
     _validate_path_component,
+    commercetools_source,
     get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.settings import (
     COMMERCETOOLS_ENDPOINTS,
+    ENDPOINTS,
 )
 
 
@@ -259,6 +261,19 @@ class TestGetRows:
 
 
 class TestCommercetoolsSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = COMMERCETOOLS_ENDPOINTS[endpoint]
+        response = commercetools_source(
+            "us-central1.gcp", "proj", "id", "secret", endpoint, mock.MagicMock(), _make_manager()
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["createdAt"]
+
     @pytest.mark.parametrize("config", list(COMMERCETOOLS_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         assert config.partition_key == "createdAt"

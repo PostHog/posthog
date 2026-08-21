@@ -311,6 +311,22 @@ class TestValidateCredentials:
 
 
 class TestSourceResponseShape:
+    @parameterized.expand(
+        [
+            (ORGANIZATION_ENDPOINT, ["orgID"]),
+            (REGIONS_ENDPOINT, ["regionID"]),
+            (WORKSPACE_GROUPS_ENDPOINT, ["workspaceGroupID"]),
+            (WORKSPACES_ENDPOINT, ["workspaceID"]),
+            (BILLING_USAGE_ENDPOINT, ["metric", "resourceName", "startTime"]),
+        ]
+    )
+    def test_primary_keys_and_sort_mode(self, endpoint: str, expected_pk: list[str]) -> None:
+        with mock.patch(SESSION_PATCH, lambda *a, **k: mock.MagicMock(headers={})):
+            response = singlestore_source(api_key="k", endpoint=endpoint, team_id=1, job_id="j")
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pk
+        assert response.sort_mode == "asc"
+
     def test_every_declared_endpoint_has_a_response(self) -> None:
         with mock.patch(SESSION_PATCH, lambda *a, **k: mock.MagicMock(headers={})):
             for endpoint, config in SINGLESTORE_ENDPOINTS.items():

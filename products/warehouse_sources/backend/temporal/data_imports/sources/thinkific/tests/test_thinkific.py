@@ -7,7 +7,7 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
+from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
@@ -231,6 +231,18 @@ class TestIncrementalFilter:
 
 
 class TestErrorHandling:
+    @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
+    @mock.patch(SLEEP_PATCH)
+    def test_auth_error_raises_matchable_http_error(self, _name: str, status: int, reason: str, _sleep: Any) -> None:
+        # A 401/403 must surface as an HTTPError whose message carries the status and host, so
+        # get_non_retryable_errors can substring-match it and stop the sync loud.
+        manager = _make_manager()
+        with pytest.raises(HTTPError) as exc:
+            _run("courses", manager, [_error_response(status, reason)])
+        message = str(exc.value)
+        assert f"{status}" in message
+        assert "api.thinkific.com" in message
+
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("gateway", 503)])
     @mock.patch(SLEEP_PATCH)
     def test_retryable_status_is_retried_then_reraised(self, _name: str, status: int, _sleep: Any) -> None:
@@ -243,6 +255,15 @@ class TestErrorHandling:
 
 
 class TestSourceResponse:
+    def test_full_refresh_endpoint_has_no_partitioning(self) -> None:
+        manager = _make_manager()
+        resp = thinkific_source("k", "s", "courses", team_id=1, job_id="j", resumable_source_manager=manager)
+        assert resp.name == "courses"
+        assert resp.primary_keys == ["id"]
+        assert resp.partition_mode is None
+        assert resp.partition_keys is None
+        assert resp.sort_mode == "asc"
+
     @parameterized.expand([("enrollments",), ("users",)])
     def test_partitioned_endpoint_partitions_by_created_at(self, endpoint: str) -> None:
         manager = _make_manager()

@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.source import OutbrainSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOutbrainSource:
@@ -16,6 +17,33 @@ class TestOutbrainSource:
         self.source = OutbrainSource()
         self.team_id = 123
         self.config = OutbrainSourceConfig(username="u@x.com", password="pw")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.OUTBRAIN
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.outbrain.com/amplify/v0.1/login",
+            "403 Client Error: Forbidden for url: https://api.outbrain.com/amplify/v0.1/marketers",
+            "400 Client Error: Bad Request for url: https://api.outbrain.com/amplify/v0.1/marketers/marketer/campaigns?limit=100&offset=0",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "500 Server Error for url: https://api.outbrain.com/amplify/v0.1/marketers",
+            # Mid-sync 401s on data endpoints are handled by token re-mint.
+            "401 Client Error: Unauthorized for url: https://api.outbrain.com/amplify/v0.1/marketers",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
 
     def test_get_schemas(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}

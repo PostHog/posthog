@@ -360,3 +360,20 @@ class TestAmplitudeSourceResponse:
         assert response.partition_keys == ["event_time"]
         assert response.partition_format == "week"
         assert response.sort_mode == "asc"
+
+    @parameterized.expand([(COHORTS_ENDPOINT,), (ANNOTATIONS_ENDPOINT,)])
+    def test_list_response_metadata(self, endpoint: str) -> None:
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+        response = amplitude_source(
+            api_key="key",
+            secret_key="secret",
+            region="us",
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=manager,
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None

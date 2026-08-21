@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source"
 
@@ -27,12 +31,68 @@ def _make_config(
 
 
 class TestDataForSEOSource:
+    def test_source_type(self) -> None:
+        assert DataForSEOSource().source_type == ExternalDataSourceType.DATAFORSEO
+
+    def test_source_config_fields(self) -> None:
+        config = DataForSEOSource().get_source_config
+        assert [f.name for f in config.fields] == [
+            "api_login",
+            "api_password",
+            "targets",
+            "location_name",
+            "language_name",
+        ]
+        fields = {f.name: f for f in config.fields}
+
+        def input_field(name: str) -> SourceFieldInputConfig:
+            field = fields[name]
+            assert isinstance(field, SourceFieldInputConfig)
+            return field
+
+        password_field = input_field("api_password")
+        # The API password is a secret credential, so it must render as a password input.
+        assert password_field.type == "password"
+        assert password_field.secret is True
+        assert password_field.required is True
+        assert input_field("api_login").required is True
+        assert input_field("targets").required is True
+        # Location and language fall back to defaults in the transport when left blank.
+        assert input_field("location_name").required is False
+        assert input_field("language_name").required is False
+
+    def test_connection_host_fields_includes_targets(self) -> None:
+        # targets selects which domains the stored credential runs paid requests against, so
+        # changing it must force re-entry of the secret.
+        assert DataForSEOSource().connection_host_fields == ["targets"]
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
+        assert DataForSEOSource.lists_tables_without_credentials is True
+
+    def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
+        schemas = DataForSEOSource().get_schemas(_make_config(), team_id=1)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+        # No DataForSEO live endpoint has a server-side updated-since filter.
+        assert all(s.supports_incremental is False for s in schemas)
+        assert all(s.supports_append is False for s in schemas)
+
+    def test_get_schemas_exposes_primary_keys(self) -> None:
+        schemas = {s.name: s for s in DataForSEOSource().get_schemas(_make_config(), team_id=1)}
+        assert schemas["ranked_keywords"].detected_primary_keys == ["target", "keyword", "item_type", "rank_absolute"]
+        assert schemas["historical_rank_overview"].detected_primary_keys == ["target", "year", "month"]
+        assert schemas["competitors_domain"].detected_primary_keys == ["target", "domain"]
+
     def test_backlinks_summary_is_off_by_default(self) -> None:
         # Backlinks requires a separate paid DataForSEO subscription, so it must not be part of
         # the default selection that one-shot setup enables.
         schemas = {s.name: s for s in DataForSEOSource().get_schemas(_make_config(), team_id=1)}
         assert schemas["backlinks_summary"].should_sync_default is False
         assert all(s.should_sync_default is True for name, s in schemas.items() if name != "backlinks_summary")
+
+    def test_get_schemas_filters_by_names(self) -> None:
+        schemas = DataForSEOSource().get_schemas(_make_config(), team_id=1, names=["ranked_keywords"])
+        assert {s.name for s in schemas} == {"ranked_keywords"}
 
     @parameterized.expand(
         [
@@ -127,3 +187,10 @@ class TestDataForSEOSource:
         errors = DataForSEOSource().get_non_retryable_errors()
         assert expected_key in errors
         assert errors[expected_key]
+
+    def test_canonical_descriptions_keyed_by_endpoint(self) -> None:
+        descriptions = DataForSEOSource().get_canonical_descriptions()
+        # Every documented entry must map to a real endpoint or the docs render orphaned tables.
+        assert set(descriptions.keys()) <= set(ENDPOINTS)
+        assert "ranked_keywords" in descriptions
+        assert "backlinks_summary" in descriptions

@@ -342,3 +342,22 @@ class TestFetchRetry:
                 )
 
         assert len(prepared) == 1
+
+
+class TestMem0SourceResponse:
+    def test_memories_response_merges_on_id_and_partitions_on_stable_created_at(self):
+        response = mem0_source("m0-test", MEMORIES_ENDPOINT, team_id=1, job_id="j", resumable_source_manager=_manager())
+
+        assert response.name == MEMORIES_ENDPOINT
+        assert response.primary_keys == ["id"]
+        # The list endpoint has no sort parameter, so ordering is undefined; "desc" defers the
+        # incremental watermark commit to successful end of run.
+        assert response.sort_mode == "desc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
+
+    def test_entities_response_has_no_partitioning(self):
+        response = mem0_source("m0-test", ENTITIES_ENDPOINT, team_id=1, job_id="j", resumable_source_manager=_manager())
+
+        assert response.partition_mode is None
+        assert response.partition_keys is None

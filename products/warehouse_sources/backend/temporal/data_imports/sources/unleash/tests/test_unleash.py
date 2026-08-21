@@ -261,6 +261,19 @@ class TestPipelineTransport:
         with pytest.raises(UnleashHostNotAllowedError):
             _rows(_source(_make_manager(), "projects", instance_url="https://169.254.169.254\\@unleash.example.com"))
 
+    @parameterized.expand(
+        [
+            ("features", ["name"]),
+            # A tag has no id — its identity is the (type, value) pair; a single-column key here
+            # would seed duplicate rows and multi-match on every merge.
+            ("tags", ["type", "value"]),
+        ]
+    )
+    def test_source_returns_declared_primary_keys(self, endpoint: str, expected_keys: list[str]) -> None:
+        response = _source(_make_manager(), endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+
 
 class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("unavailable", 503)])

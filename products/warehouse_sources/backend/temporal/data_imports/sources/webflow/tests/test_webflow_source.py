@@ -1,12 +1,16 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.webflow import (
     WebflowSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import STATIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source import WebflowSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source"
 
@@ -15,7 +19,27 @@ def _config() -> WebflowSourceConfig:
     return WebflowSource().parse_config({"api_token": "token", "site_id": "site-1"})
 
 
+def _inputs(schema_name: str = "pages") -> SourceInputs:
+    return SourceInputs(
+        schema_name=schema_name,
+        schema_id="schema-1",
+        source_id="source-1",
+        team_id=1,
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        db_incremental_field_earliest_value=None,
+        incremental_field=None,
+        incremental_field_type=None,
+        job_id="job-1",
+        logger=MagicMock(),
+        reset_pipeline=False,
+    )
+
+
 class TestWebflowSource:
+    def test_source_type(self) -> None:
+        assert WebflowSource().source_type == ExternalDataSourceType.WEBFLOW
+
     def test_409_conflict_message_is_recognised_as_non_retryable(self) -> None:
         # Webflow returns 409 on /products when the site has no ecommerce; the raised
         # HTTPError message embeds a volatile site id and URL, so we must match on a
@@ -65,6 +89,23 @@ class TestWebflowSource:
             schemas = WebflowSource().get_schemas(_config(), team_id=1, names=["sites", "collection_blog"])
 
         assert {s.name for s in schemas} == {"sites", "collection_blog"}
+
+    def test_source_for_pipeline_plumbs_through(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        inputs = _inputs(schema_name="collection_blog")
+        with patch(f"{SOURCE_MODULE}.webflow_source") as mock_source:
+            WebflowSource().source_for_pipeline(_config(), manager, inputs)
+
+        kwargs = mock_source.call_args.kwargs
+        assert kwargs["api_token"] == "token"
+        assert kwargs["site_id"] == "site-1"
+        assert kwargs["schema_name"] == "collection_blog"
+        assert kwargs["team_id"] == inputs.team_id
+        assert kwargs["job_id"] == inputs.job_id
+        assert kwargs["resumable_source_manager"] is manager
+        # Backfill and pushed rows have to reach the same sync, so the webhook manager is
+        # always handed over; the transport decides whether the schema can use it.
+        assert isinstance(kwargs["webhook_source_manager"], WebhookSourceManager)
 
 
 class TestWebflowWebhookSupport:

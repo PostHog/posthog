@@ -1,11 +1,33 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retently import (
     RetentlySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently.source import RetentlySource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestRetentlySourceConfig:
+    def setup_method(self) -> None:
+        self.source = RetentlySource()
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.RETENTLY
+
+    def test_config_is_unreleased_alpha(self) -> None:
+        config = self.source.get_source_config
+        # Deliberately shipped hidden: the source lands unreleased until it has been verified
+        # against a live Retently account.
+        assert config.releaseStatus == "alpha"
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/retently"
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog with no I/O — required for the public-docs table list to render.
+        assert self.source.lists_tables_without_credentials is True
 
 
 class TestGetSchemas:
@@ -30,6 +52,31 @@ class TestGetSchemas:
             if name != "feedback":
                 assert schema.supports_incremental is False, name
                 assert schema.incremental_fields == [], name
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://app.retently.com/api/v2/feedback"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://app.retently.com/api/v2/customers?page=1"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = RetentlySource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://app.retently.com/api/v2/feedback",
+            ),
+            ("read_timeout", "HTTPSConnectionPool(host='app.retently.com', port=443): Read timed out."),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        non_retryable = RetentlySource().get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable)
 
 
 class TestResumablePlumbing:

@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
     MAX_ARTICLES,
     PAGEVIEWS_ENDPOINT,
     TOP_ARTICLES_ENDPOINT,
+    WIKIPEDIA_PAGEVIEWS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.wikipedia_pageviews import (
     NO_ARTICLES_ERROR,
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
     _normalize_project,
     _parse_articles,
     validate_project,
+    wikipedia_pageviews_source,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.wikipedia_pageviews"
@@ -380,3 +382,24 @@ class TestValidateProject:
 
         assert is_valid is False
         assert message is not None
+
+
+class TestSourceResponseMetadata:
+    @parameterized.expand([(name,) for name in WIKIPEDIA_PAGEVIEWS_ENDPOINTS])
+    def test_primary_keys_and_partitioning_per_endpoint(self, endpoint):
+        response = wikipedia_pageviews_source(
+            project="en.wikipedia.org",
+            access="all-access",
+            agent="user",
+            article_names=None,
+            start_date=None,
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=mock.MagicMock(spec=ResumableSourceManager),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == WIKIPEDIA_PAGEVIEWS_ENDPOINTS[endpoint].primary_keys
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["date"]
+        assert response.sort_mode == "asc"

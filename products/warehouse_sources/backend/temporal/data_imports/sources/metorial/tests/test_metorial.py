@@ -266,6 +266,42 @@ class TestIncrementalFilter:
         assert params[0] == {"limit": DEFAULT_PAGE_SIZE, "order": "asc"}
 
 
+class TestSourceResponse:
+    @parameterized.expand(
+        [
+            # Pagination is by record id (order=asc). `updated_at` is not monotonic in id order, so
+            # those syncs must run "desc" (the pipeline then commits the watermark only after a full
+            # run). An "asc" claim here lets an interrupted sync advance the watermark past rows it
+            # hasn't fetched, silently losing them from the warehouse.
+            ("sessions_default_updated_at", "sessions", None, "desc"),
+            ("provider_runs_default_updated_at", "provider_runs", None, "desc"),
+            ("provider_deployments_default_updated_at", "provider_deployments", None, "desc"),
+            # A user overriding sessions onto created_at makes per-batch checkpointing safe again.
+            ("sessions_user_picks_created_at", "sessions", "created_at", "asc"),
+            # created_at tracks id order, so append-only streams checkpoint safely per batch.
+            ("session_messages_created_at", "session_messages", None, "asc"),
+            ("tool_calls_created_at", "tool_calls", None, "asc"),
+            # Full-refresh-only endpoint has no incremental field.
+            ("providers_full_refresh", "providers", None, "asc"),
+        ]
+    )
+    def test_sort_mode_matches_incremental_field(
+        self, _name: str, endpoint: str, incremental_field: str | None, expected_sort_mode: str
+    ) -> None:
+        response = metorial_source(
+            api_key="metorial_sk_x",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+            incremental_field=incremental_field,
+        )
+        assert response.sort_mode == expected_sort_mode
+        assert response.primary_keys == ["id"]
+        # Partition key must be the stable created_at, never updated_at (partitions would rewrite each sync).
+        assert response.partition_keys == ["created_at"]
+
+
 class TestErrorHandling:
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
     @patch(CLIENT_SESSION_PATCH)

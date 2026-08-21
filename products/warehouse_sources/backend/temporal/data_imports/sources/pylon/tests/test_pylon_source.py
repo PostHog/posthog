@@ -3,20 +3,45 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from posthog.schema import ExternalDataSourceType as SchemaExternalDataSourceType
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pylon import PylonSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon import source as pylon_source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.source import PylonSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "token") -> PylonSourceConfig:
     return PylonSourceConfig.from_dict({"api_token": api_token})
 
 
+class TestPylonSourceConfig:
+    def test_source_type(self) -> None:
+        assert PylonSource().source_type == ExternalDataSourceType.PYLON
+
+    def test_get_source_config_basics(self) -> None:
+        config = PylonSource().get_source_config
+        assert config.name == SchemaExternalDataSourceType.PYLON
+        assert config.label == "Pylon"
+        # A finished-but-new source ships visible (no unreleasedSource) and labelled alpha.
+        assert config.unreleasedSource is None
+        assert config.releaseStatus == "alpha"
+
+
 class TestPylonGetSchemas:
+    def test_returns_all_endpoints(self) -> None:
+        schemas = PylonSource().get_schemas(_config(), team_id=1)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+
     def test_only_issues_supports_incremental(self) -> None:
         schemas = PylonSource().get_schemas(_config(), team_id=1)
         incremental = {s.name for s in schemas if s.supports_incremental}
         assert incremental == {"issues"}
+
+    def test_filters_by_names(self) -> None:
+        schemas = PylonSource().get_schemas(_config(), team_id=1, names=["issues", "accounts"])
+        assert {s.name for s in schemas} == {"issues", "accounts"}
 
     def test_issues_advertises_created_at_incremental_field(self) -> None:
         schemas = PylonSource().get_schemas(_config(), team_id=1, names=["issues"])

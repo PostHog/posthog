@@ -27,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
+CSV_BODY = "User Email,Chats,Completion Acceptance Rate (CAR%)\na@b.com,12,0.5\nc@d.com,3,0.25\n"
+
 
 @pytest.fixture(autouse=True)
 def _instant_retries():
@@ -35,9 +37,6 @@ def _instant_retries():
     fetch.retry.wait = wait_none()
     yield
     fetch.retry.wait = original_wait
-
-
-CSV_BODY = "User Email,Chats,Completion Acceptance Rate (CAR%)\na@b.com,12,0.5\nc@d.com,3,0.25\n"
 
 
 def _response(
@@ -222,6 +221,14 @@ class TestCodyTransport:
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown Cody endpoint"):
             cody_source("token", "example.com", "audit_logs", mock.Mock(), _manager())
+
+    @parameterized.expand([(endpoint,) for endpoint in cody.CODY_ENDPOINTS])
+    def test_source_response_shape(self, endpoint):
+        response = cody_source("token", "example.com", endpoint, mock.Mock(), _manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys is None
+        assert response.sort_mode == "asc"
 
     @parameterized.expand(
         [

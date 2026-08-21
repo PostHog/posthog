@@ -3,12 +3,34 @@ from typing import Optional
 import pytest
 from unittest import mock
 
+import structlog
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source import FreshcallerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
     FreshcallerSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source.validate_freshcaller_credentials"
+
+
+def _make_inputs(schema_name: str = "calls") -> SourceInputs:
+    return SourceInputs(
+        schema_name=schema_name,
+        schema_id="schema-1",
+        source_id="source-1",
+        team_id=1,
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        db_incremental_field_earliest_value=None,
+        incremental_field=None,
+        incremental_field_type=None,
+        job_id="job-1",
+        logger=structlog.get_logger(),
+        reset_pipeline=False,
+    )
 
 
 class TestFreshcallerSource:
@@ -16,6 +38,46 @@ class TestFreshcallerSource:
         self.source = FreshcallerSource()
         self.team_id = 1
         self.config = FreshcallerSourceConfig(subdomain="acme", api_key="key")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.FRESHCALLER
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog -> the public docs Supported-tables section can render.
+        assert self.source.lists_tables_without_credentials is True
+
+    def test_connection_host_fields(self) -> None:
+        # The subdomain is where the stored key is sent; editing it must re-require the secret.
+        assert self.source.connection_host_fields == ["subdomain"]
+
+    def test_get_schemas_covers_all_endpoints(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+
+    @pytest.mark.parametrize(
+        "name, supports_incremental",
+        [
+            ("calls", True),
+            ("call_metrics", True),
+            ("users", False),
+            ("teams", False),
+        ],
+    )
+    def test_schema_incremental_support(self, name: str, supports_incremental: bool) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        schema = schemas[name]
+        assert schema.supports_incremental is supports_incremental
+        assert schema.supports_append is supports_incremental
+        if supports_incremental:
+            assert [f["field"] for f in schema.incremental_fields] == ["created_time"]
+
+    def test_get_schemas_filtered_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["calls"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "calls"
+
+    def test_get_schemas_unknown_name_returns_empty(self) -> None:
+        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
         "subdomain, status, schema_name, expected_valid",
@@ -38,3 +100,28 @@ class TestFreshcallerSource:
         assert is_valid is expected_valid
         if "!" in subdomain or " " in subdomain:
             mock_validate.assert_not_called()
+
+    def test_source_for_pipeline_incremental_endpoint_partitions_and_sorts_desc(self) -> None:
+        inputs = _make_inputs("calls")
+        manager = self.source.get_resumable_source_manager(inputs)
+
+        response = self.source.source_for_pipeline(self.config, manager, inputs)
+
+        assert response.name == "calls"
+        assert response.primary_keys == ["id"]
+        # Calls partition on the stable created_time field.
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_time"]
+        # Full-window-per-sync + unknown API order -> defer the watermark commit via desc.
+        assert response.sort_mode == "desc"
+
+    def test_source_for_pipeline_full_refresh_endpoint_has_no_partition(self) -> None:
+        inputs = _make_inputs("users")
+        manager = self.source.get_resumable_source_manager(inputs)
+
+        response = self.source.source_for_pipeline(self.config, manager, inputs)
+
+        assert response.name == "users"
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+        assert response.sort_mode == "asc"

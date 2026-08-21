@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.dbt im
     DbtHostNotAllowedError,
     DbtResumeConfig,
     _coerce_datetime,
+    dbt_source,
     get_base_url,
     get_endpoint_permissions,
     get_rows,
@@ -401,3 +402,42 @@ class TestGetRows:
         self._get_rows(session, manager, "projects", custom_base_url="https://ab123.us1.dbt.com/")
 
         assert session.get.call_args_list[0].args[0].startswith("https://ab123.us1.dbt.com/api/v3/accounts/12345/")
+
+
+class TestDbtSourceResponse:
+    def test_runs_response_shape(self):
+        response = dbt_source(
+            api_token="token",
+            account_id="12345",
+            region="us",
+            custom_base_url=None,
+            endpoint="runs",
+            team_id=1,
+            logger=mock.MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+
+        assert response.name == "runs"
+        assert response.primary_keys == ["id"]
+        # Runs are walked newest-first; declaring asc here would checkpoint the watermark to
+        # ~now after the first batch and corrupt resume semantics.
+        assert response.sort_mode == "desc"
+        assert response.partition_keys == ["created_at"]
+        assert response.partition_mode == "datetime"
+
+    def test_full_refresh_response_shape(self):
+        response = dbt_source(
+            api_token="token",
+            account_id="12345",
+            region="us",
+            custom_base_url=None,
+            endpoint="projects",
+            team_id=1,
+            logger=mock.MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+
+        assert response.name == "projects"
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None

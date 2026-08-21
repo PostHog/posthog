@@ -1,8 +1,10 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source import AshbySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ashby import AshbySourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAshbySource:
@@ -10,6 +12,29 @@ class TestAshbySource:
         self.source = AshbySource()
         self.team_id = 123
         self.config = AshbySourceConfig(api_key="ashby-key")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.ASHBY
+
+    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+        # Ashby has no timestamp-watermark incremental, so every schema is full refresh.
+        assert all(s.supports_incremental is False for s in schemas)
+        assert all(s.supports_append is False for s in schemas)
+        assert all(s.incremental_fields == [] for s in schemas)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Ashby API authentication or permission error for path candidate.list",
+            "403 Client Error: Ashby API authentication or permission error for path job.list",
+            "Ashby API authentication or permission error for path candidate.list: Missing permission",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid, expected_message",

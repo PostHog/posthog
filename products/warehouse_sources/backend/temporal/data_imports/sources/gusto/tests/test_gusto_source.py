@@ -5,12 +5,22 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldSelectConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gusto import GustoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto import (
     GUSTO_API_VERSION_2024_04_01,
     GUSTO_API_VERSION_2026_06_15,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source import GustoSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"payrolls", "pay_periods", "contractor_payments"}
 
@@ -26,6 +36,19 @@ class TestGustoSource:
             environment="production",
         )
 
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.GUSTO
+
+    def test_source_is_visible_to_users(self) -> None:
+        # A truthy `unreleasedSource` hides the connector from the wizard entirely.
+        assert not self.source.get_source_config.unreleasedSource
+
+    def test_environment_offers_production_and_demo(self) -> None:
+        # Gusto partners build against the demo host until their app is approved for production.
+        field = next(f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldSelectConfig))
+        assert {option.value for option in field.options} == {"production", "demo"}
+        assert field.defaultValue == "production"
+
     def test_api_version_is_pinned_to_what_the_client_sends(self) -> None:
         # Declared oldest→newest; new sources start on the newest version.
         assert self.source.supported_versions == (GUSTO_API_VERSION_2024_04_01, GUSTO_API_VERSION_2026_06_15)
@@ -38,6 +61,41 @@ class TestGustoSource:
         deprecation = self.source.get_version_deprecation(GUSTO_API_VERSION_2024_04_01)
         assert deprecation is not None and deprecation.sunset_at is None
         assert self.source.get_version_deprecation(GUSTO_API_VERSION_2026_06_15) is None
+
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_only_date_filtered_endpoints_are_incremental(self, endpoint: str) -> None:
+        # Gusto only filters server-side on money-movement check dates; everything else would have
+        # to re-walk every page anyway, so it stays full refresh.
+        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
+        assert schema.supports_incremental is (endpoint in INCREMENTAL_ENDPOINTS)
+        # Rows are restated in place (a payroll moves from calculated to processed), so merge only.
+        assert schema.supports_append is False
+
+    @parameterized.expand([(endpoint,) for endpoint in INCREMENTAL_ENDPOINTS])
+    def test_canonical_descriptions_document_the_cursor_column(self, endpoint: str) -> None:
+        cursor = INCREMENTAL_FIELDS[endpoint][0]["field"]
+        assert cursor in (CANONICAL_DESCRIPTIONS[endpoint].get("columns") or {})
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.gusto.com/oauth/token"),
+            ("bad_request", "400 Client Error: Bad Request for url: https://api.gusto.com/oauth/token"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.gusto.com/v1/companies/c-1/payrolls"),
+            # A pin that reaches end of life 406s; retrying can't recover it.
+            ("version_end_of_life", "406 Client Error: Not Acceptable for url: https://api.gusto.com/v1/me"),
+        ]
+    )
+    def test_auth_failures_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.gusto.com/v1/me"),
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.gusto.com/v1/me"),
+        ]
+    )
+    def test_transient_failures_stay_retryable(self, _name: str, observed_error: str) -> None:
+        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
     def _inputs(self, **overrides: Any) -> mock.MagicMock:
         inputs = mock.MagicMock()

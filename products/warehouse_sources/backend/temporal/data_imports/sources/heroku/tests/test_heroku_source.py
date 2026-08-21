@@ -2,8 +2,12 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.source import HerokuSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.heroku.source"
 
@@ -11,6 +15,9 @@ SOURCE_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.
 class TestHerokuSource:
     def setup_method(self) -> None:
         self.source = HerokuSource()
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.HEROKU
 
     def test_get_schemas_returns_full_refresh_only_endpoints(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1)
@@ -25,6 +32,9 @@ class TestHerokuSource:
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["apps", "releases"])
         assert {s.name for s in schemas} == {"apps", "releases"}
+
+    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
+        assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)
 
     def test_validate_credentials_maps_probe_result(self) -> None:
         config = MagicMock()

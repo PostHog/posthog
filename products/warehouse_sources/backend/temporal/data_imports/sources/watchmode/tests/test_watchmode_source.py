@@ -6,13 +6,27 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.watchmode import (
     WatchmodeSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.source import WatchmodeSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWatchmodeSource:
     def setup_method(self) -> None:
         self.source = WatchmodeSource()
         self.config = WatchmodeSourceConfig(api_key="test-key")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.WATCHMODE
+
+    def test_get_schemas_are_all_full_refresh(self) -> None:
+        # No Watchmode endpoint has a server-side timestamp filter usable for incremental
+        # sync; flipping one to incremental without such a filter would corrupt syncs.
+        schemas = self.source.get_schemas(self.config, team_id=1)
+
+        assert [s.name for s in schemas] == list(ENDPOINTS)
+        assert all(not s.supports_incremental and not s.supports_append for s in schemas)
+        assert all(s.incremental_fields == [] for s in schemas)
 
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),

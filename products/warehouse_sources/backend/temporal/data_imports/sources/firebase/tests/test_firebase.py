@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     FirebaseResumeConfig,
     build_jwt_assertion,
     decode_firestore_value,
+    firebase_source,
     flatten_auth_user,
     flatten_firestore_document,
     flatten_realtime_database_child,
@@ -743,6 +744,24 @@ class TestResponseSizeCaps:
 
 
 class TestSourceResponseShape:
+    @pytest.mark.parametrize(
+        "table_name,primary_keys,partitioned",
+        [
+            (AUTH_USERS_TABLE, ["localId"], False),
+            ("firestore_rooms", [FIRESTORE_ID_COLUMN], True),
+            ("realtime_database_rooms", [REALTIME_DATABASE_KEY_COLUMN], False),
+        ],
+    )
+    def test_primary_keys_and_partitioning_match_the_table_kind(
+        self, table_name: str, primary_keys: list[str], partitioned: bool, logger: FilteringBoundLogger
+    ) -> None:
+        response = firebase_source(credentials(), table_name, FakeResumeManager(), logger)
+
+        assert response.name == table_name
+        assert response.primary_keys == primary_keys
+        assert (response.partition_mode == "datetime") is partitioned
+        assert (response.partition_keys == [FIRESTORE_CREATE_TIME_COLUMN]) is partitioned
+
     def test_realtime_database_table_is_dispatched_by_its_configured_path(self, logger: FilteringBoundLogger) -> None:
         session = FakeSession(
             request_responses=[FakeResponse(payload={"k1": {"n": 1}})],

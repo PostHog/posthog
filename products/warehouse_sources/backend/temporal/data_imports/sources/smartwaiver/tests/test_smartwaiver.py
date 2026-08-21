@@ -268,6 +268,32 @@ class TestTemplates:
         assert MockSession.return_value.send.call_count == 1
 
 
+class TestSmartwaiverSourceResponse:
+    @parameterized.expand(
+        [
+            ("templates", ["templateId"], None),
+            ("waivers", ["waiverId"], ["createdOn"]),
+            ("checkins", ["checkinId", "position"], ["date"]),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_keys_and_partitioning(
+        self, endpoint: str, expected_pks: list[str], expected_partition_keys: list[str] | None, MockSession
+    ) -> None:
+        response = smartwaiver_source(
+            api_key="key",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pks
+        assert response.partition_keys == expected_partition_keys
+        # List order is undocumented, so the watermark must only advance on completed syncs.
+        assert response.sort_mode == "desc"
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [

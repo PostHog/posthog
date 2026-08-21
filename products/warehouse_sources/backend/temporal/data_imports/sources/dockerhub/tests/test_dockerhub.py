@@ -17,10 +17,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.
     _repositories_url,
     _tags_url,
     check_access,
+    dockerhub_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import DOCKERHUB_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import (
+    DOCKERHUB_ENDPOINTS,
+    ENDPOINTS,
+)
 
 # Call the undecorated functions so the tenacity retry/backoff wrappers don't slow failure-path tests.
 _fetch_page_unwrapped = dockerhub._fetch_page.__wrapped__  # type: ignore[attr-defined]
@@ -471,6 +475,21 @@ class TestCheckAccess:
 
 
 class TestDockerhubSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = dockerhub_source(
+            username="tom",
+            personal_access_token="dckr_pat_token",
+            namespace="acme",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == DOCKERHUB_ENDPOINTS[endpoint].primary_keys
+        # Repositories and tags carry mutable last_updated timestamps only; we don't partition.
+        assert response.partition_mode is None
+
     def test_tags_primary_key_includes_parent_identifiers(self) -> None:
         # Tag names are only unique within a repository; without the injected parent identifiers in
         # the key, fan-out rows from different repositories would collide and corrupt merges.

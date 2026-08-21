@@ -1,14 +1,53 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.raygun import RaygunSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.source import RaygunSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.raygun.source"
 
 
 def _config() -> RaygunSourceConfig:
     return RaygunSourceConfig(personal_access_token="tok")
+
+
+class TestRaygunSourceConfig:
+    def test_source_type(self) -> None:
+        assert RaygunSource().source_type == ExternalDataSourceType.RAYGUN
+
+    def test_get_source_config_shape(self) -> None:
+        config = RaygunSource().get_source_config
+        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
+        # A finished source ships visible with a soft ALPHA label, never hidden.
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.unreleasedSource is None
+
+        fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
+        assert len(fields) == 1
+        token_field = fields[0]
+        assert token_field.name == "personal_access_token"
+        assert token_field.type == SourceFieldInputConfigType.PASSWORD
+        assert token_field.required is True
+        assert token_field.secret is True
+
+    def test_get_schemas_full_refresh_only(self) -> None:
+        schemas = RaygunSource().get_schemas(_config(), team_id=1)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+        # No endpoint has a server-side timestamp filter, so none support incremental sync.
+        assert all(s.supports_incremental is False for s in schemas)
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas does no I/O, so the public docs catalog can render.
+        assert RaygunSource.lists_tables_without_credentials is True
 
 
 class TestValidateCredentials:

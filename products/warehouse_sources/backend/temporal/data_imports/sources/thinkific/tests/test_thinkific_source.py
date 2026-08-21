@@ -4,10 +4,13 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkific import (
     ThinkificSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.source import ThinkificSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.source.validate_thinkific_credentials"
@@ -16,6 +19,24 @@ PATCH_VALIDATE = (
 
 def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificSourceConfig:
     return ThinkificSourceConfig(api_key=api_key, subdomain=subdomain)
+
+
+class TestThinkificSourceConfig:
+    def test_source_type(self) -> None:
+        assert ThinkificSource().source_type == ExternalDataSourceType.THINKIFIC
+
+    def test_source_config_fields(self) -> None:
+        cfg = ThinkificSource().get_source_config
+        fields = {f.name: f for f in cfg.fields}
+        assert set(fields) == {"api_key", "subdomain"}
+        api_key, subdomain = fields["api_key"], fields["subdomain"]
+        assert isinstance(api_key, SourceFieldInputConfig)
+        assert isinstance(subdomain, SourceFieldInputConfig)
+        # The secret must be a password field; the subdomain is a plain text identifier.
+        assert api_key.type == "password"
+        assert api_key.secret is True
+        assert subdomain.type == "text"
+        assert subdomain.secret is False
 
 
 class TestThinkificValidateCredentials:

@@ -11,8 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.ker
     _next_page,
     _redact_sensitive_fields,
     get_rows,
+    kernel_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import ENDPOINTS, KERNEL_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel"
 
@@ -225,3 +227,17 @@ class TestGetRows:
             self._collect("apps")
 
         assert mock_session.return_value.get.call_count == 5
+
+
+class TestKernelSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+        config = KERNEL_ENDPOINTS[endpoint]
+        response = kernel_source("sk_test", endpoint, mock.MagicMock())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        # Partitioning is left to the pipeline's auto-detection for this alpha release.
+        assert response.partition_mode is None
+        assert response.partition_keys is None

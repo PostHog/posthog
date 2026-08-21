@@ -25,18 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_API_VERSION_2026_03,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
+    HUBSPOT_METADATA_ENDPOINTS,
     SEARCH_PAGE_SIZE,
     SEARCH_RESULT_CAP,
 )
-
-
-@pytest.fixture(autouse=True)
-def _stub_property_names():
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names",
-        return_value=[],
-    ):
-        yield
 
 
 def _make_response(status: int, payload: dict[str, Any] | None = None, text: str = "") -> MagicMock:
@@ -75,6 +67,15 @@ def _result(id_: str, cursor_value_ms: int, cursor_prop: str = "hs_lastmodifiedd
         "updatedAt": iso,
         "createdAt": iso,
     }
+
+
+@pytest.fixture(autouse=True)
+def _stub_property_names():
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._get_property_names",
+        return_value=[],
+    ):
+        yield
 
 
 class TestFlattenResult:
@@ -1222,6 +1223,53 @@ class TestHubspotSourceRouting:
                 use_search_path=True,
                 api_version=HUBSPOT_API_VERSION_V3,
             )
+
+    def test_search_path_happy_path(self) -> None:
+        resp = hubspot_source(
+            api_key="k",
+            refresh_token="r",
+            endpoint="deals",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+            use_search_path=True,
+            db_incremental_field_last_value=None,
+            api_version=HUBSPOT_API_VERSION_V3,
+        )
+        # SourceResponse should be returned with partition settings preserved.
+        assert resp.name == "deals"
+        assert resp.primary_keys == ["id"]
+        assert resp.partition_keys == [HUBSPOT_ENDPOINTS["deals"].partition_key]
+
+    def test_get_path_fallback(self) -> None:
+        resp = hubspot_source(
+            api_key="k",
+            refresh_token="r",
+            endpoint="deals",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+            use_search_path=False,
+            api_version=HUBSPOT_API_VERSION_V3,
+        )
+        assert resp.name == "deals"
+
+    @pytest.mark.parametrize("endpoint", list(HUBSPOT_METADATA_ENDPOINTS))
+    def test_lookup_tables_bypass_the_crm_paths(self, endpoint: str) -> None:
+        # Lookup tables aren't in HUBSPOT_ENDPOINTS, so routing them through the CRM paths raises
+        # KeyError. Their keys are also composite: falling back to ["id"] would let the deals and
+        # tickets "default" pipelines overwrite each other on merge.
+        resp = hubspot_source(
+            api_key="k",
+            refresh_token="r",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+            use_search_path=False,
+            api_version=HUBSPOT_API_VERSION_V3,
+        )
+
+        assert resp.name == endpoint
+        assert resp.primary_keys == HUBSPOT_METADATA_ENDPOINTS[endpoint].primary_keys
+        assert resp.partition_mode is None
 
 
 class TestGetRowsFullRefresh:

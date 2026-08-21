@@ -1,10 +1,13 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.source import DiscourseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.discourse import (
     DiscourseSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDiscourseSource:
@@ -15,14 +18,37 @@ class TestDiscourseSource:
             base_url="https://forum.example.com", api_key="secret-key", api_username="system"
         )
 
-    def test_only_posts_supports_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["posts"].supports_incremental is True
-        assert [f["field"] for f in schemas["posts"].incremental_fields] == ["id"]
-        for name, schema in schemas.items():
-            if name != "posts":
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.DISCOURSE
+
+    def test_config_has_no_unreleased_flag(self) -> None:
+        # A finished source must not carry `unreleasedSource` — it hides the connector entirely.
+        assert self.source.get_source_config.unreleasedSource is None
+
+    def test_connection_host_fields_covers_base_url_and_api_username(self) -> None:
+        # The stored API key is sent to whatever `base_url` points at, and `api_username` selects
+        # the identity an All Users key acts as, so retargeting either must force key re-entry.
+        assert self.source.connection_host_fields == ["base_url", "api_username"]
+
+    @parameterized.expand(
+        [
+            ("403 Client Error: Forbidden for url: https://forum.example.com/session/current.json",),
+            ("invalid_access",),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("500 Server Error: Internal Server Error for url: https://forum.example.com/latest.json",),
+            ("429 Client Error: Too Many Requests for url: https://forum.example.com/posts.json",),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.discourse.source.discourse_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

@@ -377,3 +377,34 @@ class TestSSRFAndRedaction:
     def test_validate_credentials_swallows_exceptions(self, make_session: mock.MagicMock) -> None:
         make_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key", "acme") is False
+
+
+class TestSourceResponse:
+    def test_leads_partitions_on_created_at(self) -> None:
+        with mock.patch(CLIENT_SESSION_PATCH):
+            response = _source(_make_manager())
+        assert response.name == "leads"
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
+        assert response.sort_mode == "asc"
+
+    @parameterized.expand(
+        [
+            ("users",),
+            ("teams",),
+            ("steps",),
+            ("pipelines",),
+            ("categories",),
+            ("tags",),
+            ("fields",),
+            ("activities",),
+            ("client_folders",),
+        ]
+    )
+    def test_metadata_endpoints_are_unpartitioned(self, endpoint: str) -> None:
+        with mock.patch(CLIENT_SESSION_PATCH):
+            response = _source(_make_manager(), endpoint=endpoint)
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None

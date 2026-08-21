@@ -252,3 +252,14 @@ class TestAssemblyAIRows:
 class TestAssemblyAISource:
     def test_endpoints_inventory(self) -> None:
         assert ENDPOINTS == ("transcripts",)
+
+    def test_source_response_shape(self) -> None:
+        response = assemblyai_source(
+            "key", "us", "transcripts", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+        assert response.name == "transcripts"
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created"]
+        # The list endpoint returns newest-first and exposes no ascending sort.
+        assert response.sort_mode == "desc"

@@ -1,8 +1,17 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imagga import ImaggaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source import ImaggaSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestImaggaSource:
@@ -10,6 +19,49 @@ class TestImaggaSource:
         self.source = ImaggaSource()
         self.team_id = 123
         self.config = ImaggaSourceConfig(api_key="acc_test", api_secret="secret_test")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.IMAGGA
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+
+        assert config.name.value == "Imagga"
+        assert config.label == "Imagga"
+        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # Kept behind the unreleased flag until the source has been exercised end to end.
+        assert config.unreleasedSource is True
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/imagga"
+        assert [f.name for f in config.fields] == ["api_key", "api_secret"]
+
+    def test_api_secret_is_a_secret_password_field(self) -> None:
+        # The secret must never render as plain text or be treated as non-sensitive by the serializer.
+        field = next(f for f in self.source.get_source_config.fields if f.name == "api_secret")
+        assert isinstance(field, SourceFieldInputConfig)
+        assert field.type == SourceFieldInputConfigType.PASSWORD
+        assert field.secret is True
+        assert field.required is True
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog with no I/O — safe to surface in public docs.
+        assert self.source.lists_tables_without_credentials is True
+
+    def test_get_schemas_covers_all_endpoints_full_refresh_only(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+        # /usage exposes no server-side timestamp filter, so nothing may advertise incremental/append —
+        # a client-side cursor over a single snapshot request is not incremental.
+        assert all(s.supports_incremental is False for s in schemas)
+        assert all(s.supports_append is False for s in schemas)
+        assert all(s.incremental_fields == [] for s in schemas)
+
+    def test_get_schemas_filtered_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["daily_usage"])
+        assert [s.name for s in schemas] == ["daily_usage"]
+
+    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
+        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
         "observed_error,should_match",

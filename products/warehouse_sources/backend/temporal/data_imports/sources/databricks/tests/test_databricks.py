@@ -489,6 +489,35 @@ class TestDatabricksSource:
     def source(self) -> DatabricksSource:
         return DatabricksSource()
 
+    def test_schema_field_is_optional_for_multi_schema_support(self, source):
+        # `is_multi_schema_capable_sql_source` keys off the schema field being optional — making it
+        # required would silently turn off multi-schema import for Databricks.
+        schema_field = next(f for f in source.get_source_config.fields if f.name == "schema")
+        assert schema_field.required is False
+
+    def test_host_is_a_connection_host_field(self, source):
+        # Retargeting the workspace hostname must force credential re-entry (exfiltration gate).
+        assert source.connection_host_fields == ["host"]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Invalid access token.",
+            "Error during request to server: b'Invalid access token. (403)'",
+            "invalid_client: Client authentication failed",
+            "[CATALOG_NOT_FOUND] The catalog 'main' cannot be found.",
+            "[SCHEMA_NOT_FOUND] The schema 'analytics' cannot be found.",
+            "PERMISSION_DENIED: User does not have USE SCHEMA on Schema 'analytics'.",
+            "[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`information_schema`.`columns` cannot be found.",
+            # Workspace IP ACL rejection — matched on the stable phrase, ignoring the appended IP
+            # address and workspace id.
+            "Error during request to server: : Source IP address: 44.208.188.173 is blocked by Databricks IP ACL for workspace: 1557520918149316. ",
+        ],
+    )
+    def test_permanent_failures_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable), f"Error should be non-retryable: {error_msg}"
+
     def test_validate_credentials_requires_access_token(self, source):
         config = DatabricksSourceConfig.from_dict(
             {"host": "h", "http_path": "p", "catalog": "main", "auth_type": {"selection": "access_token"}}

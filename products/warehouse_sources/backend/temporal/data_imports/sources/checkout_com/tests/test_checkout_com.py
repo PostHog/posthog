@@ -332,3 +332,17 @@ class TestAuth:
         token_url = auth_session.post.call_args.args[0]
         assert urlparse(token_url).netloc == "access.sandbox.checkout.com"
         assert urlparse(snapshots[0]["url"]).netloc == "api.sandbox.checkout.com"
+
+
+class TestCheckoutComSourceResponse:
+    @mock.patch(AUTH_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata(self, MockSession, MockAuthSession):
+        response = _source(_make_manager())
+
+        assert response.name == "disputes"
+        assert response.primary_keys == ["id"]
+        # Disputes return newest-first — watermark commits only at run end.
+        assert response.sort_mode == "desc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["received_on"]

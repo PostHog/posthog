@@ -20,7 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.h
     helicone_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.settings import REQUESTS_ENDPOINT
+from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.settings import (
+    PROMPTS_ENDPOINT,
+    REQUESTS_ENDPOINT,
+    SESSIONS_ENDPOINT,
+    USERS_ENDPOINT,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone"
 
@@ -310,6 +315,27 @@ class TestHeliconeSourceResponse:
         assert response.partition_keys == ["request_created_at"]
         assert response.partition_format == "week"
         assert response.sort_mode == "asc"
+
+    @parameterized.expand(
+        [
+            (SESSIONS_ENDPOINT, ["session_id"]),
+            (USERS_ENDPOINT, ["user_id"]),
+            (PROMPTS_ENDPOINT, ["id"]),
+        ]
+    )
+    def test_full_refresh_response_metadata(self, endpoint: str, expected_primary_keys: list[str]) -> None:
+        response = helicone_source(
+            api_key="key",
+            region="us",
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=mock.MagicMock(spec=ResumableSourceManager),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == expected_primary_keys
+        assert response.partition_mode is None
+        assert response.partition_keys is None
 
 
 class TestNonRetryableErrorMessages:

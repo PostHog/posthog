@@ -4,6 +4,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codemagic import (
     CodemagicSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCodemagicSource:
@@ -11,6 +12,20 @@ class TestCodemagicSource:
         self.source = CodemagicSource()
         self.team_id = 123
         self.config = CodemagicSourceConfig(api_token="test-token")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.CODEMAGIC
+
+    def test_get_source_config_has_no_unreleased_flag(self) -> None:
+        # A finished source ships visible — this is the one thing that must never regress.
+        assert self.source.get_source_config.unreleasedSource is None
+
+    def test_get_schemas_are_full_refresh_only(self) -> None:
+        # Codemagic has no documented server-side timestamp filter on any endpoint.
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        for schema in schemas:
+            assert schema.supports_incremental is False
+            assert schema.incremental_fields == []
 
     @pytest.mark.parametrize(
         ("error_message", "expected_substring"),

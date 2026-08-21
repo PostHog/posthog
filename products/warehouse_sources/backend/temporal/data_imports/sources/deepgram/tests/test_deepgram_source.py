@@ -1,17 +1,43 @@
+from typing import Any
+
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.source import DeepgramSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepgram import (
     DeepgramSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+def _inputs(**overrides: Any) -> SourceInputs:
+    defaults: dict[str, Any] = {
+        "schema_name": "requests",
+        "schema_id": "schema-1",
+        "source_id": "source-1",
+        "team_id": 1,
+        "should_use_incremental_field": False,
+        "db_incremental_field_last_value": None,
+        "db_incremental_field_earliest_value": None,
+        "incremental_field": None,
+        "incremental_field_type": None,
+        "job_id": "job-1",
+        "logger": MagicMock(),
+        "reset_pipeline": False,
+    }
+    defaults.update(overrides)
+    return SourceInputs(**defaults)
 
 
 class TestDeepgramSourceClass:
     def setup_method(self) -> None:
         self.source = DeepgramSource()
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.DEEPGRAM
 
     @parameterized.expand(
         [
@@ -41,3 +67,15 @@ class TestDeepgramSourceClass:
         with patch.object(source_module, "validate_deepgram_credentials", return_value=api_ok):
             ok, _error = self.source.validate_credentials(DeepgramSourceConfig(api_key="k"), team_id=1)
         assert ok is expected
+
+    @parameterized.expand([("incremental_on", True), ("incremental_off", False)])
+    def test_source_for_pipeline_gates_last_value_on_incremental(self, _name: str, use_incremental: bool) -> None:
+        config = DeepgramSourceConfig(api_key="k")
+        inputs = _inputs(should_use_incremental_field=use_incremental, db_incremental_field_last_value="2026-01-01")
+        with patch.object(source_module, "deepgram_source") as mock_source:
+            self.source.source_for_pipeline(config, MagicMock(), inputs)
+        kwargs = mock_source.call_args.kwargs
+        assert kwargs["api_key"] == "k"
+        assert kwargs["should_use_incremental_field"] is use_incremental
+        # The last value is only forwarded when the sync is actually incremental.
+        assert kwargs["db_incremental_field_last_value"] == ("2026-01-01" if use_incremental else None)

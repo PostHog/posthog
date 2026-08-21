@@ -4,8 +4,12 @@ from unittest.mock import patch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uscensus import (
     USCensusSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.settings import CUSTOM_QUERY_ENDPOINT
+from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.settings import (
+    CUSTOM_QUERY_ENDPOINT,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.source import USCensusSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides) -> USCensusSourceConfig:
@@ -28,6 +32,27 @@ class _FakeInputs:
 class TestUSCensusSource:
     def setup_method(self):
         self.source = USCensusSource()
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.USCENSUS
+
+    def test_get_schemas_static_catalog(self):
+        schemas = self.source.get_schemas(_config(), team_id=1)
+
+        assert [schema.name for schema in schemas] == list(ENDPOINTS)
+        assert all(schema.supports_incremental is False for schema in schemas)
+        assert all(schema.supports_append is False for schema in schemas)
+        assert all(schema.description for schema in schemas)
+
+    def test_get_schemas_includes_custom_query_when_configured(self):
+        schemas = self.source.get_schemas(_custom_config(), team_id=1)
+
+        assert [schema.name for schema in schemas] == [*ENDPOINTS, CUSTOM_QUERY_ENDPOINT]
+
+    def test_get_schemas_names_filter(self):
+        schemas = self.source.get_schemas(_config(), team_id=1, names=["AcsDemographicsByState"])
+
+        assert [schema.name for schema in schemas] == ["AcsDemographicsByState"]
 
     @pytest.mark.parametrize(
         "overrides",
@@ -53,6 +78,13 @@ class TestUSCensusSource:
         assert (valid, error) == (True, None)
         mock_validate.assert_called_once_with("test-key")
 
+    @pytest.mark.parametrize("endpoint_name", list(ENDPOINTS))
+    def test_source_for_pipeline_builds_catalog_endpoint(self, endpoint_name):
+        response = self.source.source_for_pipeline(_config(), _FakeInputs(endpoint_name))  # type: ignore[arg-type]
+
+        assert response.name == endpoint_name
+        assert response.primary_keys == list(ENDPOINTS[endpoint_name].primary_keys)
+
     def test_source_for_pipeline_custom_query_plumbing(self):
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.us_census.source.us_census_source"
@@ -69,3 +101,18 @@ class TestUSCensusSource:
     def test_source_for_pipeline_custom_query_unconfigured_raises(self):
         with pytest.raises(ValueError, match="US Census custom query"):
             self.source.source_for_pipeline(_config(), _FakeInputs(CUSTOM_QUERY_ENDPOINT))  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "US Census API key is missing or invalid. Request a free key at https://api.census.gov/data/key_signup.html",
+            "US Census API rejected the request (400): error: unknown variable 'B99999_999E'",
+            "US Census API rejected the request (400): error: unsupported geography hierarchy",
+            "US Census custom query is incomplete: set the dataset path, variables, and geography together",
+            "US Census API response is too large (over 256 MiB). Narrow the query with fewer variables or a smaller geography (e.g. an in= filter).",
+        ],
+    )
+    def test_known_permanent_failures_are_non_retryable(self, error_message):
+        non_retryable = self.source.get_non_retryable_errors()
+
+        assert any(pattern in error_message for pattern in non_retryable)

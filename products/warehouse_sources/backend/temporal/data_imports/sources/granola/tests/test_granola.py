@@ -320,3 +320,14 @@ class TestGranolaSource:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
         assert response.partition_format == "week"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_folders_response_has_no_partition(self, MockSession) -> None:
+        response = granola_source(
+            "grn_test", "folders", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+
+        assert response.name == "folders"
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None

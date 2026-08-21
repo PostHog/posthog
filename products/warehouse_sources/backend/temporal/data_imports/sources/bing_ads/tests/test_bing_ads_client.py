@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.c
     extract_webfault_detail,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.schemas import BingAdsResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
 )
@@ -183,6 +184,68 @@ class TestBingAdsClient:
         # __cause__ preserves the original exception for stack traces / logging.
         assert isinstance(exc_info.value.__cause__, OAuthTokenRequestException)
 
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_get_customer_id_transient_failure_message_has_no_auth_substring(self, mock_service_client):
+        """A network/timeout failure must not coincidentally match the non-retryable auth patterns."""
+        mock_client_instance = mock_service_client.return_value
+        mock_client_instance.GetUser.side_effect = ConnectionError(
+            "HTTPSConnectionPool(host='bingads.microsoft.com', port=443): Max retries exceeded"
+        )
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError) as exc_info:
+            client.get_customer_id()
+
+        message = str(exc_info.value)
+        assert "ConnectionError" in message
+
+        non_retryable_patterns = BingAdsSource().get_non_retryable_errors()
+        assert not any(pattern in message for pattern in non_retryable_patterns)
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_get_customer_id_surfaces_soap_fault_detail(self, mock_service_client):
+        """The generic 'Invalid client data' faultstring hides the real error code in the SOAP fault
+        detail. get_customer_id must surface that code so the retry framework can recognise it and
+        operators can see the real cause — matching an existing non-retryable auth pattern.
+        """
+        webfault = _make_webfault(
+            "Invalid client data. Check the SOAP fault details for more information. TrackingId: abc-123.",
+            _ad_api_fault_detail("InvalidCredentials", "The user is not authenticated."),
+        )
+        mock_client_instance = mock_service_client.return_value
+        mock_client_instance.GetUser.side_effect = webfault
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError) as exc_info:
+            client.get_customer_id()
+
+        message = str(exc_info.value)
+        assert "Failed to fetch customer ID" in message
+        # The detail error code is surfaced alongside the generic umbrella message.
+        assert "InvalidCredentials" in message
+        assert "Invalid client data" in message
+        # The surfaced detail makes the failure match a non-retryable pattern.
+        non_retryable_patterns = BingAdsSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in non_retryable_patterns)
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_get_customer_id_webfault_without_detail_keeps_generic_message(self, mock_service_client):
+        """A WebFault with no parseable detail must not crash extraction — it just keeps the faultstring."""
+        webfault = _make_webfault("Internal Error", detail=None)
+        mock_client_instance = mock_service_client.return_value
+        mock_client_instance.GetUser.side_effect = webfault
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError) as exc_info:
+            client.get_customer_id()
+
+        message = str(exc_info.value)
+        assert "Failed to fetch customer ID: WebFault" in message
+        assert "Internal Error" in message
+        # No detail to surface, so no auth pattern should be matched (stays retryable).
+        non_retryable_patterns = BingAdsSource().get_non_retryable_errors()
+        assert not any(pattern in message for pattern in non_retryable_patterns)
+
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.download_and_extract_report_csv"
     )
@@ -261,3 +324,47 @@ class TestBingAdsClient:
         # Search campaigns to Bing's Search-only default.
         _, call_kwargs = mock_client_instance.GetCampaignsByAccountId.call_args
         assert call_kwargs["CampaignType"] == "App Audience DynamicSearchAds Hotel PerformanceMax Search Shopping"
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_get_campaigns_surfaces_soap_fault_detail(self, mock_service_client):
+        """GetCampaignsByAccountId raises the same generic 'Invalid client data' WebFault as GetUser when
+        the configured account is unusable. get_campaigns must funnel it through _wrap_with_fault_detail
+        so the real error code in the SOAP detail reaches the retry framework instead of a raw WebFault.
+        """
+        webfault = _make_webfault(
+            "Invalid client data. Check the SOAP fault details for more information. TrackingId: abc-123.",
+            _ad_api_fault_detail("AuthenticationTokenExpired", "The authentication token has expired."),
+        )
+        mock_client_instance = mock_service_client.return_value
+        mock_client_instance.GetCampaignsByAccountId.side_effect = webfault
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError) as exc_info:
+            list(client.get_campaigns(self.account_id, self.customer_id))
+
+        message = str(exc_info.value)
+        assert "Failed to fetch campaigns" in message
+        assert "AuthenticationTokenExpired" in message
+        assert "Invalid client data" in message
+        non_retryable_patterns = BingAdsSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in non_retryable_patterns)
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_get_campaigns_transient_failure_stays_retryable(self, mock_service_client):
+        """A network/timeout failure from GetCampaignsByAccountId must keep its original signature and
+        not coincidentally match a non-retryable auth pattern.
+        """
+        mock_client_instance = mock_service_client.return_value
+        mock_client_instance.GetCampaignsByAccountId.side_effect = ConnectionError(
+            "HTTPSConnectionPool(host='bingads.microsoft.com', port=443): Max retries exceeded"
+        )
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError) as exc_info:
+            list(client.get_campaigns(self.account_id, self.customer_id))
+
+        message = str(exc_info.value)
+        assert "Failed to fetch campaigns" in message
+        assert "ConnectionError" in message
+        non_retryable_patterns = BingAdsSource().get_non_retryable_errors()
+        assert not any(pattern in message for pattern in non_retryable_patterns)

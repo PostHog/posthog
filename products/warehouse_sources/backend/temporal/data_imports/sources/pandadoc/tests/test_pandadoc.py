@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.p
     pandadoc_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.settings import PANDADOC_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.settings import (
+    ENDPOINTS,
+    PANDADOC_ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -312,6 +315,21 @@ class TestPagination:
 
 
 class TestPandaDocSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = PANDADOC_ENDPOINTS[endpoint]
+        response = pandadoc_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize("config", list(PANDADOC_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

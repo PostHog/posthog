@@ -252,6 +252,15 @@ class TestPagination:
         assert rows == []
 
 
+class TestClockodoSourceResponse:
+    @parameterized.expand([("customers",), ("entries",), ("users",)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_primary_keys_default_to_id(self, endpoint: str, MockSession) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+
+
 class TestVersionDispatch:
     @parameterized.expand(
         [

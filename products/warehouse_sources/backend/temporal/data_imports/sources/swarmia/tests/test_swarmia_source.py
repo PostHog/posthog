@@ -5,7 +5,12 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.swarmia import (
     SwarmiaSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.source import SwarmiaSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.source"
 
@@ -14,6 +19,33 @@ class TestSwarmiaSource:
     def setup_method(self) -> None:
         self.source = SwarmiaSource()
         self.config = SwarmiaSourceConfig(api_key="token")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.SWARMIA
+
+    @parameterized.expand(
+        [
+            ("pull_requests", True),
+            ("dora", True),
+            ("investment", True),
+            ("capex", False),
+            ("capex_employees", False),
+            ("fte", False),
+        ]
+    )
+    def test_get_schemas_incremental_support(self, endpoint: str, supports_incremental: bool) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
+
+        schema = schemas[endpoint]
+        assert schema.supports_incremental is supports_incremental
+        # Re-pulled trailing windows must be merged (deduped on primary key), never appended.
+        assert schema.supports_append is False
+        if supports_incremental:
+            assert [f["field"] for f in schema.incremental_fields] == ["end_date"]
+
+    def test_get_schemas_returns_all_endpoints_and_filters_by_name(self) -> None:
+        assert {s.name for s in self.source.get_schemas(self.config, team_id=1)} == set(ENDPOINTS)
+        assert [s.name for s in self.source.get_schemas(self.config, team_id=1, names=["dora"])] == ["dora"]
 
     @parameterized.expand(
         [
@@ -40,3 +72,12 @@ class TestSwarmiaSource:
         assert valid is expected_valid
         if not expected_valid:
             assert error
+
+    def test_non_retryable_errors_cover_auth_failures(self) -> None:
+        errors = self.source.get_non_retryable_errors()
+        assert "401 Client Error: Unauthorized for url: https://app.swarmia.com" in errors
+        assert "403 Client Error: Forbidden for url: https://app.swarmia.com" in errors
+
+    def test_canonical_descriptions_match_endpoint_catalog(self) -> None:
+        # A canonical entry keyed off a name not in the catalog is silently unused (typo guard).
+        assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)

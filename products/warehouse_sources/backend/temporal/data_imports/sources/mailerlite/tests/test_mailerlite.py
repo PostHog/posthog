@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.settings import (
+    ENDPOINTS,
     MAILERLITE_V1,
     MAILERLITE_V2,
     SUBSCRIBER_WEBHOOK_EVENTS,
@@ -288,6 +289,14 @@ class TestMailerLiteSourceResponse:
         assert response.partition_mode is None
         assert response.partition_format is None
         assert response.partition_keys is None
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_every_endpoint_builds_a_response(self, endpoint: str) -> None:
+        response = mailerlite_source(
+            api_key="key", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
 
 
 WEBHOOK_URL = "https://ph.example/public/webhooks/abc"

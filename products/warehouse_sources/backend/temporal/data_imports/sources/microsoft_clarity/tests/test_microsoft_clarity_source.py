@@ -3,6 +3,8 @@ from typing import Any
 
 from unittest.mock import MagicMock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import (
     ENDPOINT_NAME,
@@ -11,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.source import (
     MicrosoftClaritySource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(
@@ -27,6 +30,52 @@ def _config(
         dimension2=dimension2,
         dimension3=dimension3,
     )
+
+
+class TestSourceConfig:
+    def test_source_type(self) -> None:
+        assert MicrosoftClaritySource().source_type == ExternalDataSourceType.MICROSOFTCLARITY
+
+
+class TestGetSchemas:
+    def test_endpoint_is_append_only_not_incremental(self) -> None:
+        # The API has no server-side "since" filter, so this must never be treated as truly
+        # incremental — but it should still append daily snapshots rather than overwrite them.
+        schema = MicrosoftClaritySource().get_schemas(MagicMock(), team_id=1)[0]
+        assert schema.supports_incremental is False
+        assert schema.supports_append is True
+        assert [f["field"] for f in schema.incremental_fields] == ["synced_at"]
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "bad_request",
+                "400 Client Error: Bad Request for url: https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=3",
+            ),
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
+            ),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
+            ),
+            (
+                "quota_exceeded",
+                "429 Client Error: Too Many Requests for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
+            ),
+        ]
+    )
+    def test_known_error_is_non_retryable(self, _name: str, observed: str) -> None:
+        errors = MicrosoftClaritySource().get_non_retryable_errors()
+        assert any(key in observed for key in errors)
+
+    def test_transient_error_remains_retryable(self) -> None:
+        errors = MicrosoftClaritySource().get_non_retryable_errors()
+        observed = "HTTPSConnectionPool(host='www.clarity.ms', port=443): Read timed out."
+        assert not any(key in observed for key in errors)
 
 
 class TestSourceForPipeline:

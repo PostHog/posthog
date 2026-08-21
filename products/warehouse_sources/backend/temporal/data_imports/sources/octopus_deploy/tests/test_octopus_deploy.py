@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_de
     _parse_retry_after,
     get_rows,
     normalize_host,
+    octopus_deploy_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_deploy.settings import (
@@ -197,6 +198,38 @@ class TestValidateCredentials:
             assert valid is False
             assert msg == "internal address"
             patched.return_value.get.assert_not_called()
+
+
+class TestOctopusDeploySourceResponse:
+    @pytest.mark.parametrize(
+        "endpoint, primary_keys, partition_key",
+        [
+            ("spaces", ["Id"], None),
+            ("projects", ["SpaceId", "Id"], None),
+            ("releases", ["SpaceId", "Id"], "Assembled"),
+            ("deployments", ["SpaceId", "Id"], "Created"),
+            ("tasks", ["SpaceId", "Id"], "QueueTime"),
+            ("events", ["SpaceId", "Id"], "Occurred"),
+        ],
+    )
+    def test_response_shape(self, endpoint, primary_keys, partition_key):
+        response = octopus_deploy_source(
+            host="my-org.octopus.app",
+            api_key="API-KEY",
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=mock.MagicMock(),
+            team_id=1,
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == "desc"
+        if partition_key:
+            assert response.partition_keys == [partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+            assert response.partition_mode is None
 
 
 class TestGetRows:

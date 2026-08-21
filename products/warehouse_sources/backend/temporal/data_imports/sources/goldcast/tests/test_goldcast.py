@@ -177,6 +177,32 @@ class TestAuthAndRedaction:
 
 
 class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("events", ["id"], "created_at"),
+            ("organizations", ["id"], "created_at"),
+            # agenda_items has no creation timestamp, so it must not be partitioned.
+            ("agenda_items", ["id"], None),
+            # Fan-out children carry the parent id in a composite key for table-wide uniqueness.
+            ("webinars", ["event", "id"], "created_at"),
+            ("event_members", ["event", "id"], "created_at"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_partition_and_primary_keys_per_endpoint(
+        self, endpoint: str, expected_keys: list[str], partition_key: str | None, MockSession
+    ) -> None:
+        response = goldcast_source(access_key="tok", endpoint=endpoint, team_id=1, job_id="j")
+
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        if partition_key is None:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [partition_key]
+
     def test_every_endpoint_declares_a_primary_key(self) -> None:
         # A non-unique / missing key seeds duplicate rows that make every later merge multi-match.
         for name, config in GOLDCAST_ENDPOINTS.items():

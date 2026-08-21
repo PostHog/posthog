@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.concord.co
     _iter_page,
     _to_epoch_ms,
     base_url_for_environment,
+    concord_source,
     get_rows,
     resolve_organization_id,
     validate_credentials,
@@ -364,3 +365,25 @@ class TestEventsWindowPagination:
         emitted, _ = self._iter_single_window(start_row_offset=3)
         # rows 0–2 were committed last run; the resume must not re-emit them
         assert emitted == [3, 4]
+
+
+class TestConcordSource:
+    @parameterized.expand(list(CONCORD_ENDPOINTS.keys()))
+    def test_source_response_shape(self, endpoint):
+        response = concord_source(
+            api_key="key",
+            environment="production",
+            organization_id="42",
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            manager=FakeManager(),
+        )
+        config = CONCORD_ENDPOINTS[endpoint]
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_keys == [config.partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None

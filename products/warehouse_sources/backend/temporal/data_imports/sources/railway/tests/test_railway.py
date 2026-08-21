@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.railway.ra
     railway_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.railway.source import RailwaySource
 
 RAILWAY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.railway.railway"
 
@@ -225,6 +226,13 @@ class TestRailway:
 
         assert [[row["id"] for row in batch] for batch in batches] == [["d1"], ["d2"]]
         assert session.post.call_count == 3
+
+    def test_not_authorized_error_matches_non_retryable_catalog(self):
+        with pytest.raises(Exception) as exc_info:
+            _run("projects", [{"errors": [{"message": "Not Authorized"}], "data": None}])
+
+        non_retryable = RailwaySource().get_non_retryable_errors()
+        assert any(key in str(exc_info.value) for key in non_retryable)
 
     def test_problem_processing_request_error_is_retryable(self):
         # Railway returns this generic message as HTTP 200 + a GraphQL error for what their own

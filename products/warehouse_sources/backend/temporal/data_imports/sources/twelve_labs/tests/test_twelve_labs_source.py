@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs.source import TwelveLabsSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(schema_name: str, last_value: object = None, should_use_incremental: bool = False) -> SourceInputs:
@@ -31,6 +32,36 @@ def _inputs(schema_name: str, last_value: object = None, should_use_incremental:
 class TestTwelveLabsSource:
     def setup_method(self) -> None:
         self.source = TwelveLabsSource()
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.TWELVELABS
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog with no I/O — required so the public docs render the table list.
+        assert self.source.lists_tables_without_credentials is True
+
+    @parameterized.expand(
+        [
+            ("indexes", True, True),
+            ("tasks", True, True),
+            ("videos", False, False),
+        ]
+    )
+    def test_schema_incremental_support(self, name: str, supports_incremental: bool, supports_append: bool) -> None:
+        # Only endpoints with a genuine server-side timestamp filter are incremental; videos
+        # (fan-out, unverifiable updated_at filter) ships full-refresh only.
+        schema = next(
+            s for s in self.source.get_schemas(TwelveLabsSourceConfig(api_key="x"), team_id=1) if s.name == name
+        )
+        assert schema.supports_incremental is supports_incremental
+        assert schema.supports_append is supports_append
+
+    def test_videos_not_synced_by_default(self) -> None:
+        # Per-index fan-out is expensive on free plans, so videos is opt-in.
+        videos = next(
+            s for s in self.source.get_schemas(TwelveLabsSourceConfig(api_key="x"), team_id=1) if s.name == "videos"
+        )
+        assert videos.should_sync_default is False
 
     @parameterized.expand(
         [

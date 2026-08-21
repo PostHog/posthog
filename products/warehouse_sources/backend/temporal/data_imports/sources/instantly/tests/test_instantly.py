@@ -156,6 +156,33 @@ class TestInstantly:
     def test_format_incremental_timestamp(self, value, expected):
         assert _format_incremental_timestamp(value) == expected
 
+    @pytest.mark.parametrize(
+        "endpoint,expected_primary_keys,expected_partition_mode",
+        [
+            ("campaigns", ["id"], "datetime"),
+            ("accounts", ["email"], "datetime"),
+            ("campaign_analytics", ["campaign_id"], None),
+        ],
+    )
+    @mock.patch(f"{MODULE}.rest_api_resource")
+    def test_source_response_per_endpoint(
+        self, mock_resource, endpoint, expected_primary_keys, expected_partition_mode
+    ):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        response = instantly_source(
+            api_key="key",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=manager,
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == expected_primary_keys
+        assert response.partition_mode == expected_partition_mode
+
     @mock.patch(f"{MODULE}.rest_api_resource")
     def test_resume_state_seeds_paginator_and_saves_after_batches(self, mock_resource):
         manager = mock.MagicMock()

@@ -5,10 +5,14 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jenkins import (
     JenkinsSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source import JenkinsSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> JenkinsSourceConfig:
@@ -19,6 +23,72 @@ class TestJenkinsSource:
     def setup_method(self) -> None:
         self.source = JenkinsSource()
         self.team_id = 123
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.JENKINS
+
+    def test_source_is_released_not_hidden(self) -> None:
+        # A finished source must be visible (no unreleasedSource) and labelled ALPHA.
+        config = self.source.get_source_config
+        assert not config.unreleasedSource
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+
+    def test_source_config_fields(self) -> None:
+        config = self.source.get_source_config
+        by_name: dict[str, SourceFieldInputConfig] = {}
+        for field in config.fields:
+            assert isinstance(field, SourceFieldInputConfig)
+            by_name[field.name] = field
+        assert set(by_name) == {"host", "username", "api_token"}
+        # Only the API token is a secret; the URL and username are not.
+        assert by_name["api_token"].secret is True
+        assert by_name["host"].secret is False
+        assert by_name["username"].secret is False
+
+    def test_get_schemas_lists_every_endpoint(self) -> None:
+        schemas = {s.name for s in self.source.get_schemas(_config(), team_id=self.team_id)}
+        assert schemas == set(ENDPOINTS)
+
+    @parameterized.expand(
+        [
+            # Jenkins has no server-side time filter; builds sync incrementally via newest-first index
+            # windowing on the derived start time, jobs are full refresh (no stable cursor).
+            ("builds", True),
+            ("jobs", False),
+        ]
+    )
+    def test_incremental_support_per_endpoint(self, endpoint: str, expected: bool) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
+        assert schemas[endpoint].supports_incremental is expected
+        assert schemas[endpoint].supports_append is expected
+
+    def test_get_schemas_filters_by_names(self) -> None:
+        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["builds"])
+        assert [s.name for s in schemas] == ["builds"]
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://jenkins.example.com/api/json"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://jenkins.example.com/job/x/api/json"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("read_timeout", "HTTPSConnectionPool(host='jenkins.example.com', port=443): Read timed out."),
+            ("server_error", "Jenkins API error (retryable): status=503"),
+            ("rate_limited", "Jenkins API error (retryable): status=429"),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas does no I/O, so the static catalog is safe to render in public docs.
+        assert self.source.lists_tables_without_credentials is True
+        assert {t["name"] for t in self.source.get_documented_tables()} == set(ENDPOINTS)
 
     def test_validate_credentials_delegates_when_host_valid(self) -> None:
         with mock.patch.object(self.source, "_validate_host", return_value=(True, None)):

@@ -8,6 +8,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.source import (
     ClickhouseCloudSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestClickhouseCloudSourceConfig:
+    def test_source_type(self) -> None:
+        assert ClickhouseCloudSource().source_type == ExternalDataSourceType.CLICKHOUSECLOUD
 
 
 class TestClickhouseCloudSchemas:
@@ -61,3 +67,45 @@ class TestValidateCredentials:
         assert ok is expected
         assert (error is None) is expected
         mock_validate.assert_called_once_with("key-id", "key-secret")
+
+
+class TestClickhouseCloudSourceForPipeline:
+    def _response(self, endpoint: str) -> object:
+        inputs = MagicMock()
+        inputs.schema_name = endpoint
+        inputs.logger = MagicMock()
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = None
+        config = MagicMock(key_id="key-id", key_secret="key-secret")
+        return ClickhouseCloudSource().source_for_pipeline(config, MagicMock(), inputs)
+
+    @parameterized.expand(
+        [
+            ("organizations", ["id"], None),
+            ("services", ["organizationId", "id"], None),
+            ("usage_cost", ["organizationId", "date", "entityId"], "datetime"),
+            ("members", ["organizationId", "userId"], None),
+            ("activities", ["organizationId", "id"], "datetime"),
+            ("backups", ["organizationId", "serviceId", "id"], "datetime"),
+        ]
+    )
+    def test_primary_keys_and_partitioning(
+        self, endpoint: str, primary_keys: list[str], partition_mode: str | None
+    ) -> None:
+        response = self._response(endpoint)
+        assert response.name == endpoint  # type: ignore[attr-defined]
+        assert response.primary_keys == primary_keys  # type: ignore[attr-defined]
+        assert response.sort_mode == "asc"  # type: ignore[attr-defined]
+        assert response.partition_mode == partition_mode  # type: ignore[attr-defined]
+
+
+class TestDocumentedTables:
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog => the source opts into publishing its table list to public docs.
+        assert ClickhouseCloudSource().lists_tables_without_credentials is True
+        tables = ClickhouseCloudSource().get_documented_tables()
+        names = {t["name"] for t in tables}
+        assert "usage_cost" in names and "services" in names
+        usage = next(t for t in tables if t["name"] == "usage_cost")
+        assert "Incremental" in usage["sync_methods"]
+        assert usage["description"]

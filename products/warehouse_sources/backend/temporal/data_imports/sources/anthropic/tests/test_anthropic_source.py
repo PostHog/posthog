@@ -3,6 +3,12 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestAnthropicSourceConfig:
+    def test_source_type(self) -> None:
+        assert AnthropicSource().source_type == ExternalDataSourceType.ANTHROPIC
 
 
 class TestAnthropicSchemas:
@@ -51,3 +57,47 @@ class TestAnthropicSchemas:
     def test_names_filter(self) -> None:
         schemas = AnthropicSource().get_schemas(MagicMock(), team_id=1, names=["usage_report"])
         assert [s.name for s in schemas] == ["usage_report"]
+
+
+class TestAnthropicSourceForPipeline:
+    def _response(self, endpoint: str) -> object:
+        inputs = MagicMock()
+        inputs.schema_name = endpoint
+        inputs.logger = MagicMock()
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = None
+        config = MagicMock(api_key="sk-ant-admin-test")
+        return AnthropicSource().source_for_pipeline(config, MagicMock(), inputs)
+
+    @parameterized.expand(
+        [
+            ("usage_report", ["id"], "datetime"),
+            ("cost_report", ["id"], "datetime"),
+            ("users", ["id"], "datetime"),
+            ("workspace_members", ["workspace_id", "user_id"], None),
+            ("service_accounts", ["workspace_id", "id"], "datetime"),
+            ("claude_code_analytics", ["id"], "datetime"),
+            ("claude_code_model_breakdown", ["id"], "datetime"),
+        ]
+    )
+    def test_primary_keys_and_partitioning(
+        self, endpoint: str, primary_keys: list[str], partition_mode: str | None
+    ) -> None:
+        response = self._response(endpoint)
+        assert response.name == endpoint  # type: ignore[attr-defined]
+        assert response.primary_keys == primary_keys  # type: ignore[attr-defined]
+        assert response.sort_mode == "asc"  # type: ignore[attr-defined]
+        # workspace_members has no stable timestamp field, so it is not partitioned.
+        assert response.partition_mode == partition_mode  # type: ignore[attr-defined]
+
+
+class TestDocumentedTables:
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog => the source opts into publishing its table list to public docs.
+        assert AnthropicSource().lists_tables_without_credentials is True
+        tables = AnthropicSource().get_documented_tables()
+        names = {t["name"] for t in tables}
+        assert "usage_report" in names and "cost_report" in names
+        usage = next(t for t in tables if t["name"] == "usage_report")
+        assert "Incremental" in usage["sync_methods"]
+        assert usage["description"]  # canonical description is surfaced

@@ -1,11 +1,14 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tremendous import (
     TremendousSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source import TremendousSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTremendousSource:
@@ -13,6 +16,9 @@ class TestTremendousSource:
         self.source = TremendousSource()
         self.team_id = 123
         self.config = TremendousSourceConfig(api_key="tremendous-key", environment="sandbox")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.TREMENDOUS
 
     def test_get_schemas_incremental_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -36,6 +42,57 @@ class TestTremendousSource:
         by_name = {s.name: s for s in schemas}
         assert by_name["balance_transactions"].should_sync_default is False
         assert all(s.should_sync_default for name, s in by_name.items() if name != "balance_transactions")
+
+    @parameterized.expand(
+        [
+            (
+                "production_unauthorized",
+                "401 Client Error: Unauthorized for url: https://www.tremendous.com/api/v2/orders?limit=500&offset=0",
+            ),
+            (
+                "sandbox_unauthorized",
+                "401 Client Error: Unauthorized for url: https://testflight.tremendous.com/api/v2/rewards?limit=500&offset=0",
+            ),
+            (
+                "production_forbidden",
+                "403 Client Error: Forbidden for url: https://www.tremendous.com/api/v2/members",
+            ),
+            (
+                "sandbox_forbidden",
+                "403 Client Error: Forbidden for url: https://testflight.tremendous.com/api/v2/members",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://www.tremendous.com/api/v2/orders",
+            ),
+            (
+                "rate_limited",
+                "429 Client Error: Too Many Requests for url: https://testflight.tremendous.com/api/v2/rewards",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source.validate_tremendous_credentials"
+    )
+    def test_validate_credentials_delegates_with_key_and_environment(self, mock_validate: mock.MagicMock) -> None:
+        # The status-to-message mapping lives in tremendous.validate_credentials; here we only assert
+        # the source probes with the configured key and environment and returns the verdict unchanged.
+        mock_validate.return_value = (False, "Invalid Tremendous API key")
+        result = self.source.validate_credentials(self.config, self.team_id)
+        mock_validate.assert_called_once_with("tremendous-key", "sandbox")
+        assert result == (False, "Invalid Tremendous API key")
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source.tremendous_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

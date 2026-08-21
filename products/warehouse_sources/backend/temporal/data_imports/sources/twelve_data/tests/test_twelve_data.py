@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_dat
     _format_time_bound,
     parse_symbols,
     twelve_data_rows,
+    twelve_data_source,
     validate_credentials,
 )
 
@@ -289,6 +290,48 @@ class TestTimeSeries:
         assert _params(session, 0)["end_date"] == "2026-07-20"
         # The 07-20 bar was already yielded by the crashed attempt.
         assert [row["datetime"] for batch in batches for row in batch] == ["2026-07-19"]
+
+
+class TestSourceResponse:
+    def test_time_series_response_shape(self) -> None:
+        response = twelve_data_source(
+            api_key="key",
+            endpoint="time_series",
+            symbols=["AAPL"],
+            interval="1day",
+            config_start_date=None,
+            resumable_source_manager=_make_manager(),
+            logger=LOGGER,
+        )
+        assert response.primary_keys == ["symbol", "datetime"]
+        # History is walked newest → oldest, so the watermark must only persist at job end.
+        assert response.sort_mode == "desc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["datetime"]
+
+    @parameterized.expand(
+        [
+            ("stocks", ["symbol", "mic_code"]),
+            ("exchanges", ["code"]),
+            ("quotes", ["symbol"]),
+            ("dividends", ["symbol", "ex_date"]),
+            ("splits", ["symbol", "date"]),
+            ("earnings", ["symbol", "date"]),
+        ]
+    )
+    def test_primary_keys_and_full_refresh_shape(self, endpoint: str, primary_keys: list[str]) -> None:
+        response = twelve_data_source(
+            api_key="key",
+            endpoint=endpoint,
+            symbols=["AAPL"],
+            interval="1day",
+            config_start_date=None,
+            resumable_source_manager=_make_manager(),
+            logger=LOGGER,
+        )
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
 
 
 class TestValidateCredentials:

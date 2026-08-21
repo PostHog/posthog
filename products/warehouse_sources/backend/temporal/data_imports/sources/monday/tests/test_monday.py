@@ -9,8 +9,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.monday.mon
     MondayGraphQLError,
     MondayRetryableError,
     get_rows,
+    monday_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS, MONDAY_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday"
 
@@ -156,3 +158,20 @@ class TestGetRowsItems:
         ]
 
         assert list(get_rows("token", "items", mock.MagicMock())) == []
+
+
+class TestMondaySourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = MONDAY_ENDPOINTS[endpoint]
+        response = monday_source("token", endpoint, mock.MagicMock())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+    def test_items_have_composite_primary_key(self):
+        response = monday_source("token", "items", mock.MagicMock())
+        assert response.primary_keys == ["_board_id", "id"]

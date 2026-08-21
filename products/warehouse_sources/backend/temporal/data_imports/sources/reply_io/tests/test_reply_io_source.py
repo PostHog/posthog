@@ -1,10 +1,13 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.replyio import (
     ReplyIoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.source import ReplyIoSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestReplyIoSource:
@@ -12,6 +15,50 @@ class TestReplyIoSource:
         self.source = ReplyIoSource()
         self.team_id = 123
         self.config = ReplyIoSourceConfig(api_key="reply-key")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.REPLYIO
+
+    def test_no_connection_host_fields(self) -> None:
+        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
+        # field an editor could retarget to reuse a preserved key against another host.
+        assert self.source.connection_host_fields == []
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.reply.io/v3/contacts?top=1000"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.reply.io/v3/sequences?top=1000"),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.reply.io/v3/contacts"),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.reply.io/v3/tasks"),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("source_create_probes_whoami", None, None),
+            ("known_schema_probes_its_endpoint", "contacts", "contacts"),
+            ("unknown_schema_falls_back_to_whoami", "not_a_table", None),
+        ]
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.source.validate_credentials")
+    def test_validate_credentials_delegates(
+        self, _name: str, schema_name: str | None, expected_endpoint: str | None, mock_validate: mock.MagicMock
+    ) -> None:
+        mock_validate.return_value = (True, None)
+        result = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        mock_validate.assert_called_once_with("reply-key", endpoint=expected_endpoint)
+        assert result == (True, None)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.source.check_endpoint_permissions"

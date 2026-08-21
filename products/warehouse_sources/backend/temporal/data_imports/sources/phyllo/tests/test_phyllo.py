@@ -18,7 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.phy
     phyllo_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.settings import PHYLLO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.settings import ENDPOINTS, PHYLLO_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -442,6 +442,18 @@ class TestValidateCredentials:
 
 
 class TestPhylloSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire_routed(session, [])
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # Phyllo doesn't guarantee ordering or a stable creation timestamp, so we don't partition.
+        assert response.partition_mode is None
+
     def test_fan_out_endpoints_are_account_scoped(self) -> None:
         # These endpoints require an account_id query param; a config regression here would 400 on
         # every page.

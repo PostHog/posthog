@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fullstory import (
     FullStorySourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFullStorySource:
@@ -12,6 +13,31 @@ class TestFullStorySource:
         self.source = FullStorySource()
         self.team_id = 123
         self.config = FullStorySourceConfig(api_key="api-key")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.FULLSTORY
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.fullstory.com/v2/users",
+            "403 Client Error: Forbidden for url: https://api.fullstory.com/v2/users",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_vendor_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
+            "500 Server Error for url: https://api.fullstory.com/v2/users",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_vendor_error for key in non_retryable_errors)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

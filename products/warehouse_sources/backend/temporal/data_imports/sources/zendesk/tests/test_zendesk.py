@@ -597,6 +597,15 @@ class TestZendeskSchemas:
         config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
         return {schema.name: schema for schema in ZendeskSource().get_schemas(config, team_id=1)}
 
+    def test_every_declared_endpoint_is_offered_exactly_once(self) -> None:
+        config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
+        names = [schema.name for schema in ZendeskSource().get_schemas(config, team_id=1)]
+
+        assert len(names) == len(set(names))
+        assert set(ZENDESK_ENDPOINTS).issubset(names)
+        # The endpoints that shipped first must keep being offered.
+        assert {"tickets", "users", "organizations", "brands", "groups", "sla_policies"}.issubset(names)
+
     def test_only_endpoints_with_a_server_side_filter_advertise_incremental(self) -> None:
         schemas = self._schemas()
         incremental = {name for name in ZENDESK_ENDPOINTS if schemas[name].supports_incremental}
@@ -613,6 +622,29 @@ class TestZendeskSourceForPipeline:
             return_value=SimpleNamespace(name=schema_name, column_hints=None),
         ):
             return ZendeskSource().source_for_pipeline(config, _source_inputs(schema_name))
+
+    @pytest.mark.parametrize(
+        "schema_name,primary_keys,partition_key",
+        [
+            # The original endpoints keep the key and partition they have always synced with.
+            pytest.param("tickets", ["id"], "created_at", id="tickets_unchanged"),
+            pytest.param("ticket_metric_events", ["id"], "time", id="ticket_metric_events_unchanged"),
+            # A tag row is just {name, count} — keying it on `id` would collapse the whole table.
+            pytest.param("tags", ["name"], None, id="tags_keyed_on_name"),
+            pytest.param("custom_objects", ["key"], "created_at", id="custom_objects_keyed_on_key"),
+            pytest.param("ticket_comments", ["ticket_id", "id"], "created_at", id="ticket_comments_composite_key"),
+            pytest.param("deleted_tickets", ["id"], "deleted_at", id="deleted_tickets_partitioned_on_deleted_at"),
+            pytest.param("satisfaction_ratings", ["id"], "created_at", id="satisfaction_ratings"),
+        ],
+    )
+    def test_primary_keys_and_partitioning(
+        self, schema_name: str, primary_keys: list[str], partition_key: str | None
+    ) -> None:
+        response = self._response(schema_name)
+
+        assert response.primary_keys == primary_keys
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.partition_mode == ("datetime" if partition_key else None)
 
     @pytest.mark.parametrize(
         "schema_name,sort_mode",

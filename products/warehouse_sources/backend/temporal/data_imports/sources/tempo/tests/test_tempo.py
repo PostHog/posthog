@@ -12,7 +12,7 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.settings import TEMPO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.settings import ENDPOINTS, TEMPO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.tempo import (
     PAGE_SIZE,
     TEMPO_BASE_URL,
@@ -314,6 +314,27 @@ class TestTransportErrors:
         with pytest.raises(requests.HTTPError):
             _rows(_source(_make_manager()))
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_http_error_message_keeps_stable_prefix(self, MockSession) -> None:
+        # The message becomes the schema's latest_error and must keep the prefix
+        # get_non_retryable_errors() matches on. No secret rides in the URL (the token is a header).
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _raw_response(
+                    {},
+                    status=401,
+                    reason="Unauthorized",
+                    url=f"{TEMPO_BASE_URL}/worklogs?limit=100&updatedFrom=2026-03-01",
+                )
+            ],
+        )
+
+        with pytest.raises(requests.HTTPError) as exc:
+            _rows(_source(_make_manager(), "worklogs"))
+        assert "401 Client Error: Unauthorized for url: https://api.tempo.io" in str(exc.value)
+
     @parameterized.expand([("non_dict_body", [{"id": 1}]), ("missing_results_key", {"metadata": {"count": 0}})])
     @mock.patch("tenacity.nap.time.sleep")
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -326,6 +347,28 @@ class TestTransportErrors:
         rows = _rows(_source(_make_manager()))
         assert rows == [{"id": 1}]
         assert session.send.call_count == 2
+
+
+class TestTempoSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = _source(_make_manager(), endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == TEMPO_ENDPOINTS[endpoint].primary_keys
+
+    def test_worklogs_response_is_desc_and_partitioned_on_created_at(self) -> None:
+        response = _source(_make_manager(), "worklogs")
+        assert response.primary_keys == ["tempoWorklogId"]
+        # orderBy=UPDATED returns newest-update-first; declaring desc defers the watermark commit
+        # to sync completion, so a mid-sync crash can't skip rows.
+        assert response.sort_mode == "desc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["createdAt"]
+
+    def test_full_refresh_endpoints_are_asc_and_unpartitioned(self) -> None:
+        response = _source(_make_manager(), "accounts")
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
 
 
 class TestCheckAccess:

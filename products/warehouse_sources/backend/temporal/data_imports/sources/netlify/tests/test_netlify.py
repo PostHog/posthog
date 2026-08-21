@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.ne
     netlify_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.settings import NETLIFY_ENDPOINTS
 
 BASE = "https://api.netlify.com/api/v1"
 
@@ -276,3 +277,21 @@ class TestValidateCredentials:
     def test_exception_is_false(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError()
         assert validate_credentials("tok") is False
+
+
+class TestNetlifySourceResponse:
+    @parameterized.expand(list(NETLIFY_ENDPOINTS.keys()))
+    def test_source_response_matches_endpoint_config(self, endpoint: str) -> None:
+        config = NETLIFY_ENDPOINTS[endpoint]
+        response = _source(endpoint, _manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == config.sort_mode
+        # Partition config is present only for endpoints with a stable creation-time field.
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None

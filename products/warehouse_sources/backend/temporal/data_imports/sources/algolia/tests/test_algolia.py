@@ -245,6 +245,14 @@ class TestPagePagination:
 
 
 class TestAlgoliaSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ALGOLIA_ENDPOINTS.keys()))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_primary_keys_match_settings(self, MockSession: mock.MagicMock, endpoint: str) -> None:
+        MockSession.return_value.headers = {}
+        response = _build(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == ALGOLIA_ENDPOINTS[endpoint].primary_keys
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_items_is_lazy(self, MockSession: mock.MagicMock) -> None:
         # Building the SourceResponse must not issue any request; only iterating items should.

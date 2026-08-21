@@ -10,9 +10,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.e
     EasypostResumeConfig,
     _format_datetime,
     _parse_datetime,
+    easypost_source,
     get_rows,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import ENDPOINTS
 
 
 class _FakeResumableManager:
@@ -189,3 +191,15 @@ class TestGetRowsRedaction:
         _patch_pages(monkeypatch, {None: {"shipments": [], "has_more": False}})
         list(get_rows("secret-key", "shipments", MagicMock(), _FakeResumableManager()))  # type: ignore[arg-type]
         factory.assert_called_once_with(redact_values=("secret-key",))
+
+
+class TestEasypostSource:
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = easypost_source("k", endpoint, MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # EasyPost returns newest-first; the watermark logic depends on this being declared.
+        assert response.sort_mode == "desc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]

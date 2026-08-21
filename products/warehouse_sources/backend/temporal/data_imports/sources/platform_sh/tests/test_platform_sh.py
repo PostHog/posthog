@@ -14,8 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.platform_s
     PlatformShResumeConfig,
     PlatformShUntrustedURLError,
     get_rows,
+    platform_sh_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.settings import PLATFORM_SH_ENDPOINTS
 
 API = "https://api.platform.sh"
 
@@ -337,3 +339,16 @@ class TestValidateCredentials:
             ok, error = validate_credentials("bad", "platform_sh", mock.Mock())
         assert ok is False
         assert error == "Invalid Platform.sh API token"
+
+
+class TestPlatformShSourceResponse:
+    @parameterized.expand(list(PLATFORM_SH_ENDPOINTS.keys()))
+    def test_source_response_matches_endpoint_config(self, endpoint: str) -> None:
+        config = PLATFORM_SH_ENDPOINTS[endpoint]
+        response = platform_sh_source("tok", "platform_sh", endpoint, mock.Mock(), _manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == config.sort_mode
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [config.partition_key]

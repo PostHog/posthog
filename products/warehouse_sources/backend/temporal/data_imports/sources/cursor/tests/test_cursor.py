@@ -23,6 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cur
     validate_credentials,
 )
 
+DAY_MS = 24 * 60 * 60 * 1000
+WINDOW_MS = cursor.MAX_WINDOW_DAYS * DAY_MS
+
 
 @pytest.fixture(autouse=True)
 def _instant_retries():
@@ -31,10 +34,6 @@ def _instant_retries():
     fetch.retry.wait = wait_none()
     yield
     fetch.retry.wait = original_wait
-
-
-DAY_MS = 24 * 60 * 60 * 1000
-WINDOW_MS = cursor.MAX_WINDOW_DAYS * DAY_MS
 
 
 def _response(status_code: int = 200, json_data: dict | None = None) -> requests.Response:
@@ -168,6 +167,22 @@ class TestCursorTransport:
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown Cursor endpoint"):
             cursor_source("key_test", "audit_logs", mock.Mock(), _manager())
+
+    @parameterized.expand(
+        [
+            ("members", ["id"], None),
+            ("daily_usage", ["date", "userId"], ["date"]),
+            ("usage_events", ["id"], ["timestamp"]),
+            ("spend", ["userId"], None),
+        ]
+    )
+    def test_source_response_shape(self, endpoint, primary_keys, partition_keys):
+        response = cursor_source("key_test", endpoint, mock.Mock(), _manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.partition_keys == partition_keys
+        assert response.sort_mode == "asc"
 
     def test_members_yields_single_batch_via_get(self):
         session = mock.Mock()

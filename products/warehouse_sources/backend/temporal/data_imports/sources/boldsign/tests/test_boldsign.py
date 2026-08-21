@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.b
     boldsign_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.settings import BOLDSIGN_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -264,6 +265,35 @@ class TestCursorPagination:
 
         assert session.send.call_count == threshold_pages
         assert len(rows) == boldsign.RECORD_CURSOR_THRESHOLD
+
+
+class TestSourceResponse:
+    @pytest.mark.parametrize(
+        "endpoint, expected_pk",
+        [
+            ("documents", ["documentId"]),
+            ("templates", ["documentId"]),
+            ("users", ["userId"]),
+            ("teams", ["teamId"]),
+            ("contacts", ["id"]),
+            ("sender_identities", ["id"]),
+            ("brands", ["brandId"]),
+        ],
+    )
+    def test_primary_keys_per_endpoint(self, endpoint: str, expected_pk: list[str]) -> None:
+        response = boldsign_source(
+            region="us",
+            api_key="key",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pk
+        # Full refresh: BoldSign timestamps are epoch ints, so no datetime partitioning.
+        assert response.partition_mode is None
+        assert response.primary_keys == BOLDSIGN_ENDPOINTS[endpoint].primary_keys
 
 
 class TestValidateCredentials:

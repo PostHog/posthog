@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gite
     update_repo_webhook_events,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.settings import ENDPOINTS, GITEA_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea"
 
@@ -289,6 +290,24 @@ class TestFlattenCommit:
 
 
 class TestGiteaSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        response = gitea_source(BASE_URL, "tok", REPO, endpoint, mock.MagicMock(), _make_manager())
+
+        config = GITEA_ENDPOINTS[endpoint]
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == config.sort_mode
+        if config.partition_key:
+            assert response.partition_keys == [config.partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+
+    def test_commits_key_on_sha(self):
+        response = gitea_source(BASE_URL, "tok", REPO, "commits", mock.MagicMock(), _make_manager())
+        assert response.primary_keys == ["sha"]
+
     def test_webhook_enabled_drains_webhook_items_with_dedupe(self):
         webhook_manager = mock.MagicMock()
         webhook_manager.webhook_enabled = mock.AsyncMock(return_value=True)

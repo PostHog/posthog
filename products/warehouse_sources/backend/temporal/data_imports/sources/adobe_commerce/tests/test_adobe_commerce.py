@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_comm
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.settings import (
     ADOBE_COMMERCE_ENDPOINTS,
+    ENDPOINTS,
     VALIDATION_PROBE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -696,6 +697,22 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = adobe_commerce_source(
+            store_url="https://store.example.com",
+            store_code=None,
+            credentials=TOKEN_CREDENTIALS,
+            endpoint=endpoint,
+            team_id=1,
+            logger=MagicMock(),
+            resumable_source_manager=_FakeResumableManager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ADOBE_COMMERCE_ENDPOINTS[endpoint].primary_keys
+        # Every request asks Magento for an ascending sort, so the watermark can checkpoint per batch.
+        assert response.sort_mode == "asc"
+
     def test_items_is_lazy(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = _FakeSession({"/rest/V1/store/storeViews": _make_response(200, [{"id": 1}])})
         _install_session(monkeypatch, session)

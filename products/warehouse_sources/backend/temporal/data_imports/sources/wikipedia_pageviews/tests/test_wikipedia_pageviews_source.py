@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.source import (
     WikipediaPageviewsSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.source"
 
@@ -19,6 +20,9 @@ class TestWikipediaPageviewsSource:
         self.source = WikipediaPageviewsSource()
         self.team_id = 123
         self.config = WikipediaPageviewsSourceConfig(project="en.wikipedia.org")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.WIKIPEDIAPAGEVIEWS
 
     def test_validate_credentials_rejects_bad_start_date(self):
         config = WikipediaPageviewsSourceConfig(project="en.wikipedia.org", start_date="not-a-date")

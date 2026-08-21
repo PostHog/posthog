@@ -6,7 +6,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postmark import (
     PostmarkSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source import PostmarkSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPostmarkSource:
@@ -14,6 +16,29 @@ class TestPostmarkSource:
         self.source = PostmarkSource()
         self.team_id = 123
         self.config = PostmarkSourceConfig(server_token="test-server-token")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.POSTMARK
+
+    def test_get_schemas(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+        for schema in schemas:
+            assert schema.supports_incremental is False
+            assert schema.supports_append is False
+            assert schema.incremental_fields == []
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["bounces"])
+
+        assert len(schemas) == 1
+        assert schemas[0].name == "bounces"
+
+    def test_get_schemas_filtered_unknown_name_returns_empty(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
+
+        assert schemas == []
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source.validate_postmark_credentials"
@@ -47,6 +72,25 @@ class TestPostmarkSource:
         assert is_valid is False
         assert error_message is not None
         assert expected_substring in error_message
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source.postmark_source")
+    def test_source_for_pipeline(self, mock_postmark_source):
+        mock_postmark_source.return_value = mock.MagicMock()
+
+        inputs = mock.MagicMock()
+        inputs.schema_name = "messages_outbound"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        call_kwargs = mock_postmark_source.call_args.kwargs
+        assert call_kwargs["server_token"] == self.config.server_token
+        assert call_kwargs["endpoint"] == "messages_outbound"
+        assert call_kwargs["team_id"] == inputs.team_id
+        assert call_kwargs["job_id"] == inputs.job_id
+        assert call_kwargs["resumable_source_manager"] is manager
+        # The webhook manager rides alongside the pull iterator so one sync covers both.
+        assert isinstance(call_kwargs["webhook_source_manager"], WebhookSourceManager)
 
     def test_get_schemas_marks_only_bounces_webhook_capable(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

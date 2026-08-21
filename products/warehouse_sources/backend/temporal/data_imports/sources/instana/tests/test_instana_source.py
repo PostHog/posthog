@@ -5,7 +5,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     InstanaSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.instana import InstanaHostNotAllowedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.instana.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.source import InstanaSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestInstanaSource:
@@ -13,6 +15,41 @@ class TestInstanaSource:
         self.source = InstanaSource()
         self.team_id = 123
         self.config = InstanaSourceConfig(base_url="https://unit-tenant.instana.io", api_token="secret-token")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.INSTANA
+
+    def test_base_url_is_a_connection_host_field(self) -> None:
+        # Changing the base URL must force the token to be re-entered so it's never
+        # sent to a freshly-specified host.
+        assert self.source.connection_host_fields == ["base_url"]
+
+    def test_get_schemas_incremental_flags(self) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+
+        assert set(schemas) == set(ENDPOINTS)
+
+        assert schemas["events"].supports_incremental is True
+        # Events mutate while open (state/end change), so append mode is never offered.
+        assert schemas["events"].supports_append is False
+        assert schemas["events"].incremental_fields == [
+            {
+                "label": "start",
+                "type": "integer",
+                "field": "start",
+                "field_type": "integer",
+            }
+        ]
+        assert schemas["events"].description is not None
+
+        for name in set(ENDPOINTS) - {"events"}:
+            assert schemas[name].supports_incremental is False
+            assert schemas[name].supports_append is False
+            assert schemas[name].incremental_fields == []
+
+    def test_get_schemas_filtered_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["applications"])
+        assert [s.name for s in schemas] == ["applications"]
 
     @pytest.mark.parametrize(
         ("probe_result", "expected_valid"),

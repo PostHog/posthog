@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.glassfrog import (
     GlassfrogSourceConfig,
 )
@@ -14,11 +16,60 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog 
     glassfrog,
     source as source_module,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.source import GlassfrogSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> GlassfrogSourceConfig:
     return GlassfrogSourceConfig(api_key="gf_test_key")
+
+
+class TestGlassfrogSourceConfig:
+    def test_source_type(self) -> None:
+        assert GlassfrogSource().source_type == ExternalDataSourceType.GLASSFROG
+
+    def test_source_config_basics(self) -> None:
+        config = GlassfrogSource().get_source_config
+
+        assert config.name == "Glassfrog"
+        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
+        # Alpha, and visible (no unreleasedSource) — a finished source ships connectable.
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert not config.unreleasedSource
+        assert config.iconPath.endswith(".png")
+
+    def test_single_required_api_key_field(self) -> None:
+        fields = GlassfrogSource().get_source_config.fields
+
+        assert len(fields) == 1
+        field = fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
+        assert field.name == "api_key"
+        assert field.required is True
+        # API keys are secrets — must never be echoed back to the client.
+        assert field.secret is True
+
+
+class TestGlassfrogSchemas:
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_every_endpoint_is_full_refresh_only(self, endpoint: str) -> None:
+        # No GlassFrog v3 endpoint exposes a server-side timestamp or cursor filter, so nothing can
+        # sync incrementally — guarding against a future edit flipping this on without a real filter.
+        schema = next(s for s in GlassfrogSource().get_schemas(_config(), team_id=1) if s.name == endpoint)
+
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+        assert schema.incremental_fields == []
+
+    def test_documented_tables_render_for_public_docs(self) -> None:
+        # lists_tables_without_credentials=True means the public docs <SourceTables /> is fed here.
+        tables = GlassfrogSource().get_documented_tables()
+
+        by_name = {t["name"]: t for t in tables}
+        assert set(by_name) == set(ENDPOINTS)
+        assert by_name["circles"]["description"]
+        assert by_name["circles"]["sync_methods"] == ["Full refresh"]
 
 
 class TestGlassfrogCredentials:

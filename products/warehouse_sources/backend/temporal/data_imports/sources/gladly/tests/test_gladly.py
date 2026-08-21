@@ -20,9 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
     _clean_organization,
     _normalize_report_column,
     get_rows,
+    gladly_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import GLADLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import ENDPOINTS, GLADLY_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly"
 
@@ -704,3 +705,16 @@ class TestGetReportRows:
         batches = list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
 
         assert batches == []
+
+
+class TestGladlySourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = GLADLY_ENDPOINTS[endpoint]
+        response = gladly_source("myorg", "agent@x.com", "token", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
+        assert response.partition_keys is None

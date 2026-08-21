@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.
     _parse_retry_after,
     _retry_wait,
     get_rows,
+    infisical_source,
     normalize_base_url,
     validate_credentials,
 )
@@ -666,6 +667,39 @@ class TestValidateCredentials:
         valid, message = result
         assert valid is False
         assert "boom" in (message or "")
+
+
+class TestInfisicalSourceResponse:
+    @pytest.mark.parametrize(
+        "endpoint, sort_mode, partition_key",
+        [
+            ("audit_logs", "desc", "createdAt"),
+            ("projects", "asc", None),
+            ("identities", "asc", None),
+            ("organization_memberships", "asc", None),
+            ("project_memberships", "asc", None),
+        ],
+    )
+    def test_response_shape(self, endpoint, sort_mode, partition_key):
+        response = infisical_source(
+            base_url="https://app.infisical.com",
+            client_id="cid",
+            client_secret="csecret",
+            organization_id="org-123",
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=mock.MagicMock(),
+            team_id=1,
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == sort_mode
+        if partition_key:
+            assert response.partition_keys == [partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+            assert response.partition_mode is None
 
 
 class TestRetryAfter:

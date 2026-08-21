@@ -255,6 +255,20 @@ class TestCheckAccess:
 
 
 class TestSalesflareSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = salesflare_source(
+            api_key="sf-key",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # No stable creation timestamp is guaranteed across every object, so we don't partition.
+        assert response.partition_mode is None
+
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in SALESFLARE_ENDPOINTS.values())
         assert set(SALESFLARE_ENDPOINTS) == set(ENDPOINTS)

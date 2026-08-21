@@ -196,3 +196,23 @@ class TestValidateCredentials:
     def test_transport_failure_returns_zero(self) -> None:
         with mock.patch(SONAR_SESSION_PATCH, side_effect=Exception("boom")):
             assert validate_credentials("token", "org", "eu") == 0
+
+
+class TestSourceResponse:
+    def test_partitioned_endpoint(self) -> None:
+        response = _source("issues", _make_manager())
+        assert response.name == "issues"
+        assert response.primary_keys == ["key"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["creationDate"]
+
+    def test_non_partitioned_endpoint(self) -> None:
+        response = _source("metrics", _make_manager())
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+    def test_quality_gates_merge_on_id(self) -> None:
+        # Quality gate rows carry `id`/`name` but no `key`; merging on the default `key` primary key
+        # would never dedupe and duplicate rows on every sync.
+        response = _source("quality_gates", _make_manager())
+        assert response.primary_keys == ["id"]

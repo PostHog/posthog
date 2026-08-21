@@ -2,10 +2,15 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsapi import (
     NewsApiSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source import NewsApiSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(language: str | None = None) -> NewsApiSourceConfig:
@@ -16,6 +21,39 @@ class TestNewsApiSource:
     def setup_method(self) -> None:
         self.source = NewsApiSource()
         self.team_id = 123
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.NEWSAPI
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas is a static, no-I/O catalog, so the public docs render the table list.
+        assert self.source.lists_tables_without_credentials is True
+
+    def test_source_config_required_fields(self) -> None:
+        fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
+        assert set(fields) == {"api_key", "query", "language"}
+        assert fields["api_key"].required is True
+        assert fields["api_key"].secret is True
+        assert fields["query"].required is True
+        # The search query drives the article endpoints — a source with no query can't sync them.
+        assert fields["language"].required is False
+
+    @parameterized.expand(
+        [
+            ("everything", True),
+            ("top_headlines", False),
+            ("sources", False),
+        ]
+    )
+    def test_schema_incremental_support(self, endpoint: str, expected_incremental: bool) -> None:
+        # Only /v2/everything exposes a server-side date filter, so it's the only incremental table.
+        schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
+        assert schemas[endpoint].supports_incremental is expected_incremental
+        assert schemas[endpoint].supports_append is expected_incremental
+
+    def test_get_schemas_names_filter(self) -> None:
+        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["sources"])
+        assert [s.name for s in schemas] == ["sources"]
 
     def test_everything_incremental_field_is_published_at(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
@@ -94,3 +132,8 @@ class TestNewsApiSource:
             self.source.source_for_pipeline(_config(language=""), MagicMock(), inputs)
 
         assert captured["language"] is None
+
+    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
+        canonical = self.source.get_canonical_descriptions()
+        schema_names = {s.name for s in self.source.get_schemas(_config(), team_id=self.team_id)}
+        assert schema_names <= set(canonical)

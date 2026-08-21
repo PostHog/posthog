@@ -3,9 +3,12 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.source import BloggerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -27,6 +30,11 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
     return SourceInputs(**defaults)
 
 
+class TestBloggerSourceConfig:
+    def test_source_type(self) -> None:
+        assert BloggerSource().source_type == ExternalDataSourceType.BLOGGER
+
+
 class TestBloggerSchemas:
     def test_get_schemas(self) -> None:
         schemas = {s.name: s for s in BloggerSource().get_schemas(MagicMock(), team_id=1)}
@@ -46,6 +54,49 @@ class TestBloggerSchemas:
     def test_get_schemas_names_filter(self) -> None:
         schemas = BloggerSource().get_schemas(MagicMock(), team_id=1, names=["posts"])
         assert [s.name for s in schemas] == ["posts"]
+
+    def test_lists_tables_without_credentials(self) -> None:
+        assert BloggerSource.lists_tables_without_credentials is True
+
+    def test_documented_tables_render_with_canonical_descriptions(self) -> None:
+        tables = {t["name"]: t for t in BloggerSource().get_documented_tables()}
+        assert set(tables) == {"blogs", "posts", "pages", "comments"}
+        assert "Incremental" in tables["posts"]["sync_methods"]
+        assert "Incremental" not in tables["pages"]["sync_methods"]
+        # Description comes from canonical_descriptions.py.
+        assert tables["posts"]["description"]
+
+
+class TestBloggerCredentials:
+    @parameterized.expand(
+        [
+            (
+                "bad_request",
+                "400 Client Error: Bad Request for url: https://www.googleapis.com/blogger/v3/blogs/1/posts",
+            ),
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://www.googleapis.com/blogger/v3/blogs/1"),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://www.googleapis.com/blogger/v3/blogs/1/comments",
+            ),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = BloggerSource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://www.googleapis.com/blogger/v3/blogs/1/posts",
+            ),
+            ("read_timeout", "HTTPSConnectionPool(host='www.googleapis.com', port=443): Read timed out."),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        non_retryable = BloggerSource().get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable)
 
 
 class TestBloggerPipelinePlumbing:

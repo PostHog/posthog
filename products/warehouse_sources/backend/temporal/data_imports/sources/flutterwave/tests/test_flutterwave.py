@@ -280,6 +280,31 @@ class TestErrorHandling:
             _rows(_source("transactions"))
 
 
+class TestSourceResponseMetadata:
+    @parameterized.expand(
+        [
+            ("transactions",),
+            ("settlements",),
+            ("refunds",),
+            ("transfers",),
+            ("chargebacks",),
+            ("payment_plans",),
+            ("subscriptions",),
+            ("subaccounts",),
+            ("beneficiaries",),
+        ]
+    )
+    def test_every_endpoint_partitions_on_created_at(self, endpoint: str) -> None:
+        response = _source(endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # Every endpoint is full-refresh, so the pipeline never consults sort_mode; it stays the
+        # framework default.
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [

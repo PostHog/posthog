@@ -5,13 +5,16 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.settings import (
+    ENDPOINTS,
     REPORT_DEFAULT_BACKFILL_DAYS,
     REPORT_LOOKBACK_DAYS,
+    TABOOLA_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.taboola import (
     TaboolaResumeConfig,
     _to_date,
     get_rows,
+    taboola_source,
     validate_credentials,
 )
 
@@ -214,5 +217,14 @@ class TestReportWindows:
 
 
 class TestTaboolaSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = TABOOLA_ENDPOINTS[endpoint]
+        response = taboola_source("cid", "sec", "acct", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+
     def test_backfill_constants_are_sane(self):
         assert REPORT_LOOKBACK_DAYS < REPORT_DEFAULT_BACKFILL_DAYS

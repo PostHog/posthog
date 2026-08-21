@@ -1,8 +1,11 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wufoo import WufooSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.source import WufooSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWufooSource:
@@ -10,6 +13,55 @@ class TestWufooSource:
         self.source = WufooSource()
         self.team_id = 123
         self.config = WufooSourceConfig(subdomain="acme", api_key="wufoo-key")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.WUFOO
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+        assert config.label == "Wufoo"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # A finished source is visible — it must not carry the scaffolding flag.
+        assert not config.unreleasedSource
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/wufoo"
+
+        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
+        assert field_names == ["subdomain", "api_key"]
+
+    def test_field_types(self) -> None:
+        fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
+        # The subdomain determines where the key is sent, so it is a plain (non-secret) text field.
+        assert fields["subdomain"].type == SourceFieldInputConfigType.TEXT
+        assert fields["subdomain"].secret is False
+        # The API key is the credential and must be a preserved secret.
+        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
+        assert fields["api_key"].secret is True
+
+    def test_connection_host_fields_cover_subdomain(self) -> None:
+        # The key is sent to <subdomain>.wufoo.com, so editing the subdomain must re-require the key.
+        assert self.source.connection_host_fields == ["subdomain"]
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://acme.wufoo.com/api/v3/forms.json?pageStart=0&pageSize=100",
+            "403 Client Error: Forbidden for url: https://acme.wufoo.com/api/v3/reports.json",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @pytest.mark.parametrize(
+        "unrelated_error",
+        [
+            "500 Server Error: Internal Server Error for url: https://acme.wufoo.com/api/v3/forms.json",
+            "429 Client Error: Too Many Requests for url: https://acme.wufoo.com/api/v3/users.json",
+        ],
+    )
+    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
 
     @pytest.mark.parametrize(
         "status, expected_valid",

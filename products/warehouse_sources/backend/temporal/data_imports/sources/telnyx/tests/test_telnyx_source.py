@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.telnyx import TelnyxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.settings import ENDPOINTS, TELNYX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source import TelnyxSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {name for name, endpoint in TELNYX_ENDPOINTS.items() if endpoint.incremental_field}
 FULL_REFRESH_ENDPOINTS = set(ENDPOINTS) - INCREMENTAL_ENDPOINTS
@@ -38,10 +39,32 @@ class TestTelnyxSource:
         self.team_id = 123
         self.config = TelnyxSourceConfig(api_key="test-key")
 
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.TELNYX
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas is a static catalog with no I/O, so the public docs table list can render.
+        assert self.source.lists_tables_without_credentials is True
+
     def test_api_version_metadata(self) -> None:
         assert self.source.supported_versions == ("v2",)
         assert self.source.default_version == "v2"
         assert self.source.api_docs_url.startswith("https://")
+
+    @pytest.mark.parametrize("endpoint", sorted(FULL_REFRESH_ENDPOINTS))
+    def test_get_schemas_full_refresh_endpoints(self, endpoint: str) -> None:
+        # No documented server-side timestamp filter for these record types, so they must not
+        # falsely advertise incremental support.
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        schema = schemas[endpoint]
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+        assert schema.incremental_fields == []
+
+    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
+        # Every advertised endpoint should have a curated description so the docs and the AI
+        # agent get authoritative metadata instead of paying for LLM enrichment.
+        assert set(self.source.get_canonical_descriptions().keys()) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         ("creds_valid", "expected_valid", "expected_message"),
@@ -66,6 +89,24 @@ class TestTelnyxSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source.telnyx_source")
+    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
+        inputs = _make_inputs(schema_name="VerifyDetailRecords", team_id=99, job_id="job-xyz")
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+
+        response = self.source.source_for_pipeline(self.config, manager, inputs)
+
+        mock_source.assert_called_once_with(
+            api_key="test-key",
+            endpoint="VerifyDetailRecords",
+            team_id=99,
+            job_id="job-xyz",
+            resumable_source_manager=manager,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        assert response.primary_keys == TELNYX_ENDPOINTS["VerifyDetailRecords"].primary_key
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_partitions_on_stable_field(self, endpoint: str) -> None:

@@ -293,6 +293,33 @@ class TestPagination:
             _rows(_source(manager))
 
 
+class TestOpenfdaSource:
+    @parameterized.expand(
+        [
+            ("drug_enforcement", ["recall_number"], "report_date"),
+            ("drug_ndc", ["product_id"], None),
+            ("device_510k", ["k_number"], "decision_date"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_carries_endpoint_config(
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None, MockSession: Any
+    ) -> None:
+        response = _source(_make_manager(), endpoint=endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        if partition_key is None:
+            # Full-refresh endpoint: no sort requested, so arrival order is undefined.
+            assert response.partition_mode is None
+            assert response.sort_mode is None
+        else:
+            # Incremental endpoint: ascending sort must be declared so the pipeline checkpoints the
+            # watermark correctly, and the stable date field partitions the table.
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [partition_key]
+            assert response.sort_mode == "asc"
+
+
 class TestValidateCredentials:
     @mock.patch(OPENFDA_SESSION_PATCH)
     def test_success(self, mock_session: Any) -> None:

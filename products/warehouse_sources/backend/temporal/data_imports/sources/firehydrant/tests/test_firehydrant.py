@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firehydran
     firehydrant_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.settings import FIREHYDRANT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.settings import (
+    ENDPOINTS,
+    FIREHYDRANT_ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -177,6 +180,25 @@ class TestPagination:
 
 
 class TestSourceResponse:
+    @parameterized.expand(list(ENDPOINTS))
+    def test_source_response_matches_endpoint_config(self, endpoint: str) -> None:
+        config = FIREHYDRANT_ENDPOINTS[endpoint]
+        response = firehydrant_source(
+            api_key="fhb_test",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     def test_partition_keys_are_stable_creation_fields(self) -> None:
         # A partition key that changes (updated_at/lastSeen) rewrites partitions every sync.
         for config in FIREHYDRANT_ENDPOINTS.values():

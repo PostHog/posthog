@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GreenhouseSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source import GreenhouseSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {
     "candidates",
@@ -27,6 +28,9 @@ class TestGreenhouseSource:
         self.team_id = 123
         self.config = GreenhouseSourceConfig(api_key="test_api_key", client_id="cid", client_secret="csecret")
 
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.GREENHOUSE
+
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
 
@@ -43,6 +47,30 @@ class TestGreenhouseSource:
         assert not any(field.required for field in fields.values())
         assert {name for name, field in fields.items() if field.secret} == {"client_secret", "api_key"}
         assert fields["client_secret"].type == SourceFieldInputConfigType.PASSWORD
+
+    @pytest.mark.parametrize(
+        "expected_key",
+        [
+            "401 Client Error: Unauthorized for url: https://harvest.greenhouse.io",
+            "403 Client Error: Forbidden for url: https://harvest.greenhouse.io",
+        ],
+    )
+    def test_non_retryable_errors_includes_greenhouse_key(self, expected_key: str) -> None:
+        assert expected_key in self.source.get_non_retryable_errors()
+
+    def test_non_retryable_errors_matches_observed_error_message(self) -> None:
+        observed = "401 Client Error: Unauthorized for url: https://harvest.greenhouse.io/v1/candidates?per_page=500"
+        assert any(key in observed for key in self.source.get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "other_vendor_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.lever.co/v1/opportunities",
+            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_other_vendors(self, other_vendor_error: str) -> None:
+        assert not any(key in other_vendor_error for key in self.source.get_non_retryable_errors())
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.validate_greenhouse_credentials"
@@ -102,3 +130,51 @@ class TestGreenhouseSource:
 
         assert mock_validate.call_args.args[0] == expected_version
         assert mock_validate.call_args.kwargs["path"] == expected_path
+
+    @pytest.mark.parametrize("pinned_version, expected_version", [(None, "v3"), ("v3", "v3"), ("v1", "v1")])
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.greenhouse_source")
+    def test_source_for_pipeline_passes_the_resolved_version(
+        self, mock_greenhouse_source: mock.MagicMock, pinned_version: str | None, expected_version: str
+    ) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "candidates"
+        inputs.api_version = pinned_version
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        kwargs = mock_greenhouse_source.call_args.kwargs
+        assert kwargs["api_version"] == expected_version
+        assert (kwargs["client_id"], kwargs["client_secret"]) == ("cid", "csecret")
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.greenhouse_source")
+    def test_source_for_pipeline_passes_incremental_inputs(self, mock_greenhouse_source: mock.MagicMock) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "candidates"
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00.000Z"
+        inputs.incremental_field = "updated_at"
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        kwargs = mock_greenhouse_source.call_args.kwargs
+        assert kwargs["api_key"] == "test_api_key"
+        assert kwargs["endpoint"] == "candidates"
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00.000Z"
+        assert kwargs["incremental_field"] == "updated_at"
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.greenhouse_source")
+    def test_source_for_pipeline_drops_last_value_when_not_incremental(
+        self, mock_greenhouse_source: mock.MagicMock
+    ) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "departments"
+        inputs.should_use_incremental_field = False
+        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00.000Z"
+        inputs.incremental_field = None
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        kwargs = mock_greenhouse_source.call_args.kwargs
+        assert kwargs["should_use_incremental_field"] is False
+        assert kwargs["db_incremental_field_last_value"] is None

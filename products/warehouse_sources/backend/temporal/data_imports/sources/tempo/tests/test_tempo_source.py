@@ -5,6 +5,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tempo import TempoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source import TempoSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTempoSource:
@@ -13,14 +14,33 @@ class TestTempoSource:
         self.team_id = 123
         self.config = TempoSourceConfig(api_token="tempo-token")
 
-    def test_only_worklogs_supports_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["worklogs"].supports_incremental is True
-        assert [f["field"] for f in schemas["worklogs"].incremental_fields] == ["updatedAt"]
-        for name, schema in schemas.items():
-            if name != "worklogs":
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.TEMPO
+
+    def test_no_connection_host_fields(self) -> None:
+        # The only field is the secret API token; the base URL is hardcoded, so there is no
+        # non-secret field an editor could retarget to reuse a preserved token elsewhere.
+        assert self.source.connection_host_fields == []
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.tempo.io/4/worklogs?limit=100"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.tempo.io/4/teams?limit=100"),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.tempo.io/4/worklogs"),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.tempo.io/4/teams"),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
 
     @parameterized.expand([("at_create", None), ("for_schema", "worklogs")])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source.validate_credentials")

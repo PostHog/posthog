@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.pypi 
     pypi_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.settings import PYPI_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.pypi.pypi"
 
@@ -285,6 +286,14 @@ class TestGetRows:
 
 
 class TestPyPISource:
+    @pytest.mark.parametrize("endpoint", list(PYPI_ENDPOINTS))
+    def test_source_response_shape(self, endpoint):
+        response = pypi_source(endpoint, "requests", structlog.get_logger())
+
+        assert response.name == endpoint
+        assert response.primary_keys == PYPI_ENDPOINTS[endpoint].primary_keys
+        assert response.sort_mode == "asc"
+
     def test_only_releases_is_partitioned(self):
         # `releases` has a stable upload timestamp; the other streams have no stable datetime column.
         releases = pypi_source("releases", "requests", structlog.get_logger())

@@ -15,7 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.drip.drip 
     drip_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import DRIP_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import DRIP_ENDPOINTS, ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -244,6 +244,28 @@ class TestValidateCredentials:
 
 
 class TestDripSourceResponse:
+    @parameterized.expand(list(ENDPOINTS))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint, _MockSession) -> None:
+        response = drip_source(
+            api_token="token",
+            account_id="9999",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+
+        config = DRIP_ENDPOINTS[endpoint]
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_subscribers_partitions_on_created_at(self, _MockSession) -> None:
         response = drip_source(

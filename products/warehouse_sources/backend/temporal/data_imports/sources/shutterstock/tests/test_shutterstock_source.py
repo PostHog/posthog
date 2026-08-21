@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shuttersto
     ShutterstockSource,
     _auth_from_config,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _basic_config(**auth_overrides: str) -> ShutterstockSourceConfig:
@@ -26,6 +27,31 @@ class TestShutterstockSource:
         self.source = ShutterstockSource()
         self.team_id = 123
         self.config = _basic_config()
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.SHUTTERSTOCK
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.shutterstock.com/v2/images/updated?page=1",
+            "403 Client Error: Forbidden for url: https://api.shutterstock.com/v2/images/licenses",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
+            "500 Server Error for url: https://api.shutterstock.com/v2/images/updated",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_error: str) -> None:
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
 
     def test_only_server_side_filter_endpoints_are_incremental(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
@@ -102,3 +128,40 @@ class TestShutterstockSource:
         )
 
         assert permissions == {"subscriptions": "blocked", "image_categories": None, "not_an_endpoint": None}
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source.shutterstock_source"
+    )
+    def test_source_for_pipeline_plumbs_arguments(self, mock_shutterstock_source: mock.MagicMock) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "image_licenses"
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = 1700000000
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        kwargs = mock_shutterstock_source.call_args.kwargs
+        assert kwargs["auth"].consumer_key == "ck"
+        assert kwargs["auth"].consumer_secret == "cs"
+        assert kwargs["endpoint"] == "image_licenses"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
+        assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == 1700000000
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source.shutterstock_source"
+    )
+    def test_source_for_pipeline_omits_last_value_on_full_refresh(
+        self, mock_shutterstock_source: mock.MagicMock
+    ) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "subscriptions"
+        inputs.should_use_incremental_field = False
+        inputs.db_incremental_field_last_value = 1700000000
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_shutterstock_source.call_args.kwargs["db_incremental_field_last_value"] is None

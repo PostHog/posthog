@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n im
     normalize_host,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.settings import ENDPOINTS, N8N_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n"
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -224,3 +225,24 @@ class TestGetRows:
         # A 200 body without "data" means the response shape changed — fail loud, not silently 0 rows.
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(_source("workflows", _make_manager()))
+
+
+class TestN8nSource:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_source_response_primary_key_and_partitioning(self, endpoint):
+        config = N8N_ENDPOINTS[endpoint]
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
+    def test_executions_partition_on_started_at(self):
+        # Executions have no createdAt/updatedAt; startedAt is the stable creation field.
+        response = _source("executions", _make_manager())
+        assert response.partition_keys == ["startedAt"]

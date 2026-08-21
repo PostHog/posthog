@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.j
     _build_url,
     _format_incremental_value,
     get_rows,
+    jamf_pro_source,
     normalize_host,
     validate_credentials,
 )
@@ -531,3 +532,19 @@ class TestGetRows:
                 )
         # Pages 0, 1, 2 fetched; the loop raises before fetching page 3.
         assert session.get.call_count == 3
+
+
+class TestJamfProSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(JAMF_PRO_ENDPOINTS.keys()))
+    def test_response_shape(self, endpoint):
+        response = jamf_pro_source(
+            host="example.jamfcloud.com",
+            credentials=CLIENT_CREDENTIALS,
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=mock.MagicMock(),
+            team_id=1,
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"

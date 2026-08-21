@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.da
     _flatten_item,
     _format_datetime,
     base_url,
+    datadog_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import DATADOG_ENDPOINTS
@@ -303,6 +304,37 @@ class TestValidateCredentials:
         is_valid, error = validate_credentials("datadoghq.com", "api", "app")
         assert is_valid is False
         assert error is not None
+
+
+class TestDatadogSourceResponse:
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_pk", "expect_partition"),
+        [
+            ("logs", "id", True),
+            ("monitors", "id", True),
+            ("synthetic_tests", "public_id", False),
+            ("slos", "id", False),
+        ],
+    )
+    def test_source_response_shape(self, endpoint: str, expected_pk: str, expect_partition: bool) -> None:
+        manager = mock.MagicMock()
+        response = datadog_source(
+            site="datadoghq.com",
+            api_key="api",
+            app_key="app",
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=manager,
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == [expected_pk]
+        assert response.sort_mode == "asc"
+        if expect_partition:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [DATADOG_ENDPOINTS[endpoint].partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
 
 
 class TestGetRowsResume:

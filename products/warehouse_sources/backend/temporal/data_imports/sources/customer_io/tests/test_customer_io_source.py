@@ -7,6 +7,10 @@ import pyarrow as pa
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
+    CIO_API_SCHEMA_NAMES,
+    CIO_WEBHOOK_SCHEMA_NAMES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source import (
     CustomerIOSource,
     _webhook_table_transformer,
@@ -31,6 +35,38 @@ class TestCustomerIOSourceWebhookResourceMap:
         assert mapping["customer_events"] == "customer"
         assert mapping["email_events"] == "email"
         assert mapping["in_app_events"] == "in_app"
+
+
+class TestCustomerIOSourceGetSchemas:
+    def test_includes_both_webhook_and_api_schemas(self):
+        source = CustomerIOSource()
+
+        schemas = source.get_schemas(_config(), team_id=1)
+
+        names = {s.name for s in schemas}
+        for name in CIO_WEBHOOK_SCHEMA_NAMES:
+            assert name in names, f"missing webhook schema: {name}"
+        for name in CIO_API_SCHEMA_NAMES:
+            assert name in names, f"missing api schema: {name}"
+
+    def test_filters_by_names_argument(self):
+        source = CustomerIOSource()
+
+        schemas = source.get_schemas(_config(), team_id=1, names=["broadcasts", "email_events"])
+
+        assert {s.name for s in schemas} == {"broadcasts", "email_events"}
+
+    def test_only_event_schemas_support_webhooks(self):
+        source = CustomerIOSource()
+
+        schemas = source.get_schemas(_config(), team_id=1)
+
+        webhook_supported = {s.name for s in schemas if s.supports_webhooks}
+        assert webhook_supported == set(CIO_WEBHOOK_SCHEMA_NAMES)
+        # Webhook tables have no polling endpoint, so webhook must be the only offered method —
+        # this is what keeps one-shot setup from enabling them as broken full-refresh syncs.
+        webhook_only = {s.name for s in schemas if s.webhook_only}
+        assert webhook_only == set(CIO_WEBHOOK_SCHEMA_NAMES)
 
 
 class TestCustomerIOSourceWebhookInputsUpdated:
@@ -191,6 +227,14 @@ class TestCustomerIOSourcePipelineDispatch:
             assert endpoint.partition_keys, name
             if endpoint.partition_mode == "datetime":
                 assert endpoint.partition_format is not None, name
+
+    def test_messages_schema_is_not_exposed(self):
+        # Excluded because the webhook event tables already cover per-delivery activity.
+        source = CustomerIOSource()
+
+        schemas = source.get_schemas(_config(), team_id=1)
+
+        assert "messages" not in {s.name for s in schemas}
 
 
 class TestCustomerIOWebhookTableTransformer:

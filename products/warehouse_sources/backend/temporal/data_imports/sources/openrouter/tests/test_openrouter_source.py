@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.source import OpenRouterSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MANAGEMENT_ENDPOINTS = ["activity", "api_keys", "credits", "organization_members", "workspaces"]
 CATALOG_ENDPOINTS = ["models", "providers"]
@@ -23,6 +24,13 @@ class TestOpenRouterSource:
         self.team_id = 123
         self.config = OpenRouterSourceConfig(api_key="sk-or-test")
 
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.OPENROUTER
+
+    def test_lists_tables_without_credentials(self):
+        # Static endpoint catalog with no I/O — required for the public-docs table list to render.
+        assert self.source.lists_tables_without_credentials is True
+
     def test_only_activity_is_incremental(self):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert set(schemas) == set(MANAGEMENT_ENDPOINTS) | set(CATALOG_ENDPOINTS)
@@ -33,6 +41,10 @@ class TestOpenRouterSource:
                 assert schema.supports_incremental is False, name
             # No table advertises append: activity relies on merge to dedupe re-fetched days.
             assert schema.supports_append is False, name
+
+    def test_get_schemas_filters_by_name(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["models", "activity"])
+        assert {s.name for s in schemas} == {"models", "activity"}
 
     @pytest.mark.parametrize(
         "raw_error,is_non_retryable",
@@ -103,3 +115,12 @@ class TestOpenRouterSource:
                 self.config, self.team_id, MANAGEMENT_ENDPOINTS + CATALOG_ENDPOINTS
             )
         assert all(v is None for v in result.values())
+
+    def test_documented_tables_rendered_for_public_docs(self):
+        tables = self.source.get_documented_tables()
+        by_name = {t["name"]: t for t in tables}
+        assert set(by_name) == set(MANAGEMENT_ENDPOINTS) | set(CATALOG_ENDPOINTS)
+        # Canonical descriptions flow through to the docs.
+        assert by_name["activity"]["description"]
+        assert "Incremental" in by_name["activity"]["sync_methods"]
+        assert "Full refresh" in by_name["models"]["sync_methods"]

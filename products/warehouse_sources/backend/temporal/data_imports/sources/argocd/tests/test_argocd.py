@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.arg
     _normalize_application,
     _normalize_cluster,
     _normalize_repository,
+    argocd_source,
     get_rows,
     normalize_host,
     validate_credentials,
@@ -458,3 +459,32 @@ class TestValidateCredentials:
         # The probe runs inline on an API worker and takes a single attempt — adapter retries
         # would let a stalling host hold the worker across several timeouts.
         assert patched.call_args.kwargs["retry"].total == 0
+
+
+class TestArgocdSourceResponse:
+    @pytest.mark.parametrize(
+        "endpoint, primary_keys, partition_key",
+        [
+            ("applications", ["namespace", "name"], "created_at"),
+            ("deployment_history", ["application_namespace", "application_name", "id"], "deployed_at"),
+            ("projects", ["name"], "created_at"),
+            ("repositories", ["repo"], None),
+            ("clusters", ["server"], None),
+        ],
+    )
+    def test_response_shape(self, endpoint, primary_keys, partition_key):
+        response = argocd_source(
+            host="https://argocd.example.com",
+            api_token="tok",
+            endpoint=endpoint,
+            team_id=1,
+            logger=mock.MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        if partition_key:
+            assert response.partition_keys == [partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+            assert response.partition_mode is None

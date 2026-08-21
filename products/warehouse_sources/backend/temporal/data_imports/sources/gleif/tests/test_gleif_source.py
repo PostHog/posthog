@@ -1,12 +1,11 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import ReleaseStatus
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gleif import GleifSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.settings import (
-    INCREMENTAL_FIELDS,
-    LEI_RECORDS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source import GleifSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source.validate_gleif_credentials"
@@ -20,11 +19,18 @@ class TestGleifSource:
         self.team_id = 123
         self.config = GleifSourceConfig()
 
-    def test_only_lei_records_supports_incremental(self) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        incremental = {name for name, schema in schemas.items() if schema.supports_incremental}
-        assert incremental == {LEI_RECORDS}
-        assert schemas[LEI_RECORDS].incremental_fields == INCREMENTAL_FIELDS[LEI_RECORDS]
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.GLEIF
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+
+        assert config.name.value == "Gleif"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # The source must ship visible: unreleasedSource hides it from every user.
+        assert not config.unreleasedSource
+        # GLEIF is fully open and keyless, so the connect form has nothing to fill in.
+        assert config.fields == []
 
     @pytest.mark.parametrize(("mock_return", "expected_valid"), [(True, True), (False, False)])
     @mock.patch(_VALIDATE_PATCH)
@@ -35,3 +41,7 @@ class TestGleifSource:
 
         assert is_valid is expected_valid
         assert (error_message is None) is expected_valid
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas is a static endpoint catalog with no I/O, so the public docs can render it.
+        assert self.source.lists_tables_without_credentials is True

@@ -405,6 +405,15 @@ class TestApiContract:
 
 
 class TestGorgiasSource:
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = gorgias_source("acme", "e@acme.com", "key", endpoint, MagicMock(), _FakeManager())
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [GORGIAS_ENDPOINTS[endpoint].partition_key]
+        assert response.sort_mode == "asc"
+
     @parameterized.expand(
         [
             (name, config.incremental_fields[0]["field"])

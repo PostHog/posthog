@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_a
 from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.settings import (
     ACTIVITY_EVENTS_ENDPOINT,
     ODATA_PAGE_SIZE,
+    POWER_BI_ADMIN_ENDPOINTS,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.power_bi_admin"
@@ -373,6 +374,47 @@ class TestInventoryEndpoints:
 
 
 class TestSourceResponse:
+    @parameterized.expand([(name,) for name in POWER_BI_ADMIN_ENDPOINTS])
+    def test_response_carries_the_endpoint_primary_keys(self, endpoint: str) -> None:
+        response = power_bi_admin_source(
+            tenant_id=TENANT_ID,
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == POWER_BI_ADMIN_ENDPOINTS[endpoint].primary_keys
+        assert response.sort_mode == "asc"
+
+    def test_activity_events_partition_on_creation_time(self) -> None:
+        response = power_bi_admin_source(
+            tenant_id=TENANT_ID,
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            endpoint=ACTIVITY_EVENTS_ENDPOINT,
+            logger=mock.MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["CreationTime"]
+
+    def test_inventory_endpoints_have_no_datetime_partitioning(self) -> None:
+        response = power_bi_admin_source(
+            tenant_id=TENANT_ID,
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            endpoint="groups",
+            logger=mock.MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
     def test_items_is_lazy_and_iterates_the_endpoint(self) -> None:
         session = _session([_response(200, {"value": [{"id": "g1"}]})])
         response = power_bi_admin_source(

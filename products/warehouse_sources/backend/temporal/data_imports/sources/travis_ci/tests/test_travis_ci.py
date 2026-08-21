@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.
     TravisCIResumeConfig,
     _resolve_page_url,
     get_rows,
+    travis_ci_source,
     validate_credentials,
 )
 
@@ -350,3 +351,30 @@ class TestValidateCredentials:
         ok, error = self._validate_with(requests.ConnectionError("boom"))
         assert ok is False
         assert error is not None and "Travis CI" in error
+
+
+class TestTravisCISourceResponse:
+    @parameterized.expand(
+        [
+            ("repositories", ["id"], None),
+            ("builds", ["id"], None),
+            ("jobs", ["id"], "created_at"),
+            ("branches", ["repository_id", "name"], None),
+        ]
+    )
+    def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str | None) -> None:
+        response = travis_ci_source(
+            api_token="tok",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == "desc"
+        if partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None

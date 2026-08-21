@@ -8,16 +8,22 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
+from posthog.schema import ReleaseStatus
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whogho import WhoGhoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.settings import ENDPOINTS, PRIMARY_KEYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.source import WhoGhoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.who_gho import (
     MAX_INDICATOR_CODES,
     who_gho_source,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -45,6 +51,31 @@ class TestWhoGhoSource:
     def setup_method(self) -> None:
         self.source = WhoGhoSource()
         self.config = WhoGhoSourceConfig(indicator_codes="WHOSIS_000001\nWHOSIS_000002")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.WHOGHO
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+
+        assert config.name.value == "WhoGho"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/who-gho"
+        assert config.iconPath == "/static/services/who_gho.png"
+        # A finished source ships visible; re-adding the flag would hide it from every user.
+        assert not config.unreleasedSource
+
+    def test_documented_tables_render_without_credentials(self) -> None:
+        # The public docs endpoint builds a blank config and calls get_schemas, so discovery must
+        # do no I/O.
+        tables = self.source.get_documented_tables()
+
+        assert [table["name"] for table in tables] == list(ENDPOINTS)
+
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_every_endpoint_has_a_primary_key_and_canonical_descriptions(self, endpoint: str) -> None:
+        assert PRIMARY_KEYS[endpoint]
+        assert CANONICAL_DESCRIPTIONS[endpoint]["columns"]
 
     def test_indicator_data_primary_key_includes_the_indicator_code(self) -> None:
         # One table holds observations for every configured indicator, and each indicator has its

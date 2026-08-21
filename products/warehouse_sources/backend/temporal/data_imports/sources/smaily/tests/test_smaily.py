@@ -9,6 +9,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily import smaily
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.settings import (
     CAMPAIGN_STATISTICS,
+    ENDPOINTS,
     SEGMENT_SUBSCRIBERS,
     SMAILY_ENDPOINTS,
 )
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.sma
     check_access,
     get_rows,
     normalize_subdomain,
+    smaily_source,
     validate_credentials,
 )
 
@@ -373,6 +375,19 @@ class TestCheckAccess:
 
 
 class TestSmailySourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = smaily_source(
+            subdomain="acme",
+            username="user",
+            password="pass",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == SMAILY_ENDPOINTS[endpoint].primary_keys
+
     def test_segment_subscribers_key_includes_parent_segment(self) -> None:
         # `email` alone is only unique within one segment; dropping the parent id from the key
         # would multi-match merges for subscribers in several segments.

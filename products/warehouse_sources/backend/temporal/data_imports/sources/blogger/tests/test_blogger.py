@@ -306,6 +306,14 @@ class TestErrorSanitization:
 
 
 class TestBloggerSourceResponse:
+    @parameterized.expand([("posts", "desc"), ("comments", "desc"), ("blogs", "asc"), ("pages", "asc")])
+    @mock.patch(BLOGGER_SESSION_PATCH)
+    def test_sort_mode_matches_incremental(self, endpoint: str, expected: str, MockSession: mock.MagicMock) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == expected
+
     @parameterized.expand([("posts",), ("comments",)])
     @mock.patch(BLOGGER_SESSION_PATCH)
     def test_incremental_endpoints_partition_by_published(self, endpoint: str, MockSession: mock.MagicMock) -> None:
@@ -313,3 +321,10 @@ class TestBloggerSourceResponse:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["published"]
         assert response.partition_format == "month"
+
+    @parameterized.expand([("blogs",), ("pages",)])
+    @mock.patch(BLOGGER_SESSION_PATCH)
+    def test_full_refresh_endpoints_have_no_partition(self, endpoint: str, MockSession: mock.MagicMock) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.partition_mode is None
+        assert response.partition_keys is None

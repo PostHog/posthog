@@ -228,6 +228,26 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("Countries", ["CountryIso"], None),
+            ("Currencies", ["CurrencyIso"], None),
+            ("Providers", ["ProviderCode"], None),
+            ("Products", ["SkuCode"], None),
+            ("Promotions", ["ProviderCode", "CurrencyIso", "StartUtc"], None),
+            ("Balance", ["CurrencyIso"], None),
+            ("TransferRecords", ["TransferRef"], "StartedUtc"),
+        ]
+    )
+    def test_primary_keys_and_partitioning(
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None
+    ) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.partition_mode == ("datetime" if partition_key else None)
+
     def test_only_transfer_records_is_paginated(self) -> None:
         paginated = {name for name, cfg in DING_CONNECT_ENDPOINTS.items() if cfg.paginated}
         assert paginated == {"TransferRecords"}

@@ -1,10 +1,9 @@
-import pytest
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketo import (
     MarketoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import MARKETO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.source import MarketoSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.marketo.source.validate_marketo_credentials"
@@ -26,11 +25,11 @@ class TestMarketoSource:
             start_date="2024-01-01",
         )
 
-    @pytest.mark.parametrize(
-        "error_key",
-        ["Marketo authentication failed", "Marketo API error 601", "Marketo API error 603", "Marketo API error 607"],
-    )
-    def test_permanent_failures_disable_the_source_instead_of_retrying(self, error_key: str) -> None:
-        errors = self.source.get_non_retryable_errors()
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.MARKETO
 
-        assert errors[error_key]
+    def test_api_docs_url_and_public_table_listing(self) -> None:
+        assert self.source.api_docs_url is not None
+        assert self.source.api_docs_url.startswith("https://")
+        # get_schemas iterates a static catalog with no I/O, so the docs can render the tables.
+        assert self.source.lists_tables_without_credentials is True

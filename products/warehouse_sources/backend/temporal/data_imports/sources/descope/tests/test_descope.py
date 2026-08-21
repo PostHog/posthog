@@ -16,6 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.descope.de
     get_resource,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.descope.settings import (
+    ENDPOINTS,
+    PARTITION_KEYS,
+    PRIMARY_KEYS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -353,3 +358,21 @@ class TestFullRefreshEndpoints:
 
         assert session.send.call_count == 1
         assert rows == [{"id": "1"}, {"id": "2"}]
+
+
+class TestDescopeSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
+        session = MockSession.return_value
+        selector = {"Users": "users", "Audit": "audits", "Tenants": "tenants", "Roles": "roles", "AccessKeys": "keys"}[
+            endpoint
+        ]
+        _wire(session, [_response({selector: []})])
+
+        response = _source(endpoint=endpoint)
+
+        assert response.primary_keys == PRIMARY_KEYS[endpoint]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [PARTITION_KEYS[endpoint]]

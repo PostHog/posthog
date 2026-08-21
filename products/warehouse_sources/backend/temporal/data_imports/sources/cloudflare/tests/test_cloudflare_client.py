@@ -287,6 +287,21 @@ class TestRetry:
         assert session.send.call_count == 5
 
 
+class TestCloudflareSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, MockSession, endpoint) -> None:
+        MockSession.return_value.headers = {}
+        config = CLOUDFLARE_ENDPOINTS[endpoint]
+        response = cloudflare_source("token", endpoint, team_id=1, job_id="j")
+
+        assert response.name == endpoint
+        assert response.primary_keys == list(config.primary_keys)
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+
 class TestEndpointConfigConsistency:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_path_placeholder_matches_declared_parent(self, endpoint) -> None:

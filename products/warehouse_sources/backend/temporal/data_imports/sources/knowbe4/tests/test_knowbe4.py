@@ -115,6 +115,15 @@ class TestKnowBe4Transport:
         assert params["include_store_purchase_id"] == "true"
         assert params["include_employee_number"] == "true"
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.knowbe4.rest_api_resource")
+    def test_knowbe4_source_users_top_level(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
+        response = knowbe4_source(api_key="tok", region="us", endpoint="users", team_id=1, job_id="job-1")
+
+        assert response.name == "users"
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )

@@ -9,6 +9,7 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coda.coda import coda_source, validate_credentials
+from products.warehouse_sources.backend.temporal.data_imports.sources.coda.settings import CODA_ENDPOINTS, ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -152,3 +153,20 @@ class TestGetRows:
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown Coda endpoint"):
             coda_source("token", "nonsense", team_id=1, job_id="j")
+
+
+class TestCodaSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = CODA_ENDPOINTS[endpoint]
+        response = coda_source("token", endpoint, team_id=1, job_id="j")
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+    def test_rows_have_composite_primary_key(self):
+        response = coda_source("token", "rows", team_id=1, job_id="j")
+        assert response.primary_keys == ["_doc_id", "_table_id", "id"]

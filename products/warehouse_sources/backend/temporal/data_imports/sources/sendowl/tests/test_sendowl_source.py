@@ -3,10 +3,13 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendowl import (
     SendowlSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.source import SendowlSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSendowlSource:
@@ -14,6 +17,47 @@ class TestSendowlSource:
         self.source = SendowlSource()
         self.team_id = 123
         self.config = SendowlSourceConfig(api_key="sendowl-key", api_secret="sendowl-secret")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.SENDOWL
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+        assert config.name.value == "Sendowl"
+        assert config.label == "Sendowl"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # A finished source is visible — it must not carry the scaffolding flag.
+        assert not config.unreleasedSource
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/sendowl"
+
+        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
+        assert field_names == ["api_key", "api_secret"]
+
+    def test_no_connection_host_fields(self) -> None:
+        # Both fields are secrets; the base URL is hardcoded and the account is implicit in the key
+        # pair. There is no non-secret field that retargets where the credentials are sent.
+        assert self.source.connection_host_fields == []
+
+    @parameterized.expand(
+        [
+            ("401 Client Error: Unauthorized for url: https://www.sendowl.com/api/v1/products?page=1&per_page=50",),
+            ("403 Client Error: Forbidden for url: https://www.sendowl.com/api/v1_3/orders?page=2&per_page=50",),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("500 Server Error: Internal Server Error for url: https://www.sendowl.com/api/v1/products",),
+            ("HTTPSConnectionPool(host='www.sendowl.com', port=443): Read timed out.",),
+            ("429 Client Error: Too Many Requests for url: https://www.sendowl.com/api/v1_3/orders",),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
 
     @parameterized.expand(
         [

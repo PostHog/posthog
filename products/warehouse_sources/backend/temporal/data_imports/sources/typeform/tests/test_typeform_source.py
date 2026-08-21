@@ -4,6 +4,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     TypeformSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.source import TypeformSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTypeformSource:
@@ -15,6 +16,9 @@ class TestTypeformSource:
         field = next(f for f in self.source.get_source_config.fields if f.name == "response_types")
         assert isinstance(field, SourceFieldSelectConfig)
         return field
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.TYPEFORM
 
     def test_response_types_field_defaults_to_completed(self):
         field = self._response_types_field()
@@ -40,3 +44,8 @@ class TestTypeformSource:
         # so the all-responses mode is full-refresh only.
         assert responses.supports_incremental is False
         assert responses.incremental_fields == []
+
+    def test_get_schemas_forms_unaffected_by_response_types(self):
+        config = TypeformSourceConfig(auth_token="token", response_types="completed,partial,started")
+        forms = next(s for s in self.source.get_schemas(config, self.team_id) if s.name == "forms")
+        assert [f["field"] for f in forms.incremental_fields] == ["last_updated_at"]

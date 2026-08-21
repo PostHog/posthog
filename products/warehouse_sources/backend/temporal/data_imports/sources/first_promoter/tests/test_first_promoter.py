@@ -263,3 +263,36 @@ class TestFirstPromoterTransport:
         resume_hook(None)
         resume_hook({})
         manager.save_state.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("commissions", ["id"], ["created_at"]),
+            ("promoters", ["id"], ["joined_at"]),
+            ("promo_codes", ["id"], None),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter.rest_api_resource"
+    )
+    def test_source_response_keys_and_partitioning(
+        self,
+        endpoint: str,
+        expected_primary_keys: list[str],
+        expected_partition_keys: list[str] | None,
+        _mock_rest_api_resource: MagicMock,
+    ) -> None:
+        response = first_promoter_source(
+            api_key="fp-key",
+            account_id="98765",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job-1",
+            api_version="v2",
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == expected_primary_keys
+        assert response.sort_mode == "asc"
+        assert response.partition_keys == expected_partition_keys
+        # Partitioning on a field that never changes once set; never on a mutating one.
+        assert response.partition_mode == ("datetime" if expected_partition_keys else None)

@@ -443,3 +443,19 @@ class TestPretixSourceResponse:
         assert response.partition_format == "month"
         assert response.partition_keys == ["datetime"]
         assert response.sort_mode == "asc"
+
+    @parameterized.expand(
+        [
+            ("events", ["slug"]),
+            ("invoices", ["event", "number"]),
+            ("customers", ["identifier"]),
+            ("gift_cards", ["id"]),
+            ("items", ["event_slug", "id"]),
+            ("vouchers", ["event_slug", "id"]),
+        ]
+    )
+    def test_primary_keys_per_endpoint(self, endpoint: str, primary_keys: list[str]) -> None:
+        response = _source(endpoint)
+
+        assert response.primary_keys == primary_keys
+        assert response.partition_mode is None

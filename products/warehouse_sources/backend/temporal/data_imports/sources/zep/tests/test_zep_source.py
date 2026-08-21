@@ -5,12 +5,16 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zep import ZepSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.source import ZepSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZepSource:
     def setup_method(self) -> None:
         self.source = ZepSource()
         self.team_id = 7
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.ZEP
 
     def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id)
@@ -33,3 +37,10 @@ class TestZepSource:
             return_value=probe_ok,
         ):
             assert self.source.validate_credentials(config, self.team_id) == expected
+
+    def test_documented_tables_render_without_credentials(self) -> None:
+        # lists_tables_without_credentials=True: get_schemas is a static catalog, so public docs
+        # can render the table list with no live connection.
+        assert self.source.lists_tables_without_credentials is True
+        tables = self.source.get_documented_tables()
+        assert {t["name"] for t in tables} == set(ENDPOINTS)

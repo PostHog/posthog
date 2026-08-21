@@ -261,6 +261,32 @@ class TestResume:
         assert saved.page == 1
 
 
+class TestPerigonSourceResponse:
+    @parameterized.expand([(name,) for name in PERIGON_ENDPOINTS])
+    def test_primary_keys_and_sort_mode_match_config(self, endpoint: str) -> None:
+        response = _source(endpoint, _make_manager())
+        config = PERIGON_ENDPOINTS[endpoint]
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == config.sort_mode
+
+    def test_articles_partitioned_on_stable_pub_date(self) -> None:
+        response = _source("articles", _make_manager())
+        assert response.partition_keys == ["pubDate"]
+        assert response.partition_mode == "datetime"
+
+    def test_stories_partitioned_on_created_at_not_updated_at(self) -> None:
+        # updatedAt changes on every new article in the cluster — partitioning on it would
+        # rewrite partitions each sync.
+        response = _source("stories", _make_manager())
+        assert response.partition_keys == ["createdAt"]
+
+    def test_full_refresh_endpoint_has_no_partition(self) -> None:
+        response = _source("topics", _make_manager())
+        assert response.partition_keys is None
+        assert response.partition_mode is None
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize("status,expected", [(200, True), (401, False), (403, False)])
     def test_status_maps_to_validity(self, status: int, expected: bool) -> None:

@@ -445,6 +445,33 @@ class TestValidateCredentials:
 
 
 class TestPardotSourceResponse:
+    def test_partitions_high_volume_tables_on_creation_time(self) -> None:
+        response = pardot_source(
+            **CREDENTIALS,
+            endpoint="visitor_activities",
+            api_version="v5",
+            resumable_source_manager=FakeResumeManager(),
+            logger=mock.MagicMock(),
+        )
+
+        assert response.name == "visitor_activities"
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["createdAt"]
+        assert response.sort_mode == "asc"
+
+    def test_unpartitioned_table_declares_no_partition_keys(self) -> None:
+        response = pardot_source(
+            **CREDENTIALS,
+            endpoint="campaigns",
+            api_version="v5",
+            resumable_source_manager=FakeResumeManager(),
+            logger=mock.MagicMock(),
+        )
+
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
     def test_items_are_lazy_until_iterated(self) -> None:
         session = _session([_response({"values": [{"id": 1}]})])
         response = pardot_source(

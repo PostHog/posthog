@@ -15,7 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rss.rss im
     rss_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rss.settings import RSS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.rss.settings import ENDPOINTS, RSS_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -330,6 +330,15 @@ class TestEpisodesFanOut:
 
 
 class TestRssSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
+        response = _source(endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == RSS_ENDPOINTS[endpoint].primary_keys
+        # Episodes carry no stable creation timestamp, so no endpoint is partitioned.
+        assert response.partition_mode is None
+
     def test_episodes_key_includes_parent_id(self) -> None:
         # Fan-out child rows aggregate every podcast's episodes into one table; the spec doesn't
         # document episode ids as globally unique, so the key must include the parent id.

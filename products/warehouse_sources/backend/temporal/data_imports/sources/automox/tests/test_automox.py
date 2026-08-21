@@ -18,11 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.automox.au
     AutomoxRetryableError,
     _build_url,
     _incremental_param_value,
+    automox_source,
     get_rows,
     resolve_organization,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.automox.settings import AUTOMOX_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.automox.settings import (
+    AUTOMOX_ENDPOINTS,
+    ENDPOINTS,
+)
 
 ORGS_BODY = [
     {"id": 123, "uuid": "uuid-123", "name": "Org A"},
@@ -414,6 +418,25 @@ class TestGetRows:
 
 
 class TestAutomoxSourceResponse:
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_source_response_shape(self, name: str) -> None:
+        config = AUTOMOX_ENDPOINTS[name]
+        response = automox_source(
+            api_key="key",
+            organization_id="123",
+            endpoint=name,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == name
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == config.sort_mode
+        if config.partition_key:
+            assert response.partition_keys == [config.partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+
     def test_policy_runs_is_ascending_and_events_defers_watermark(self) -> None:
         # policy_runs requests an explicit ascending sort so per-batch watermark checkpoints are
         # safe; events has no documented ordering, so it must stay "desc" (watermark persisted only

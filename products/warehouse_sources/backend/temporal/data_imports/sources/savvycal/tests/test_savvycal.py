@@ -281,6 +281,43 @@ class TestValidateCredentials:
 
 
 class TestSavvyCalSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = savvycal_source(
+            api_key="pt_secret_key",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+
+    def test_events_partition_on_stable_created_at(self) -> None:
+        response = savvycal_source(
+            api_key="pt_secret_key",
+            endpoint="events",
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_make_manager(),
+        )
+        # start_at moves on reschedule; partitioning must stay on the immutable creation timestamp.
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
+
+    def test_links_have_no_partitioning(self) -> None:
+        # The Link schema exposes no creation timestamp to partition on.
+        response = savvycal_source(
+            api_key="pt_secret_key",
+            endpoint="links",
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in SAVVYCAL_ENDPOINTS.values())
         assert set(SAVVYCAL_ENDPOINTS) == set(ENDPOINTS)

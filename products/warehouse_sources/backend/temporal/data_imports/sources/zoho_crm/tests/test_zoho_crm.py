@@ -8,6 +8,7 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import ZOHO_CRM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
     MAX_FIELDS_PER_REQUEST,
     MAX_PAGE,
@@ -457,6 +458,25 @@ class TestValidateCredentials:
 
 
 class TestZohoCRMSourceResponse:
+    @pytest.mark.parametrize("endpoint", sorted(ZOHO_CRM_ENDPOINTS))
+    def test_response_shape_per_endpoint(self, endpoint: str) -> None:
+        response = zoho_crm_source(
+            region="us",
+            client_id="cid",
+            client_secret="secret",
+            refresh_token="refresh",
+            endpoint=endpoint,
+            api_version="v8",
+            resumable_source_manager=FakeResumeManager(),
+            logger=mock.MagicMock(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [ZOHO_CRM_ENDPOINTS[endpoint].partition_key]
+
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_items_are_lazy_until_iterated(self, make_session: mock.MagicMock) -> None:
         session = _session([_fields_response(1), _records_response([{"id": "1"}])])

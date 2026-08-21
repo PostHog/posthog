@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from typing import cast
 
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.sour
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asaas import AsaasSourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Payments", "Transfers"}
 _FULL_REFRESH_ENDPOINTS = {"Customers", "Subscriptions", "Installments"}
@@ -215,10 +217,35 @@ class TestAsaasSource:
         self.team_id = 123
         self.config = AsaasSourceConfig(api_key="test-key", environment="production")
 
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.ASAAS
+
     def test_api_version_metadata(self) -> None:
         assert self.source.supported_versions == ("v3",)
         assert self.source.default_version == "v3"
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.asaas.com/v3/customers?limit=1",
+            "403 Client Error: Forbidden for url: https://api.asaas.com/v3/payments?limit=100",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "429 Client Error: Too Many Requests for url: https://api.asaas.com/v3/payments",
+            "500 Server Error: Internal Server Error for url: https://api.asaas.com/v3/payments",
+        ],
+    )
+    def test_non_retryable_errors_do_not_match_transient(self, other_error: str) -> None:
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
 
     @parameterized.expand([(True, True, None), (False, False, "Invalid credentials")])
     def test_validate_credentials(self, mock_return: bool, expected_valid: bool, expected_message) -> None:
@@ -227,3 +254,32 @@ class TestAsaasSource:
 
         assert (is_valid, error_message) == (expected_valid, expected_message)
         mock_validate.assert_called_once_with("test-key", "production")
+
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "Payments"
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2026-01-01"
+        manager = mock.MagicMock()
+
+        with mock.patch(ASAAS_SOURCE_PATCH) as mock_asaas_source:
+            self.source.source_for_pipeline(self.config, manager, inputs)
+
+        mock_asaas_source.assert_called_once()
+        kwargs = mock_asaas_source.call_args.kwargs
+        assert kwargs["api_key"] == "test-key"
+        assert kwargs["environment"] == "production"
+        assert kwargs["endpoint"] == "Payments"
+        assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["db_incremental_field_last_value"] == "2026-01-01"
+
+    def test_source_for_pipeline_omits_cursor_when_not_incremental(self) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "Customers"
+        inputs.should_use_incremental_field = False
+        inputs.db_incremental_field_last_value = "2026-01-01"
+
+        with mock.patch(ASAAS_SOURCE_PATCH) as mock_asaas_source:
+            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_asaas_source.call_args.kwargs["db_incremental_field_last_value"] is None

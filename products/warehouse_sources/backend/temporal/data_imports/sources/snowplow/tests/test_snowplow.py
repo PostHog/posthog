@@ -9,6 +9,7 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow import snowplow
+from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.settings import SNOWPLOW_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.snowplow import (
     SnowplowAuthError,
     SnowplowClient,
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.s
     _iter_windows,
     _jobs_window_bounds,
     get_rows,
+    snowplow_source,
     validate_credentials,
 )
 
@@ -505,3 +507,33 @@ class TestValidateCredentials:
             ok, error = validate_credentials("org-1", "key-id", "key", MagicMock())
         assert ok is False
         assert error is not None
+
+
+class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("pipelines", "asc", None, ["id"]),
+            ("users", "asc", None, ["id"]),
+            ("data_models", "asc", None, ["name"]),
+            ("data_structures", "asc", None, ["hash"]),
+            ("job_runs", "desc", "startTime", ["runId"]),
+            ("job_run_steps", "desc", "runStartTime", ["runId", "name"]),
+            ("failed_event_metrics", "desc", "window", ["pipelineId", "errorId", "window"]),
+        ]
+    )
+    def test_sort_mode_partition_and_primary_keys(
+        self, endpoint: str, expected_sort: str, partition_key: str | None, primary_keys: list[str]
+    ) -> None:
+        # Incremental endpoints must report "desc" so the watermark persists only at successful job
+        # end; "asc" per-batch persistence would let a crashed run advance past rows it still owes.
+        response = snowplow_source(
+            organization_id="org-1",
+            api_key_id="key-id",
+            api_key="key",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.sort_mode == expected_sort
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.primary_keys == SNOWPLOW_ENDPOINTS[endpoint].primary_keys == primary_keys

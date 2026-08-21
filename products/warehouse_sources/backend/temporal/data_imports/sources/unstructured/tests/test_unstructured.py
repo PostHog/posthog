@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.unstructur
     UnstructuredRetryableError,
     get_rows,
     normalize_base_url,
+    unstructured_source,
     validate_credentials,
 )
 
@@ -242,6 +243,18 @@ class TestGetRows:
             with pytest.raises(ValueError):
                 list(get_rows(base_url, "key", "jobs", MagicMock(), manager, team_id=1))
         session.get.assert_not_called()
+
+
+class TestUnstructuredSource:
+    @parameterized.expand(["workflows", "jobs", "sources", "destinations"])
+    def test_source_response_contract(self, endpoint: str) -> None:
+        response = unstructured_source(DEFAULT_BASE_URL, "key", endpoint, MagicMock(), MagicMock(), team_id=1)
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # created_at is stable (set once at creation) so partitions never churn.
+        assert response.partition_keys == ["created_at"]
+        assert response.partition_mode == "datetime"
+        assert response.sort_mode == "asc"
 
 
 class TestValidateCredentials:

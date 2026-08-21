@@ -1,3 +1,5 @@
+from typing import Optional
+
 import pytest
 from unittest import mock
 
@@ -7,12 +9,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     WooCommerceSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.settings import (
+    ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PARTITION_FIELDS,
     SCHEMA_TO_WEBHOOK_RESOURCE,
     WEBHOOK_SCHEMA_NAMES,
     WEBHOOK_TOPICS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source import WooCommerceSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = set(INCREMENTAL_FIELDS.keys())
 
@@ -47,6 +52,9 @@ class TestWooCommerceSource:
             consumer_key="ck_test",
             consumer_secret="cs_test",
         )
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.WOOCOMMERCE
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
@@ -129,6 +137,24 @@ class TestWooCommerceSource:
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
         assert response.sort_mode == "asc"
+
+    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
+    def test_source_for_pipeline_partitioning(self, endpoint):
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+        inputs = _make_inputs(endpoint)
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
+        ) as mock_source:
+            mock_source.return_value = mock.MagicMock(name=endpoint, column_hints=None)
+            response = self.source.source_for_pipeline(self.config, manager, inputs)
+
+        expected_key: Optional[str] = PARTITION_FIELDS.get(endpoint)
+        if expected_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [expected_key]
+        else:
+            assert response.partition_keys is None
 
     def test_get_schemas_marks_only_webhook_capable_tables(self):
         # WooCommerce only ships core webhook topics for four resources. Marking any other table

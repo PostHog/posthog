@@ -1,11 +1,42 @@
+from typing import Any
+
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source import (
     FinancialModellingSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+def _inputs(schema_name: str, **overrides: Any) -> SourceInputs:
+    defaults: dict[str, Any] = {
+        "schema_name": schema_name,
+        "schema_id": "schema-1",
+        "source_id": "source-1",
+        "team_id": 1,
+        "should_use_incremental_field": False,
+        "db_incremental_field_last_value": None,
+        "db_incremental_field_earliest_value": None,
+        "incremental_field": None,
+        "incremental_field_type": None,
+        "job_id": "job-1",
+        "logger": MagicMock(),
+        "reset_pipeline": False,
+    }
+    defaults.update(overrides)
+    return SourceInputs(**defaults)
+
+
+class TestFinancialModellingSourceConfig:
+    def test_source_type(self) -> None:
+        assert FinancialModellingSource().source_type == ExternalDataSourceType.FINANCIALMODELLING
 
 
 class TestGetSchemas:
@@ -54,3 +85,91 @@ class TestValidateCredentials:
         ok, error = FinancialModellingSource().validate_credentials(config, team_id=1)
         assert ok is False
         assert error is not None
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://financialmodelingprep.com/stable/profile?symbol=AAPL",
+            ),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://financialmodelingprep.com/stable/income-statement?symbol=AAPL",
+            ),
+            (
+                "error_body",
+                "Financial Modeling Prep API returned an error response: Exclusive Endpoint: This endpoint is only for premium subscribers.",
+            ),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = FinancialModellingSource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://financialmodelingprep.com/stable/profile",
+            ),
+            (
+                "rate_limited",
+                "429 Client Error: Too Many Requests for url: https://financialmodelingprep.com/stable/profile",
+            ),
+            ("timeout", "Read timed out."),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        non_retryable = FinancialModellingSource().get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable)
+
+
+class TestSourceForPipeline:
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.financial_modelling_source"
+    )
+    def test_parses_symbols_and_plumbs_arguments(self, mock_source: MagicMock) -> None:
+        config = FinancialModellingSource().parse_config({"api_key": "k", "symbols": "aapl, msft"})
+        FinancialModellingSource().source_for_pipeline(config, MagicMock(), _inputs("company_profiles"))
+        _, kwargs = mock_source.call_args
+        assert kwargs["api_key"] == "k"
+        assert kwargs["symbols"] == ["AAPL", "MSFT"]
+        assert kwargs["endpoint"] == "company_profiles"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source.financial_modelling_source"
+    )
+    def test_last_value_passed_only_when_incremental(self, mock_source: MagicMock) -> None:
+        config = FinancialModellingSource().parse_config({"api_key": "k", "symbols": "AAPL"})
+
+        FinancialModellingSource().source_for_pipeline(
+            config,
+            MagicMock(),
+            _inputs(
+                "historical_prices", should_use_incremental_field=True, db_incremental_field_last_value="2024-01-01"
+            ),
+        )
+        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] == "2024-01-01"
+
+        FinancialModellingSource().source_for_pipeline(
+            config,
+            MagicMock(),
+            _inputs(
+                "historical_prices", should_use_incremental_field=False, db_incremental_field_last_value="2024-01-01"
+            ),
+        )
+        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+
+class TestPublicDocs:
+    def test_lists_tables_without_credentials(self) -> None:
+        assert FinancialModellingSource().lists_tables_without_credentials is True
+
+    def test_documented_tables_cover_every_endpoint(self) -> None:
+        tables = {t["name"] for t in FinancialModellingSource().get_documented_tables()}
+        assert tables == set(ENDPOINTS)
+
+    def test_canonical_descriptions_keys_are_valid_endpoints(self) -> None:
+        assert set(CANONICAL_DESCRIPTIONS).issubset(set(ENDPOINTS))

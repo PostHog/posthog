@@ -13,11 +13,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.settings import FILE_PATH_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp import (
+    AUTH_FAILED_ERROR,
     DELIMITER_ERROR,
     DIRECTORY_ERROR,
+    SFTPAuth,
     SFTPCredentialsError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.source import SFTPSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 DIRECTORY_MODE = stat.S_IFDIR | 0o755
 FILE_MODE = stat.S_IFREG | 0o644
@@ -109,6 +112,23 @@ def patched_connection(client: FakeClient, target: str = CONNECTION_TARGET) -> A
     return connection
 
 
+class TestSFTPSourceConfig:
+    def setup_method(self) -> None:
+        self.source = SFTPSource()
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.SFTP
+
+    def test_port_change_requires_credential_reentry(self) -> None:
+        assert self.source.connection_host_fields == ["port"]
+
+    def test_non_retryable_errors_cover_connection_and_auth_failures(self) -> None:
+        errors = self.source.get_non_retryable_errors()
+
+        assert AUTH_FAILED_ERROR in errors
+        assert all(message for message in errors.values())
+
+
 class TestValidateCredentials:
     def setup_method(self) -> None:
         self.source = SFTPSource()
@@ -161,9 +181,113 @@ class TestValidateCredentials:
         assert error is not None and DIRECTORY_ERROR in error
 
 
+class TestGetSchemas:
+    def setup_method(self) -> None:
+        self.source = SFTPSource()
+        self.client = FakeClient(
+            {
+                "/data": [
+                    FakeAttributes("orders.csv"),
+                    FakeAttributes("2024", st_mode=DIRECTORY_MODE),
+                    FakeAttributes("notes.md"),
+                ],
+                "/data/2024": [FakeAttributes("orders.csv")],
+            }
+        )
+
+    def test_one_full_refresh_table_per_file_with_a_recognized_format(self) -> None:
+        connection = patched_connection(self.client)
+        try:
+            schemas = self.source.get_schemas(make_config(), team_id=1)
+        finally:
+            connection.stop()
+
+        # notes.md has no format we can parse, so discovery doesn't offer it as a table.
+        assert [schema.name for schema in schemas] == ["2024_orders", "orders"]
+        assert all(not schema.supports_incremental and not schema.supports_append for schema in schemas)
+        assert all(schema.incremental_fields == [] for schema in schemas)
+
+    def test_an_explicit_format_offers_every_matched_file(self) -> None:
+        connection = patched_connection(self.client)
+        try:
+            schemas = self.source.get_schemas(make_config(file_format="csv"), team_id=1)
+        finally:
+            connection.stop()
+
+        assert [schema.name for schema in schemas] == ["2024_orders", "notes", "orders"]
+
+    def test_pattern_narrows_the_tables(self) -> None:
+        connection = patched_connection(self.client)
+        try:
+            schemas = self.source.get_schemas(make_config(file_pattern=r"\.csv$"), team_id=1)
+        finally:
+            connection.stop()
+
+        assert [schema.name for schema in schemas] == ["2024_orders", "orders"]
+
+    def test_combine_files_produces_a_single_table(self) -> None:
+        connection = patched_connection(self.client)
+        try:
+            schemas = self.source.get_schemas(
+                make_config(combine_files=SFTPCombineFilesConfig(table_name="All orders", enabled=True)),
+                team_id=1,
+            )
+        finally:
+            connection.stop()
+
+        assert [schema.name for schema in schemas] == ["all_orders"]
+
+    def test_disabled_combine_files_keeps_one_table_per_file(self) -> None:
+        connection = patched_connection(self.client)
+        try:
+            schemas = self.source.get_schemas(
+                make_config(combine_files=SFTPCombineFilesConfig(table_name="All orders", enabled=False)),
+                team_id=1,
+            )
+        finally:
+            connection.stop()
+
+        assert [schema.name for schema in schemas] == ["2024_orders", "orders"]
+
+    def test_filters_by_requested_names(self) -> None:
+        connection = patched_connection(self.client)
+        try:
+            schemas = self.source.get_schemas(make_config(), team_id=1, names=["orders"])
+        finally:
+            connection.stop()
+
+        assert [schema.name for schema in schemas] == ["orders"]
+
+    def test_lists_no_tables_without_credentials(self) -> None:
+        assert self.source.lists_tables_without_credentials is False
+        assert self.source.get_documented_tables() == []
+
+
 class TestSourceForPipeline:
     def setup_method(self) -> None:
         self.source = SFTPSource()
+
+    def test_passes_the_configured_format_and_credentials_through(self) -> None:
+        config = make_config(
+            auth=SFTPAuthTypeConfig(selection="ssh_key", private_key="key", passphrase="phrase"),
+            file_format="csv",
+            csv_delimiter="\\t",
+            file_pattern=r"\.tsv$",
+            combine_files=SFTPCombineFilesConfig(table_name="orders", enabled=True),
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.source.sftp_source"
+        ) as source_fn:
+            self.source.source_for_pipeline(config, make_inputs("orders"))
+
+        kwargs = source_fn.call_args.kwargs
+        assert kwargs["auth"] == SFTPAuth(private_key="key", passphrase="phrase")
+        assert kwargs["configured_format"] == "csv"
+        assert kwargs["delimiter"] == "\\t"
+        assert kwargs["file_pattern"] == r"\.tsv$"
+        assert kwargs["combined_table_name"] == "orders"
+        assert kwargs["schema_name"] == "orders"
 
     def test_reads_the_rows_of_the_requested_table(self) -> None:
         client = FakeClient(

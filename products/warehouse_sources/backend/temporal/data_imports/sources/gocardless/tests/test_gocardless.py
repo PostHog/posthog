@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless
     gocardless_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.settings import GOCARDLESS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.settings import (
+    ENDPOINTS,
+    GOCARDLESS_ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -256,6 +259,29 @@ class TestPagination:
 
 
 class TestGoCardlessSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = GOCARDLESS_ENDPOINTS[endpoint]
+        response = gocardless_source(
+            environment="live",
+            access_token="token",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=_make_manager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
+        # Lists are reverse-chronological; only the incremental events stream
+        # declares desc so the pipeline defers its watermark commit.
+        if config.incremental_fields:
+            assert response.sort_mode == "desc"
+        else:
+            assert response.sort_mode == "asc"
+
     @pytest.mark.parametrize("config", list(GOCARDLESS_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         assert config.partition_key == "created_at"

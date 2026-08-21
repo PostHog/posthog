@@ -258,3 +258,10 @@ class TestFrontSourceResponse:
         assert response.partition_keys == [partition_key]
         assert response.partition_format == partition_format
         assert response.sort_mode == sort_mode
+
+    @parameterized.expand([("contacts",), ("teammates",), ("inboxes",), ("channels",), ("teams",)])
+    def test_non_partitioned_endpoints(self, endpoint: str) -> None:
+        response = front_source("tok", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None

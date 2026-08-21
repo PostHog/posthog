@@ -7,13 +7,17 @@ from unittest import mock
 import jwt
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.settings import USERSNAP_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.settings import (
+    ENDPOINTS,
+    USERSNAP_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap import (
     JWT_TTL_SECONDS,
     UsersnapResumeConfig,
     _format_datetime,
     get_rows,
     mint_jwt,
+    usersnap_source,
     validate_credentials,
 )
 
@@ -298,6 +302,23 @@ class TestGetRows:
 
 
 class TestUsersnapSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = USERSNAP_ENDPOINTS[endpoint]
+        response = usersnap_source("secret", "jwt-id", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        # The feedbacks fan-out concatenates per-project streams, so it must not checkpoint
+        # the incremental watermark per batch.
+        assert response.sort_mode == ("desc" if endpoint == "feedbacks" else "asc")
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize("config", list(USERSNAP_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

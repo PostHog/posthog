@@ -285,3 +285,24 @@ class TestSyncSecurity:
         _wire(session, [_response({"history": [], "has_more": False, "last_history_item_id": None})])
         _rows(_source("history", _make_manager()))
         assert any(call.kwargs.get("allow_redirects") is False for call in MockSession.call_args_list)
+
+
+class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("history", ["history_item_id"], "asc", "date_unix"),
+            ("conversations", ["conversation_id"], "desc", "start_time_unix_secs"),
+            ("agents", ["agent_id"], "asc", "created_at_unix_secs"),
+            ("voices", ["voice_id"], "asc", "created_at_unix"),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_response_shape_per_endpoint(
+        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_key: str, _mts
+    ) -> None:
+        # sort_mode="asc" on a newest-first endpoint corrupts the watermark; the pk must be table-unique.
+        response = _source(endpoint, _make_manager())
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == sort_mode
+        assert response.partition_keys == [partition_key]
+        assert response.partition_mode == "datetime"

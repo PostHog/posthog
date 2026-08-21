@@ -7,14 +7,20 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nagerdate import (
     NagerDateSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.settings import ENDPOINTS, PRIMARY_KEYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.source import NagerDateSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str = "Countries") -> SourceInputs:
@@ -39,10 +45,46 @@ class TestNagerDateSource:
         self.source = NagerDateSource()
         self.config = NagerDateSourceConfig(country_codes="US\nGB")
 
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.NAGERDATE
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+
+        assert config.name.value == "NagerDate"
+        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/nager-date"
+        assert config.iconPath == "/static/services/nager_date.png"
+        # A finished source ships visible; re-adding the flag would hide it from every user.
+        assert not config.unreleasedSource
+
     def test_pinned_version_matches_the_path_the_code_calls(self) -> None:
         assert self.source.default_version == "v4"
         assert self.source.supported_versions == ("v4",)
         assert self.source.resolve_api_version(None) == "v4"
+
+    def test_get_schemas(self) -> None:
+        schemas = self.source.get_schemas(self.config, team_id=123)
+
+        assert [schema.name for schema in schemas] == list(ENDPOINTS)
+        # No endpoint has a server-side "changed since" filter, so nothing may advertise
+        # incremental or append sync.
+        assert not any(schema.supports_incremental for schema in schemas)
+        assert not any(schema.supports_append for schema in schemas)
+        assert all(schema.description for schema in schemas)
+
+    def test_documented_tables_render_without_credentials(self) -> None:
+        # The public docs endpoint builds a blank config and calls get_schemas, so discovery must
+        # do no I/O.
+        tables = self.source.get_documented_tables()
+
+        assert [table["name"] for table in tables] == list(ENDPOINTS)
+
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    def test_every_endpoint_has_a_primary_key_and_canonical_descriptions(self, endpoint: str) -> None:
+        assert PRIMARY_KEYS[endpoint]
+        assert CANONICAL_DESCRIPTIONS[endpoint]["columns"]
 
     @parameterized.expand([("PublicHolidays",), ("NextPublicHolidays",)])
     def test_holiday_tables_key_on_the_synthetic_id(self, endpoint: str) -> None:

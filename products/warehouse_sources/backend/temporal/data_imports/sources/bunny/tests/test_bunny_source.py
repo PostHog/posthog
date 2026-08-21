@@ -1,8 +1,12 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source import BunnySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bunny import BunnySourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBunnySource:
@@ -10,6 +14,68 @@ class TestBunnySource:
         self.source = BunnySource()
         self.team_id = 123
         self.config = BunnySourceConfig(access_key="bunny-key")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.BUNNY
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+        assert config.name.value == "Bunny"
+        assert config.label == "Bunny.net"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # A finished source is visible — it must not carry the scaffolding flag.
+        assert not config.unreleasedSource
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/bunny"
+
+        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
+        assert field_names == ["access_key"]
+
+    def test_no_connection_host_fields(self) -> None:
+        # The only field is the secret `access_key` itself; the base URL is hardcoded and the account
+        # is implicit in the key. There is no non-secret field that retargets where the key is sent,
+        # so an editor cannot reuse a preserved key against a different account without re-entering it.
+        assert self.source.connection_host_fields == []
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
+        assert self.source.lists_tables_without_credentials is True
+
+    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+        # bunny.net's list endpoints have no server-side timestamp filter, so every schema is full refresh.
+        assert all(s.supports_incremental is False for s in schemas)
+        assert all(s.supports_append is False for s in schemas)
+        assert all(s.incremental_fields == [] for s in schemas)
+
+    def test_documented_tables_render_for_public_docs(self) -> None:
+        # Exercises the credential-free catalog path used by the posthog.com docs.
+        tables = self.source.get_documented_tables()
+        assert {t["name"] for t in tables} == set(ENDPOINTS)
+        assert all("Full refresh" in t["sync_methods"] for t in tables)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.bunny.net/pullzone?page=1&perPage=1000",
+            "403 Client Error: Forbidden for url: https://api.bunny.net/dnszone?page=2&perPage=1000",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @pytest.mark.parametrize(
+        "unrelated_error",
+        [
+            "500 Server Error: Internal Server Error for url: https://api.bunny.net/pullzone",
+            "HTTPSConnectionPool(host='api.bunny.net', port=443): Read timed out.",
+            "429 Client Error: Too Many Requests for url: https://api.bunny.net/storagezone",
+        ],
+    )
+    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
 
     @pytest.mark.parametrize(
         "probe_result, expected_valid, expected_message",

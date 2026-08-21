@@ -268,3 +268,13 @@ class TestEndpointPermissions:
         results = check_endpoint_permissions("reply-key", ["not_a_table"])
         assert results == {"not_a_table": None}
         mock_access.assert_not_called()
+
+
+class TestReplyIoSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # Most Reply resources expose no stable creation timestamp, so we don't partition.
+        assert response.partition_mode is None

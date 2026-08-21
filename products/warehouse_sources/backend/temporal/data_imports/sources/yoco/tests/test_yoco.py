@@ -263,6 +263,30 @@ class TestYocoResources:
 
 
 class TestYocoSource:
+    @parameterized.expand(
+        [
+            ("incremental_defers_watermark", True, "desc"),
+            ("full_refresh", False, "asc"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.rest_api_resource")
+    def test_sort_mode_and_partitioning(
+        self, _name: str, should_use_incremental_field: bool, expected: str, _mock_resource: MagicMock
+    ) -> None:
+        response = yoco_source(
+            api_key="key",
+            endpoint="payments",
+            team_id=1,
+            job_id="job-1",
+            should_use_incremental_field=should_use_incremental_field,
+        )
+        # Yoco documents no page ordering, so the watermark must only be committed once the run
+        # completes — "asc" would advance it past rows the run never fetched.
+        assert response.sort_mode == expected
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.yoco.rest_api_resource")
     def test_resume_state_seeds_the_paginator(self, mock_resource: MagicMock) -> None:
         manager = MagicMock()

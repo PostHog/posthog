@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.c
     clockify_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import CLOCKIFY_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -322,6 +323,27 @@ class TestFailLoud:
 
         with pytest.raises(ValueError, match="list response body"):
             _rows(_source("workspaces", _make_manager()))
+
+
+class TestClockifySourceResponse:
+    @parameterized.expand([(name,) for name in CLOCKIFY_ENDPOINTS])
+    def test_primary_keys_and_sort_mode_match_config(self, endpoint: str) -> None:
+        response = _source(endpoint, _make_manager())
+        config = CLOCKIFY_ENDPOINTS[endpoint]
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == config.sort_mode
+
+    def test_time_entries_is_desc_and_partitioned(self) -> None:
+        response = _source("time_entries", _make_manager())
+        assert response.sort_mode == "desc"
+        assert response.partition_keys == ["time_interval_start"]
+        assert response.partition_mode == "datetime"
+
+    def test_full_refresh_endpoint_has_no_partition(self) -> None:
+        response = _source("clients", _make_manager())
+        assert response.partition_keys is None
+        assert response.partition_mode is None
 
 
 class TestValidateCredentials:

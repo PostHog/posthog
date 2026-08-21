@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong 
     _get_headers,
     _to_datetime,
     get_rows,
+    gong_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gong.settings import GONG_ENDPOINTS
@@ -319,6 +320,29 @@ class TestWindowedCalls:
 
 
 class TestGongSource:
+    @parameterized.expand(
+        [
+            ("calls", "id", "started", "asc"),
+            ("users", "id", "created", "asc"),
+            ("scorecards", "scorecardId", "created", "asc"),
+            ("workspaces", "id", None, "asc"),
+        ]
+    )
+    def test_source_response_shape(
+        self, endpoint: str, primary_key: str, partition_key: str | None, sort_mode: str
+    ) -> None:
+        response = gong_source("key", "secret", endpoint, mock.MagicMock(), _FakeResumableManager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [primary_key]
+        assert response.sort_mode == sort_mode
+        if partition_key:
+            assert response.partition_keys == [partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+            assert response.partition_mode is None
+
     def test_every_endpoint_has_a_config(self) -> None:
         assert set(GONG_ENDPOINTS) == {"calls", "calls_extensive", "users", "scorecards", "workspaces"}
 

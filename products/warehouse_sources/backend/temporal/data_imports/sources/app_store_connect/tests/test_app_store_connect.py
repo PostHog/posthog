@@ -35,11 +35,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     _ParseFailureCounter,
     _require_api_url,
     _typed_report_value,
+    app_store_connect_source,
     check_credentials,
     get_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
     APP_STORE_CONNECT_ENDPOINTS,
+    ENDPOINTS,
     SALES_REPORT_LOOKBACK_DAYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -503,6 +505,22 @@ class TestReviewResponses:
         assert reviews_params["include"] == "response"
         assert reviews_params["exists[publishedResponse]"] == "true"
 
+    def test_source_response_is_unpartitioned(self) -> None:
+        # The only timestamp on a response is lastModifiedDate, which changes on edit;
+        # partitioning on it would move rows between partitions.
+        response = app_store_connect_source(
+            issuer_id="issuer",
+            key_id="KEY123",
+            private_key=PRIVATE_KEY_PEM,
+            vendor_number=None,
+            endpoint="review_responses",
+            logger=MagicMock(),
+            resumable_source_manager=_FakeManager(),
+        )
+        assert response.primary_keys == ["app_id", "id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
 
 class TestJsonApiDateTimeColumns:
     def test_iso_datetime_attributes_become_utc_datetimes(self) -> None:
@@ -901,6 +919,21 @@ class TestAnalyticsReportStreams:
         )
         assert row["app_name"] == "Example"
 
+    def test_analytics_source_response_checkpoints_ascending(self) -> None:
+        response = app_store_connect_source(
+            issuer_id="issuer",
+            key_id="KEY123",
+            private_key=PRIVATE_KEY_PEM,
+            vendor_number=None,
+            endpoint="analytics_app_sessions",
+            logger=MagicMock(),
+            resumable_source_manager=_FakeManager(),
+        )
+        assert response.primary_keys == ["app_id", "processing_date", "_line"]
+        assert response.partition_keys == ["processing_date"]
+        # The walk is date-major across apps, so ascending per-batch checkpoints are safe.
+        assert response.sort_mode == "asc"
+
 
 class TestFindAnalyticsReport:
     def _resolve(self, endpoint: str, apple_name: str) -> str | None:
@@ -1293,6 +1326,32 @@ class TestCheckCredentials:
 
         assert status is None
         assert message is None
+
+
+class TestSourceResponse:
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_response_matches_the_endpoint_catalog(self, endpoint: str) -> None:
+        config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
+
+        response = app_store_connect_source(
+            issuer_id="issuer",
+            key_id="KEY123",
+            private_key=PRIVATE_KEY_PEM,
+            vendor_number="85234567",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=_FakeManager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_keys == [config.partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+            assert response.partition_mode is None
 
 
 def _forbidden_response(**fields: str) -> MagicMock:

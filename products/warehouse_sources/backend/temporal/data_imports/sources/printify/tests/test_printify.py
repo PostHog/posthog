@@ -12,9 +12,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.printify.p
     PrintifyRetryableError,
     check_access,
     get_rows,
+    printify_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.printify.settings import PRINTIFY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.printify.settings import (
+    ENDPOINTS,
+    PRINTIFY_ENDPOINTS,
+)
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = printify._fetch_page.__wrapped__  # type: ignore[attr-defined]
@@ -234,6 +238,17 @@ class TestGetRows:
 
 
 class TestPrintifySourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = printify_source(
+            api_key="printify-key",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == PRINTIFY_ENDPOINTS[endpoint].primary_keys
+
     def test_shop_scoped_endpoints_use_composite_primary_key(self) -> None:
         for config in PRINTIFY_ENDPOINTS.values():
             expected = ["shop_id", "id"] if config.shop_scoped else ["id"]

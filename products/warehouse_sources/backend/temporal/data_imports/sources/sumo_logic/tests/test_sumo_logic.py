@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic
     _to_epoch_ms,
     _unnest_item,
     base_url,
+    sumo_logic_source,
     validate_credentials,
 )
 
@@ -503,3 +504,36 @@ class TestLogSearchJobs:
 
         assert rows == []
         assert api.created_jobs == []
+
+
+class TestSumoLogicSourceResponse:
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_pks", "expected_sort_mode", "expect_partition"),
+        [
+            ("logs", ["_messageid", "_messagetime"], "desc", True),
+            ("users", ["id"], "asc", False),
+            ("collector_sources", ["collector_id", "id"], "asc", False),
+            ("health_events", ["eventId"], "asc", False),
+        ],
+    )
+    def test_source_response_shape(
+        self, endpoint: str, expected_pks: list[str], expected_sort_mode: str, expect_partition: bool
+    ) -> None:
+        response = sumo_logic_source(
+            deployment="us1",
+            access_id="id",
+            access_key="key",
+            endpoint=endpoint,
+            search_query=None,
+            logger=mock.MagicMock(),
+            resumable_source_manager=mock.MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pks
+        assert response.sort_mode == expected_sort_mode
+        if expect_partition:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == ["message_time"]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None

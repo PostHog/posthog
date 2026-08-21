@@ -5,6 +5,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.constants import (
+    ATTENTIVE_WEBHOOK_SCHEMA_NAMES,
     RESOURCE_TO_ATTENTIVE_EVENT_TYPE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.source import (
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.attentive import (
     AttentiveSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWebhookTableTransformer:
@@ -49,6 +51,9 @@ class TestAttentiveSource:
         self.team_id = 123
         self.config = AttentiveSourceConfig(api_key="key")
 
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.ATTENTIVE
+
     def test_webhook_template_registered(self):
         template = self.source.webhook_template
         assert template is not None
@@ -57,6 +62,19 @@ class TestAttentiveSource:
 
     def test_webhook_resource_map(self):
         assert self.source.webhook_resource_map == RESOURCE_TO_ATTENTIVE_EVENT_TYPE
+
+    def test_get_schemas_are_webhook_only(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert {schema.name for schema in schemas} == set(ATTENTIVE_WEBHOOK_SCHEMA_NAMES)
+        assert all(schema.supports_webhooks for schema in schemas)
+        assert all(not schema.supports_incremental for schema in schemas)
+        assert all(not schema.supports_append for schema in schemas)
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["sms_sent"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "sms_sent"
 
     def test_get_desired_webhook_events_maps_eligible_schemas(self):
         events = self.source.get_desired_webhook_events(self.config, ["sms_sent", "email_opened", "not_a_schema"])

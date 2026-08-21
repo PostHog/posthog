@@ -237,6 +237,21 @@ class TestIncrementalRequests:
 
 
 class TestSourceResponseMetadata:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(REST_RESOURCE_PATCH)
+    def test_metadata_matches_the_endpoint_catalog(self, mock_rest_api_resource, endpoint):
+        config = FOURTHWALL_ENDPOINTS[endpoint]
+
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        # Every table is a top-level list endpoint keyed by a globally unique id, so `id`
+        # alone stays unique table-wide.
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == config.sort_mode
+        assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
+        assert response.partition_mode == ("datetime" if config.partition_key else None)
+
     def test_orders_finalize_the_watermark_only_after_a_full_sync(self):
         # Fourthwall documents no ordering for the orders list and takes no sort parameter, so
         # `asc` would checkpoint the watermark to whatever the first page happened to contain.

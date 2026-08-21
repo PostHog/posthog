@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.opn_paymen
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.opn_payments.settings import (
+    ENDPOINTS,
     OPN_PAYMENTS_ENDPOINTS,
+    PARTITION_KEY,
 )
 
 # The credential probe builds its own session via make_tracked_session imported into the
@@ -283,6 +285,16 @@ class TestOpnPaymentsSourceResume:
 
 
 class TestOpnPaymentsSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        response = _source(endpoint)
+
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [PARTITION_KEY]
+
     @pytest.mark.parametrize("endpoint, config", list(OPN_PAYMENTS_ENDPOINTS.items()))
     def test_endpoints_use_documented_paths(self, endpoint, config):
         assert config.path == f"/{config.table_name}"

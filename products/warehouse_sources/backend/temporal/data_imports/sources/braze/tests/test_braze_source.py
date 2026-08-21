@@ -1,8 +1,10 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.source import BrazeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braze import BrazeSourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 BASE_URL = "https://rest.iad-01.braze.com"
 
@@ -12,6 +14,43 @@ class TestBrazeSource:
         self.source = BrazeSource()
         self.team_id = 123
         self.config = BrazeSourceConfig(api_key="key", url=BASE_URL)
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.BRAZE
+
+    def test_url_is_a_connection_host_field(self):
+        # The API key is sent to the host in `url`, so retargeting it must re-require the secret.
+        assert self.source.connection_host_fields == ["url"]
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://rest.iad-01.braze.com/campaigns/list?page=0",
+            "403 Client Error: Forbidden for url: https://rest.iad-01.braze.com/events/list?page=0",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "500 Server Error for url: https://rest.iad-01.braze.com/campaigns/list",
+            "429 Client Error: Too Many Requests",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_transient(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
+    def test_get_schemas(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+        incremental = {schema.name for schema in schemas if schema.supports_incremental}
+        # Only templates/content blocks expose Braze's server-side `modified_after` filter.
+        assert incremental == {"email_templates", "content_blocks"}
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

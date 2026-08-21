@@ -235,6 +235,57 @@ class TestEppoSourcePagination:
         _rows(_source("Audiences"))
         assert snapshots2[-1]["params"]["status"] == "all"
 
+    @parameterized.expand(
+        [
+            ("Experiments", ["id"]),
+            ("Metrics", ["id"]),
+            ("MetricCollections", ["id"]),
+            ("FeatureFlags", ["id"]),
+            ("Bandits", ["id"]),
+            ("Holdouts", ["id"]),
+            ("Teams", ["id"]),
+            ("Tags", ["id"]),
+            ("Audiences", ["id"]),
+            ("Environments", ["id"]),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str], MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}])])
+
+        response = _source(endpoint)
+
+        assert response.primary_keys == expected_keys
+
+    @parameterized.expand(
+        [
+            ("Experiments", "created_date"),
+            ("Metrics", "created_date"),
+            ("MetricCollections", None),
+            ("FeatureFlags", "created_at"),
+            ("Bandits", "created_at"),
+            ("Holdouts", "created_at"),
+            ("Teams", None),
+            ("Tags", "created_at"),
+            ("Audiences", "created_at"),
+            ("Environments", "created_at"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_partition_keys_per_endpoint(self, endpoint: str, expected_partition: str | None, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}])])
+
+        response = _source(endpoint)
+
+        if expected_partition is None:
+            assert response.partition_keys is None
+            assert response.partition_mode is None
+        else:
+            assert response.partition_keys == [expected_partition]
+            assert response.partition_mode == "datetime"
+
 
 class TestValidateCredentials:
     @mock.patch(EPPO_SESSION_PATCH)

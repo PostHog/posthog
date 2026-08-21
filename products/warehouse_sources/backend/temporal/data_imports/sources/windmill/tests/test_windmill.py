@@ -8,7 +8,10 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.settings import WINDMILL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.settings import (
+    ENDPOINTS,
+    WINDMILL_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill import (
     PER_PAGE,
     WindmillHostNotAllowedError,
@@ -404,6 +407,23 @@ class TestSync:
 
 
 class TestWindmillSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = WINDMILL_ENDPOINTS[endpoint]
+        response = windmill_source(
+            "token", BASE_URL, WORKSPACE, endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize("config", list(WINDMILL_ENDPOINTS.values()))
     def test_partition_keys_are_stable_fields(self, config):
         # Partition keys must be immutable creation timestamps, never edited/last-* fields.

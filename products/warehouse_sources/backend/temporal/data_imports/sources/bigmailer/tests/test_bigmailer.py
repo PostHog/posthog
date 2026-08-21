@@ -327,6 +327,20 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("brands", ["id"]),
+            ("users", ["id"]),
+            ("contacts", ["brand_id", "id"]),
+            ("bulk_campaigns", ["brand_id", "id"]),
+            ("suppression_lists", ["brand_id", "id"]),
+        ]
+    )
+    def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
+        response = _source(endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+
     def test_partitions_on_created_by_month(self) -> None:
         response = _source("contacts")
         assert response.partition_mode == "datetime"

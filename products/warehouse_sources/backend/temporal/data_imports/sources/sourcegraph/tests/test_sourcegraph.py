@@ -27,13 +27,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegrap
     validate_credentials,
 )
 
-
-@pytest.fixture
-def host_is_safe():
-    with mock.patch(f"{MODULE}._is_host_safe", return_value=(True, None)):
-        yield
-
-
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.sourcegraph"
 
 
@@ -78,6 +71,12 @@ def _connection_page(
             }
         }
     }
+
+
+@pytest.fixture
+def host_is_safe():
+    with mock.patch(f"{MODULE}._is_host_safe", return_value=(True, None)):
+        yield
 
 
 @pytest.fixture
@@ -321,6 +320,16 @@ class TestSourcegraphSource:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["createdAt"]
         assert response.partition_format == "month"
+
+    @pytest.mark.parametrize("endpoint", ["users", "organizations"])
+    def test_small_tables_are_not_partitioned(self, endpoint):
+        response = sourcegraph_source(
+            "sourcegraph.example.com", "sgp_token", endpoint, mock.MagicMock(), mock.MagicMock(), team_id=1
+        )
+
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None
 
 
 class TestReadBounded:

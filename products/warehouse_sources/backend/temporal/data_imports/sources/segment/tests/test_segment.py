@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.segment.se
     _next_cursor,
     _redact_rows,
     get_rows,
+    segment_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import (
     REGION_BASE_URLS,
@@ -233,3 +234,46 @@ class TestGetRows:
         # The workspace endpoint hits its bare path once, with no pagination params.
         assert captured_urls == ["https://api.segmentapis.com/"]
         assert manager.saved == []
+
+
+class TestSegmentSource:
+    @parameterized.expand([(name,) for name in SEGMENT_ENDPOINTS])
+    def test_source_response_carries_endpoint_primary_keys(self, endpoint: str) -> None:
+        response = segment_source(
+            api_token="tok",
+            region="api",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == SEGMENT_ENDPOINTS[endpoint].primary_keys
+
+    def test_labels_use_composite_primary_key(self) -> None:
+        response = segment_source(
+            api_token="tok",
+            region="api",
+            endpoint="labels",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.primary_keys == ["key", "value"]
+
+    @parameterized.expand(
+        [
+            ("audit_events_partitions_on_timestamp", "audit_events", "datetime", ["timestamp"]),
+            ("sources_unpartitioned", "sources", None, None),
+        ]
+    )
+    def test_partitioning(
+        self, _name: str, endpoint: str, expected_mode: str | None, expected_keys: list[str] | None
+    ) -> None:
+        response = segment_source(
+            api_token="tok",
+            region="api",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.partition_mode == expected_mode
+        assert response.partition_keys == expected_keys

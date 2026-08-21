@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.o
     utc_today,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.settings import (
+    ENDPOINTS,
+    OPENALEX_ENDPOINTS,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.openalex.openalex"
 INSTITUTION_FILTER = "authorships.institutions.lineage:i27837315"
@@ -273,6 +276,27 @@ class TestRequestParams:
 
 
 class TestSourceResponseMetadata:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+        endpoint_config = OPENALEX_ENDPOINTS[endpoint]
+        response = openalex_source(
+            api_key="key",
+            endpoint=endpoint,
+            entity_filter=None,
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_manager(),
+            db_incremental_field_last_value=None,
+        )
+
+        assert response.name == endpoint
+        # Every OpenAlex entity is keyed by its canonical OpenAlex URL, unique per entity type.
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [endpoint_config.partition_key]
+        # Declaring "asc" on an endpoint we cannot order would checkpoint a bogus watermark.
+        assert response.sort_mode == ("asc" if endpoint == "works" else None)
+
     def test_works_rows_are_batched_tighter_than_the_default(self) -> None:
         works = openalex_source(
             api_key="key",

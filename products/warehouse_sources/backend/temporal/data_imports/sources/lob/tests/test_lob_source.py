@@ -3,19 +3,40 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lob import LobSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.lob.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lob.source import LobSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"letters", "postcards", "checks", "self_mailers"}
 FULL_REFRESH_ENDPOINTS = {"addresses", "bank_accounts", "templates", "campaigns"}
 
 
+class TestLobSourceConfig:
+    def test_source_type(self) -> None:
+        assert LobSource().source_type == ExternalDataSourceType.LOB
+
+
 class TestLobGetSchemas:
+    def test_all_endpoints_present(self) -> None:
+        schemas = LobSource().get_schemas(LobSourceConfig(api_key="k"), team_id=1)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+
+    @parameterized.expand(sorted(INCREMENTAL_ENDPOINTS))
+    def test_incremental_endpoints_support_incremental(self, endpoint: str) -> None:
+        schema = next(s for s in LobSource().get_schemas(LobSourceConfig(api_key="k"), team_id=1) if s.name == endpoint)
+        assert schema.supports_incremental is True
+        assert [f["field"] for f in schema.incremental_fields] == ["date_created"]
+
     @parameterized.expand(sorted(FULL_REFRESH_ENDPOINTS))
     def test_full_refresh_endpoints_do_not_support_incremental(self, endpoint: str) -> None:
         schema = next(s for s in LobSource().get_schemas(LobSourceConfig(api_key="k"), team_id=1) if s.name == endpoint)
         assert schema.supports_incremental is False
         assert schema.incremental_fields == []
         assert schema.description == "Full refresh only"
+
+    def test_names_filter(self) -> None:
+        schemas = LobSource().get_schemas(LobSourceConfig(api_key="k"), team_id=1, names=["letters"])
+        assert [s.name for s in schemas] == ["letters"]
 
 
 class TestLobValidateCredentials:
@@ -39,3 +60,12 @@ class TestLobValidateCredentials:
                 LobSourceConfig(api_key="k"), team_id=1, schema_name=schema_name
             )
         assert valid is expected_valid
+
+
+class TestLobNonRetryableErrors:
+    def test_maps_auth_errors(self) -> None:
+        errors = LobSource().get_non_retryable_errors()
+        keys = " ".join(errors.keys())
+        assert "401" in keys
+        assert "403" in keys
+        assert all(v for v in errors.values())

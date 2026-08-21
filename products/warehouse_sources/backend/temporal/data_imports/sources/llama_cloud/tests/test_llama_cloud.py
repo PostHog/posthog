@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.llama_clou
     _format_day,
     get_base_url,
     get_rows,
+    llama_cloud_source,
     validate_credentials,
 )
 
@@ -429,3 +430,24 @@ class TestLlamaCloudTransport:
 
         assert is_valid is False
         assert message is not None and "Bad Gateway" in message
+
+    @parameterized.expand(
+        [
+            # No sort param exists on the API, so incremental endpoints report "desc" — the
+            # watermark only persists once the sync completes.
+            ("parse_jobs", "desc", ["created_at"]),
+            ("usage_metrics", "desc", None),
+            ("projects", "asc", None),
+            ("pipelines", "asc", None),
+        ]
+    )
+    def test_llama_cloud_source_response_shape(
+        self, endpoint: str, expected_sort_mode: str, expected_partition_keys: list[str] | None
+    ) -> None:
+        response = llama_cloud_source("llx-test", "na", endpoint, MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == expected_sort_mode
+        assert response.partition_keys == expected_partition_keys
+        assert response.partition_mode == ("datetime" if expected_partition_keys else None)

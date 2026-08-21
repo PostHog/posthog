@@ -197,6 +197,27 @@ class TestRetryClassification:
 
 
 class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("sequences", ["_id"]),
+            ("messages", ["_id"]),
+            ("live_feed", ["uid"]),
+            ("appointment_links", ["_id"]),
+        ]
+    )
+    def test_source_response_carries_endpoint_primary_keys(self, endpoint: str, expected_pks: list[str]) -> None:
+        response = mixmax_source(
+            api_key="tok",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pks
+        # Collections arrive newest-first; declared honestly so full-refresh ordering isn't misread.
+        assert response.sort_mode == "desc"
+
     def test_every_endpoint_declares_a_unique_primary_key(self) -> None:
         # A non-unique/empty primary key seeds duplicate rows and makes every merge multi-match (OOM risk).
         for config in MIXMAX_ENDPOINTS.values():

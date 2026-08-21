@@ -229,6 +229,30 @@ class TestValidateCredentials:
 
 
 class TestTopLevelSource:
+    @parameterized.expand(
+        [
+            ("Users", ["user_id"], "created", "asc"),
+            ("Posts", ["feedback_id"], "created", "desc"),
+            ("Updates", ["changelog_id"], "created", "desc"),
+            ("Promoter", ["promoter_id"], "created", "desc"),
+            # `updated` is the only timestamp on a satisfaction response, and partitioning on it
+            # would rewrite partitions whenever a response is replaced.
+            ("Satisfaction", ["satisfaction_id"], None, "desc"),
+        ]
+    )
+    def test_source_response_shape(
+        self, name: str, primary_keys: list[str], partition_key: str | None, sort_mode: str
+    ) -> None:
+        with patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()):
+            response = sleekplan_source(
+                api_key="key", endpoint=name, team_id=1, job_id="job-1", resumable_source_manager=_manager()
+            )
+
+        assert response.name == name
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == sort_mode
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+
     def test_uses_framework_bearer_auth(self) -> None:
         with patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()) as mock_resource:
             sleekplan_source(

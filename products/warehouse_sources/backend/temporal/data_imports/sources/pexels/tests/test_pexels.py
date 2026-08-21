@@ -324,6 +324,23 @@ class TestApiKeyRedaction:
         assert factory.call_args.kwargs["redact_values"] == ("secret-key",)
 
 
+class TestPexelsSourceResponse:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_is_full_refresh_with_id_primary_key(self, MockSession) -> None:
+        # Every endpoint keys on the global `id` and declares no datetime partition — Pexels has no
+        # stable timestamp, so a partition key would rewrite partitions every sync.
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        response = pexels_source(
+            api_key="k", endpoint="curated_photos", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+        assert response.name == "curated_photos"
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys is None
+        assert response.partition_mode is None
+
+
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:

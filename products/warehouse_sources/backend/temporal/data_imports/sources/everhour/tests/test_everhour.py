@@ -14,10 +14,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.e
     _parent_project_id,
     _time_records_window,
     _with_query,
+    everhour_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.settings import EVERHOUR_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.settings import (
+    ENDPOINTS,
+    EVERHOUR_ENDPOINTS,
+)
 
 EVERHOUR_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.everhour.everhour"
 
@@ -257,6 +261,21 @@ class TestGetRows:
 
 
 class TestEverhourSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+        config = EVERHOUR_ENDPOINTS[endpoint]
+        response = everhour_source("key", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     def test_time_records_partitions_on_stable_date_field(self) -> None:
         config = EVERHOUR_ENDPOINTS["time_records"]
         assert config.partition_key == "date"

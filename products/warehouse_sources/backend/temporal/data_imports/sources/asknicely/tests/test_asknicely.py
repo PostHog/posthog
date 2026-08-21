@@ -224,6 +224,22 @@ class TestAsknicely:
         assert make_session.call_args.kwargs["allow_redirects"] is False
         assert make_session.call_args.kwargs["capture"] is False
 
+    def test_source_response_shape(self) -> None:
+        response = asknicely_source(
+            subdomain="acme",
+            api_key="key",
+            endpoint="responses",
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=_manager(),
+        )
+
+        assert response.name == "responses"
+        assert response.primary_keys == ["response_id"]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["responded"]
+
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_message_fragment"),
         [

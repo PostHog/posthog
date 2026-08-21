@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.i
     iterable_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.settings import ITERABLE_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.iterable.iterable"
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -245,3 +246,23 @@ class TestPagination:
 
         assert rows == [{"templateId": 7}]
         assert urls[0] == "https://api.iterable.com/api/templates"
+
+
+class TestIterableSource:
+    @pytest.mark.parametrize(
+        "endpoint, expected_pk",
+        [
+            ("campaigns", "id"),
+            ("channels", "id"),
+            ("lists", "id"),
+            ("message_types", "id"),
+            ("templates", "templateId"),
+        ],
+    )
+    def test_source_response_primary_keys(self, endpoint: str, expected_pk: str) -> None:
+        response = iterable_source(
+            "key", "us", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == [expected_pk]
+        assert response.primary_keys == [ITERABLE_ENDPOINTS[endpoint].primary_key]

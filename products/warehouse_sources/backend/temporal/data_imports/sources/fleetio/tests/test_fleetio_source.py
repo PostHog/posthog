@@ -3,17 +3,43 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
+from parameterized import parameterized
+
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.source import FleetioSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fleetio import (
     FleetioSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFleetioSource:
     def setup_method(self) -> None:
         self.source = FleetioSource()
         self.team_id = 123
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.FLEETIO
+
+    def test_config_fields(self) -> None:
+        config = self.source.get_source_config
+        fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
+        assert set(fields) == {"api_key", "account_token"}
+        # The API key is the secret; the account token is an account identifier, not a password.
+        assert fields["api_key"].required is True
+        assert fields["api_key"].secret is True
+        assert fields["account_token"].required is True
+        assert fields["account_token"].secret is False
+
+    def test_connection_host_fields_includes_account_token(self) -> None:
+        # Changing the targeted Fleetio account must force the API key to be re-entered.
+        assert self.source.connection_host_fields == ["account_token"]
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog with no I/O, so the public docs can render the table list.
+        assert self.source.lists_tables_without_credentials is True
 
     def test_version_declarations(self) -> None:
         # New sources start on the newest stable version; the legacy pin stays supported so existing
@@ -44,6 +70,27 @@ class TestFleetioSource:
         config = FleetioSourceConfig(api_key="k", account_token="a")
         self.source.validate_credentials(config, self.team_id, api_version=pin)
         assert captured["api_version"] == expected
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://secure.fleetio.com/api/v1/vehicles"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://secure.fleetio.com/api/v1/parts"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("timeout", "HTTPSConnectionPool(host='secure.fleetio.com', port=443): Read timed out."),
+            ("server_error", "500 Server Error for url: https://secure.fleetio.com/api/v1/vehicles"),
+            ("rate_limit", "429 Too Many Requests"),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable)
 
     def test_source_for_pipeline_plumbs_args(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

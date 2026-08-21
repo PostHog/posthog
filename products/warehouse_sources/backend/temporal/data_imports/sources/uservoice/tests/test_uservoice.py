@@ -258,6 +258,25 @@ class TestPagination:
         assert "Authorization" not in session.headers
 
 
+class TestSourceResponse:
+    @parameterized.expand(
+        [
+            # Incremental endpoints defer the watermark write to job end via "desc" (order is unverified).
+            ("suggestions", "desc", "created_at"),
+            ("tickets", "desc", "created_at"),
+            # Full-refresh endpoints don't checkpoint a watermark, so they stay on the default "asc".
+            ("labels", "asc", "created_at"),
+        ]
+    )
+    def test_sort_mode_and_partitioning(self, endpoint: str, expected_sort: str, partition_key: str) -> None:
+        response = _source(_make_manager(), endpoint=endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == expected_sort
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [partition_key]
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [

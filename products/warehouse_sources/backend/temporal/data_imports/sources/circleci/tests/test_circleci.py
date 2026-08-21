@@ -12,10 +12,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.c
     CircleCIRetryableError,
     _build_url,
     _rate_limit_sleep_seconds,
+    circleci_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.settings import CIRCLECI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.settings import (
+    CIRCLECI_ENDPOINTS,
+    ENDPOINTS,
+)
 
 PATCH_SESSION = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci.make_tracked_session"
@@ -484,6 +488,21 @@ class TestProjectsRows:
 
 
 class TestCircleCISourceResponse:
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = CIRCLECI_ENDPOINTS[endpoint]
+        response = circleci_source("token", "gh/posthog", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "desc"
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @parameterized.expand([(config,) for config in CIRCLECI_ENDPOINTS.values()])
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

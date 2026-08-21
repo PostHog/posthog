@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.sig
     _raw_row_to_item,
     _to_epoch_ms,
     normalize_host,
+    signoz_source,
     validate_credentials,
 )
 
@@ -249,6 +250,33 @@ class TestValidateCredentials:
         is_valid, error = validate_credentials("10.0.0.1", "key", team_id=42)
         assert is_valid is False
         assert error == "Hosts with internal IP addresses are not allowed"
+
+
+class TestSigNozSourceResponse:
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_pks", "expected_partition_key"),
+        [
+            ("logs", ["id"], "timestamp"),
+            ("traces", ["trace_id", "span_id"], "timestamp"),
+            ("alert_rules", ["id"], "createAt"),
+            ("dashboards", ["id"], "createdAt"),
+            ("notification_channels", ["id"], "createdAt"),
+        ],
+    )
+    def test_source_response_shape(self, endpoint: str, expected_pks: list[str], expected_partition_key: str) -> None:
+        response = signoz_source(
+            host="example.signoz.io",
+            api_key="key",
+            endpoint=endpoint,
+            team_id=1,
+            logger=mock.MagicMock(),
+            resumable_source_manager=mock.MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pks
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [expected_partition_key]
 
 
 def _page(rows: list[dict[str, Any]]) -> dict[str, Any]:

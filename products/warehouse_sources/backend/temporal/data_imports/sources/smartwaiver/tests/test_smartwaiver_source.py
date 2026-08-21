@@ -1,11 +1,14 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartwaiver import (
     SmartwaiverSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source import SmartwaiverSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints exposing Smartwaiver's server-side `fromDts` timestamp filter.
 _INCREMENTAL_ENDPOINTS = {"waivers": "createdOn", "checkins": "date"}
@@ -18,18 +21,37 @@ class TestSmartwaiverSource:
         self.team_id = 123
         self.config = SmartwaiverSourceConfig(api_key="key")
 
-    def test_get_schemas_match_endpoints_with_correct_sync_modes(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.SMARTWAIVER
 
-        assert set(schemas) == set(ENDPOINTS)
-        for name, cursor_field in _INCREMENTAL_ENDPOINTS.items():
-            assert schemas[name].supports_incremental is True
-            assert schemas[name].supports_append is True
-            assert [f["field"] for f in schemas[name].incremental_fields] == [cursor_field]
-        for name in _FULL_REFRESH_ENDPOINTS:
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-            assert schemas[name].incremental_fields == []
+    @parameterized.expand(
+        [
+            ("401 Client Error: Unauthorized for url: https://api.smartwaiver.com/v4/waivers?limit=100&offset=0",),
+            (
+                "403 Client Error: Forbidden for url: https://api.smartwaiver.com/v4/checkins?fromDts=2000-01-01T00%3A00%3A00",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            ("429 Client Error: Too Many Requests for url: https://api.smartwaiver.com/v4/waivers",),
+            ("500 Server Error: Internal Server Error for url: https://api.smartwaiver.com/v4/waivers",),
+            ("HTTPSConnectionPool(host='api.smartwaiver.com', port=443): Read timed out.",),
+        ]
+    )
+    def test_non_retryable_errors_do_not_match_transient(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
+    def test_lists_tables_without_credentials_publishes_catalog(self):
+        # Static endpoint catalog (no I/O) — the public docs table list should render.
+        assert self.source.lists_tables_without_credentials is True
+        documented = self.source.get_documented_tables()
+        assert {table["name"] for table in documented} == set(ENDPOINTS)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source.smartwaiver_source"

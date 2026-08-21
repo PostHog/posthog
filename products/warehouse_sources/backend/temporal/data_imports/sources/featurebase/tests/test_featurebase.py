@@ -388,6 +388,20 @@ class TestSourceResponse:
     def test_sort_mode_matches_emit_order(self, _name: str, endpoint: str, incremental: bool, expected: str) -> None:
         assert self._source(endpoint, incremental).sort_mode == expected
 
+    @parameterized.expand(
+        [
+            ("posts", ["id"], ["createdAt"]),
+            ("post_voters", ["postId", "id"], None),
+            ("contacts", ["id"], None),
+        ]
+    )
+    def test_primary_and_partition_keys(
+        self, endpoint: str, expected_pk: list[str], expected_partition: list[str] | None
+    ) -> None:
+        response = self._source(endpoint)
+        assert response.primary_keys == expected_pk
+        assert response.partition_keys == expected_partition
+
 
 class TestWebhookTableTransformer:
     def test_keeps_only_latest_event_per_object(self) -> None:

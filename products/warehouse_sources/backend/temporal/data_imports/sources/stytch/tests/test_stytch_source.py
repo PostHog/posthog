@@ -4,6 +4,7 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stytch import StytchSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source import StytchSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestStytchSource:
@@ -12,6 +13,33 @@ class TestStytchSource:
         self.team_id = 123
         self.config = StytchSourceConfig(project_id="project-live-x", secret="secret-live-x")
 
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.STYTCH
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "Stytch API error: status=400, error_type=invalid_project_id_authentication, url=https://api.stytch.com/v1/users/search",
+            "Stytch API error: status=401, error_type=unauthorized_credentials, url=https://test.stytch.com/v1/users/search",
+            "Stytch API error: status=401, error_type=invalid_secret_authentication, url=https://api.stytch.com/v1/sessions",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "transient_error",
+        [
+            "Stytch API error (retryable): status=429, url=https://api.stytch.com/v1/users/search",
+            "Stytch API error: status=400, error_type=query_params_invalid, url=https://api.stytch.com/v1/users/search",
+            "Stytch API error (retryable): status=400, error_type=search_timeout, url=https://api.stytch.com/v1/b2b/organizations/search",
+        ],
+    )
+    def test_non_retryable_errors_do_not_match_transient_or_query_errors(self, transient_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in transient_error for key in non_retryable_errors)
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -19,6 +47,18 @@ class TestStytchSource:
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
         # Only the users search exposes a server-side timestamp filter (created_at_greater_than).
         assert incremental == {"users"}
+
+    def test_expensive_and_b2b_tables_are_off_by_default(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        assert schemas["users"].should_sync_default is True
+        assert schemas["sessions"].should_sync_default is False
+        assert schemas["organizations"].should_sync_default is False
+        assert schemas["members"].should_sync_default is False
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["users"])
+        assert [schema.name for schema in schemas] == ["users"]
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

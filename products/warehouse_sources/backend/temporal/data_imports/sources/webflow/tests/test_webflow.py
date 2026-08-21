@@ -12,7 +12,10 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import ALL_WEBHOOK_EVENTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import (
+    ALL_WEBHOOK_EVENTS,
+    WEBFLOW_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webflow import (
     WebflowResumeConfig,
     _extract_items,
@@ -269,6 +272,49 @@ class TestResolveCollectionId:
 
 
 class TestWebflowSource:
+    @parameterized.expand(
+        [
+            ("pages", "pages", ["id"]),
+            ("orders", "orders", ["orderId"]),
+            ("products", "products", ["id"]),
+        ]
+    )
+    def test_source_response_primary_keys(self, _name: str, schema_name: str, expected_pks: list[str]) -> None:
+        manager = _make_manager()
+        with patch(CLIENT_SESSION_PATCH):
+            response = webflow_source(
+                "token", "site-1", schema_name, team_id=1, job_id="j", resumable_source_manager=manager
+            )
+        assert response.name == schema_name
+        assert response.primary_keys == expected_pks
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [WEBFLOW_ENDPOINTS[schema_name].partition_key]
+
+    def test_forms_endpoint_has_no_partitioning(self) -> None:
+        manager = _make_manager()
+        with patch(CLIENT_SESSION_PATCH):
+            response = webflow_source(
+                "token", "site-1", "forms", team_id=1, job_id="j", resumable_source_manager=manager
+            )
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+    def test_collection_schema_resolves_collection_id(self) -> None:
+        manager = _make_manager()
+        with (
+            patch(CLIENT_SESSION_PATCH),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webflow._resolve_collection_id",
+                return_value="c1",
+            ) as mock_resolve,
+        ):
+            response = webflow_source(
+                "token", "site-1", "collection_blog", team_id=1, job_id="j", resumable_source_manager=manager
+            )
+        mock_resolve.assert_called_once_with("token", "site-1", "collection_blog")
+        assert response.name == "collection_blog"
+        assert response.primary_keys == ["id"]
+
     def test_items_callable_lazy(self) -> None:
         # Building the SourceResponse must not send any request; only iterating items() should.
         manager = _make_manager()

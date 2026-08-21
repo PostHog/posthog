@@ -17,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.settings import (
     REVENUECAT_API_ENDPOINTS,
+    REVENUECAT_API_SCHEMA_NAMES,
+    REVENUECAT_WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source import (
     RevenueCatSource,
@@ -38,6 +40,34 @@ class TestRevenueCatSourceWebhookResourceMap:
         # per-type lookup.
         assert mapping == RESOURCE_TO_REVENUECAT_EVENT_TYPE
         assert mapping[EVENT_RESOURCE_NAME] == "*"
+
+
+class TestRevenueCatSourceGetSchemas:
+    def test_includes_both_webhook_and_api_schemas(self):
+        source = RevenueCatSource()
+
+        schemas = source.get_schemas(_config(), team_id=1)
+
+        names = {s.name for s in schemas}
+        for name in REVENUECAT_WEBHOOK_SCHEMA_NAMES:
+            assert name in names, f"missing webhook schema: {name}"
+        for name in REVENUECAT_API_SCHEMA_NAMES:
+            assert name in names, f"missing api schema: {name}"
+
+    def test_only_events_schema_supports_webhooks(self):
+        source = RevenueCatSource()
+
+        schemas = source.get_schemas(_config(), team_id=1)
+
+        webhook_supported = {s.name for s in schemas if s.supports_webhooks}
+        assert webhook_supported == set(REVENUECAT_WEBHOOK_SCHEMA_NAMES)
+
+    def test_filters_by_names_argument(self):
+        source = RevenueCatSource()
+
+        schemas = source.get_schemas(_config(), team_id=1, names=["customers", "events"])
+
+        assert {s.name for s in schemas} == {"customers", "events"}
 
 
 class TestRevenueCatSourceCreateWebhook:

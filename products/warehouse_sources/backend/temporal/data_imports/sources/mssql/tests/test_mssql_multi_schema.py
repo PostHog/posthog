@@ -274,6 +274,16 @@ class TestBuildPipelineRouting:
         MSSQLImplementation().build_pipeline(_make_config(schema=""), inputs)
         assert routing_mocks["metadata"] == ("analytics", "users")
 
+    def test_preserves_legacy_storage_key(self, routing_mocks):
+        # A migrated single-schema row keeps its old Delta subdir via s3_folder_name.
+        inputs = _make_inputs(
+            schema_name="analytics.users",
+            schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
+            s3_folder_name="users",
+        )
+        response = MSSQLImplementation().build_pipeline(_make_config(schema=""), inputs)
+        assert response.name == "users"
+
     def test_legacy_single_schema_fallback(self, routing_mocks):
         inputs = _make_inputs(schema_name="messages")
         response = MSSQLImplementation().build_pipeline(_make_config(schema="dbo"), inputs)

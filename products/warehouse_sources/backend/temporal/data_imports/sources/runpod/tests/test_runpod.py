@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.run
     get_rows,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.source import RunPodSource
 
 
 class _FakeResumableManager:
@@ -284,3 +285,17 @@ class TestValidateCredentials:
         session.get.side_effect = requests.ConnectionError("boom")
         with patch.object(runpod, "make_tracked_session", return_value=session):
             assert validate_credentials("rpa_test") is False
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://rest.runpod.io/v1/billing/pods", True),
+            ("forbidden", "403 Client Error: Forbidden for url: https://rest.runpod.io/v1/pods", True),
+            ("read_timeout", "HTTPSConnectionPool(host='rest.runpod.io', port=443): Read timed out.", False),
+            ("server_error", "500 Server Error: Internal Server Error for url: https://rest.runpod.io/v1/pods", False),
+        ]
+    )
+    def test_only_credential_errors_are_non_retryable(self, _name: str, observed_error: str, expected: bool) -> None:
+        non_retryable = RunPodSource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable) is expected

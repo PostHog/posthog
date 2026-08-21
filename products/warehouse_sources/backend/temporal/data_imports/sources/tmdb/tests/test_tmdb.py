@@ -36,6 +36,15 @@ def _body_response(body: Any) -> Response:
     return resp
 
 
+def _error_response(status_code: int, url: str) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp.reason = "Unauthorized" if status_code == 401 else "Error"
+    resp.url = url
+    resp._content = json.dumps({"status_code": 7}).encode()
+    return resp
+
+
 def _make_manager(resume: TMDbResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
     manager.can_resume.return_value = resume is not None
@@ -158,6 +167,26 @@ class TestNonPaginatedEndpoints:
         manager.save_state.assert_not_called()
 
 
+class TestErrorRedaction:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_401_scrubs_api_key_but_preserves_host(self, MockSession) -> None:
+        # The api_key rides in the query string; a 4xx must not leak it into the propagated error,
+        # while the base host stays intact so get_non_retryable_errors() can still match on it.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [_error_response(401, "https://api.themoviedb.org/3/movie/popular?api_key=supersecret&page=1")],
+        )
+        manager = _make_manager()
+
+        with pytest.raises(requests.HTTPError) as exc:
+            _rows(_source("movie_popular", manager, api_key="supersecret"))
+
+        message = str(exc.value)
+        assert "supersecret" not in message
+        assert "https://api.themoviedb.org/3/movie/popular" in message
+
+
 class TestValidateCredentials:
     @mock.patch(TMDB_SESSION_PATCH)
     def test_valid_key_returns_no_message(self, mock_session) -> None:
@@ -186,3 +215,21 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is not None
         assert message != "Invalid TMDB API key"
+
+
+class TestSourceResponse:
+    @pytest.mark.parametrize(
+        "endpoint, expected_keys",
+        [
+            ("movie_popular", ["id"]),
+            ("languages", ["iso_639_1"]),
+            ("countries", ["iso_3166_1"]),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_primary_keys(self, MockSession, endpoint: str, expected_keys: list[str]) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        assert response.partition_count == 1
+        assert response.partition_size == 1

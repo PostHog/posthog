@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import ReleaseStatus
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitea import GiteaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.settings import (
     ENDPOINTS,
@@ -10,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.sour
     GITEA_WEBHOOK_RESOURCE_MAP,
     GiteaSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gitea.source"
 
@@ -22,6 +25,45 @@ class TestGiteaSource:
             base_url="https://gitea.example.com", access_token="tok", repository="owner/repo"
         )
 
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.GITEA
+
+    def test_get_source_config(self):
+        config = self.source.get_source_config
+
+        assert config.name.value == "Gitea"
+        assert config.label == "Gitea"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # The scaffold shipped hidden; a finished source must be visible.
+        assert config.unreleasedSource is None
+        assert [f.name for f in config.fields] == ["base_url", "access_token", "repository"]
+
+    def test_connection_host_fields_cover_base_url_and_repository(self):
+        # `base_url` is where the token is sent; `repository` is which repo it reads. Changing
+        # either must force token re-entry so a stored token can't be reused against a new target.
+        assert self.source.connection_host_fields == ["base_url", "repository"]
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://gitea.example.com/api/v1/repos/owner/repo/issues",
+            "403 Client Error: Forbidden for url: https://gitea.example.com/api/v1/repos/owner/repo/issues",
+            "404 Client Error: Not Found for url: https://gitea.example.com/api/v1/repos/owner/repo",
+        ],
+    )
+    def test_non_retryable_errors_match_known_failures(self, observed_error):
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "500 Server Error for url: https://gitea.example.com/api/v1/repos/owner/repo/issues",
+            "429 Client Error: Too Many Requests for url: https://gitea.example.com/api/v1/repos/owner/repo",
+        ],
+    )
+    def test_non_retryable_errors_do_not_match_transient_failures(self, other_error):
+        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -31,6 +73,10 @@ class TestGiteaSource:
         assert {name for name, schema in by_name.items() if schema.supports_incremental} == {"issues", "commits"}
         assert {name for name, schema in by_name.items() if schema.supports_webhooks} == {"issues", "pull_requests"}
         assert by_name["issues"].incremental_fields == INCREMENTAL_FIELDS["issues"]
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["issues"])
+        assert [schema.name for schema in schemas] == ["issues"]
 
     def test_webhook_resource_map(self):
         assert GITEA_WEBHOOK_RESOURCE_MAP == {"issues": "issues", "pull_requests": "pull_request"}

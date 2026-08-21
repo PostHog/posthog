@@ -344,6 +344,29 @@ class TestHttpErrors:
 
 
 class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("news", ["uuid"], "published_at", "desc"),
+            ("quote", ["ticker"], None, "asc"),
+            ("eod", ["ticker", "date"], "date", "asc"),
+            ("intraday", ["ticker", "date"], "date", "asc"),
+            ("dividends", ["ticker", "date"], "date", "asc"),
+            ("splits", ["ticker", "date"], "date", "asc"),
+        ]
+    )
+    def test_source_response_keys_partitioning_and_sort(
+        self, endpoint: str, expected_keys: list[str], expected_partition: str | None, expected_sort: str
+    ) -> None:
+        response = _source(endpoint, symbols="AAPL")
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        assert response.sort_mode == expected_sort
+        if expected_partition is None:
+            assert response.partition_keys is None
+        else:
+            assert response.partition_keys == [expected_partition]
+            assert response.partition_mode == "datetime"
+
     def test_every_endpoint_builds_a_source_response(self) -> None:
         for endpoint in STOCKDATA_ENDPOINTS:
             response = _source(endpoint, symbols="AAPL")

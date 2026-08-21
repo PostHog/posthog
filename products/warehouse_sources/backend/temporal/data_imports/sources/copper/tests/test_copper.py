@@ -259,6 +259,16 @@ class TestSourceResponseMetadata:
         assert response.sort_mode == "asc"
         assert [r["id"] for r in rows] == [1]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metadata_for_reference(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}])])
+
+        response = _source("pipelines", _make_manager())
+
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
 
 class TestValidateCredentials:
     @parameterized.expand(

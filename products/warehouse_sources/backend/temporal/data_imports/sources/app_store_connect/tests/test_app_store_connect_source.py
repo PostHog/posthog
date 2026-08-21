@@ -1,8 +1,15 @@
+from typing import Any, cast
+
 from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
@@ -21,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstoreconnect import (
     AppStoreConnectSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.source"
 
@@ -52,6 +60,18 @@ def _input_fields(source: AppStoreConnectSource) -> dict[str, SourceFieldInputCo
 
 
 class TestAppStoreConnectSource:
+    def test_source_type(self) -> None:
+        assert AppStoreConnectSource().source_type == ExternalDataSourceType.APPSTORECONNECT
+
+    def test_source_is_visible_and_labelled_beta(self) -> None:
+        config = AppStoreConnectSource().get_source_config
+
+        # `unreleasedSource` hides a source from users entirely; a finished source must not set it.
+        assert not config.unreleasedSource
+        assert config.releaseStatus == ReleaseStatus.BETA
+        assert config.category == DataWarehouseSourceCategory.ANALYTICS
+        assert config.docsUrl is not None
+
     @parameterized.expand(
         [
             ("issuer_id", SourceFieldInputConfigType.TEXT, True, False),
@@ -68,6 +88,18 @@ class TestAppStoreConnectSource:
         assert field.type == field_type
         assert field.required is required
         assert field.secret is secret
+
+    def test_get_schemas_returns_the_whole_catalog_with_its_keys(self) -> None:
+        schemas = AppStoreConnectSource().get_schemas(_config(), team_id=1)
+
+        assert [schema.name for schema in schemas] == list(ENDPOINTS)
+        for schema in schemas:
+            assert schema.detected_primary_keys == APP_STORE_CONNECT_ENDPOINTS[schema.name].primary_keys
+
+    def test_get_schemas_filters_by_name(self) -> None:
+        schemas = AppStoreConnectSource().get_schemas(_config(), team_id=1, names=["customer_reviews"])
+
+        assert [schema.name for schema in schemas] == ["customer_reviews"]
 
     def test_only_report_tables_are_incremental_and_opt_in(self) -> None:
         schemas = {schema.name: schema for schema in AppStoreConnectSource().get_schemas(_config(), team_id=1)}
@@ -136,6 +168,13 @@ class TestAppStoreConnectSource:
         assert error is not None and "vendor number" in error
         mocked.assert_not_called()
 
+    def test_auth_and_permission_failures_are_non_retryable(self) -> None:
+        errors = cast(dict[str, Any], AppStoreConnectSource().get_non_retryable_errors())
+
+        assert any("401" in key for key in errors)
+        assert any("403" in key for key in errors)
+        assert all(message for message in errors.values())
+
     @parameterized.expand(
         [
             ("analytics_create", APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR),
@@ -155,3 +194,31 @@ class TestAppStoreConnectSource:
         if constant is not APP_STORE_CONNECT_READ_FORBIDDEN_ERROR:
             assert friendly is not None
             assert "Finance" not in friendly and "Sales" not in friendly
+
+    @parameterized.expand(
+        [
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='api.appstoreconnect.apple.com', port=443): Max retries exceeded "
+                'with url: /v1/apps?limit=200 (Caused by ReadTimeoutError("HTTPSConnectionPool'
+                "(host='api.appstoreconnect.apple.com', port=443): Read timed out. (read timeout=60)\"))",
+            ),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.appstoreconnect.apple.com', port=443): Read timed out. (read timeout=60)",
+            ),
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://api.appstoreconnect.apple.com/v1/salesReports?filter%5Bfrequency%5D=DAILY",
+            ),
+            (
+                "rate_limited",
+                "429 Client Error: Too Many Requests for url: https://api.appstoreconnect.apple.com/v1/salesReports",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_transient_network_failures(self, _name: str, observed_error: str) -> None:
+        # `_get` has no retry loop of its own — it relies on the tracked session's urllib3 adapter.
+        # Once that's exhausted, this keeps the benign, self-recovering failure out of error tracking.
+        retryable_errors = AppStoreConnectSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)

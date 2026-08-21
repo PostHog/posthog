@@ -5,7 +5,9 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvey import HarveySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source import HarveySource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHarveySource:
@@ -13,6 +15,9 @@ class TestHarveySource:
         self.source = HarveySource()
         self.team_id = 123
         self.config = HarveySourceConfig(api_key="test-token", region="us")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.HARVEY
 
     def test_v1_is_deprecated_with_vendor_sunset_and_default_is_v2(self) -> None:
         # New sources start on v2; v1 stays supported so already-pinned rows keep resolving to the
@@ -25,6 +30,48 @@ class TestHarveySource:
         assert deprecation is not None
         assert deprecation.sunset_at == datetime.date(2025, 6, 30)
         assert self.source.get_version_deprecation("v2") is None
+
+    def test_connection_host_fields_includes_region(self) -> None:
+        # `region` selects the host the stored API token is sent to, so editing it must re-require the secret.
+        assert self.source.connection_host_fields == ["region"]
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas is a static endpoint catalog, so the public docs can render it.
+        assert self.source.lists_tables_without_credentials is True
+
+    def test_get_schemas_returns_all_endpoints(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+
+    @parameterized.expand(
+        [
+            # Audit logs are immutable, so only append is offered.
+            ("audit_logs", "audit_logs", False, True, "timestamp"),
+            ("usage_history", "usage_history", True, True, "utc_time"),
+            ("query_history", "query_history", True, True, "utc_time"),
+            ("client_matters", "client_matters", False, False, None),
+            ("vault_projects", "vault_projects", False, False, None),
+        ]
+    )
+    def test_get_schemas_sync_modes(
+        self,
+        _name: str,
+        endpoint: str,
+        supports_incremental: bool,
+        supports_append: bool,
+        incremental_field: str | None,
+    ) -> None:
+        (schema,) = self.source.get_schemas(self.config, self.team_id, names=[endpoint])
+
+        assert schema.supports_incremental is supports_incremental
+        assert schema.supports_append is supports_append
+        if incremental_field is None:
+            assert schema.incremental_fields == []
+        else:
+            assert [f["field"] for f in schema.incremental_fields] == [incremental_field]
+
+    def test_get_schemas_unknown_name_returns_empty(self) -> None:
+        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source.validate_harvey_credentials"

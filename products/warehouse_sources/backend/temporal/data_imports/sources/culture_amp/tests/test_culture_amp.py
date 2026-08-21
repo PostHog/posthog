@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.culture_am
     culture_amp_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.culture_amp.settings import CULTURE_AMP_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.culture_amp.settings import (
+    CULTURE_AMP_ENDPOINTS,
+    ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -472,3 +475,18 @@ class TestEmployeeDemographicsFanOut:
         assert snapshots[1]["url"].endswith("/employees/e1/demographics")
         assert snapshots[2]["params"]["cursor"] == "emp-2"
         assert snapshots[3]["url"].endswith("/employees/e2/demographics")
+
+
+class TestCultureAmpSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(AUTH_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, MockSession, MockAuth, endpoint):
+        config = CULTURE_AMP_ENDPOINTS[endpoint]
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        # Incremental streams defer the watermark (ordering undocumented).
+        expected_sort = "desc" if config.incremental_fields else "asc"
+        assert response.sort_mode == expected_sort

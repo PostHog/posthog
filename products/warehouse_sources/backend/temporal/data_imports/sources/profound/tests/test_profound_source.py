@@ -10,6 +10,7 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.profound.source import ProfoundSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.profound.source"
 PROFOUND_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.profound.profound"
@@ -60,6 +61,32 @@ def _inputs(**overrides: Any) -> SourceInputs:
 
 
 class TestProfoundSource:
+    def test_source_type(self) -> None:
+        assert ProfoundSource().source_type == ExternalDataSourceType.PROFOUND
+
+    @parameterized.expand(
+        [
+            ("visibility_is_incremental", "Visibility", True),
+            ("citations_is_incremental", "Citations", True),
+            ("categories_is_not", "Categories", False),
+            ("assets_is_not", "Assets", False),
+            ("personas_is_not", "Personas", False),
+        ]
+    )
+    def test_only_the_report_tables_are_incremental(self, _name: str, endpoint: str, expected: bool) -> None:
+        # The reference lists carry no time filter, so advertising incremental would promise a cheap
+        # sync that still reads everything.
+        schemas = {s.name: s for s in ProfoundSource().get_schemas(None, 1)}  # type: ignore[arg-type]
+
+        assert schemas[endpoint].supports_incremental is expected
+
+    @parameterized.expand([("Visibility",), ("Citations",)])
+    def test_reports_track_the_date_column(self, endpoint: str) -> None:
+        # `date` only appears on a row because the request groups by it.
+        schemas = {s.name: s for s in ProfoundSource().get_schemas(None, 1)}  # type: ignore[arg-type]
+
+        assert [f["field"] for f in schemas[endpoint].incremental_fields] == ["date"]
+
     @parameterized.expand([("valid", True, True), ("rejected", False, False)])
     @mock.patch(f"{SOURCE_MODULE}.validate_profound_credentials")
     def test_validate_credentials(self, _name: str, probe_ok: bool, expected: bool, mock_validate) -> None:
@@ -69,6 +96,15 @@ class TestProfoundSource:
 
         assert ok is expected
         assert (message is None) is expected
+
+    @mock.patch(f"{SOURCE_MODULE}.profound_source")
+    def test_source_for_pipeline_drops_the_watermark_on_full_refresh(self, mock_source) -> None:
+        # A stale watermark would shorten the report window a user asked to re-import in full.
+        inputs = _inputs(should_use_incremental_field=False, db_incremental_field_last_value="2026-06-01")
+
+        ProfoundSource().source_for_pipeline(_Config(), mock.MagicMock(), inputs)  # type: ignore[arg-type]
+
+        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
     def test_version_declaration_defaults_to_v2_with_v1_supported(self) -> None:
         # Profound versions by URL path segment, so both labels resolve to the same requests;
@@ -110,3 +146,12 @@ class TestProfoundSource:
         list(cast(Iterable[Any], response.items()))
 
         assert paths and paths[0] == "/v1/org/categories"
+
+    def test_source_is_visible_and_labelled_alpha(self) -> None:
+        # unreleasedSource=True hides the connector from users entirely; this source is finished.
+        config = ProfoundSource().get_source_config
+
+        assert config.unreleasedSource is None
+        assert config.releaseStatus == "alpha"
+        assert config.category is not None
+        assert config.iconPath == "/static/services/profound.png"

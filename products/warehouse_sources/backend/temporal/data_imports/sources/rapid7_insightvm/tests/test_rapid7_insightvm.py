@@ -216,3 +216,19 @@ class TestValidateCredentials:
             validate_credentials("secret-key", "us")
 
         factory.assert_called_once_with(redact_values=("secret-key",), allow_redirects=False)
+
+
+class TestSourceResponse:
+    @pytest.mark.parametrize("endpoint", ["assets", "vulnerabilities"])
+    def test_full_refresh_endpoints_have_no_partitioning(self, endpoint: str) -> None:
+        response = rapid7_insightvm_source(
+            api_key="key",
+            region="us",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None

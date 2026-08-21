@@ -15,11 +15,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     WEBHOOK_EVENTS_ENDPOINT,
     WEBHOOK_RESOURCE_KEY,
     WEBHOOK_TYPES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source import MailgunSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 WEBHOOK_URL = "https://us.posthog.com/public/webhooks/abc"
 
@@ -39,6 +41,34 @@ class TestMailgunSource:
         self.team_id = 123
         self.config = MailgunSourceConfig(api_key="key-123", region="us")
 
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.MAILGUN
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.mailgun.net/v3/example.com/events?limit=300",
+            "401 Client Error: Unauthorized for url: https://api.eu.mailgun.net/v4/domains?limit=1000",
+            "403 Client Error: Forbidden for url: https://api.mailgun.net/v3/example.com/bounces",
+            "403 Client Error: Forbidden for url: https://api.eu.mailgun.net/v3/lists/pages",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_vendor_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
+            "500 Server Error for url: https://api.mailgun.net/v3/example.com/events",
+            "429 Client Error: Too Many Requests for url: https://api.mailgun.net/v3/example.com/events",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_vendor_error for key in non_retryable_errors)
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -46,6 +76,28 @@ class TestMailgunSource:
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
         # Only the Events API exposes a server-side timestamp filter.
         assert incremental == {"events"}
+
+    def test_incremental_schemas_advertise_their_fields(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        assert schemas["events"].incremental_fields == INCREMENTAL_FIELDS["events"]
+        assert schemas["events"].supports_append is True
+
+    @pytest.mark.parametrize("endpoint", [e for e in ENDPOINTS if e != "events"])
+    def test_full_refresh_schemas_have_no_incremental_fields(self, endpoint):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        assert schemas[endpoint].incremental_fields == []
+        assert schemas[endpoint].supports_incremental is False
+        assert schemas[endpoint].supports_append is False
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["events"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "events"
+
+    def test_get_schemas_filtered_unknown_name_returns_empty(self):
+        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
@@ -113,6 +165,39 @@ class TestMailgunSource:
 
         assert [urlsplit(url).path for url in requests_made] == expected_paths
 
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source.mailgun_source")
+    def test_source_for_pipeline_plumbs_arguments(self, mock_mailgun_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "events"
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = 1700000000
+        inputs.incremental_field = "timestamp"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        mock_mailgun_source.assert_called_once()
+        kwargs = mock_mailgun_source.call_args.kwargs
+        assert kwargs["api_key"] == "key-123"
+        assert kwargs["region"] == "us"
+        assert kwargs["endpoint"] == "events"
+        assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == 1700000000
+        assert kwargs["incremental_field"] == "timestamp"
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source.mailgun_source")
+    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_mailgun_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "bounces"
+        inputs.should_use_incremental_field = False
+        inputs.db_incremental_field_last_value = 1700000000
+        inputs.incremental_field = None
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_mailgun_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
     def test_only_the_webhook_table_is_webhook_capable(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
@@ -121,6 +206,15 @@ class TestMailgunSource:
         # webhooks on for `events` would quietly stop collecting them.
         assert {name for name, schema in schemas.items() if schema.supports_webhooks} == {WEBHOOK_EVENTS_ENDPOINT}
         assert {name for name, schema in schemas.items() if schema.webhook_only} == {WEBHOOK_EVENTS_ENDPOINT}
+
+    def test_webhook_table_advertises_no_polling_sync_methods(self):
+        schema = next(
+            s for s in self.source.get_schemas(self.config, self.team_id) if s.name == WEBHOOK_EVENTS_ENDPOINT
+        )
+
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+        assert schema.incremental_fields == []
 
     def test_webhook_resource_map_matches_the_template_routing_key(self):
         assert self.source.webhook_resource_map == {WEBHOOK_EVENTS_ENDPOINT: WEBHOOK_RESOURCE_KEY}

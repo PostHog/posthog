@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
 from unittest import mock
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 from requests import Response
@@ -315,6 +316,25 @@ class TestSecretScrubbing:
 
 
 class TestSourceResponse:
+    @parameterized.expand([(name,) for name in KOYEB_ENDPOINTS])
+    def test_source_response_per_endpoint(self, endpoint: str) -> None:
+        config = KOYEB_ENDPOINTS[endpoint]
+        response = koyeb_source(
+            api_token="t",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_keys == [config.partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+
     def test_usage_details_composite_primary_key(self) -> None:
         # Usage rows have no id; dropping either half of the composite key would multi-match merges.
         assert KOYEB_ENDPOINTS["usage_details"].primary_keys == ["instance_id", "started_at"]

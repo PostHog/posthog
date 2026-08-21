@@ -282,6 +282,20 @@ class TestCheckAccess:
 
 
 class TestTeamtailorSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = teamtailor_source(
+            "tt-key",
+            endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+            api_version=DEFAULT_API_VERSION,
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in TEAMTAILOR_ENDPOINTS.values())
         assert set(TEAMTAILOR_ENDPOINTS) == set(ENDPOINTS)

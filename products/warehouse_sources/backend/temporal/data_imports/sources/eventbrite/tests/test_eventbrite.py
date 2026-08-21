@@ -339,3 +339,12 @@ class TestEventbriteSourceResponse:
         assert response.partition_mode == "datetime"
         assert response.partition_format == "week"
         assert response.partition_keys == ["created"]
+
+    @pytest.mark.parametrize("endpoint", ["categories", "formats", "venues", "ticket_classes"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_partitioned_endpoints(self, MockSession: mock.MagicMock, endpoint: str) -> None:
+        MockSession.return_value.headers = {}
+        response = _run(endpoint, _make_manager())
+
+        assert response.partition_mode is None
+        assert response.partition_keys is None

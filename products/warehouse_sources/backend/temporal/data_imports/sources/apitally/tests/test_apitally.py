@@ -146,6 +146,24 @@ class TestValidateCredentials:
         assert result == (False, "boom")
 
 
+class TestApitallySourceTopLevel:
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.rest_api_resource")
+    def test_apps_builds_response(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
+
+        resp = apitally_source(
+            api_key="key",
+            endpoint="Apps",
+            team_id=1,
+            job_id="job-1",
+        )
+
+        assert resp.name == "Apps"
+        assert resp.primary_keys == ["id"]
+        assert resp.partition_mode == "datetime"
+        assert resp.partition_keys == ["created_at"]
+
+
 class TestApitallyFanout:
     @parameterized.expand(
         [

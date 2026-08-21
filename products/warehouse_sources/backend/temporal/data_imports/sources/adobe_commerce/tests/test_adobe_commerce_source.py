@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.settings import (
     ADOBE_COMMERCE_ENDPOINTS,
     ENDPOINTS,
@@ -13,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AdobeCommerceAuthMethodConfig,
     AdobeCommerceSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.source"
 
@@ -53,8 +56,29 @@ class TestAdobeCommerceSource:
         self.team_id = 123
         self.config = _token_config()
 
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.ADOBECOMMERCE
+
+    def test_store_url_is_a_connection_host_field(self) -> None:
+        # The token/password is sent to `store_url`, so retargeting it must force a re-entry.
+        assert self.source.connection_host_fields == ["store_url"]
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # `get_schemas` is a static catalog walk with no I/O, so public docs can render the tables.
+        assert self.source.lists_tables_without_credentials is True
+
     def test_api_docs_url_is_https(self) -> None:
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
+
+    @parameterized.expand([(endpoint,) for endpoint in INCREMENTAL_ENDPOINTS])
+    def test_endpoints_with_a_server_side_timestamp_filter_are_incremental(self, endpoint: str) -> None:
+        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
+        assert schema.supports_incremental is True
+        # Sales and catalog rows are rewritten in place, so append would duplicate them.
+        assert schema.supports_append is False
+        assert [f["field"] for f in schema.incremental_fields] == [
+            ADOBE_COMMERCE_ENDPOINTS[endpoint].incremental_field_name
+        ]
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         descriptions = self.source.get_canonical_descriptions()
@@ -67,6 +91,27 @@ class TestAdobeCommerceSource:
 
     def test_incremental_fields_map_matches_the_endpoint_catalog(self) -> None:
         assert set(INCREMENTAL_FIELDS) == set(INCREMENTAL_ENDPOINTS)
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://store.example.com/rest/V1/orders"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://other.example.com/rest/V1/products"),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://store.example.com/rest/V1/orders",
+            ),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://store.example.com/rest/V1/orders"),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
+        assert not any(key in unrelated_error for key in self.source.get_non_retryable_errors())
 
     @mock.patch(f"{_MODULE}.adobe_commerce_source")
     def test_source_for_pipeline_plumbs_incremental_inputs(self, mock_source: mock.MagicMock) -> None:

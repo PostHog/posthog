@@ -245,3 +245,23 @@ class TestValidateCredentials:
         valid, message = validate_credentials("token")
         assert valid is False
         assert message == "Could not reach the Hetzner Cloud API"
+
+
+class TestSourceResponse:
+    def test_datetime_partition_for_resource_endpoint(self) -> None:
+        with mock.patch(CLIENT_SESSION_PATCH):
+            response = _source("servers", _make_manager())
+        assert response.name == "servers"
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created"]
+
+    @parameterized.expand([("actions",), ("server_types",), ("locations",)])
+    def test_no_partition_for_timestampless_endpoints(self, endpoint: str) -> None:
+        # actions has no `created`; catalog endpoints carry no timestamps — partitioning on a null or
+        # absent field would rewrite partitions every sync, so these must stay unpartitioned.
+        with mock.patch(CLIENT_SESSION_PATCH):
+            response = _source(endpoint, _make_manager())
+        assert response.partition_mode is None
+        assert response.partition_keys is None

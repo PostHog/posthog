@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.lo
     _parse_scroll_hits,
     base_url_for_region,
     get_rows,
+    logz_io_source,
     validate_credentials,
 )
 
@@ -227,3 +228,27 @@ class TestListEndpoints:
         manager = _make_manager()
         rows = [r for batch in get_rows("token", "us", "alerts", mock.MagicMock(), manager) for r in batch]
         assert [r["id"] for r in rows] == ["1", "2"]
+
+
+class TestSourceResponseShape:
+    @pytest.mark.parametrize(
+        "endpoint, primary_keys, partition_key",
+        [
+            ("search_logs", ["_id"], "@timestamp"),
+            ("alerts", ["id"], "createdAt"),
+            ("triggered_alerts", ["alertEventId"], "date"),
+            ("notification_endpoints", ["id"], None),
+        ],
+    )
+    def test_response_metadata_per_endpoint(
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None
+    ) -> None:
+        response = logz_io_source("token", "us", endpoint, mock.MagicMock(), _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == "asc"
+        if partition_key is None:
+            assert response.partition_mode is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [partition_key]

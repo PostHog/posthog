@@ -160,6 +160,41 @@ class TestValidateCredentials:
 
 
 class TestYousignSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(YOUSIGN_ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+        response = yousign_source(
+            api_key="key",
+            environment="production",
+            endpoint=endpoint,
+            team_id=TEAM_ID,
+            job_id=JOB_ID,
+            resumable_source_manager=_make_manager(),
+        )
+        config = YOUSIGN_ENDPOINTS[endpoint]
+        expected_keys = config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        # Yousign has no sort param and pages arrive newest-first; declaring "asc" would corrupt
+        # the incremental watermark after the first batch.
+        assert response.sort_mode == "desc"
+        if config.partition_key:
+            assert response.partition_keys == [config.partition_key]
+            assert response.partition_mode == "datetime"
+
+    @pytest.mark.parametrize("endpoint", ["signers", "documents"])
+    def test_fanout_children_key_on_parent_id(self, endpoint: str) -> None:
+        # Fan-out children aggregate rows across every signature request; without the parent id
+        # in the key, duplicate ids would multi-match on every merge.
+        response = yousign_source(
+            api_key="key",
+            environment="production",
+            endpoint=endpoint,
+            team_id=TEAM_ID,
+            job_id=JOB_ID,
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.primary_keys == ["signature_request_id", "id"]
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.rest_api_resource")
     def test_resumes_from_saved_cursor(self, mock_rest_api_resource: mock.MagicMock) -> None:
         manager = _make_manager(YousignResumeConfig(cursor="tok"))

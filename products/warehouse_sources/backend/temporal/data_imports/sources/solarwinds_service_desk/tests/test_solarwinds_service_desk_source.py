@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.solarwindsservicedesk import (
     SolarwindsServiceDeskSourceConfig,
 )
@@ -11,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.source import (
     SolarwindsServiceDeskSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.source"
 
@@ -20,6 +23,17 @@ class TestSolarwindsServiceDeskSource:
         self.source = SolarwindsServiceDeskSource()
         self.team_id = 123
         self.config = SolarwindsServiceDeskSourceConfig(api_token="swsd-token", region="eu")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.SOLARWINDSSERVICEDESK
+
+    def test_region_is_a_connection_host_field(self) -> None:
+        # The token is sent to the host derived from `region`; retargeting the region must force
+        # re-entering the token, or an editor could exfiltrate it to another regional stack.
+        assert self.source.connection_host_fields == ["region"]
+
+    def test_lists_tables_without_credentials(self) -> None:
+        assert self.source.lists_tables_without_credentials is True
 
     def test_get_schemas_incremental_flags(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
@@ -31,6 +45,56 @@ class TestSolarwindsServiceDeskSource:
             if name not in INCREMENTAL_FIELDS:
                 assert schema.supports_incremental is False
                 assert schema.incremental_fields == []
+
+    def test_get_schemas_filtered_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["incidents"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "incidents"
+
+    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
+        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
+
+    def test_documented_tables_render_for_public_docs(self) -> None:
+        tables = self.source.get_documented_tables()
+        assert {t["name"] for t in tables} == set(ENDPOINTS)
+
+    @parameterized.expand(
+        [
+            ("unauthorized_us", "401 Client Error: Unauthorized for url: https://api.samanage.com/incidents.json"),
+            ("forbidden_eu", "403 Client Error: Forbidden for url: https://apieu.samanage.com/users.json"),
+            ("unauthorized_au", "401 Client Error: Unauthorized for url: https://apiau.samanage.com/problems.json"),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.samanage.com"),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://apieu.samanage.com"),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            # At create only the token is probed; per-schema validation probes that endpoint's path.
+            ("at_create", None, None),
+            ("for_schema", "incidents", "/incidents.json"),
+            ("unknown_schema", "not_a_table", None),
+        ]
+    )
+    @mock.patch(f"{_SOURCE_MODULE}.validate_credentials")
+    def test_validate_credentials_probes_the_right_path(
+        self, _name: str, schema_name: str | None, expected_path: str | None, mock_validate: mock.MagicMock
+    ) -> None:
+        mock_validate.return_value = (True, None)
+        result = self.source.validate_credentials(self.config, self.team_id, schema_name)
+        mock_validate.assert_called_once_with("eu", "swsd-token", expected_path)
+        assert result == (True, None)
 
     @mock.patch(f"{_SOURCE_MODULE}.solarwinds_service_desk_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

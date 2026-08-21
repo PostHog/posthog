@@ -12,10 +12,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.
     _fetch_graphql,
     _fetch_json,
     _to_epoch,
+    appsignal_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.settings import APPSIGNAL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.settings import (
+    APPSIGNAL_ENDPOINTS,
+    ENDPOINTS,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.appsignal"
 
@@ -315,6 +319,20 @@ class TestIncidentRows:
 
 
 class TestAppsignalSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = APPSIGNAL_ENDPOINTS[endpoint]
+        response = appsignal_source("token", "app-id", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+
     @pytest.mark.parametrize("config", list(APPSIGNAL_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

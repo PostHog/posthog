@@ -9,7 +9,7 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo import shippo
-from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.settings import SHIPPO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.settings import ENDPOINTS, SHIPPO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.shippo import (
     PAGE_SIZE,
     SHIPPO_BASE_URL,
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.shi
     _validate_pagination_url,
     check_access,
     get_rows,
+    shippo_source,
     validate_credentials,
 )
 
@@ -297,6 +298,26 @@ class TestCheckAccess:
 
 
 class TestShippoSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = shippo_source(
+            api_key="shippo_test_key",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["object_id"]
+        # Shippo doesn't document list ordering, so the watermark must only commit at run end.
+        assert response.sort_mode == "desc"
+
+        partition_key = SHIPPO_ENDPOINTS[endpoint].partition_key
+        if partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [partition_key]
+        else:
+            assert response.partition_mode is None
+
     def test_partition_keys_are_stable_creation_fields(self) -> None:
         # updated_at-style partition keys rewrite partitions on every sync.
         assert all(

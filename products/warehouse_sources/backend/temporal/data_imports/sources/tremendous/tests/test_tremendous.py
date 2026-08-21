@@ -11,7 +11,10 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import TREMENDOUS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import (
+    ENDPOINTS,
+    TREMENDOUS_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous import (
     DEFAULT_PROBE_PATH,
     TremendousResumeConfig,
@@ -379,6 +382,19 @@ class TestValidateCredentials:
 
 
 class TestTremendousSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # Tremendous lists are creation-date DESC; declaring asc would corrupt the incremental watermark.
+        assert response.sort_mode == "desc"
+        if TREMENDOUS_ENDPOINTS[endpoint].partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == ["created_at"]
+        else:
+            assert response.partition_mode is None
+
     def test_partition_keys_are_stable_creation_timestamps(self) -> None:
         # Partition keys must never be updated_at-style fields, which rewrite partitions every sync.
         assert {c.partition_key for c in TREMENDOUS_ENDPOINTS.values()} == {"created_at", None}

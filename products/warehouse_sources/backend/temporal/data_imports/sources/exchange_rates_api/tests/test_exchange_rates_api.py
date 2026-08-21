@@ -27,6 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_r
     get_rows,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.settings import (
+    EXCHANGE_RATES_API_ENDPOINTS,
+)
 
 
 class _FakeResponse:
@@ -315,11 +318,35 @@ class TestGetRows:
 
 
 class TestExchangeRatesApiSource:
+    @parameterized.expand(
+        [
+            ("symbols", ["code"]),
+            ("latest", ["base", "currency", "date"]),
+            ("timeseries", ["base", "currency", "date"]),
+        ]
+    )
+    def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
+        response = exchange_rates_api_source("key", endpoint, "EUR", None, mock.MagicMock(), mock.MagicMock())
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        assert response.sort_mode == "asc"
+
     def test_timeseries_partitions_on_stable_date(self) -> None:
         response = exchange_rates_api_source("key", "timeseries", "EUR", None, mock.MagicMock(), mock.MagicMock())
         assert response.partition_keys == ["date"]
         assert response.partition_mode == "datetime"
         assert response.partition_format == "month"
+
+    def test_snapshot_endpoints_are_not_partitioned(self) -> None:
+        for endpoint in ("symbols", "latest"):
+            response = exchange_rates_api_source("key", endpoint, "EUR", None, mock.MagicMock(), mock.MagicMock())
+            assert response.partition_keys is None
+
+    def test_every_settings_endpoint_builds_a_source_response(self) -> None:
+        for endpoint in EXCHANGE_RATES_API_ENDPOINTS:
+            response = exchange_rates_api_source("key", endpoint, "EUR", None, mock.MagicMock(), mock.MagicMock())
+            assert response.name == endpoint
+            assert response.primary_keys == EXCHANGE_RATES_API_ENDPOINTS[endpoint].primary_keys
 
     def test_default_base_currency_is_eur(self) -> None:
         assert DEFAULT_BASE_CURRENCY == "EUR"

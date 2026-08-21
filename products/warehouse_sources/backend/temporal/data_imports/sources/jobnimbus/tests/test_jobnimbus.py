@@ -217,6 +217,15 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, _MockSession: mock.MagicMock) -> None:
+        response = _source(_make_manager(), endpoint=endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == ["jnid"]
+        # No stable creation timestamp is guaranteed across every object, so we don't partition.
+        assert response.partition_mode is None
+
     def test_every_endpoint_uses_jnid_primary_key(self) -> None:
         assert all(config.primary_keys == ["jnid"] for config in JOBNIMBUS_ENDPOINTS.values())
         assert set(JOBNIMBUS_ENDPOINTS) == set(ENDPOINTS)

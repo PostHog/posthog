@@ -321,6 +321,24 @@ class TestMuxSourceResponse:
         assert response.partition_keys == ["created_at"]
         assert response.partition_format == "month"
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unpartitioned_endpoint_has_no_partitioning(self, _MockSession) -> None:
+        response = mux_source(
+            "id", "secret", "uploads", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+        assert response.name == "uploads"
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metrics_comparison_keys_on_metric_and_is_unpartitioned(self, _MockSession) -> None:
+        response = mux_source(
+            "id", "secret", "metrics_comparison", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+        assert response.primary_keys == ["metric"]
+        assert response.partition_mode is None
+        assert response.sort_mode == "asc"
+
 
 class TestAsEpoch:
     def test_parses_iso_string_as_utc(self) -> None:

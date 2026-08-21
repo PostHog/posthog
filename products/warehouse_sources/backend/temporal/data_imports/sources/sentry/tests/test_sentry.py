@@ -383,6 +383,40 @@ class TestSentrySourceValidation:
 
         assert config.organization_slug == "acme"
 
+    def test_retryable_errors_match_exhausted_connection_retries(self) -> None:
+        # `_request_with_retry` (sentry.py) already retries a dropped connection or read timeout;
+        # once that budget is exhausted, urllib3 re-raises with this stable "Max retries exceeded"
+        # wording regardless of cause. Without a matching entry here, a transient Sentry-side blip
+        # would be reported to error tracking as a bug instead of logged as a benign retry.
+        error_msg = (
+            "HTTPSConnectionPool(host='sentry.io', port=443): Max retries exceeded with "
+            'url: /api/0/organizations/acme/projects/?limit=100 (Caused by ReadTimeoutError("HTTPS'
+            "ConnectionPool(host='sentry.io', port=443): Read timed out. (read timeout=30)\"))"
+        )
+
+        assert any(pattern in error_msg for pattern in SentrySource().get_retryable_errors())
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
+    def test_sentry_source_builds_response(self, mock_rest_api_resource) -> None:
+        mock_resource = Mock()
+        mock_rest_api_resource.return_value = mock_resource
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issues",
+            team_id=123,
+            job_id="job-id",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2025, 1, 1, 10, 30, 0),
+            incremental_field="lastSeen",
+        )
+
+        assert resp.name == "issues"
+        assert resp.primary_keys == ["id"]
+        assert resp.partition_mode == "datetime"
+
     # ----- Project fan-out (dependent resources) -----
 
     @parameterized.expand(

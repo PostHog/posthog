@@ -492,6 +492,17 @@ class TestAgentAssistActions:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [DecagonResumeConfig(cursor="cur-1", min_timestamp=int(epoch))]
 
+    def test_source_response_is_a_keyless_append_stream(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="agent_assist_actions",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys is None
+        assert response.partition_keys == ["created_at"]
+        assert response.sort_mode == "desc"
+
 
 class TestArticleTables:
     def test_articles_walk_pages_to_the_total_and_dedupes_shifted_rows(self) -> None:
@@ -561,6 +572,17 @@ class TestArticleTables:
         assert response.chunk_size == 500
         assert response.chunk_size_bytes == 50 * 1024 * 1024
 
+    def test_article_usage_response_is_keyless_and_unpartitioned(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="article_usage",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys is None
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
 
 class TestTags:
     def test_tags_is_a_single_request_with_counts(self) -> None:
@@ -573,6 +595,19 @@ class TestTags:
         assert sent_params == [{"get_counts": "true"}]
         assert [[t["id"] for t in b] for b in batches] == [[1, 2]]
         manager.save_state.assert_not_called()
+
+    def test_tags_response_is_unpartitioned_with_id_key(self) -> None:
+        # Tags carry no timestamp; wiring the datetime partitioning every other stream
+        # uses would fail the sync on a missing column.
+        response = decagon_source(
+            api_key="key",
+            endpoint="tags",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None
 
 
 class TestAdminLogs:
@@ -620,6 +655,17 @@ class TestAdminLogs:
         ]
         assert [len(b) for b in batches] == [2, 1]
 
+    def test_response_merges_on_id_partitioned_by_created_at(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="admin_logs",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["created_at"]
+        assert response.sort_mode == "desc"
+
 
 class TestTeamAndWatchtowerTables:
     def test_team_members_requests_invite_status_but_never_an_access_filter(self) -> None:
@@ -631,6 +677,18 @@ class TestTeamAndWatchtowerTables:
 
         assert sent_params == [{"show_invite_status": "true"}]
         assert [len(b) for b in batches] == [1]
+
+    def test_team_members_response_is_unpartitioned(self) -> None:
+        # Members carry no timestamp; wiring the datetime partitioning every other stream
+        # uses would fail the sync on a missing column.
+        response = decagon_source(
+            api_key="key",
+            endpoint="team_members",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
 
     def test_watchtower_jobs_is_a_single_request_partitioned_by_created_at(self) -> None:
         manager = _fresh_manager()
@@ -669,3 +727,17 @@ class TestToEpochSeconds:
     )
     def test_coerces_watermark_types(self, _name: str, value: Any, expected: int) -> None:
         assert _to_epoch_seconds(value) == expected
+
+
+class TestDecagonSource:
+    def test_source_response_shape(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="conversations",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.name == "conversations"
+        assert response.primary_keys == ["conversation_id"]
+        assert response.partition_keys == ["created_at"]
+        assert response.partition_mode == "datetime"

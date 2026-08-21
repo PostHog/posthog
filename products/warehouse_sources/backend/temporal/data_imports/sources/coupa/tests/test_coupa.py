@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.coup
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.settings import PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.settings import ENDPOINTS, PAGE_SIZE
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.coupa.coupa"
 
@@ -190,3 +190,18 @@ class TestGetRows:
         # Coupa defaults to XML — the session must be created with Accept: application/json.
         session_headers = mock_session.call_args.kwargs["headers"]
         assert session_headers == {"Accept": "application/json"}
+
+
+class TestCoupaSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.coupa import coupa_source
+
+        response = coupa_source(
+            "https://myorg.coupahost.com", "cid", "sec", endpoint, mock.MagicMock(), _make_manager()
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # Ordering within an updated_at window is undocumented — deferred watermark.
+        assert response.sort_mode == "desc"

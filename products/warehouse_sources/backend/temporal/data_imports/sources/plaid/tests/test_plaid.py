@@ -11,15 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plai
     _base_url,
     _format_date,
     get_rows,
+    plaid_source,
     validate_credentials,
 )
-
-
-@pytest.fixture(autouse=True)
-def _no_sleep():
-    with mock.patch(f"{_MODULE}.time.sleep"):
-        yield
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.settings import ENDPOINTS, PLAID_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plaid"
 
@@ -37,6 +32,12 @@ def _response(body: dict[str, Any], status: int = 200) -> mock.MagicMock:
     resp.status_code = status
     resp.ok = status < 400
     return resp
+
+
+@pytest.fixture(autouse=True)
+def _no_sleep():
+    with mock.patch(f"{_MODULE}.time.sleep"):
+        yield
 
 
 class TestBaseUrl:
@@ -188,3 +189,21 @@ class TestGetRowsTransactions:
 
         assert batches == []
         manager.save_state.assert_not_called()
+
+
+class TestPlaidSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = PLAID_ENDPOINTS[endpoint]
+        response = plaid_source("production", "cid", "sec", "tok", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        if endpoint == "transactions":
+            # Newest-first ordering — watermark commits only at run end.
+            assert response.sort_mode == "desc"
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == ["date"]
+        else:
+            assert response.sort_mode == "asc"
+            assert response.partition_mode is None

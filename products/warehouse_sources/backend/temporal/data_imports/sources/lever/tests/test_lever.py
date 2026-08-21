@@ -166,9 +166,30 @@ class TestValidateCredentials:
 
 
 class TestLeverSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_primary_keys_match_settings(self, endpoint: str) -> None:
+        response = lever_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        assert response.primary_keys == LEVER_ENDPOINTS[endpoint].primary_keys
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_partitioning_only_when_partition_key_present(self, endpoint: str) -> None:
+        response = lever_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        partition_key = LEVER_ENDPOINTS[endpoint].partition_key
+
+        if partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     def test_partition_key_is_never_updated_at(self) -> None:
         for endpoint in ENDPOINTS:
             assert LEVER_ENDPOINTS[endpoint].partition_key != "updatedAt"
+
+    def test_sort_mode_is_ascending(self) -> None:
+        response = lever_source("key", "opportunities", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        assert response.sort_mode == "asc"
 
 
 class TestLeverPaginationAndResume:

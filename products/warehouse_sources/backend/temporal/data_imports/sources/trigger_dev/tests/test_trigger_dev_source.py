@@ -1,7 +1,23 @@
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.source import TriggerDevSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestTriggerDevSourceConfig:
+    def test_source_type(self) -> None:
+        assert TriggerDevSource().source_type == ExternalDataSourceType.TRIGGERDEV
+
+    def test_base_url_is_a_connection_host_field(self) -> None:
+        # Retargeting base_url must re-require the secret, else the preserved key leaks to a new host.
+        assert TriggerDevSource().connection_host_fields == ["base_url"]
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog with no I/O, so public docs can render the table list.
+        assert TriggerDevSource.lists_tables_without_credentials is True
 
 
 class TestTriggerDevSchemas:
@@ -16,6 +32,29 @@ class TestTriggerDevSchemas:
     def test_names_filter(self) -> None:
         schemas = TriggerDevSource().get_schemas(MagicMock(), team_id=1, names=["queues"])
         assert [s.name for s in schemas] == ["queues"]
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.trigger.dev/api/v1/runs"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.trigger.dev/api/v1/schedules"),
+            ("invalid_body", "Invalid API key"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
+        errors = TriggerDevSource().get_non_retryable_errors()
+        assert any(key in observed for key in errors)
+
+    @parameterized.expand(
+        [
+            ("read_timeout", "HTTPSConnectionPool(host='api.trigger.dev', port=443): Read timed out."),
+            ("server_error", "500 Server Error: Internal Server Error"),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
+        errors = TriggerDevSource().get_non_retryable_errors()
+        assert not any(key in observed for key in errors)
 
 
 class TestValidateCredentials:
@@ -91,3 +130,12 @@ class TestSourceForPipeline:
         ):
             TriggerDevSource().source_for_pipeline(config, MagicMock(), inputs)
         assert build.call_args.kwargs["db_incremental_field_last_value"] is None
+
+
+class TestGetDocumentedTables:
+    def test_publishes_runs_table_with_canonical_description(self) -> None:
+        tables = {t["name"]: t for t in TriggerDevSource().get_documented_tables()}
+        assert set(tables) == {"runs", "schedules", "queues"}
+        assert "execution" in tables["runs"]["description"].lower()
+        assert "Incremental" in tables["runs"]["sync_methods"]
+        assert tables["schedules"]["sync_methods"] == ["Full refresh"]

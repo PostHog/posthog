@@ -406,6 +406,21 @@ class TestValidateCredentials:
 
 
 class TestCoverallsSource:
+    @pytest.mark.parametrize("endpoint", list(COVERALLS_ENDPOINTS))
+    def test_source_response_shape(self, endpoint):
+        response = coveralls_source(
+            endpoint=endpoint,
+            service="github",
+            repositories_raw="acme/widgets",
+            api_token=None,
+            logger=structlog.get_logger(),
+            resumable_source_manager=_manager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == COVERALLS_ENDPOINTS[endpoint].primary_keys
+        assert response.sort_mode == "desc"
+
     def test_only_builds_is_partitioned(self):
         builds = coveralls_source(
             endpoint="builds",

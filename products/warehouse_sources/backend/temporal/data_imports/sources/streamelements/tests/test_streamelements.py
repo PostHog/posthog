@@ -8,6 +8,7 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.settings import (
+    ENDPOINTS,
     STREAMELEMENTS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements import (
@@ -364,6 +365,22 @@ class TestLeaderboards:
 
 
 class TestStreamElementsSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, mock_session: mock.MagicMock, endpoint: str) -> None:
+        mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})
+        config = STREAMELEMENTS_ENDPOINTS[endpoint]
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @mock.patch(SESSION_PATCH)
     def test_activities_use_desc_sort_mode(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})

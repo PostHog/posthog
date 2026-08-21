@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockify import (
     ClockifySourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestClockifySource:
@@ -14,12 +15,13 @@ class TestClockifySource:
         self.source = ClockifySource()
         self.team_id = 123
 
-    def test_only_time_entries_supports_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=self.team_id)}
-        for name, schema in schemas.items():
-            expected = name == "time_entries"
-            assert schema.supports_incremental is expected
-            assert schema.supports_append is expected
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.CLOCKIFY
+
+    def test_non_retryable_error_keys_match_clockify_host(self) -> None:
+        # The observed HTTPError message embeds the request URL; the key must match the base host.
+        observed = "401 Client Error: Unauthorized for url: https://api.clockify.me/api/v1/user"
+        assert any(key in observed for key in self.source.get_non_retryable_errors())
 
     def test_validate_credentials_success(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(

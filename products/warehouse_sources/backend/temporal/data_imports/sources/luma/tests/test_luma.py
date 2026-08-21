@@ -13,9 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.luma.luma 
     LumaRetryableError,
     check_access,
     get_rows,
+    luma_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.settings import (
+    ENDPOINTS,
     EVENTS_PATH,
     GUESTS_PATH,
     LUMA_ENDPOINTS,
@@ -327,6 +329,19 @@ class TestCheckAccess:
 
 
 class TestLumaSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = luma_source(
+            api_key="luma-key",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == LUMA_ENDPOINTS[endpoint].primary_keys
+        # `created_at` is nullable in Luma payloads, so we don't partition on it.
+        assert response.partition_mode is None
+
     def test_guests_primary_key_includes_parent_event(self) -> None:
         # Guest rows aggregate across every event, so the key must be unique table-wide.
         assert LUMA_ENDPOINTS["guests"].primary_keys == ["event_api_id", "api_id"]

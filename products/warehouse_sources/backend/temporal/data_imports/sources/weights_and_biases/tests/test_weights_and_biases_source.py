@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.weights_an
 from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.source import (
     WeightsAndBiasesSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.source"
 
@@ -20,6 +21,26 @@ class TestWeightsAndBiasesSource:
         self.source = WeightsAndBiasesSource()
         self.team_id = 123
         self.config = WeightsAndBiasesSourceConfig(api_key="wb-key", entity="acme")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.WEIGHTSANDBIASES
+
+    def test_entity_is_a_connection_host_field(self):
+        # Changing `entity` retargets the stored key at another W&B account's data, so the update
+        # serializer must re-require the key — guard against dropping that from the override.
+        assert "entity" in self.source.connection_host_fields
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.wandb.ai/graphql",
+            "401 Client Error: Unauthorized for url: https://acme.wandb.io/graphql",
+            "Weights & Biases GraphQL error: permission denied",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
 
     def test_get_schemas(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
@@ -31,6 +52,10 @@ class TestWeightsAndBiasesSource:
         assert not any(schema.supports_append for schema in schemas.values())
         assert [f["field"] for f in schemas["runs"].incremental_fields] == ["createdAt", "heartbeatAt"]
         assert schemas["runs"].incremental_fields == INCREMENTAL_FIELDS["runs"]
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["runs", "nope"])
+        assert [schema.name for schema in schemas] == ["runs"]
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

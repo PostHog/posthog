@@ -252,3 +252,15 @@ class TestValidateCredentials:
     def test_returns_none_on_transport_error(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("cid", "secret", "org-1") is None
+
+
+class TestPropertywareSourceResponse:
+    @pytest.mark.parametrize("endpoint", ["Portfolios", "Leases", "LeaseCharges", "Bills", "GLAccounts"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, MockSession, endpoint: str) -> None:
+        response = _source(_make_manager(), endpoint=endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["createdDateTime"]
+        assert response.partition_mode == "datetime"
+        assert response.sort_mode == "asc"

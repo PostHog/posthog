@@ -304,3 +304,20 @@ class TestValidateCredentials:
             ok, err = validate_credentials("tok", "us")
         assert ok is False
         assert err is not None
+
+
+class TestOrcaSource:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_alerts_is_partitioned_and_ascending(self, MockSession) -> None:
+        response = orca_source("tok", "us", "alerts", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        assert response.name == "alerts"
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["CreatedAt"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_stream_has_no_partition(self, MockSession) -> None:
+        response = orca_source("tok", "us", "assets", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        assert response.partition_mode is None
+        assert response.partition_keys is None

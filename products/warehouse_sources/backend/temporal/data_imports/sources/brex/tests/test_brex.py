@@ -523,6 +523,14 @@ class TestBrexSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
+    def test_cash_transactions_use_composite_primary_key(self, MockSession):
+        response = _source("cash_transactions", _make_manager())
+        assert response.primary_keys == ["account_id", "id"]
+
+    def test_budgets_primary_key_is_budget_id(self, MockSession):
+        response = _source("budgets", _make_manager())
+        assert response.primary_keys == ["budget_id"]
+
     @pytest.mark.parametrize("config", list(BREX_ENDPOINTS.values()))
     def test_partition_keys_are_stable_posted_dates(self, MockSession, config):
         if config.partition_key:

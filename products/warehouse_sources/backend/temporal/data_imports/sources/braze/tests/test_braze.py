@@ -17,7 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braz
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import BRAZE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import BRAZE_ENDPOINTS, ENDPOINTS
 
 BASE_URL = "https://rest.iad-01.braze.com"
 
@@ -384,6 +384,20 @@ class TestGetRows:
 
 
 class TestBrazeSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = BRAZE_ENDPOINTS[endpoint]
+        response = _source(endpoint)
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize("config", list(BRAZE_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         # Partition keys must be immutable creation timestamps, never updated/last-edit fields.

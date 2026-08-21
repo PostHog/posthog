@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openai.ope
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.settings import OPENAI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.openai.source import OpenAISource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -632,6 +633,65 @@ class TestValidateCredentials:
         session.get.side_effect = requests.ConnectionError("boom")
         with mock.patch(OPENAI_SESSION_PATCH, return_value=session):
             assert validate_credentials("sk-admin-test") is False
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.openai.com/v1/organization/users?limit=100",
+            ),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://api.openai.com/v1/organization/costs",
+            ),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = OpenAISource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("read_timeout", "HTTPSConnectionPool(host='api.openai.com', port=443): Read timed out."),
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://api.openai.com/v1/organization/users",
+            ),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        non_retryable = OpenAISource().get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable)
+
+
+class TestRetryableErrors:
+    @parameterized.expand(
+        [
+            ("server_error", "HTTP 500 for https://api.openai.com/v1/organization/projects/proj_1/api_keys"),
+            ("rate_limited", "HTTP 429 for https://api.openai.com/v1/organization/costs"),
+            ("connection_error", "Connection error (ConnectionError) for https://api.openai.com/v1/organization/users"),
+            ("timeout", "Request timed out (ReadTimeout) for https://api.openai.com/v1/organization/usage/completions"),
+            (
+                "malformed_json",
+                "Malformed JSON response from https://api.openai.com/v1/organization/costs: Expecting value: line 1 column 1 (char 0)",
+            ),
+        ]
+    )
+    def test_exhausted_transient_failures_are_recognized(self, _name: str, observed_error: str) -> None:
+        retryable = OpenAISource().get_retryable_errors()
+        assert any(pattern in observed_error for pattern in retryable)
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.openai.com/v1/organization/users"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.openai.com/v1/organization/costs"),
+        ]
+    )
+    def test_credential_errors_are_not_misclassified(self, _name: str, other_error: str) -> None:
+        retryable = OpenAISource().get_retryable_errors()
+        assert not any(pattern in other_error for pattern in retryable)
 
 
 class TestToolCallUsageGroupBy:

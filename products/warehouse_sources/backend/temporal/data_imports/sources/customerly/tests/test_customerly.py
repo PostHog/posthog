@@ -9,10 +9,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customerly
     CustomerlyResumeConfig,
     _build_url,
     _is_auth_error_body,
+    customerly_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.customerly.settings import CUSTOMERLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.customerly.settings import (
+    CUSTOMERLY_ENDPOINTS,
+    ENDPOINTS,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.customerly.customerly"
 
@@ -211,6 +215,20 @@ class TestArticlesFanOut:
 
 
 class TestCustomerlySourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = CUSTOMERLY_ENDPOINTS[endpoint]
+        response = customerly_source("token", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize("config", list(CUSTOMERLY_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

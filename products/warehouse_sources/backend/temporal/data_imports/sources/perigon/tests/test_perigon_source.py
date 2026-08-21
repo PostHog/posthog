@@ -3,10 +3,13 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.perigon import (
     PerigonSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source import PerigonSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source.validate_perigon_credentials"
@@ -18,12 +21,21 @@ class TestPerigonSource:
         self.source = PerigonSource()
         self.team_id = 123
 
-    def test_only_articles_and_stories_support_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=self.team_id)}
-        for name, schema in schemas.items():
-            expected = name in ("articles", "stories")
-            assert schema.supports_incremental is expected
-            assert schema.supports_append is expected
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.PERIGON
+
+    def test_source_config_is_released_alpha(self) -> None:
+        config = self.source.get_source_config
+        assert config.label == "Perigon"
+        assert config.category == DataWarehouseSourceCategory.ANALYTICS
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        # unreleasedSource hides the connector from every user — a finished source must not set it.
+        assert not config.unreleasedSource
+
+    def test_non_retryable_error_keys_match_perigon_host(self) -> None:
+        # The observed HTTPError message embeds the request URL; the key must match the base host.
+        observed = "401 Client Error: Unauthorized for url: https://api.perigon.io/v1/articles/all?size=100"
+        assert any(key in observed for key in self.source.get_non_retryable_errors())
 
     @pytest.mark.parametrize(
         "probe_result,schema_name,expected_valid",

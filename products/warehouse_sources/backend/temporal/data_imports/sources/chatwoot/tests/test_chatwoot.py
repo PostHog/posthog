@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.settings import (
     CHATWOOT_ENDPOINTS,
+    ENDPOINTS,
     MESSAGES_PAGE_SIZE,
 )
 
@@ -467,6 +468,22 @@ class TestWebhookManagement:
 
 
 class TestChatwootSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = CHATWOOT_ENDPOINTS[endpoint]
+        response = chatwoot_source(
+            None, "1", "token", endpoint, TEAM_ID, mock.MagicMock(), _make_manager(), webhook_source_manager=None
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize("config", list(CHATWOOT_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

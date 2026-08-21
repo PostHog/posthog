@@ -2,11 +2,15 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import (
     ResendAuthMethodConfig,
     ResendSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.resend.oauth import ResendIntegrationAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _api_key_config(api_key: str = "re_test_key") -> ResendSourceConfig:
@@ -24,6 +28,9 @@ class TestResendSource:
         self.source = ResendSource()
         self.team_id = 123
         self.config = _api_key_config()
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.RESEND
 
     def test_audiences_bad_request_is_non_retryable(self):
         errors = self.source.get_non_retryable_errors()
@@ -69,6 +76,26 @@ class TestResendSource:
             assert matched[0] is not None and "Domains" in matched[0]
         else:
             assert not matched
+
+    def test_get_schemas(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+        for schema in schemas:
+            assert schema.supports_incremental is False
+            assert schema.supports_append is False
+            assert schema.incremental_fields == []
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["emails"])
+
+        assert len(schemas) == 1
+        assert schemas[0].name == "emails"
+
+    def test_get_schemas_filtered_unknown_name_returns_empty(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
+
+        assert schemas == []
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
@@ -153,3 +180,47 @@ class TestResendSource:
 
         assert is_valid is False
         assert error_message == "Resend integration is not configured. Please reconnect your Resend account."
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resend_source")
+    def test_source_for_pipeline_api_key_passes_bearer_auth(self, mock_resend_source):
+        mock_resend_source.return_value = mock.MagicMock()
+
+        inputs = mock.MagicMock()
+        inputs.schema_name = "audiences"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        kwargs = mock_resend_source.call_args.kwargs
+        assert kwargs["endpoint"] == "audiences"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
+        assert kwargs["resumable_source_manager"] is manager
+        assert isinstance(kwargs["auth"], BearerTokenAuth)
+        assert kwargs["auth"].token == "re_test_key"
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resend_source")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resolve_resend_oauth_token"
+    )
+    @mock.patch.object(ResendSource, "get_oauth_integration")
+    def test_source_for_pipeline_oauth_passes_integration_auth(
+        self, mock_get_integration, mock_resolve, mock_resend_source
+    ):
+        mock_resolve.return_value = "oauth_access_token"
+        mock_resend_source.return_value = mock.MagicMock()
+
+        inputs = mock.MagicMock()
+        inputs.schema_name = "emails"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(_oauth_config(), manager, inputs)
+
+        auth = mock_resend_source.call_args.kwargs["auth"]
+        assert isinstance(auth, ResendIntegrationAuth)
+        assert auth.token == "oauth_access_token"
+        mock_resolve.assert_called_once_with(42, 123)

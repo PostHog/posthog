@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.terraform_
     _fetch_json,
     _flatten_item,
     get_rows,
+    terraform_cloud_source,
     validate_credentials,
 )
 
@@ -379,3 +380,33 @@ class TestValidateCredentials:
             ok, message = validate_credentials("token", "acme")
         assert ok is False
         assert message is not None
+
+
+class TestSourceResponseShape:
+    @pytest.mark.parametrize(
+        ("endpoint", "partition_key", "sort_mode"),
+        [
+            ("organizations", None, "asc"),
+            ("projects", None, "asc"),
+            ("teams", None, "asc"),
+            ("workspaces", None, "asc"),
+            ("runs", "created_at", "desc"),
+            ("state_versions", "created_at", "desc"),
+        ],
+    )
+    def test_partition_and_sort_config(self, endpoint: str, partition_key: str | None, sort_mode: str) -> None:
+        # Newest-first endpoints must declare desc, or the pipeline checkpoints the watermark
+        # to ≈now after the first batch and mid-sync shutdowns lose rows. Partitioning is on
+        # the STABLE created_at, never a mutating field.
+        response = terraform_cloud_source(
+            api_token="t",
+            organization="acme",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == sort_mode
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.partition_mode == ("datetime" if partition_key else None)

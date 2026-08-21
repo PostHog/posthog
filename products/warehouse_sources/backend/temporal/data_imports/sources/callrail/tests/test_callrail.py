@@ -10,11 +10,15 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.callrail import (
     CallRailResumeConfig,
     _format_start_date,
+    callrail_source,
     get_rows,
     resolve_account_id,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.settings import CALLRAIL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.settings import (
+    CALLRAIL_ENDPOINTS,
+    ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -284,6 +288,21 @@ class TestGetRows:
 
 
 class TestCallRailSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+        config = CALLRAIL_ENDPOINTS[endpoint]
+        response = callrail_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize("config", list(CALLRAIL_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config: Any) -> None:
         # Never partition on a mutable field; only stable creation/start timestamps are allowed.

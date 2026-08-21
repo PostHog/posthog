@@ -65,6 +65,18 @@ class TestBaseUrl:
 
 
 class TestValidateCredentials:
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
+    def test_returns_true_on_200(self, mock_session):
+        mock_session.return_value.get.return_value = _ok_json_response({"workspaces": []})
+
+        success, error = api_client.validate_credentials("key", "us")
+
+        assert success is True
+        assert error is None
+        mock_session.return_value.get.assert_called_once()
+        called_url = mock_session.return_value.get.call_args.args[0]
+        assert called_url == f"{CIO_US_BASE_URL}/v1/workspaces"
+
     @parameterized.expand(
         [
             (401, "App API Key"),
@@ -85,6 +97,16 @@ class TestValidateCredentials:
         assert success is False
         assert error is not None
         assert expected_substring.lower() in error.lower()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
+    def test_returns_false_on_network_error(self, mock_session):
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+
+        success, error = api_client.validate_credentials("key", "us")
+
+        assert success is False
+        assert error is not None
+        assert "Could not reach Customer.io" in error
 
 
 class TestCreateWebhook:

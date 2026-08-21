@@ -13,10 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.frill.fril
     FrillRetryableError,
     _handle_response,
     _next_cursor,
+    frill_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.frill.settings import FRILL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.frill.settings import ENDPOINTS, FRILL_ENDPOINTS
 
 
 def _resp(body: Any, status: int = 200) -> Any:
@@ -257,6 +258,22 @@ class TestCommentsFanOut:
 
 
 class TestFrillSource:
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = frill_source(
+            api_key="k", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=MagicMock()
+        )
+
+        config = FRILL_ENDPOINTS[endpoint]
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     def test_comments_primary_key_includes_parent(self) -> None:
         # Fan-out child rows must be unique table-wide, not per parent.
         assert FRILL_ENDPOINTS["comments"].primary_keys == ["_idea_idx", "idx"]

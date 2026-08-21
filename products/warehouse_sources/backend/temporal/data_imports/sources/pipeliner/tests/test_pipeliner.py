@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.
     pipeliner_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.settings import ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -273,6 +274,27 @@ class TestPipelinerSourceTransport:
             with pytest.raises(PipelinerHostNotAllowedError):
                 list(cast("Iterable[Any]", response.items()))
             session.send.assert_not_called()
+
+
+class TestPipelinerSourceResponse:
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    def test_response_shape(self, endpoint):
+        response = pipeliner_source(
+            service_url="us-east.api.pipelinersales.com",
+            space_id="space-1",
+            username="user",
+            password="pass",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=mock.MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        # `created` never changes; partitioning on `modified` would rewrite partitions on every edit.
+        assert response.partition_keys == ["created"]
+        assert response.partition_mode == "datetime"
 
 
 class TestValidateCredentials:

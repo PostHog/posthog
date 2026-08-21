@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     USAGE_GROUP_BY_FALLBACKS,
     USAGE_REPORT_PAGE_BUCKETS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -684,6 +685,37 @@ class TestValidateCredentials:
         session.get.side_effect = requests.ConnectionError("boom")
         with mock.patch(ANTHROPIC_SESSION_PATCH, return_value=session):
             assert validate_credentials("sk-ant-admin-test") is False
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.anthropic.com/v1/organizations/users?limit=1",
+            ),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://api.anthropic.com/v1/organizations/cost_report",
+            ),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = AnthropicSource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("read_timeout", "HTTPSConnectionPool(host='api.anthropic.com', port=443): Read timed out."),
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://api.anthropic.com/v1/organizations/users",
+            ),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        non_retryable = AnthropicSource().get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable)
 
 
 def _cc_record(actor_email: str = "dev@example.com") -> dict[str, Any]:

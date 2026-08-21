@@ -1,9 +1,11 @@
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hyros import HyrosSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyros.source import HyrosSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Leads", "Sales", "Calls", "Subscriptions"}
 _FULL_REFRESH_ENDPOINTS = {"Sources", "Tags", "Keywords", "Stages"}
@@ -15,10 +17,36 @@ class TestHyrosSource:
         self.team_id = 123
         self.config = HyrosSourceConfig(api_key="key")
 
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.HYROS
+
     def test_api_version_metadata(self):
         assert self.source.supported_versions == ("v1.0",)
         assert self.source.default_version == "v1.0"
         assert self.source.api_docs_url == "https://api-docs.hyros.com"
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.hyros.com/v1/api/v1.0/leads",
+            "403 Client Error: Forbidden for url: https://api.hyros.com/v1/api/v1.0/calls",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "429 Client Error: Too Many Requests for url: https://api.hyros.com/v1/api/v1.0/leads",
+            "500 Server Error: Internal Server Error for url: https://api.hyros.com/v1/api/v1.0/leads",
+            "HTTPSConnectionPool(host='api.hyros.com', port=443): Read timed out.",
+        ],
+    )
+    def test_non_retryable_errors_do_not_match_transient(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
 
     @parameterized.expand(
         [

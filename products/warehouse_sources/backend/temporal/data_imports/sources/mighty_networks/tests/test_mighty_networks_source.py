@@ -1,3 +1,4 @@
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -5,7 +6,9 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mightynetworks import (
     MightyNetworksSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.source import MightyNetworksSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMightyNetworksSource:
@@ -13,6 +16,53 @@ class TestMightyNetworksSource:
         self.source = MightyNetworksSource()
         self.team_id = 123
         self.config = MightyNetworksSourceConfig(network_id="1234", api_key="key")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.MIGHTYNETWORKS
+
+    def test_connection_host_fields_cover_network_id(self):
+        # network_id is where the stored api_key is sent; retargeting it must re-require the key.
+        assert self.source.connection_host_fields == ["network_id"]
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.mn.co/admin/v1/networks/1234/members?page=1",
+            "403 Client Error: Forbidden for url: https://api.mn.co/admin/v1/networks/1234/members?page=1",
+            "404 Client Error: Not Found for url: https://api.mn.co/admin/v1/networks/1234/members?page=1",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "429 Client Error: Too Many Requests for url: https://api.mn.co/admin/v1/networks/1234/members",
+            "500 Server Error: Internal Server Error for url: https://api.mn.co/admin/v1/networks/1234/members",
+            "HTTPSConnectionPool(host='api.mn.co', port=443): Read timed out.",
+        ],
+    )
+    def test_non_retryable_errors_do_not_match_transient(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
+    def test_get_schemas_are_all_full_refresh(self):
+        # No list endpoint exposes a server-side updated_since/created_since filter.
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        assert set(schemas) == set(ENDPOINTS)
+        for schema in schemas.values():
+            assert schema.supports_incremental is False
+            assert schema.supports_append is False
+            assert schema.incremental_fields == []
+
+    def test_lists_tables_without_credentials_publishes_catalog(self):
+        # Static endpoint catalog (no I/O) — the public docs table list should render.
+        assert self.source.lists_tables_without_credentials is True
+        documented = self.source.get_documented_tables()
+        assert {table["name"] for table in documented} == set(ENDPOINTS)
 
     @parameterized.expand(
         [

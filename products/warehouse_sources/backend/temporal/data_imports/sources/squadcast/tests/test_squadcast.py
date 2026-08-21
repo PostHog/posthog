@@ -498,6 +498,19 @@ class TestEscalationPolicies:
 
 
 class TestSquadcastSourceResponse:
+    def test_incidents_partitioned_on_created_at_with_desc_watermark(self) -> None:
+        response = squadcast_source("tok", "us", "incidents", MagicMock(), MagicMock())
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["created_at"]
+        assert response.partition_mode == "datetime"
+        assert response.sort_mode == "desc"
+
+    def test_full_refresh_endpoint_has_no_partition_settings(self) -> None:
+        response = squadcast_source("tok", "us", "users", MagicMock(), MagicMock())
+        assert response.partition_keys is None
+        assert response.partition_mode is None
+        assert response.sort_mode == "asc"
+
     @pytest.mark.parametrize("endpoint", list(SQUADCAST_ENDPOINTS.keys()))
     def test_every_endpoint_builds_a_response(self, endpoint: str) -> None:
         response = squadcast_source("tok", "us", endpoint, MagicMock(), MagicMock())

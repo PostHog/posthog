@@ -1,10 +1,14 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarqube import (
     SonarqubeSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source import SonarqubeSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"issues"}
 _FULL_REFRESH_ENDPOINTS = {"projects", "metrics", "rules", "users"}
@@ -15,6 +19,74 @@ class TestSonarqubeSource:
         self.source = SonarqubeSource()
         self.team_id = 123
         self.config = SonarqubeSourceConfig(host="https://sonar.example.com", token="tok")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.SONARQUBE
+
+    def test_get_source_config_is_released_alpha(self):
+        # A finished source must be visible (no unreleasedSource) and soft-labeled ALPHA.
+        config = self.source.get_source_config
+
+        assert config.name.value == "Sonarqube"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.unreleasedSource is None
+        assert config.iconPath == "/static/services/sonarqube.png"
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/sonarqube"
+
+        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
+        assert field_names == ["host", "token"]
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://sonar.example.com/api/issues/search?p=1&ps=500",
+            "403 Client Error: Forbidden for url: https://sonar.example.com/api/users/search?p=1&ps=500",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "429 Client Error: Too Many Requests for url: https://sonar.example.com/api/issues/search",
+            "500 Server Error: Internal Server Error for url: https://sonar.example.com/api/issues/search",
+            "HTTPSConnectionPool(host='sonar.example.com', port=443): Read timed out.",
+        ],
+    )
+    def test_non_retryable_errors_do_not_match_transient(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
+    def test_get_schemas_match_endpoints_with_correct_sync_modes(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        assert set(schemas) == set(ENDPOINTS)
+        for name in _INCREMENTAL_ENDPOINTS:
+            assert schemas[name].supports_incremental is True
+            assert schemas[name].supports_append is True
+            assert [f["field"] for f in schemas[name].incremental_fields] == ["creationDate"]
+        for name in _FULL_REFRESH_ENDPOINTS:
+            assert schemas[name].supports_incremental is False
+            assert schemas[name].supports_append is False
+            assert schemas[name].incremental_fields == []
+
+    def test_users_table_is_off_by_default(self):
+        # /api/users/search needs Administer System; a token without it must still sync everything else.
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+        assert schemas["users"].should_sync_default is False
+        assert schemas["issues"].should_sync_default is True
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["issues"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "issues"
+
+    def test_lists_tables_without_credentials_publishes_catalog(self):
+        assert self.source.lists_tables_without_credentials is True
+        documented = self.source.get_documented_tables()
+        assert {table["name"] for table in documented} == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

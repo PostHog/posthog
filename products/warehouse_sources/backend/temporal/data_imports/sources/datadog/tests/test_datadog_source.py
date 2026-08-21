@@ -1,7 +1,12 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import (
+    ENDPOINTS,
+    LIMITED_RETENTION_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.source import DatadogSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datadog import (
     DatadogSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"logs", "audit_logs", "events"}
 
@@ -11,6 +16,52 @@ class TestDatadogSource:
         self.source = DatadogSource()
         self.team_id = 123
         self.config = DatadogSourceConfig(api_key="dd-api", application_key="dd-app", site="datadoghq.com")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.DATADOG
+
+    def test_site_is_a_connection_host_field(self) -> None:
+        # Changing the site must force the secrets to be re-entered so they're never
+        # sent to a freshly-specified host.
+        assert self.source.connection_host_fields == ["site"]
+
+    def test_get_schemas_returns_all_endpoints(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+
+    def test_get_schemas_incremental_flags(self) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+
+        for name in INCREMENTAL_ENDPOINTS:
+            assert schemas[name].supports_incremental is True
+            assert schemas[name].supports_append is True
+            assert schemas[name].incremental_fields == [
+                {
+                    "label": "timestamp",
+                    "type": "datetime",
+                    "field": "timestamp",
+                    "field_type": "datetime",
+                }
+            ]
+
+        for name in set(ENDPOINTS) - INCREMENTAL_ENDPOINTS:
+            assert schemas[name].supports_incremental is False
+            assert schemas[name].supports_append is False
+            assert schemas[name].incremental_fields == []
+
+    def test_get_schemas_retention_description(self) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        for name in LIMITED_RETENTION_ENDPOINTS:
+            assert schemas[name].description is not None
+        assert schemas["dashboards"].description is None
+
+    def test_get_schemas_filtered_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["monitors"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "monitors"
+
+    def test_get_schemas_unknown_name_returns_empty(self) -> None:
+        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     def test_version_metadata_declares_v2_default_and_deprecates_v1(self) -> None:
         # The repin migration and the in-product deprecation banner both key off this metadata;

@@ -236,6 +236,35 @@ class TestPagination:
 
 
 class TestSourceResponse:
+    def test_runs_response_is_incremental_desc_partitioned(self) -> None:
+        response = dagster_cloud_source(
+            organization="org",
+            deployment="prod",
+            api_token="tok",
+            endpoint_name="runs",
+            logger=MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+        assert response.primary_keys == ["runId"]
+        # runsOrError returns newest-first with no ascending option — declaring asc would corrupt
+        # the incremental watermark.
+        assert response.sort_mode == "desc"
+        assert response.partition_keys == ["creationTime"]
+        assert response.partition_mode == "datetime"
+
+    def test_assets_response_has_no_partitioning(self) -> None:
+        response = dagster_cloud_source(
+            organization="org",
+            deployment="prod",
+            api_token="tok",
+            endpoint_name="assets",
+            logger=MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown Dagster Cloud endpoint"):
             dagster_cloud_source("org", "prod", "tok", "nope", MagicMock(), _manager())

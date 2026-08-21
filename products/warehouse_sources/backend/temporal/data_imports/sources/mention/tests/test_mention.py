@@ -16,9 +16,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mention.me
     _more_url,
     check_access,
     get_rows,
+    mention_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mention.settings import MENTION_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mention.settings import (
+    ENDPOINTS,
+    MENTION_ENDPOINTS,
+)
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = mention._fetch_page.__wrapped__  # type: ignore[attr-defined]
@@ -340,6 +344,20 @@ class TestCheckAccess:
 
 
 class TestMentionSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = mention_source(
+            access_token="tok",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+            api_version=mention.DEFAULT_API_VERSION,
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == MENTION_ENDPOINTS[endpoint].primary_keys
+        # No stable creation timestamp is guaranteed across every object, so we don't partition.
+        assert response.partition_mode is None
+
     def test_fan_out_endpoints_carry_parent_id_in_key(self) -> None:
         # Fan-out children aggregate rows from every alert; the parent id must be in the merge key.
         assert MENTION_ENDPOINTS["mentions"].primary_keys == ["alert_id", "id"]

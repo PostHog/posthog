@@ -16,11 +16,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.ger
     GerritResumeConfig,
     build_changes_query,
     format_after_value,
+    gerrit_source,
     get_rows,
     normalize_host,
     parse_gerrit_response,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.settings import GERRIT_ENDPOINTS
 
 
 def _response(*, status_code: int = 200, text: str = "", is_redirect: bool = False) -> mock.MagicMock:
@@ -349,6 +351,43 @@ class TestGetRows:
             )
 
         session.get.assert_not_called()
+
+
+class TestGerritSourceResponse:
+    def test_changes_response_shape(self):
+        response = gerrit_source(
+            host="https://gerrit.example.com",
+            username="reviewbot",
+            http_password="secret",
+            endpoint="changes",
+            team_id=1,
+            logger=mock.MagicMock(),
+            resumable_source_manager=_FakeResumeManager(),
+        )
+
+        assert response.name == "changes"
+        assert response.primary_keys == ["id"]
+        # Gerrit returns changes newest-first, so the watermark must only persist at job end.
+        assert response.sort_mode == "desc"
+        assert response.partition_keys == ["created"]
+        assert response.partition_mode == "datetime"
+
+    @pytest.mark.parametrize("endpoint", ["accounts", "projects", "groups"])
+    def test_dimension_endpoints_are_unpartitioned(self, endpoint):
+        response = gerrit_source(
+            host="https://gerrit.example.com",
+            username=None,
+            http_password=None,
+            endpoint=endpoint,
+            team_id=1,
+            logger=mock.MagicMock(),
+            resumable_source_manager=_FakeResumeManager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == GERRIT_ENDPOINTS[endpoint].primary_keys
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
 
 
 class TestValidateCredentials:

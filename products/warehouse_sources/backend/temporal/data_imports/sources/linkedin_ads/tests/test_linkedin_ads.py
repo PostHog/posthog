@@ -11,7 +11,7 @@ from django.db import OperationalError
 import pyarrow as pa
 from parameterized import parameterized
 
-from posthog.models.integration import Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_a
     FLOAT_FIELDS,
     INT_FIELDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import LinkedInAdsSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
@@ -641,6 +642,24 @@ class TestLinkedinAdsClientTokenRefresh:
         else:
             oauth.refresh_access_token.assert_not_called()
         assert client.access_token == "refreshed-token"
+
+    def test_failed_refresh_raises_non_retryable_message(self, mock_integration_model, mock_oauth_cls):
+        integration = mock.MagicMock()
+        integration.access_token = "stale-token"
+        integration.errors = ERROR_TOKEN_REFRESH_FAILED
+        mock_integration_model.objects.get.return_value = integration
+
+        oauth = mock_oauth_cls.return_value
+        oauth.access_token_expired.return_value = True
+
+        with pytest.raises(Exception) as exc_info:
+            linkedin_ads_client(self.config, team_id=789)
+
+        message = str(exc_info.value)
+        assert "Failed to refresh token for LinkedIn Ads integration" in message
+        # The message must be classified non-retryable so a dead token stops the sync instead of looping.
+        patterns = LinkedInAdsSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in patterns)
 
 
 @mock.patch(

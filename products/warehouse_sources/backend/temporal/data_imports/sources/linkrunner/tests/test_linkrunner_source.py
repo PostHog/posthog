@@ -4,6 +4,12 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.source import LinkrunnerSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+class TestSourceConfig:
+    def test_source_type(self) -> None:
+        assert LinkrunnerSource().source_type == ExternalDataSourceType.LINKRUNNER
 
 
 class TestGetSchemas:
@@ -28,6 +34,11 @@ class TestGetSchemas:
         schemas = LinkrunnerSource().get_schemas(MagicMock(), team_id=1, names=["campaigns"])
         assert [s.name for s in schemas] == ["campaigns"]
 
+    def test_documented_tables_render_without_credentials(self) -> None:
+        # lists_tables_without_credentials=True lets the public docs render the table catalog with no I/O.
+        tables = LinkrunnerSource().get_documented_tables()
+        assert {t["name"] for t in tables} == {"campaigns", "attributed_users", "reporting_campaigns"}
+
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
@@ -37,3 +48,33 @@ class TestValidateCredentials:
             ok, error = LinkrunnerSource().validate_credentials(config, team_id=1)
         assert ok is expected
         assert (error is None) is expected
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.linkrunner.io/api/v1/campaigns",
+                True,
+            ),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://api.linkrunner.io/api/v1/attributed-users",
+                True,
+            ),
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.linkrunner.io", False),
+            ("timeout", "HTTPSConnectionPool(host='api.linkrunner.io', port=443): Read timed out.", False),
+        ]
+    )
+    def test_only_credential_errors_are_non_retryable(self, _name: str, observed: str, expected: bool) -> None:
+        non_retryable = LinkrunnerSource().get_non_retryable_errors()
+        assert any(key in observed for key in non_retryable) is expected
+
+
+def test_registered_in_source_registry() -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+
+    sources = SourceRegistry.get_all_sources()
+    assert ExternalDataSourceType.LINKRUNNER in sources
+    assert sources[ExternalDataSourceType.LINKRUNNER].source_type == ExternalDataSourceType.LINKRUNNER

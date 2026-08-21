@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.source import BrevoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brevo import BrevoSourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> BrevoSourceConfig:
@@ -10,6 +11,9 @@ def _config() -> BrevoSourceConfig:
 
 
 class TestBrevoSource:
+    def test_source_type(self) -> None:
+        assert BrevoSource().source_type == ExternalDataSourceType.BREVO
+
     @pytest.mark.parametrize(
         ("valid", "expected_ok", "expected_msg"),
         [(True, True, None), (False, False, "Invalid Brevo API key")],

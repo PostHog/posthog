@@ -17,6 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.
     e_conomic_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.settings import (
+    E_CONOMIC_ENDPOINTS,
+    ENDPOINTS,
+)
 
 # The rest_source client builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -327,11 +331,24 @@ class TestErrorHandling:
 
 
 class TestSourceResponse:
+    @parameterized.expand(sorted(ENDPOINTS))
+    def test_primary_keys_and_sort_mode(self, endpoint: str) -> None:
+        config = E_CONOMIC_ENDPOINTS[endpoint]
+        response = _source(endpoint, _make_manager())
+        assert response.primary_keys == config.primary_keys
+        # Only sortable endpoints advertise ascending order; unsortable ones (e.g. payment_terms) don't.
+        assert response.sort_mode == ("asc" if config.sort else None)
+
     def test_booked_invoices_partition_on_stable_date(self) -> None:
         response = _source("invoices_booked", _make_manager())
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["date"]
         assert response.partition_format == "month"
+
+    def test_non_partitioned_endpoint_has_no_partitioning(self) -> None:
+        response = _source("customers", _make_manager())
+        assert response.partition_mode is None
+        assert response.partition_keys is None
 
 
 class TestValidateCredentials:

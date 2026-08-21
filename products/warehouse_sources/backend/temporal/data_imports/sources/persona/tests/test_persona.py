@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.persona.pe
     _format_datetime_z,
     _to_datetime,
     get_rows,
+    persona_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.settings import PERSONA_ENDPOINTS
 
@@ -384,3 +385,33 @@ class TestVerificationsFanout:
                     resumable_source_manager=manager,  # type: ignore[arg-type]
                 )
             )
+
+
+class TestPersonaSourceResponse:
+    @parameterized.expand(
+        [("inquiries", "created_at"), ("events", "created_at"), ("verifications", "inquiry_created_at")]
+    )
+    def test_incremental_endpoint_partitions_on_created_at_desc(self, endpoint: str, partition_key: str) -> None:
+        response = persona_source(
+            api_key="persona_test",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # sort_mode must be desc — Persona returns newest-first, and the pipeline relies on this to
+        # defer the incremental watermark advance to end-of-sync.
+        assert response.sort_mode == "desc"
+        assert response.partition_keys == [partition_key]
+        assert response.partition_mode == "datetime"
+
+    def test_full_refresh_endpoint_has_no_partitioning(self) -> None:
+        response = persona_source(
+            api_key="persona_test",
+            endpoint="inquiry_templates",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.partition_mode is None
+        assert response.partition_keys is None

@@ -365,6 +365,19 @@ class TestResume:
 
 
 class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("requests_is_incremental", "requests", "desc", ["project_id", "request_id"]),
+            ("members_full_refresh", "members", "asc", ["project_id", "member_id"]),
+            ("projects_top_level", "projects", "asc", ["project_id"]),
+        ]
+    )
+    def test_shape(self, _name: str, endpoint: str, sort_mode: str, primary_keys: list[str]) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == sort_mode
+
     def test_partitioned_only_when_partition_key_set(self) -> None:
         assert _source("requests", _make_manager()).partition_mode == "datetime"
         assert _source("requests", _make_manager()).partition_keys == ["created"]

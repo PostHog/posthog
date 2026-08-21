@@ -12,12 +12,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.surveyspar
     SurveySparrowSource,
     _base_url_for,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.source"
 
 
 def _config(access_token: str = "token", data_center: str = "us") -> SurveySparrowSourceConfig:
     return SurveySparrowSourceConfig(access_token=access_token, data_center=data_center)  # type: ignore[arg-type]
+
+
+class TestSurveySparrowSourceType:
+    def test_source_type(self) -> None:
+        assert SurveySparrowSource().source_type == ExternalDataSourceType.SURVEYSPARROW
 
 
 class TestBaseUrlFor:
@@ -68,3 +74,17 @@ class TestSurveySparrowSourceForPipeline:
             raise AssertionError("expected ValueError")
         except ValueError as e:
             assert "nope" in str(e)
+
+    def test_responses_have_composite_key_and_datetime_partitioning(self) -> None:
+        response = SurveySparrowSource().source_for_pipeline(_config(), MagicMock(), self._inputs("responses"))
+        assert response.name == "responses"
+        assert response.primary_keys == ["survey_id", "id"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["completed_time"]
+        assert response.sort_mode == "asc"
+
+    def test_questions_are_unpartitioned_with_composite_key(self) -> None:
+        response = SurveySparrowSource().source_for_pipeline(_config(), MagicMock(), self._inputs("questions"))
+        assert response.primary_keys == ["survey_id", "id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None

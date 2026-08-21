@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
     TWILIO_MAIN_KEY_REQUIRED_REASON,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ACCOUNT_SID = "AC00000000000000000000000000000000"
 TWILIO_SESSION_PATCH = (
@@ -36,6 +37,29 @@ class TestTwilioSource:
         self.source = TwilioSource()
         self.team_id = 123
         self.config = _api_key_config()
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.TWILIO
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json",
+            "403 Client Error: Forbidden for url: https://api.twilio.com/2010-04-01/Accounts/AC1/Calls.json",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
+            "500 Server Error for url: https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json",
+        ],
+    )
+    def test_non_retryable_errors_ignore_unrelated(self, other_error):
+        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
 
     def test_main_key_only_tables_default_off(self):
         # One-shot setup builds its schema list straight from get_schemas and never calls
@@ -110,3 +134,39 @@ class TestTwilioSource:
 
         assert result == dict.fromkeys(ENDPOINTS)
         mock_session.assert_not_called()
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source.twilio_source")
+    def test_source_for_pipeline_plumbs_arguments(self, mock_twilio_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "messages"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2026-03-04"
+        inputs.incremental_field = "date_sent"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        kwargs = mock_twilio_source.call_args.kwargs
+        assert kwargs["auth"] == ("SK123", "secret")
+        assert kwargs["account_sid"] == ACCOUNT_SID
+        assert kwargs["endpoint"] == "messages"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
+        assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == "2026-03-04"
+        assert kwargs["incremental_field"] == "date_sent"
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source.twilio_source")
+    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_twilio_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "addresses"
+        inputs.should_use_incremental_field = False
+        inputs.db_incremental_field_last_value = "2026-03-04"
+        inputs.incremental_field = None
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_twilio_source.call_args.kwargs["db_incremental_field_last_value"] is None

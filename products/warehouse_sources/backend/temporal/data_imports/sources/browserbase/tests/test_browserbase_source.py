@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase import (
     browserbase,
     source as source_module,
@@ -15,10 +17,58 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.browserbas
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browserbase import (
     BrowserbaseSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> BrowserbaseSourceConfig:
     return BrowserbaseSourceConfig(api_key="bb_test_key")
+
+
+class TestBrowserbaseSourceConfig:
+    def test_source_type(self) -> None:
+        assert BrowserbaseSource().source_type == ExternalDataSourceType.BROWSERBASE
+
+    def test_source_config_basics(self) -> None:
+        config = BrowserbaseSource().get_source_config
+
+        assert config.name == "Browserbase"
+        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
+        # Alpha, and visible (no unreleasedSource) - a finished source ships connectable.
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert not config.unreleasedSource
+        assert config.iconPath.endswith(".svg")
+
+    def test_single_required_api_key_field(self) -> None:
+        fields = BrowserbaseSource().get_source_config.fields
+
+        assert len(fields) == 1
+        field = fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
+        assert field.name == "api_key"
+        assert field.required is True
+        # API keys are secrets - must never be echoed back to the client.
+        assert field.secret is True
+
+
+class TestBrowserbaseSchemas:
+    @parameterized.expand([("sessions",), ("projects",)])
+    def test_every_endpoint_is_full_refresh_only(self, endpoint: str) -> None:
+        # No Browserbase list endpoint exposes a server-side timestamp filter, so nothing can sync
+        # incrementally - guarding against a future edit flipping this on without a real filter.
+        schema = next(s for s in BrowserbaseSource().get_schemas(_config(), team_id=1) if s.name == endpoint)
+
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+        assert schema.incremental_fields == []
+
+    def test_documented_tables_render_for_public_docs(self) -> None:
+        # lists_tables_without_credentials=True means the public docs <SourceTables /> is fed here.
+        tables = BrowserbaseSource().get_documented_tables()
+
+        by_name = {t["name"]: t for t in tables}
+        assert set(by_name) == {"sessions", "projects"}
+        assert by_name["sessions"]["description"]
+        assert by_name["sessions"]["sync_methods"] == ["Full refresh"]
 
 
 class TestBrowserbaseCredentials:

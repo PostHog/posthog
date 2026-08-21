@@ -16,7 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.ramp 
     ramp_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import RAMP_ENDPOINTS, TOKEN_SCOPES
+from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import (
+    ENDPOINTS,
+    RAMP_ENDPOINTS,
+    TOKEN_SCOPES,
+)
 
 # The RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -314,6 +318,22 @@ class TestGetRows:
 
 
 class TestRampSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = RAMP_ENDPOINTS[endpoint]
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        # Ordering within incremental windows is undocumented — desc defers the watermark commit
+        # to run completion.
+        assert response.sort_mode == ("desc" if config.incremental_fields else "asc")
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+
     @pytest.mark.parametrize("config", list(RAMP_ENDPOINTS.values()))
     def test_partition_keys_are_stable_fields(self, config):
         if config.partition_key:

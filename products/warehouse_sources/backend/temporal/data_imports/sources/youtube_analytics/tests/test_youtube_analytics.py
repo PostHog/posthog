@@ -438,6 +438,28 @@ class TestValidateCredentials:
 
 
 class TestYouTubeAnalyticsSourceResponse:
+    @parameterized.expand(
+        [
+            (CHANNEL_DAILY, ["day"]),
+            (TOP_VIDEOS, ["day", "video"]),
+            (DEMOGRAPHICS, ["day", "ageGroup", "gender"]),
+        ]
+    )
+    def test_primary_keys_are_unique_table_wide(self, endpoint: str, expected: list[str]) -> None:
+        response = youtube_analytics_source(
+            access_token="access-token",
+            refresh_access_token=None,
+            channel_id=None,
+            start_date=None,
+            endpoint=endpoint,
+            api_version="v2",
+            logger=mock.MagicMock(),
+            resumable_source_manager=FakeResumeManager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == expected
+
     def test_partitions_and_sorts_on_the_day_column(self) -> None:
         response = youtube_analytics_source(
             access_token="access-token",

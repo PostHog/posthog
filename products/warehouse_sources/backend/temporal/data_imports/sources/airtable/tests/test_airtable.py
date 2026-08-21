@@ -13,6 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airtable.a
     airtable_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.airtable.settings import (
+    AIRTABLE_ENDPOINTS,
+    ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -220,3 +224,22 @@ class TestRecords:
         _wire(session, [_response({"bases": []})])
 
         assert _rows(_source("records")) == []
+
+
+class TestAirtableSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
+        config = AIRTABLE_ENDPOINTS[endpoint]
+        response = _source(endpoint)
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_records_have_composite_primary_key(self, MockSession):
+        response = _source("records")
+        assert response.primary_keys == ["_base_id", "_table_id", "id"]

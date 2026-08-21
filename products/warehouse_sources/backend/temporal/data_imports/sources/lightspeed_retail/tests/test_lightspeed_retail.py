@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.settings import (
+    ENDPOINTS,
     LIGHTSPEED_RETAIL_ENDPOINTS,
 )
 
@@ -271,6 +272,31 @@ class TestGetRows:
 
 
 class TestLightspeedRetailSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, mock_session, endpoint):
+        mock_session.return_value.headers = {}
+        config = LIGHTSPEED_RETAIL_ENDPOINTS[endpoint]
+        response = lightspeed_retail_source(
+            "mystore",
+            "token",
+            endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+            api_version=LIGHTSPEED_RETAIL_API_VERSION_2026_01,
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize("config", list(LIGHTSPEED_RETAIL_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

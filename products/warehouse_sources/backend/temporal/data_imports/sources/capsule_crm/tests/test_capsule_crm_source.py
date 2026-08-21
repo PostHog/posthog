@@ -2,10 +2,13 @@ from typing import Any
 
 from unittest import mock
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source import CapsuleCRMSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.capsulecrm import (
     CapsuleCRMSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCapsuleCRMSource:
@@ -13,6 +16,26 @@ class TestCapsuleCRMSource:
         self.source = CapsuleCRMSource()
         self.config = CapsuleCRMSourceConfig(access_token="tok")
         self.team_id = 123
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.CAPSULECRM
+
+    def test_source_config_basics(self) -> None:
+        config = self.source.get_source_config
+        assert config.label == "Capsule CRM"
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/capsule-crm"
+        field_names = [f.name for f in config.fields]
+        assert field_names == ["access_token"]
+        field = config.fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
+        # The token is a secret so it must render as a password input.
+        assert field.type == "password"
+        assert field.required is True
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas is a static catalog with no I/O, so the public docs catalog can render.
+        assert self.source.lists_tables_without_credentials is True
+        assert len(self.source.get_documented_tables()) == len(self.source.get_schemas(self.config, self.team_id))
 
     def test_validate_credentials_success(self) -> None:
         with mock.patch(

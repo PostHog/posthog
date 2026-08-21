@@ -3,10 +3,17 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
+    SYNC_BUDGET_EXCEEDED_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source import CheckoutComSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkoutcom import (
     CheckoutComSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 DISCOVER_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.discover_report_types"
@@ -25,6 +32,74 @@ class TestCheckoutComSource:
         self.source = CheckoutComSource()
         self.team_id = 123
         self.config = CheckoutComSourceConfig(environment="production", client_id="ack_id", client_secret="secret")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.CHECKOUTCOM
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # Permanent token-exchange failures carry the framework's stable marker.
+            f"HTTP 401 from the OAuth2 token endpoint: invalid_client {OAUTH2_PERMANENT_ERROR_MARKER}",
+            f"HTTP 400 from the OAuth2 token endpoint {OAUTH2_PERMANENT_ERROR_MARKER}",
+            "403 Client Error: Forbidden for url: https://api.checkout.com/disputes?limit=250",
+            "403 Client Error: Forbidden for url: https://api.checkout.com/reports?limit=100",
+            "403 Client Error: Forbidden for url: https://api.sandbox.checkout.com/reports/rpt_1/files/file_1",
+            # A freshly-minted token still gets 401 (not 403) from reports when the access
+            # key lacks the reports scope, so a mid-sync re-mint never resolves it.
+            "401 Client Error: Unauthorized for url: https://api.checkout.com/reports?limit=100",
+            "401 Client Error: Unauthorized for url: https://api.sandbox.checkout.com/reports/rpt_1/files/file_1",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "500 Server Error for url: https://api.checkout.com/disputes",
+            # Mid-sync 401s on the API host are handled by token re-mint.
+            "401 Client Error: Unauthorized for url: https://api.checkout.com/disputes",
+            # Transient token-endpoint errors (429/5xx) carry no marker and stay retryable.
+            "HTTP 429 from the OAuth2 token endpoint",
+            # An expired signed report-file URL is a different host and must stay retryable.
+            "403 Client Error: Forbidden for url: https://checkout-reports.s3.amazonaws.com/file_1",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
+            "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
+            # A run stopped at its per-run API budget is incomplete, not broken: it raises so
+            # the schema never reports Completed over an unfilled range, and the retry resumes
+            # from the last checkpointed window. Classified as a bug, it would page instead.
+            f"{SYNC_BUDGET_EXCEEDED_MARKER} for payment_actions before reaching 2024-03-01T00:00:00Z",
+        ],
+    )
+    def test_retryable_errors_match_transient_and_partial_run_failures(self, observed_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            # A 5xx from a different (potentially non-idempotent) endpoint must stay untouched.
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/pay_1/actions",
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/reports",
+            # A 4xx on the search endpoint itself is a real bug (e.g. a malformed request), not a
+            # transient blip, and must not be classified as retryable.
+            "400 Client Error: Bad Request for url: https://api.checkout.com/payments/search",
+        ],
+    )
+    def test_retryable_errors_does_not_match_other_endpoints(self, other_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert not any(key in other_error for key in retryable_errors)
 
     @mock.patch(DISCOVER_PATCH)
     def test_get_schemas_static_catalog(self, mock_discover):

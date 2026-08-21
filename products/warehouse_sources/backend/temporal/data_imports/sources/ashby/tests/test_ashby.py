@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.ashb
     ashby_source,
     check_access,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.settings import ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -302,3 +303,9 @@ class TestAshbySourceResponse:
         assert response.partition_format is None
         assert response.partition_keys is None
         assert response.primary_keys == ["id"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_all_endpoints_buildable(self, MockSession) -> None:
+        for endpoint in ENDPOINTS:
+            response = _source(endpoint)
+            assert response.primary_keys == ["id"]

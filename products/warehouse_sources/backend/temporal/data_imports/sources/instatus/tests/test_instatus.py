@@ -234,6 +234,21 @@ class TestValidateCredentials:
 
 
 class TestInstatusSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(INSTATUS_ENDPOINTS.keys()))
+    def test_source_response_shape(self, endpoint):
+        config = INSTATUS_ENDPOINTS[endpoint]
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_key
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize(
         "endpoint, expected_keys",
         [

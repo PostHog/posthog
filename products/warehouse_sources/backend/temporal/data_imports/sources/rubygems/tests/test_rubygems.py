@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.r
     rubygems_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.settings import RUBYGEMS_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.rubygems"
 
@@ -281,6 +282,14 @@ class TestGetRows:
 
 
 class TestRubyGemsSource:
+    @pytest.mark.parametrize("endpoint", list(RUBYGEMS_ENDPOINTS))
+    def test_source_response_shape(self, endpoint):
+        response = rubygems_source(endpoint, "rails", structlog.get_logger())
+
+        assert response.name == endpoint
+        assert response.primary_keys == RUBYGEMS_ENDPOINTS[endpoint].primary_keys
+        assert response.sort_mode == "asc"
+
     def test_only_versions_is_partitioned(self):
         # `versions` has a stable created_at timestamp; `gems` has no stable datetime column.
         versions = rubygems_source("versions", "rails", structlog.get_logger())

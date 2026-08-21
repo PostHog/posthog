@@ -18,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.r
     rippling_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import RIPPLING_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import (
+    ENDPOINTS,
+    RIPPLING_ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -270,6 +273,21 @@ class TestGetRows:
 
 
 class TestRipplingSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = RIPPLING_ENDPOINTS[endpoint]
+        response = rippling_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
     @pytest.mark.parametrize("config", list(RIPPLING_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

@@ -236,6 +236,14 @@ class TestValidateCredentials:
 
 
 class TestSvixSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = _source(_make_manager(), endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == SVIX_ENDPOINTS[endpoint].primary_keys
+        # No stable creation timestamp is guaranteed across every object, so we don't partition.
+        assert response.partition_mode is None
+
     def test_primary_keys_per_endpoint(self) -> None:
         assert SVIX_ENDPOINTS["applications"].primary_keys == ["id"]
         assert SVIX_ENDPOINTS["event_types"].primary_keys == ["name"]

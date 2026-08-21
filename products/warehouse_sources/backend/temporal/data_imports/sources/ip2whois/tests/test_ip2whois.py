@@ -251,6 +251,15 @@ class TestGetRows:
 
 
 class TestIP2WhoisSource:
+    def test_source_response_shape(self):
+        response = ip2whois_source("test-key", "whois", "example.com", structlog.get_logger())
+
+        assert response.name == "whois"
+        assert response.primary_keys == ["domain"]
+        assert response.sort_mode == "asc"
+        # WHOIS is a current-state lookup, so no partitioning.
+        assert response.partition_mode is None
+
     def test_invalid_domains_raise(self):
         with pytest.raises(ValueError):
             ip2whois_source("test-key", "whois", "garbage", structlog.get_logger())

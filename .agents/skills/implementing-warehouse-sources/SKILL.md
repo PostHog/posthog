@@ -756,38 +756,46 @@ From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mi
 ## Testing expectations
 
 **Never write a test whose assertion restates a declaration.** A test that reads back `source_type`,
-the labels and icon path in `get_source_config`, the endpoint list in `settings.py`, or the kwargs a
-one-line `source_for_pipeline` forwards, passes because the two halves of the diff were typed
-together. It cannot fail for any reason except someone editing both — so it catches nothing, and 700
-sources' worth of it is a suite nobody reads. That pattern was swept out of the source tests once
-already; don't reintroduce it.
+the labels in `get_source_config`, the endpoint list in `settings.py`, or the kwargs a one-line
+`source_for_pipeline` forwards, passes because both halves of the diff were typed together. It cannot
+fail for any reason except someone editing both, so it catches nothing. That pattern was swept out of
+the source tests once already; don't reintroduce it.
 
-Before each test, answer: _what could break at runtime that this catches?_ If the answer restates
-the source file, delete the test. See `/writing-tests` for the general gate.
+Before each test, answer: _what could break at runtime that this catches?_ If the answer restates the
+source file, don't write it. See `/writing-tests` for the general gate.
 
-Two test modules, covering behavior only:
+The line is whether the thing under test can vary at runtime, not which method it sits on:
 
-- `tests/test_<source>_source.py` (source-class level) — the source class's own decisions:
-  - `validate_credentials` when the class **maps** a probe result to a message (per-schema scope
-    checks, unknown-schema rejection, an error the class rewrites). Skip it when the method just
-    forwards to the transport helper — the transport test already covers that.
-  - `get_schemas` when discovery does real work (paginated listing, per-version endpoint sets,
-    permission-driven filtering). Skip it when it is one `build_endpoint_schemas(...)` call —
-    the helper's own filter and sync-mode behavior is covered in `common/test_source_schema.py`.
-  - `source_for_pipeline` only where it decides something (raising on an unknown schema, picking
-    between two transports). Not the argument forwarding.
-  - for webhook sources: `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior
-    and `webhook_resource_map` correctness.
-- `tests/test_<source>.py` (transport level) — where the real bugs live:
-  - paginator behavior from response headers/body, including the terminal page
-  - incremental vs full-refresh request shaping (which filter/sort params go out, and that a
-    full refresh omits the watermark)
-  - credential validation status mapping (each status the API returns to the message users read)
-  - retry/backoff classification: which statuses are retryable, which are terminal
-  - mapper/normalization helpers, fan-out row shaping, and parent-field injection
+- `get_schemas` that is one `build_endpoint_schemas(...)` call needs no test — the helper's filter and
+  sync-mode behavior is covered in `common/test_source_schema.py`. A `get_schemas` that lists a remote
+  directory, resolves per-version endpoints, or builds qualified names needs tests for each of those.
+- `validate_credentials` that forwards to the transport helper needs no test at the source-class level.
+  One that maps a probe result to a message, rejects an unknown schema, or accepts a missing scope at
+  create time needs one per branch.
+- `source_for_pipeline` that forwards its config needs no test. One that raises on an unknown schema,
+  picks between transports, or resolves anything from schema metadata needs one per branch.
+- Any `raise`, any curated error message a user reads, and any value derived rather than declared —
+  test it. A source whose `SourceResponse.name` comes from a storage key rather than the schema name
+  is a naming branch, and getting it wrong writes data where nothing reads it.
+
+Two test modules:
+
+- `tests/test_<source>_source.py` — the source class's own decisions, per the branches above, plus
+  for webhook sources `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior and
+  `webhook_resource_map` correctness.
+- `tests/test_<source>.py` — the transport, where most bugs live:
+  - paginator behavior from response headers and body, including the terminal page
+  - incremental vs full-refresh request shaping, and that a full refresh omits the watermark
+  - credential validation status mapping: each status the API returns to the message users read
+  - retry classification: which statuses are retryable and which are terminal
+  - mapper and normalization helpers, fan-out row shaping, parent-field injection
   - for resumable sources: resuming from saved state, and state saved after each batch
-  - for incremental cursor pagination: stopping once a page predates the watermark, and walking
-    on when no watermark is set (first sync)
+  - for incremental cursor pagination: stopping once a page predates the watermark, and walking on
+    when no watermark is set
+
+When an error pattern comes from a real API response, keep the verbatim string in the test. That
+wording is field knowledge — it records what the vendor actually emits, which the pattern in
+`get_non_retryable_errors` alone does not tell a reader.
 
 Parameterize status codes and edge cases rather than copying test bodies. Cover the paths that can
 break; do not pad the count.
@@ -838,8 +846,8 @@ Release status (a finished source has NO unreleasedSource flag — it hides the 
 - [ ] featureFlag="dwh-{source_name}" ONLY if you want a controlled rollout instead of releasing to all
 
 Tests & handoff:
-- [ ] Source tests (test_<source>_source.py) — behavior only, no declaration restatements
-- [ ] Transport tests (test_<source>.py)
+- [ ] Source tests (test_<source>_source.py) — branches only, no declaration restatements
+- [ ] Transport tests (test_<source>.py) — paginators, error mapping, request shaping
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
 - [ ] `ruff check . --fix` and `ruff format .`
 - [ ] List any new env vars (OAuth client IDs/secrets, etc) in the PR / handoff

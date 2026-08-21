@@ -272,3 +272,24 @@ class TestExecutionEventsFanOut:
         assert isinstance(saved, VellumResumeConfig)
         assert saved.fanout_state is not None
         assert "/workflow-deployments/A/execution-events" in saved.fanout_state["completed"]
+
+
+class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("workflow_deployments", ["id"], "created"),
+            ("prompt_deployments", ["id"], "created"),
+            ("document_indexes", ["id"], "created"),
+            ("documents", ["id"], None),
+            ("workflow_execution_events", ["workflow_deployment_id", "span_id"], "start"),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_primary_keys_and_partitioning(
+        self, endpoint: str, expected_pks: list[str], expected_partition: str | None, MockSession
+    ) -> None:
+        response = _run(endpoint, _make_manager())
+        assert response.primary_keys == expected_pks
+        assert response.partition_keys == ([expected_partition] if expected_partition else None)
+        assert response.partition_mode == ("datetime" if expected_partition else None)
+        assert response.sort_mode == "asc"

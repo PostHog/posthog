@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zep.zep im
     _headers,
     get_rows,
     validate_credentials,
+    zep_source,
 )
 
 
@@ -202,3 +203,20 @@ class TestThreadMessagesFanOut:
         # Second page requested with cursor advanced past the first two messages.
         assert "cursor=2" in manager.urls[1]  # type: ignore[attr-defined]
         assert manager.saved == [ZepResumeConfig(thread_id="T1", cursor=2)]
+
+
+class TestZepSourceResponse:
+    @parameterized.expand(
+        [
+            ("users", ["uuid"]),
+            ("threads", ["uuid"]),
+            ("thread_messages", ["uuid"]),
+        ]
+    )
+    def test_source_response_shape(self, endpoint: str, expected_pks: list[str]) -> None:
+        response = zep_source("z_test", endpoint, MagicMock(), MagicMock())
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pks
+        assert response.sort_mode == "asc"
+        assert response.partition_keys == ["created_at"]
+        assert response.partition_mode == "datetime"

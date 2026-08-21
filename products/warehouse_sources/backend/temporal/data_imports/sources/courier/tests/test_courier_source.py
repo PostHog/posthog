@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.courier.se
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.courier.source import CourierSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "sk_test") -> Any:
@@ -17,6 +18,9 @@ def _config(api_key: str = "sk_test") -> Any:
 
 
 class TestSourceConfig:
+    def test_source_type(self) -> None:
+        assert CourierSource().source_type == ExternalDataSourceType.COURIER
+
     def test_supports_legacy_and_2_0_0_with_2_0_0_default(self) -> None:
         # 2.0.0 is Courier's current API reference and the new default for new sources; the legacy
         # placeholder stays supported so existing pinned rows keep resolving to the same unversioned
@@ -33,3 +37,11 @@ class TestGetSchemas:
         # Only Messages (enqueued_after) has a genuine server-side timestamp filter.
         assert {name for name, s in schemas.items() if s.supports_incremental} == {"Messages"}
         assert [f["field"] for f in schemas["Messages"].incremental_fields] == ["enqueued"]
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog (no I/O) — public docs render the table list.
+        assert CourierSource.lists_tables_without_credentials is True
+        tables = {t["name"]: t for t in CourierSource().get_documented_tables()}
+        assert set(tables) == set(ENDPOINTS)
+        assert tables["Brands"]["sync_methods"] == ["Full refresh"]
+        assert "Incremental" in tables["Messages"]["sync_methods"]

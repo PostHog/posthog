@@ -614,6 +614,41 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
+    @pytest.mark.parametrize(
+        "endpoint, primary_keys, sort_mode, partition_keys",
+        [
+            ("surveys", ["id"], "asc", ["creationDate"]),
+            ("users", ["id"], "asc", None),
+            ("groups", ["id"], "asc", None),
+            ("divisions", ["divisionId"], "asc", None),
+            ("distributions", ["surveyId", "id"], "desc", None),
+            ("survey_questions", ["surveyId", "QuestionID"], "desc", None),
+            ("survey_responses", ["surveyId", "responseId"], "desc", ["recordedDate"]),
+        ],
+    )
+    def test_response_shape_per_endpoint(
+        self,
+        endpoint: str,
+        primary_keys: list[str],
+        sort_mode: str,
+        partition_keys: list[str] | None,
+    ) -> None:
+        response = qualtrics_source(
+            datacenter_id="iad1",
+            credentials=API_TOKEN_CREDENTIALS,
+            endpoint=endpoint,
+            api_version="v3",
+            logger=mock.MagicMock(),
+            resumable_source_manager=FakeResumeManager(),
+            team_id=1,
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == sort_mode
+        assert response.partition_keys == partition_keys
+        assert response.partition_mode == ("datetime" if partition_keys else None)
+
     def test_items_are_lazy_so_no_request_happens_until_iterated(self) -> None:
         session = _session(get_responses=[_response(json_data=_collection([{"id": "UR_1"}]))])
         response = qualtrics_source(

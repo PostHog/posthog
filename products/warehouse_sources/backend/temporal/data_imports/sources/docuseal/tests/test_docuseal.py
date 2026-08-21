@@ -233,3 +233,23 @@ class TestPagination:
         fetched_afters = {p.get("after") for p in params}
         saved_afters = [call.args[0].after for call in manager.save_state.call_args_list]
         assert all(after in fetched_afters for after in saved_afters)
+
+
+class TestDocusealSourceResponse:
+    @parameterized.expand(["templates", "submissions", "submitters"])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = docuseal_source(
+            api_key="tok",
+            region="us",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # Rows arrive newest-first, so the pipeline must not assume ascending order.
+        assert response.sort_mode == "desc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]

@@ -14,6 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.k
     kustomer_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import (
+    ENDPOINTS,
+    KUSTOMER_ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -233,3 +237,17 @@ class TestPagination:
         req.headers = {}
         auth(req)
         assert req.headers["Authorization"] == "Bearer secret-key"
+
+
+class TestKustomerSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = KUSTOMER_ENDPOINTS[endpoint]
+        response = _source("myorg", "key", endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        # JSON:API rows nest timestamps under attributes — no partitioning.
+        assert response.partition_mode is None
+        assert response.partition_keys is None

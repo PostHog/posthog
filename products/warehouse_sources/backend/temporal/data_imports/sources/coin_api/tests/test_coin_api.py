@@ -16,9 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.c
     _format_time,
     _headers,
     _initial_time_start,
+    coin_api_source,
     get_rows,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.settings import COIN_API_ENDPOINTS
 
 
 class _FakeResponse:
@@ -277,3 +279,33 @@ class TestTimeseriesEndpoint:
         assert len(batches) == 1
         assert len(session.requested_urls) == 1
         manager.save_state.assert_not_called()
+
+
+class TestCoinApiSourceResponse:
+    @parameterized.expand(
+        [
+            ("assets", ["asset_id"], False),
+            ("exchanges", ["exchange_id"], False),
+            ("symbols", ["symbol_id"], False),
+            ("exchange_rates", ["asset_id_base", "asset_id_quote"], False),
+            ("ohlcv_history", ["symbol_id", "period_id", "time_period_start"], True),
+            ("trades_history", ["uuid"], True),
+        ]
+    )
+    def test_primary_keys_and_partitioning(self, endpoint: str, expected_keys: list[str], partitioned: bool) -> None:
+        response = coin_api_source("key", endpoint, mock.MagicMock(), mock.MagicMock())
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        assert response.sort_mode == "asc"
+        if partitioned:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [COIN_API_ENDPOINTS[endpoint].partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
+    def test_every_settings_endpoint_builds_a_source_response(self) -> None:
+        for endpoint in COIN_API_ENDPOINTS:
+            response = coin_api_source("key", endpoint, mock.MagicMock(), mock.MagicMock())
+            assert response.name == endpoint
+            assert response.primary_keys == COIN_API_ENDPOINTS[endpoint].primary_keys

@@ -15,7 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.care_quali
     _build_url,
     _fetch,
     _get_headers,
+    care_quality_commission_source,
     get_rows,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.settings import (
+    CQC_ENDPOINTS,
 )
 
 
@@ -221,6 +225,23 @@ class TestGetRowsFanOut:
         }
         rows = _collect(_FakeResumableManager(), monkeypatch, pages, partner_code=None)
         assert rows == [{"providerId": "1-A"}]
+
+
+class TestSourceResponse:
+    @parameterized.expand([("providers", ["providerId"]), ("locations", ["locationId"])])
+    def test_response_shape(self, endpoint: str, expected_keys: list[str]) -> None:
+        response = care_quality_commission_source(
+            api_key="key",
+            partner_code="PC",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        # Partition on the stable registration date so partitions never rewrite.
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [CQC_ENDPOINTS[endpoint].partition_key]
 
 
 class TestValidateCredentials:

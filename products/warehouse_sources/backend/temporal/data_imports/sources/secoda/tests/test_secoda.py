@@ -207,6 +207,15 @@ class TestValidateCredentials:
 
 
 class TestSecodaSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        # Construction does no I/O (items is a lazy generator), so no session patch is needed.
+        response = secoda_source("sk-key", endpoint, team_id=1, job_id="j", resumable_source_manager=mock.MagicMock())
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # No stable creation timestamp is guaranteed across every object, so we don't partition.
+        assert response.partition_mode is None
+
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in SECODA_ENDPOINTS.values())
         assert set(SECODA_ENDPOINTS) == set(ENDPOINTS)

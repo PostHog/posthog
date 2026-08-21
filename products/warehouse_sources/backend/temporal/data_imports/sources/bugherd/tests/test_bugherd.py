@@ -163,6 +163,33 @@ class TestValidateCredentials:
 
 class TestBugherdSourceTopLevel:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd.rest_api_resource")
+    def test_organization_builds_response(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        resp = bugherd_source(
+            api_key="key", endpoint="Organization", team_id=1, job_id="job-1", resumable_source_manager=manager
+        )
+
+        assert resp.name == "Organization"
+        assert resp.primary_keys == ["id"]
+        assert resp.partition_mode is None
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd.rest_api_resource")
+    def test_projects_partitions_on_created_at(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        resp = bugherd_source(
+            api_key="key", endpoint="Projects", team_id=1, job_id="job-1", resumable_source_manager=manager
+        )
+
+        assert resp.partition_mode == "datetime"
+        assert resp.partition_keys == ["created_at"]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd.rest_api_resource")
     def test_flat_endpoint_seeds_paginator_from_saved_page(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
         manager = MagicMock(spec=ResumableSourceManager)

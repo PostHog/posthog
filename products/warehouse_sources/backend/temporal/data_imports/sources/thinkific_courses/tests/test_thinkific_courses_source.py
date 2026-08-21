@@ -4,18 +4,47 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkificcourses import (
     ThinkificCoursesSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.source import (
     ThinkificCoursesSource,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.source.validate_thinkific_credentials"
 
 
 def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificCoursesSourceConfig:
     return ThinkificCoursesSourceConfig(api_key=api_key, subdomain=subdomain)
+
+
+class TestThinkificCoursesSourceConfig:
+    def test_source_type(self) -> None:
+        assert ThinkificCoursesSource().source_type == ExternalDataSourceType.THINKIFICCOURSES
+
+    def test_source_config_is_released_alpha(self) -> None:
+        cfg = ThinkificCoursesSource().get_source_config
+        assert cfg.label == "Thinkific Courses"
+        assert cfg.category == DataWarehouseSourceCategory.E_COMMERCE
+        assert cfg.releaseStatus == ReleaseStatus.ALPHA
+        # unreleasedSource hides the connector from every user; a finished source must not carry it.
+        assert not cfg.unreleasedSource
+
+    def test_source_config_fields(self) -> None:
+        cfg = ThinkificCoursesSource().get_source_config
+        fields = {f.name: f for f in cfg.fields}
+        assert set(fields) == {"api_key", "subdomain"}
+        api_key, subdomain = fields["api_key"], fields["subdomain"]
+        assert isinstance(api_key, SourceFieldInputConfig)
+        assert isinstance(subdomain, SourceFieldInputConfig)
+        # The secret must be a password field; the subdomain is a plain text identifier.
+        assert api_key.type == "password"
+        assert api_key.secret is True
+        assert subdomain.type == "text"
+        assert subdomain.secret is False
 
 
 class TestThinkificCoursesValidateCredentials:

@@ -343,3 +343,15 @@ class TestValidateCredentials:
     def test_network_error_is_invalid(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("live_key") is False
+
+
+class TestSourceResponse:
+    @parameterized.expand([("tasks", ["task_id"]), ("batches", ["name"]), ("projects", ["name"])])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_primary_keys_and_desc_sort(self, endpoint: str, primary_keys: list[str], MockSession) -> None:
+        # sort_mode="desc" defers watermark persistence to job end — required because tasks filter on
+        # updated_at but arrive in created_at order.
+        response = _source(endpoint)
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == "desc"
+        assert response.partition_keys == ["created_at"]

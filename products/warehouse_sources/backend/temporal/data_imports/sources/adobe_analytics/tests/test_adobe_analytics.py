@@ -25,7 +25,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
     resolve_window,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.settings import REPORT_PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.settings import (
+    ADOBE_ANALYTICS_ENDPOINTS,
+    ENDPOINTS,
+    REPORT_PAGE_SIZE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics"
@@ -664,6 +668,25 @@ class TestReportEndpoint:
 
 
 class TestAdobeAnalyticsSourceResponse:
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    def test_primary_keys_match_the_endpoint_catalog(self, endpoint: str) -> None:
+        response = adobe_analytics_source(
+            client_id="cid",
+            client_secret="sec",
+            global_company_id="gcid",
+            report_suite_id="rs1",
+            report_dimension=None,
+            report_metrics=None,
+            start_date=None,
+            endpoint=endpoint,
+            logger=_LOGGER,
+            resumable_source_manager=FakeResumeManager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == ADOBE_ANALYTICS_ENDPOINTS[endpoint].primary_key
+        assert response.sort_mode == "asc"
+
     def test_report_is_partitioned_on_the_stable_day_column(self) -> None:
         response = adobe_analytics_source(
             client_id="cid",
@@ -681,3 +704,20 @@ class TestAdobeAnalyticsSourceResponse:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["date"]
         assert response.partition_format == "month"
+
+    def test_metadata_tables_are_not_datetime_partitioned(self) -> None:
+        response = adobe_analytics_source(
+            client_id="cid",
+            client_secret="sec",
+            global_company_id="gcid",
+            report_suite_id="rs1",
+            report_dimension=None,
+            report_metrics=None,
+            start_date=None,
+            endpoint="segments",
+            logger=_LOGGER,
+            resumable_source_manager=FakeResumeManager(),
+        )
+
+        assert response.partition_mode is None
+        assert response.partition_keys is None

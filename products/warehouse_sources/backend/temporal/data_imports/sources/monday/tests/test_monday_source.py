@@ -2,7 +2,9 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.source import MondaySource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMondaySource:
@@ -10,6 +12,48 @@ class TestMondaySource:
         self.source = MondaySource()
         self.team_id = 123
         self.config = MondaySourceConfig(api_token="api-token")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.MONDAY
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.monday.com/v2",
+            "monday.com GraphQL error: User unauthorized to perform action",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
+            "500 Server Error for url: https://api.monday.com/v2",
+            "monday.com complexity budget exhausted: budget left 0",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
+    def test_get_schemas_are_full_refresh_only(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+        assert all(not schema.supports_incremental for schema in schemas)
+        assert all(not schema.supports_append for schema in schemas)
+        assert all(schema.incremental_fields == [] for schema in schemas)
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["items"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "items"
+
+    def test_get_schemas_filtered_unknown_name_returns_empty(self):
+        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

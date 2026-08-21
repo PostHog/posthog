@@ -311,8 +311,22 @@ class TestValidateCredentials:
 
 
 class TestShopWiredSourceResponse:
+    @parameterized.expand([("products",), ("orders",), ("order_statuses",), ("vouchers",)])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        assert response.partition_count == 1
+        assert response.partition_size == 1
+
     def test_orders_partition_on_stable_created_field(self) -> None:
         response = _source("orders", _make_manager())
         assert response.partition_mode == "datetime"
         assert response.partition_format == "month"
         assert response.partition_keys == ["created"]
+
+    def test_non_order_endpoints_have_no_datetime_partition(self) -> None:
+        response = _source("products", _make_manager())
+        assert response.partition_mode is None
+        assert response.partition_keys is None

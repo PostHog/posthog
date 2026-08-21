@@ -190,10 +190,9 @@ class TestBuildEndpointSchemas:
     def _build(self, **kwargs) -> list[SourceSchema]:
         return build_endpoint_schemas(self.ENDPOINTS, self.INCREMENTAL, **kwargs)
 
-    def test_endpoint_with_tracking_fields_syncs_incrementally(self) -> None:
+    def test_only_endpoints_with_tracking_fields_sync_incrementally(self) -> None:
         schemas = {s.name: s for s in self._build()}
 
-        assert [s.name for s in self._build()] == self.ENDPOINTS
         assert (schemas["contacts"].supports_incremental, schemas["contacts"].supports_append) == (True, True)
         assert schemas["contacts"].incremental_fields == self.INCREMENTAL["contacts"]
         assert (schemas["campaigns"].supports_incremental, schemas["campaigns"].supports_append) == (False, False)
@@ -221,3 +220,20 @@ class TestBuildEndpointSchemas:
     )
     def test_names_filter(self, _name: str, names: list[str] | None, expected: list[str]) -> None:
         assert [s.name for s in self._build(names=names)] == expected
+
+    def test_per_endpoint_metadata_reaches_the_schema(self) -> None:
+        # should_sync_default drives which tables are pre-checked in the picker, so a regression
+        # here silently changes what a new source syncs on its first run.
+        schemas = {
+            s.name: s
+            for s in self._build(
+                descriptions={"campaigns": "Every campaign"},
+                should_sync_default={"events": False},
+                supports_webhooks=["contacts"],
+            )
+        }
+
+        assert schemas["campaigns"].description == "Every campaign"
+        assert schemas["contacts"].description is None
+        assert (schemas["events"].should_sync_default, schemas["campaigns"].should_sync_default) == (False, True)
+        assert (schemas["contacts"].supports_webhooks, schemas["campaigns"].supports_webhooks) == (True, False)

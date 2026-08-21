@@ -3,15 +3,45 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.source import ChargedeskSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargedesk import (
     ChargedeskSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> ChargedeskSourceConfig:
     return ChargedeskSourceConfig(api_key="sk_test")
+
+
+class TestChargedeskSourceConfig:
+    def test_source_type(self) -> None:
+        assert ChargedeskSource().source_type == ExternalDataSourceType.CHARGEDESK
+
+    def test_single_secret_api_key_field(self) -> None:
+        fields = ChargedeskSource().get_source_config.fields
+        assert len(fields) == 1
+        api_key_field = fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert api_key_field.name == "api_key"
+        # The secret key must be stored as a password/secret, never plain text.
+        assert api_key_field.secret is True
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas is a static catalog, so the public docs can render the table list.
+        assert ChargedeskSource.lists_tables_without_credentials is True
+
+
+class TestGetSchemas:
+    def test_incremental_fields_use_resource_timestamp(self) -> None:
+        schemas = {s.name: s for s in ChargedeskSource().get_schemas(_config(), team_id=1)}
+        assert schemas["charges"].incremental_fields[0]["field"] == "occurred"
+        # Customers/subscriptions track the creation timestamp column that the row actually carries.
+        assert schemas["customers"].incremental_fields[0]["field"] == "first_seen"
+        assert schemas["subscriptions"].incremental_fields[0]["field"] == "first_seen"
 
 
 class TestValidateCredentials:

@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import ENDPOINTS, VALUES_ENDPOINT
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source import UbidotsSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestUbidotsSource:
@@ -15,6 +16,12 @@ class TestUbidotsSource:
         self.source = UbidotsSource()
         self.team_id = 123
         self.config = UbidotsSourceConfig(api_token="BBUS-token")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.UBIDOTS
+
+    def test_lists_tables_without_credentials(self) -> None:
+        assert self.source.lists_tables_without_credentials is True
 
     def test_get_schemas_only_values_is_incremental(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
@@ -29,6 +36,40 @@ class TestUbidotsSource:
                 continue
             assert schema.supports_incremental is False
             assert schema.incremental_fields == []
+
+    def test_get_schemas_filtered_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["devices"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "devices"
+
+    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
+        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
+
+    def test_documented_tables_render_for_public_docs(self) -> None:
+        tables = self.source.get_documented_tables()
+        assert {t["name"] for t in tables} == set(ENDPOINTS)
+
+    @parameterized.expand(
+        [
+            ("401 Client Error: Unauthorized for url: https://industrial.api.ubidots.com/api/v2.0/devices/",),
+            ("403 Client Error: Forbidden for url: https://industrial.api.ubidots.com/api/v2.0/variables/",),
+            ("401 Client Error: Unauthorized for url: https://things.ubidots.com/api/v1.6/variables/abc/values",),
+            ("403 Client Error: Forbidden for url: https://things.ubidots.com/api/v2.0/events/",),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("500 Server Error: Internal Server Error for url: https://industrial.api.ubidots.com/api/v2.0/devices/",),
+            ("429 Client Error: Too Many Requests for url: https://things.ubidots.com/api/v2.0/variables/",),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
 
     def test_version_declarations(self) -> None:
         # v2.0 is the default new sources are stamped with; v1 stays supported so existing pins keep

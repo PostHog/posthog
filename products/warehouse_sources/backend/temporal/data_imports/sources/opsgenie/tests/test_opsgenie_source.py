@@ -1,7 +1,9 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.source import OpsgenieSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 OPSGENIE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie"
 
@@ -10,6 +12,49 @@ class TestOpsgenieSource:
     def setup_method(self) -> None:
         self.source = OpsgenieSource()
         self.config = MagicMock(api_key="key_123", region="us")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.OPSGENIE
+
+    def test_get_schemas_lists_all_endpoints(self) -> None:
+        schemas = self.source.get_schemas(self.config, team_id=1)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+
+    def test_only_alerts_and_incidents_support_incremental(self) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
+
+        for name in ("alerts", "incidents"):
+            assert schemas[name].supports_incremental is True, name
+            assert schemas[name].incremental_fields[0]["field"] == "createdAt", name
+            assert schemas[name].incremental_fields[0]["field_type"] == IncrementalFieldType.DateTime, name
+
+        for name in ENDPOINTS:
+            if name in ("alerts", "incidents"):
+                continue
+            assert schemas[name].supports_incremental is False, name
+            assert schemas[name].incremental_fields == [], name
+
+    def test_no_endpoint_supports_append(self) -> None:
+        # Opsgenie alerts and incidents mutate after creation (status, acknowledgement),
+        # so append-only mode is never offered.
+        schemas = self.source.get_schemas(self.config, team_id=1)
+        assert all(s.supports_append is False for s in schemas)
+
+    def test_get_schemas_filters_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, team_id=1, names=["alerts", "users"])
+        assert {s.name for s in schemas} == {"alerts", "users"}
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "401 Client Error: Unauthorized for url: https://api.opsgenie.com",
+            "403 Client Error: Forbidden for url: https://api.opsgenie.com",
+            "401 Client Error: Unauthorized for url: https://api.eu.opsgenie.com",
+            "403 Client Error: Forbidden for url: https://api.eu.opsgenie.com",
+        ],
+    )
+    def test_non_retryable_errors_includes_pattern(self, pattern: str) -> None:
+        assert pattern in self.source.get_non_retryable_errors()
 
     def test_validate_credentials_success(self) -> None:
         with patch(f"{OPSGENIE_MODULE}.source.validate_opsgenie_credentials", return_value=(True, 200, None)):

@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.
     _normalize_row,
     _parse_timestamp,
     _run_query,
+    coralogix_source,
     get_rows,
     validate_credentials,
 )
@@ -351,6 +352,25 @@ class TestGetRows:
         assert server.calls[-1]["end"] == NOW
         for previous, current in zip(server.calls, server.calls[1:]):
             assert current["start"] == previous["end"]
+
+
+class TestCoralogixSource:
+    @parameterized.expand([("logs", ["logid"]), ("spans", None)])
+    def test_source_response_shape(self, endpoint: str, expected_primary_keys: list[str] | None) -> None:
+        response = coralogix_source(
+            api_key="k",
+            domain="eu2.coralogix.com",
+            tier="archive",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_primary_keys
+        # Rows are sorted per window and windows advance chronologically, so per-batch watermark
+        # checkpointing (asc) is safe; the partition key is the immutable event timestamp.
+        assert response.sort_mode == "asc"
+        assert response.partition_keys == ["timestamp"]
 
 
 class TestValidateCredentials:

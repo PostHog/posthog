@@ -212,6 +212,21 @@ class TestReverbSourceOrders:
         assert "updated_end_date" not in snapshots[0]["params"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_write_disposition_is_merge_when_incremental(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response("orders", [{"order_number": "1"}], total_pages=1)])
+
+        response = _source(
+            "Orders",
+            _make_manager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+        )
+
+        assert response.primary_keys == ["order_number"]
+        assert response.sort_mode == "desc"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_on_empty_page(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response("orders", [], total_pages=1)])

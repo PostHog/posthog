@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lob.lob im
     _format_date_filter_value,
     _parse_date_created,
     get_rows,
+    lob_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lob.settings import LOB_ENDPOINTS
@@ -243,3 +244,14 @@ class TestValidateCredentials:
             is_valid, status_code = validate_credentials("k")
         assert is_valid is False
         assert status_code is None
+
+
+class TestLobSource:
+    @parameterized.expand([("letters", "asc"), ("postcards", "asc"), ("addresses", "desc"), ("campaigns", "desc")])
+    def test_sort_mode_matches_incremental_support(self, endpoint: str, expected_sort: str) -> None:
+        response = lob_source("k", endpoint, MagicMock(), _manager())
+        assert response.sort_mode == expected_sort
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["date_created"]
+        assert response.partition_mode == "datetime"

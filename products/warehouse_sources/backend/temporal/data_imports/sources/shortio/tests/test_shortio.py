@@ -154,6 +154,18 @@ class TestShortioSource:
         _rows(shortio_source("sk-key", "domains", team_id=1, job_id="j"))
         assert captured["authorization"] == "sk-key"
 
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        response = shortio_source("sk-key", endpoint, team_id=1, job_id="j")
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # The domain list carries no stable creation timestamp guarantee, so we don't partition.
+        assert response.partition_mode is None
+
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in SHORTIO_ENDPOINTS.values())
         assert set(SHORTIO_ENDPOINTS) == set(ENDPOINTS)

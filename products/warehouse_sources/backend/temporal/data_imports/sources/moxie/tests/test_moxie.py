@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.moxi
     normalize_base_url,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.settings import ENDPOINTS, MOXIE_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -131,12 +132,24 @@ class TestMoxieTransport:
 
 
 class TestSourceResponseConfig:
+    def test_all_endpoints_buildable_with_declared_keys(self) -> None:
+        for endpoint in ENDPOINTS:
+            response = _source(endpoint)
+            assert response.name == endpoint
+            assert response.primary_keys == MOXIE_ENDPOINTS[endpoint].primary_keys
+
     def test_projects_and_invoices_partition_on_a_stable_creation_field(self) -> None:
         for endpoint in ("projects", "payable_invoices"):
             response = _source(endpoint)
             assert response.partition_mode == "datetime"
             assert response.partition_format == "month"
             assert response.partition_keys == ["dateCreated"]
+
+    def test_endpoints_without_a_creation_field_are_unpartitioned(self) -> None:
+        for endpoint in ("clients", "contacts", "email_templates", "workspace_users"):
+            response = _source(endpoint)
+            assert response.partition_mode is None
+            assert response.partition_keys is None
 
 
 class TestValidateCredentials:

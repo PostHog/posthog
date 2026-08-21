@@ -1,12 +1,21 @@
+from typing import Optional
+
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.settings import INCREMENTAL_FIELDS
+from parameterized import parameterized
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    PARTITION_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.source import BigCommerceSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigcommerce import (
     BigCommerceSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = set(INCREMENTAL_FIELDS.keys())
 
@@ -26,6 +35,9 @@ class TestBigCommerceSource:
         self.source = BigCommerceSource()
         self.team_id = 123
         self.config = BigCommerceSourceConfig(store_hash="store123", access_token="test-token")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.BIGCOMMERCE
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
@@ -107,3 +119,21 @@ class TestBigCommerceSource:
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
         assert response.sort_mode == "asc"
+
+    @parameterized.expand(sorted(ENDPOINTS))
+    def test_source_for_pipeline_partitioning(self, endpoint):
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+        inputs = _make_inputs(endpoint)
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.source.bigcommerce_source"
+        ) as mock_source:
+            mock_source.return_value = mock.MagicMock(name=endpoint, column_hints=None)
+            response = self.source.source_for_pipeline(self.config, manager, inputs)
+
+        expected_key: Optional[str] = PARTITION_FIELDS.get(endpoint)
+        if expected_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [expected_key]
+        else:
+            assert response.partition_keys is None

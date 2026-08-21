@@ -124,6 +124,25 @@ class TestCortexTransport:
         assert flattened["source_entity_tag"] is None
         assert flattened["destination_entity_tag"] is None
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.rest_api_resource")
+    def test_cortex_source_entities_top_level(self, mock_rest_api_resource: Mock) -> None:
+        mock_rest_api_resource.return_value = Mock()
+        response = cortex_source(api_key="cx_key", endpoint="entities", team_id=1, job_id="job-1")
+
+        assert response.name == "entities"
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        assert response.partition_keys is None
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.rest_api_resource")
+    def test_cortex_source_scorecards_partitions_on_date_created(self, mock_rest_api_resource: Mock) -> None:
+        mock_rest_api_resource.return_value = Mock()
+        response = cortex_source(api_key="cx_key", endpoint="scorecards", team_id=1, job_id="job-1")
+
+        assert response.primary_keys == ["tag"]
+        assert response.partition_keys == ["dateCreated"]
+        assert response.partition_mode == "datetime"
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
     def test_cortex_source_scorecard_scores_fanout_flattens_and_injects_parent_tag(
         self, mock_build_dependent_resource: Mock

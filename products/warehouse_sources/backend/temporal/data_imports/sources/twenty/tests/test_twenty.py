@@ -10,6 +10,7 @@ import requests
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.twenty import twenty as twenty_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.settings import TWENTY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.twenty import (
     TwentyHostNotAllowedError,
     TwentyResumeConfig,
@@ -232,6 +233,17 @@ class TestValidateCredentials:
         with self._patch_session(self._resp(status_code=200)) as patched:
             validate_credentials(None, "tok", team_id=1)
             assert patched.call_args.kwargs["redact_values"] == ("tok",)
+
+
+class TestTwentySourceResponse:
+    @pytest.mark.parametrize("endpoint", list(TWENTY_ENDPOINTS.keys()))
+    def test_response_shape(self, endpoint):
+        response = _source(_make_manager(), endpoint=endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        assert response.partition_keys == ["createdAt"]
+        assert response.partition_mode == "datetime"
 
 
 class TestPagination:

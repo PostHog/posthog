@@ -8,11 +8,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.k
     KubecostResumeConfig,
     get_rows,
     hostname_of,
+    kubecost_source,
     normalize_host,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.settings import (
     DEFAULT_BACKFILL_DAYS,
+    ENDPOINTS,
     INCREMENTAL_LOOKBACK_DAYS,
 )
 
@@ -324,3 +326,17 @@ class TestGetRows:
                     _make_manager(KubecostResumeConfig(next_date="2026-07-15")),
                 )
             )
+
+
+class TestKubecostSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        response = kubecost_source("https://k.example.com", "token", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        # The result-set key is only unique within one window, so the window
+        # start must be part of the composite key.
+        assert response.primary_keys == ["key", "window_start"]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["window_start"]

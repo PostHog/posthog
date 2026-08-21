@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_clo
     _as_unix_seconds,
     _flatten_update,
     get_rows,
+    pulumi_cloud_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.settings import (
@@ -477,3 +478,31 @@ class TestFetchRetries:
         with pytest.raises(requests.HTTPError):
             pulumi_cloud._fetch(session, "https://api.pulumi.com/api/user", {}, MagicMock())
         assert session.get.call_count == 1
+
+
+class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("stacks", "asc", None),
+            # Newest-first endpoints report "desc" so the incremental watermark persists only at
+            # successful job end; "asc" per-batch persistence would checkpoint the watermark to
+            # ≈now after the first (newest) batch and lose everything a crashed run still owed.
+            ("stack_updates", "desc", None),
+            ("deployments", "desc", "created"),
+            ("audit_logs", "desc", None),
+            ("resources", "asc", "created"),
+        ]
+    )
+    def test_sort_mode_partition_and_primary_keys(
+        self, endpoint: str, expected_sort: str, partition_key: str | None
+    ) -> None:
+        response = pulumi_cloud_source(
+            access_token="pul-test",
+            organization="my-org",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.sort_mode == expected_sort
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.primary_keys == PULUMI_CLOUD_ENDPOINTS[endpoint].primary_keys

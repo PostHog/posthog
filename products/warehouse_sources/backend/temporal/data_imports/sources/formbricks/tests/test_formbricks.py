@@ -20,11 +20,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks
     _build_initial_params,
     _build_url,
     check_access,
+    formbricks_source,
     get_rows,
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import FORMBRICKS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import (
+    ENDPOINTS,
+    FORMBRICKS_ENDPOINTS,
+)
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = formbricks._fetch_page.__wrapped__  # type: ignore[attr-defined]
@@ -410,3 +414,25 @@ class TestCheckAccess:
 
     def test_validate_credentials_requires_api_key(self) -> None:
         assert validate_credentials(None, "", team_id=1) == (False, "Missing Formbricks API key")
+
+
+class TestFormbricksSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = formbricks_source(
+            host=None,
+            api_key="fb-key",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+            team_id=1,
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        if endpoint == "responses":
+            # Responses can grow large, so they partition on the stable creation timestamp.
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == ["createdAt"]
+        else:
+            assert response.partition_mode is None

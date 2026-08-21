@@ -177,6 +177,21 @@ class TestGroq:
 
     @parameterized.expand(
         [
+            ("batches", "created_at"),
+            ("files", "created_at"),
+            ("models", "created"),
+        ]
+    )
+    def test_groq_source_maps_primary_keys_and_partitioning(self, endpoint: str, partition_key: str) -> None:
+        # No network: SourceResponse metadata is built eagerly, rows only on iteration.
+        response = groq_source("gsk_k", endpoint, team_id=1, job_id="j")
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [partition_key]
+
+    @parameterized.expand(
+        [
             ("valid", 200, True, True, 200),
             ("invalid", 401, False, False, 401),
             ("forbidden", 403, False, False, 403),

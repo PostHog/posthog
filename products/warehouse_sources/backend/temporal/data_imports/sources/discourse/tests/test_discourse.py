@@ -386,6 +386,21 @@ class TestPipelineTransport:
         with pytest.raises(DiscourseHostNotAllowedError):
             _rows(_source(_make_manager(), "categories", base_url="https://169.254.169.254\\@forum.example.com"))
 
+    @parameterized.expand(
+        [
+            ("categories", ["id"]),
+            ("topics", ["id"]),
+            ("posts", ["id"]),
+            ("tags", ["id"]),
+            ("groups", ["id"]),
+            ("users", ["id"]),
+        ]
+    )
+    def test_source_returns_declared_primary_keys(self, endpoint: str, expected_keys: list[str]) -> None:
+        response = _source(_make_manager(), endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+
     def test_posts_sort_mode_is_descending(self) -> None:
         assert _source(_make_manager(), "posts").sort_mode == "desc"
 

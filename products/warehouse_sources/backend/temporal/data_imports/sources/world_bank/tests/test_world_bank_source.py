@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 import structlog
 from requests import Response
 
+from posthog.schema import ReleaseStatus
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -15,12 +17,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.worldbank import (
     WorldBankSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.settings import ENDPOINTS, PRIMARY_KEYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source import WorldBankSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
     MAX_INDICATOR_CODES,
     world_bank_source,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str = "countries") -> SourceInputs:
@@ -45,10 +51,45 @@ class TestWorldBankSource:
         self.source = WorldBankSource()
         self.config = WorldBankSourceConfig(indicator_codes="SP.POP.TOTL\nNY.GDP.PCAP.CD")
 
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.WORLDBANK
+
+    def test_get_source_config(self) -> None:
+        config = self.source.get_source_config
+
+        assert config.name.value == "WorldBank"
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/world-bank"
+        assert config.iconPath == "/static/services/world_bank.png"
+        # A finished source ships visible; re-adding the flag would hide it from every user.
+        assert not config.unreleasedSource
+
     def test_pinned_version_matches_the_path_the_code_calls(self) -> None:
         assert self.source.default_version == "v2"
         assert self.source.supported_versions == ("v2",)
         assert self.source.resolve_api_version(None) == "v2"
+
+    def test_get_schemas(self) -> None:
+        schemas = self.source.get_schemas(self.config, team_id=123)
+
+        assert [schema.name for schema in schemas] == list(ENDPOINTS)
+        # No endpoint has a server-side "changed since" filter, so nothing may advertise
+        # incremental or append sync.
+        assert not any(schema.supports_incremental for schema in schemas)
+        assert not any(schema.supports_append for schema in schemas)
+        assert all(schema.description for schema in schemas)
+
+    def test_documented_tables_render_without_credentials(self) -> None:
+        # The public docs endpoint builds a blank config and calls get_schemas, so discovery must
+        # do no I/O.
+        tables = self.source.get_documented_tables()
+
+        assert [table["name"] for table in tables] == list(ENDPOINTS)
+
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    def test_every_endpoint_has_a_primary_key_and_canonical_descriptions(self, endpoint: str) -> None:
+        assert PRIMARY_KEYS[endpoint]
+        assert CANONICAL_DESCRIPTIONS[endpoint]["columns"]
 
     def test_indicator_data_primary_key_is_unique_table_wide(self) -> None:
         # One table holds observations for every configured indicator, so the indicator has to be

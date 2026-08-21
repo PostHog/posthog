@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.sett
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source import KommoSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source"
 
@@ -19,6 +20,14 @@ class TestKommoSource:
         self.source = KommoSource()
         self.team_id = 123
         self.config = KommoSourceConfig(subdomain="acme", api_key="test-token")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.KOMMO
+
+    def test_subdomain_is_declared_as_a_connection_host_field(self) -> None:
+        # The token is sent to https://<subdomain>.kommo.com, so editing the subdomain must
+        # force the token to be re-entered instead of reusing the stored one.
+        assert self.source.connection_host_fields == ["subdomain"]
 
     def test_api_version_is_pinned_to_the_path_the_source_calls(self) -> None:
         assert self.source.supported_versions == ("v4",)
@@ -41,6 +50,28 @@ class TestKommoSource:
         assert set(INCREMENTAL_FIELDS) == {
             name for name, endpoint in ENDPOINT_CONFIG.items() if endpoint.incremental_param is not None
         }
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://acme.kommo.com/api/v4/leads",
+            "403 Client Error: Forbidden for url: https://acme.kommo.com/api/v4/users",
+            "402 Client Error: Payment Required for url: https://acme.kommo.com/api/v4/events",
+            "404 Client Error: Not Found for url: https://acme.kommo.com/api/v4/leads",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_and_billing_failures(self, observed_error: str) -> None:
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "429 Client Error: Too Many Requests for url: https://acme.kommo.com/api/v4/leads",
+            "500 Server Error for url: https://acme.kommo.com/api/v4/leads",
+        ],
+    )
+    def test_non_retryable_errors_leave_transient_failures_retryable(self, observed_error: str) -> None:
+        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
     @pytest.mark.parametrize("subdomain", ["acme.amocrm.ru", "evil.example.com/acme", "", "acme_corp"])
     @mock.patch(f"{_MODULE}.validate_kommo_credentials")

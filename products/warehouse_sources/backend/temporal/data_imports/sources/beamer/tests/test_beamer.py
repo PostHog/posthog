@@ -397,6 +397,27 @@ class TestFanOut:
 
 
 class TestBeamerSourceResponse:
+    @parameterized.expand(
+        [
+            ("posts", ["id"], "date", "desc"),
+            ("feature_requests", ["id"], "date", "desc"),
+            ("nps", ["id"], "date", "desc"),
+            ("users", ["beamerId"], "firstSeen", "asc"),
+            ("post_comments", ["post_id", "id"], "date", "asc"),
+            ("feature_request_votes", ["feature_request_id", "id"], "date", "asc"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(
+        self, endpoint: str, primary_keys: list[str], partition_key: str, sort_mode: str, MockSession
+    ) -> None:
+        response = _source(endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.partition_keys == [partition_key]
+        assert response.partition_mode == "datetime"
+        assert response.sort_mode == sort_mode
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_endpoints_sort_desc(self, MockSession) -> None:
         # Endpoints with a server-side dateFrom filter must use "desc" so the watermark is only

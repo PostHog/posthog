@@ -294,6 +294,39 @@ class TestOffsetPagination:
 
 
 class TestJiraSourceResponse:
+    def test_issues_response_has_partitioning_and_primary_key(self) -> None:
+        response = jira_source(
+            subdomain="acme",
+            email="e@x.com",
+            api_token="token",
+            endpoint="issues",
+            team_id=1,
+            job_id="j",
+            logger=mock.MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+        assert response.name == "issues"
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["created"]
+        assert response.partition_mode == "datetime"
+        assert response.sort_mode == "asc"
+
+    @parameterized.expand([("projects", ["id"]), ("users", ["accountId"]), ("fields", ["id"])])
+    def test_non_issue_endpoints_have_no_partitioning(self, endpoint: str, primary_key: list[str]) -> None:
+        response = jira_source(
+            subdomain="acme",
+            email="e@x.com",
+            api_token="token",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            logger=mock.MagicMock(),
+            resumable_source_manager=_manager(),
+        )
+        assert response.primary_keys == primary_key
+        assert response.partition_keys is None
+        assert response.partition_mode is None
+
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(KeyError):
             jira_source(

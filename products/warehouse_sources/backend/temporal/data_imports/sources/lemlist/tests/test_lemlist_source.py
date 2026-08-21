@@ -2,12 +2,24 @@ from typing import Any
 
 from unittest.mock import MagicMock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.source import LemlistSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key") -> Any:
     return MagicMock(api_key=api_key)
+
+
+class TestLemlistSourceConfig:
+    def test_source_type(self) -> None:
+        assert LemlistSource().source_type == ExternalDataSourceType.LEMLIST
 
 
 class TestVersioning:
@@ -28,6 +40,30 @@ class TestValidateCredentials:
         ok, error = LemlistSource().validate_credentials(_config(), team_id=1)
         assert ok is False
         assert error is not None
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.lemlist.com/api/team"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.lemlist.com/api/campaigns?version=v2"),
+            ("not_found", "404 Client Error: Not Found for url: https://api.lemlist.com/api/team"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
+        keys = LemlistSource().get_non_retryable_errors()
+        assert any(key in observed for key in keys)
+
+    @parameterized.expand(
+        [
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.lemlist.com/api/activities"),
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.lemlist.com/api/team"),
+            ("timeout", "HTTPSConnectionPool(host='api.lemlist.com', port=443): Read timed out."),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
+        keys = LemlistSource().get_non_retryable_errors()
+        assert not any(key in observed for key in keys)
 
 
 class TestSourceForPipeline:
@@ -68,3 +104,8 @@ class TestSourceForPipeline:
         )
         LemlistSource().source_for_pipeline(_config(), MagicMock(), inputs)
         assert captured["db_incremental_field_last_value"] is None
+
+
+class TestCanonicalDescriptions:
+    def test_descriptions_cover_every_endpoint(self) -> None:
+        assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)

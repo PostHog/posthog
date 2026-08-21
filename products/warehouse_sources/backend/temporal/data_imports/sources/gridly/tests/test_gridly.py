@@ -12,8 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.gri
     GridlyResumeConfig,
     GridlyRetryableError,
     get_rows,
+    gridly_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.settings import ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gridly.gridly"
 
@@ -247,3 +249,16 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert message == "boom"
+
+
+class TestSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        response = gridly_source("key", "view", endpoint, mock.MagicMock(), mock.MagicMock())
+
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        # No stable datetime on records → nothing to partition on.
+        assert response.partition_keys is None
+        assert response.partition_mode is None

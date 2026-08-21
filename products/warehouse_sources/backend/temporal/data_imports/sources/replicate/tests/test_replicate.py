@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.
     _page_predates_cutoff,
     _sanitize_next_url,
     get_rows,
+    replicate_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.settings import REPLICATE_ENDPOINTS
 
@@ -315,3 +316,34 @@ class TestFetchPageRetries:
         with pytest.raises(requests.HTTPError):
             replicate._fetch_page(session, "https://api.replicate.com/v1/predictions", {}, MagicMock())
         assert session.get.call_count == 1
+
+
+class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("predictions", ["id"], "created_at", "desc"),
+            ("trainings", ["id"], "created_at", "desc"),
+            ("deployments", ["owner", "name"], None, "desc"),
+            ("models", ["owner", "name"], None, "desc"),
+            ("hardware", ["sku"], None, "desc"),
+            ("account", ["username"], None, "desc"),
+        ]
+    )
+    def test_source_response_shape(
+        self, endpoint: str, expected_pk: list[str], partition_key: str | None, sort_mode: str
+    ) -> None:
+        response = replicate_source(
+            api_key="r8_test",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pk
+        assert response.sort_mode == sort_mode
+        if partition_key:
+            assert response.partition_keys == [partition_key]
+            assert response.partition_mode == "datetime"
+        else:
+            assert response.partition_keys is None
+            assert response.partition_mode is None

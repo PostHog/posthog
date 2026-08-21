@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost
     _retry_after_seconds,
     _snake_case,
     _validated_next_link,
+    azure_cost_management_source,
     build_query_body,
     build_windows,
     get_rows,
@@ -712,6 +713,29 @@ class TestGetRows:
 
 
 class TestAzureCostManagementSourceResponse:
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_source_response_matches_endpoint_settings(self, endpoint: str) -> None:
+        config = AZURE_COST_MANAGEMENT_ENDPOINTS[endpoint]
+
+        response = azure_cost_management_source(
+            tenant_id="tenant",
+            client_id="client",
+            client_secret="secret",
+            scope="subscriptions/abc",
+            endpoint=endpoint,
+            start_date=None,
+            api_version="2025-03-01",
+            logger=mock.MagicMock(),
+            resumable_source_manager=_FakeResumeManager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        assert response.partition_keys == config.partition_keys
+        assert response.partition_mode == config.partition_mode
+        # Windows are walked oldest-first and every query is sorted ascending on UsageDate.
+        assert response.sort_mode == "asc"
+
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_primary_key_carries_the_scope_and_day(self, endpoint: str) -> None:
         # One source syncs one scope, but the scope is still keyed so a re-pointed source cannot

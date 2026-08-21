@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
+    APPLE_SEARCH_ADS_ENDPOINTS,
     DEFAULT_INITIAL_LOOKBACK_DAYS,
+    ENDPOINTS,
     MAX_INITIAL_LOOKBACK_DAYS,
     PAGE_SIZE,
     REPORT_WINDOW_DAYS,
@@ -570,6 +572,29 @@ class TestReportSync:
 
 
 class TestSourceResponse:
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_response_matches_the_endpoint_catalog(self, endpoint: str) -> None:
+        config = APPLE_SEARCH_ADS_ENDPOINTS[endpoint]
+
+        response = apple_search_ads_source(
+            credentials=CREDENTIALS,
+            endpoint=endpoint,
+            api_version=API_VERSION,
+            request_logger=LOGGER,
+            resumable_source_manager=_FakeResumableManager(),
+        )
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        # Windows are walked oldest-first, so the watermark only ever moves forward.
+        assert response.sort_mode == "asc"
+        if config.partition_key is None:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+
     def test_items_are_lazy(self) -> None:
         response = apple_search_ads_source(
             credentials=CREDENTIALS,

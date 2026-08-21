@@ -7,10 +7,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
     AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source import AppsFlyerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appsflyer import (
     AppsFlyerSourceConfig,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAppsFlyerSource:
@@ -18,6 +20,45 @@ class TestAppsFlyerSource:
         self.source = AppsFlyerSource()
         self.team_id = 123
         self.config = AppsFlyerSourceConfig(app_id="id123", api_token="token")
+
+    def test_source_type(self):
+        assert self.source.source_type == ExternalDataSourceType.APPSFLYER
+
+    def test_connection_host_fields_includes_app_id(self):
+        # Changing app_id retargets the stored token, so editing it must require re-entering secrets.
+        assert self.source.connection_host_fields == ["app_id"]
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/daily_report/v5",
+            "403 Client Error: Forbidden for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/geo_by_date_report/v5",
+            "404 Client Error: Not Found for url: https://hq1.appsflyer.com/api/agg-data/export/app/nope/daily_report/v5",
+            "416 Client Error: Requested Range Not Satisfiable for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/geo_by_date_report/v5?from=2024-01-01&to=2024-01-05",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_vendor_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
+            "500 Server Error for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/daily_report/v5",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_vendor_error for key in non_retryable_errors)
+
+    def test_get_schemas(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+        # Every aggregate report takes a server-side from/to date window.
+        assert all(schema.supports_incremental for schema in schemas)
+        assert all(schema.supports_append for schema in schemas)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials"

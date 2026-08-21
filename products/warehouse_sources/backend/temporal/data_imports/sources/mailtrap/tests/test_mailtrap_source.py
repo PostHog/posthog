@@ -1,10 +1,13 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailtrap import (
     MailtrapSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.source import MailtrapSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"email_logs", "suppressions"}
 
@@ -14,6 +17,34 @@ class TestMailtrapSource:
         self.source = MailtrapSource()
         self.team_id = 123
         self.config = MailtrapSourceConfig(api_token="token")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.MAILTRAP
+
+    def test_no_connection_host_fields(self) -> None:
+        # The only field is the secret API token; the base URL is hardcoded, so there is no
+        # non-secret field an editor could retarget to reuse a preserved token against another host.
+        assert self.source.connection_host_fields == []
+
+    @parameterized.expand(
+        [
+            ("401 Client Error: Unauthorized for url: https://mailtrap.io/api/email_logs",),
+            ("403 Client Error: Forbidden for url: https://mailtrap.io/api/suppressions",),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("500 Server Error: Internal Server Error for url: https://mailtrap.io/api/email_logs",),
+            ("429 Client Error: Too Many Requests for url: https://mailtrap.io/api/suppressions",),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.source.mailtrap_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

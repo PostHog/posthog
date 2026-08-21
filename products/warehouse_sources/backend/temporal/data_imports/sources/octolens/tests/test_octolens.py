@@ -246,6 +246,14 @@ class TestSourceResponseShape:
         assert response.partition_format == "month"
         assert response.partition_keys == ["timestamp"]
 
+    @pytest.mark.parametrize("endpoint", ["keywords", "feeds", "notifications", "org_members"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_dimension_tables_are_unpartitioned_with_id_keys(self, MockSession, endpoint: str) -> None:
+        response = _source(endpoint)
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_every_declared_endpoint_is_buildable(self, MockSession) -> None:
         for endpoint in ENDPOINTS:

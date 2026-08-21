@@ -4,12 +4,18 @@ from unittest.mock import MagicMock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.knock.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.knock.source import KnockSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "sk_test") -> Any:
     config = MagicMock()
     config.api_key = api_key
     return config
+
+
+class TestSourceConfig:
+    def test_source_type(self) -> None:
+        assert KnockSource().source_type == ExternalDataSourceType.KNOCK
 
 
 class TestGetSchemas:
@@ -24,3 +30,11 @@ class TestGetSchemas:
         }
         assert [f["field"] for f in schemas["messages"].incremental_fields] == ["inserted_at"]
         assert [f["field"] for f in schemas["workflow_recipient_runs"].incremental_fields] == ["inserted_at"]
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog (no I/O) — public docs render the table list.
+        assert KnockSource.lists_tables_without_credentials is True
+        tables = {t["name"]: t for t in KnockSource().get_documented_tables()}
+        assert set(tables) == set(ENDPOINTS)
+        assert tables["users"]["sync_methods"] == ["Full refresh"]
+        assert "Incremental" in tables["messages"]["sync_methods"]

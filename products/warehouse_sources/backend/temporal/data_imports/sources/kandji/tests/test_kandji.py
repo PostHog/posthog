@@ -125,6 +125,22 @@ class TestKandjiTransport:
         assert isinstance(paginator, OffsetPaginator)
         assert paginator.total_path == "count"
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji.rest_api_resource")
+    def test_kandji_source_devices_top_level(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
+        response = kandji_source(
+            api_token="tok",
+            subdomain="accuhive",
+            region="us",
+            endpoint="devices",
+            team_id=1,
+            job_id="job-1",
+        )
+
+        assert response.name == "devices"
+        assert response.primary_keys == ["device_id"]
+        assert response.sort_mode == "asc"
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )

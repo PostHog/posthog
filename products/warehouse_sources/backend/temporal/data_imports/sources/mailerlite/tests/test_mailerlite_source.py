@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.cdp.validation import compile_hog
 
@@ -11,6 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookDeletionResult,
     WebhookSyncResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailerlite import (
     MailerLiteSourceConfig,
 )
@@ -21,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source import MailerLiteSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MailerLiteSourceConfig:
@@ -28,6 +32,9 @@ def _config() -> MailerLiteSourceConfig:
 
 
 class TestMailerLiteSourceClass:
+    def test_source_type(self) -> None:
+        assert MailerLiteSource().source_type == ExternalDataSourceType.MAILERLITE
+
     @pytest.mark.parametrize(
         ("valid", "expected_ok"),
         [(True, True), (False, False)],
@@ -64,6 +71,33 @@ class TestMailerLiteSourceClass:
         assert deprecation is not None
         assert deprecation.sunset_at is None
         assert source.get_version_deprecation(MAILERLITE_V2) is None
+
+    @pytest.mark.parametrize(
+        ("pin", "expected_version"),
+        [(None, MAILERLITE_V2), (MAILERLITE_V1, MAILERLITE_V1), (MAILERLITE_V2, MAILERLITE_V2)],
+    )
+    def test_source_for_pipeline_plumbing(self, pin: str | None, expected_version: str) -> None:
+        inputs = MagicMock(spec=SourceInputs)
+        inputs.schema_name = "subscribers"
+        inputs.logger = MagicMock()
+        inputs.api_version = pin
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
+        manager = MagicMock(spec=ResumableSourceManager)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source.mailerlite_source"
+        ) as mock_source:
+            MailerLiteSource().source_for_pipeline(_config(), manager, inputs)
+            kwargs = mock_source.call_args.kwargs
+            assert kwargs["api_key"] == "test-key"
+            assert kwargs["endpoint"] == "subscribers"
+            assert kwargs["team_id"] == 7
+            assert kwargs["job_id"] == "job-1"
+            assert kwargs["resumable_source_manager"] is manager
+            assert kwargs["api_version"] == expected_version
+            # Without the webhook manager a sync silently ignores every pushed row.
+            assert isinstance(kwargs["webhook_source_manager"], WebhookSourceManager)
 
 
 class TestMailerLiteWebhooks:

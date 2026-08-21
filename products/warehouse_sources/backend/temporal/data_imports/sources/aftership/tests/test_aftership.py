@@ -268,6 +268,27 @@ class TestResume:
         assert params[0]["updated_at_min"] == "2026-01-01T00:00:00+00:00"
 
 
+class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("trackings", "trackings", ["id"], ["created_at"]),
+            ("couriers", "couriers", ["slug"], None),
+            ("courier_connections", "courier_connections", ["id"], None),
+        ]
+    )
+    def test_primary_keys_and_partitioning(
+        self, _name: str, endpoint: str, expected_keys: list[str], expected_partition_keys: Optional[list[str]]
+    ) -> None:
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        assert response.partition_keys == expected_partition_keys
+        # AfterShip documents no ordering and offers no sort param, so the watermark is only
+        # committed once at the end of the sync.
+        assert response.sort_mode == "desc"
+
+
 class TestRequestShape:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_api_key_is_sent_in_the_as_api_key_header(self, MockSession: mock.MagicMock) -> None:

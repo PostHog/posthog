@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow
     servicenow_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.settings import SERVICENOW_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -334,3 +335,21 @@ class TestServiceNowSourcePagination:
             _rows(self._source(_make_manager(), api_version=api_version))
 
         assert urls[0] == expected_url
+
+
+class TestServiceNowSourceShape:
+    @parameterized.expand(list(SERVICENOW_ENDPOINTS.keys()))
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = servicenow_source(
+            instance_url="https://acme.service-now.com",
+            auth=ServiceNowAuth(api_key="x"),
+            endpoint=endpoint,
+            resumable_source_manager=_make_manager(),
+            team_id=1,
+            job_id="job-1",
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == ["sys_id"]
+        assert response.partition_keys == ["sys_created_on"]
+        assert response.partition_mode == "datetime"
+        assert response.sort_mode == "asc"

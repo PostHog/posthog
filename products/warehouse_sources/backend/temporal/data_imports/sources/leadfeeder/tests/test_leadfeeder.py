@@ -294,6 +294,28 @@ class TestFanOut:
         assert any("/accounts/1/leads" in u for u in urls)
 
 
+class TestSourceResponse:
+    def test_accounts_is_full_refresh_without_partitioning(self) -> None:
+        response = _source("accounts", _make_manager())
+        assert response.name == "accounts"
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+
+    @parameterized.expand(
+        [
+            ("leads", ["account_id", "id"], "first_visit_date"),
+            ("visits", ["account_id", "id"], "started_at"),
+        ]
+    )
+    def test_fan_out_endpoints_have_composite_key_and_partition(
+        self, endpoint: str, primary_keys: list[str], partition_key: str
+    ) -> None:
+        response = _source(endpoint, _make_manager())
+        assert response.primary_keys == primary_keys
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [partition_key]
+
+
 class TestValidateCredentials:
     @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)])
     @mock.patch(LEADFEEDER_SESSION_PATCH)

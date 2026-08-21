@@ -23,11 +23,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.m
     _query_base,
     _retry_wait,
     _to_date,
+    mixpanel_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import (
     MIXPANEL_API_VERSION_2_0,
     MIXPANEL_API_VERSION_V1,
+    MIXPANEL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
 
@@ -549,3 +551,29 @@ class TestGetRowsExportWindow:
         )
         assert start_date == date(2020, 1, 1)
         assert end_date == date(2024, 6, 4)
+
+
+class TestMixpanelSource:
+    @parameterized.expand(
+        [
+            ("export", ["$insert_id", "event", "distinct_id", "time"], "datetime", "time"),
+            ("engage", ["$distinct_id"], None, None),
+            ("cohorts", ["id"], "datetime", "created"),
+            ("annotations", ["id"], None, None),
+        ]
+    )
+    def test_source_response_shape(
+        self, endpoint: str, primary_keys: list[str], partition_mode: Optional[str], partition_key: Optional[str]
+    ) -> None:
+        response = mixpanel_source("us", "u", "s", "123", endpoint, LOGGER, FakeManager())  # type: ignore[arg-type]
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.partition_mode == partition_mode
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.sort_mode == "asc"
+
+    def test_endpoints_cover_settings(self) -> None:
+        # Guard against a settings/transport mismatch in the routing switch
+        for endpoint in MIXPANEL_ENDPOINTS:
+            response = mixpanel_source("us", "u", "s", "123", endpoint, LOGGER, FakeManager())  # type: ignore[arg-type]
+            assert response.name == endpoint

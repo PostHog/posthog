@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.av
     _analytics_window,
     _flatten_analytics,
     _iter_repositories,
+    aviator_source,
     get_rows,
     validate_credentials,
 )
@@ -396,3 +397,27 @@ class TestFetchRetries:
         with pytest.raises(requests.HTTPError):
             aviator._fetch(session, "https://api.aviator.co/api/v1/repo", {}, MagicMock())
         assert session.get.call_count == 1
+
+
+class TestSourceResponseSortMode:
+    @parameterized.expand(
+        [
+            ("repositories", "asc", None),
+            ("merge_queue_analytics", "desc", "date"),
+            ("queued_pull_requests", "desc", "created_at"),
+            ("queue_stats", "desc", None),
+            ("config_history", "desc", "applied_at"),
+        ]
+    )
+    def test_sort_mode_and_partition(self, endpoint: str, expected_sort: str, partition_key: str | None) -> None:
+        # Fan-out endpoints must report "desc" so the watermark persists only at successful job end;
+        # reverting to "asc" per-batch persistence lets a crashed run advance past unreached repos.
+        response = aviator_source(
+            api_token="av_uat_test",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.sort_mode == expected_sort
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.primary_keys == AVIATOR_ENDPOINTS[endpoint].primary_keys

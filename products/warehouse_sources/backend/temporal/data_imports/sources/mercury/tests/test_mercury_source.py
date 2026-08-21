@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.se
     TRANSACTIONS_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source import MercurySource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -41,6 +42,19 @@ class TestMercurySource:
         self.source = MercurySource()
         self.config = MercurySourceConfig(api_key="test-token")
 
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.MERCURY
+
+    def test_get_schemas_returns_all_endpoints(self) -> None:
+        schemas = self.source.get_schemas(self.config, team_id=1)
+
+        assert [schema.name for schema in schemas] == list(ENDPOINTS)
+
+    def test_get_schemas_filters_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, team_id=1, names=["Accounts", "Transactions"])
+
+        assert {schema.name for schema in schemas} == {"Accounts", "Transactions"}
+
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_only_transactions_supports_incremental(self, endpoint: str) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1, names=[endpoint])
@@ -54,6 +68,15 @@ class TestMercurySource:
             assert schema.supports_incremental is False
             assert schema.incremental_fields == []
             assert schema.default_incremental_lookback_seconds is None
+
+    def test_documented_tables_available_without_credentials(self) -> None:
+        assert self.source.lists_tables_without_credentials is True
+
+        tables = self.source.get_documented_tables()
+
+        assert {table["name"] for table in tables} == set(ENDPOINTS)
+        transactions = next(table for table in tables if table["name"] == "Transactions")
+        assert transactions["description"]
 
     @pytest.mark.parametrize(
         ("status", "schema_name", "expected_valid"),
@@ -91,6 +114,19 @@ class TestMercurySource:
 
         assert valid is False
         assert "connection refused" in str(error)
+
+    @pytest.mark.parametrize(
+        ("error_message", "should_match"),
+        [
+            ("401 Client Error: Unauthorized for url: https://api.mercury.com/api/v1/transactions", True),
+            ("403 Client Error: Forbidden for url: https://api.mercury.com/api/v1/accounts", True),
+            ("500 Server Error: Internal Server Error for url: https://api.mercury.com/api/v1/accounts", False),
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures_only(self, error_message: str, should_match: bool) -> None:
+        patterns = self.source.get_non_retryable_errors()
+
+        assert any(pattern in error_message for pattern in patterns) is should_match
 
 
 class TestMercurySourceForPipeline:
@@ -131,3 +167,42 @@ class TestMercurySourceForPipeline:
         mock_source, _ = self._run(inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_primary_key"),
+        [
+            ("Accounts", "id"),
+            ("Transactions", "id"),
+            ("Users", "userId"),
+        ],
+    )
+    def test_primary_keys_per_endpoint(self, endpoint: str, expected_primary_key: str) -> None:
+        _, response = self._run(_make_inputs(endpoint))
+
+        assert response.primary_keys == [expected_primary_key]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_partition_key"),
+        [
+            ("Transactions", "createdAt"),
+            ("Events", "occurredAt"),
+            ("Recipients", None),
+            ("Users", None),
+        ],
+    )
+    def test_partitioning_uses_stable_datetime_fields(
+        self, endpoint: str, expected_partition_key: Optional[str]
+    ) -> None:
+        _, response = self._run(_make_inputs(endpoint))
+
+        if expected_partition_key is None:
+            assert response.partition_keys is None
+            assert response.partition_mode is None
+        else:
+            assert response.partition_keys == [expected_partition_key]
+            assert response.partition_mode == "datetime"
+
+    def test_sort_mode_is_ascending(self) -> None:
+        _, response = self._run(_make_inputs("Transactions"))
+
+        assert response.sort_mode == "asc"

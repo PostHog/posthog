@@ -317,6 +317,31 @@ class TestHttpErrors:
 
 
 class TestSourceResponse:
+    @parameterized.expand(
+        [
+            ("eod", ["symbol", "exchange", "date"], "date"),
+            ("intraday", ["symbol", "exchange", "date"], "date"),
+            ("splits", ["symbol", "date"], "date"),
+            ("dividends", ["symbol", "date"], "date"),
+            ("tickers", ["symbol"], None),
+            ("exchanges", ["mic"], None),
+            ("currencies", ["code"], None),
+            ("timezones", ["timezone"], None),
+        ]
+    )
+    def test_source_response_keys_and_partitioning(
+        self, endpoint: str, expected_keys: list[str], expected_partition: str | None
+    ) -> None:
+        response = _source(endpoint, symbols="AAPL")
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        assert response.sort_mode == "asc"
+        if expected_partition is None:
+            assert response.partition_keys is None
+        else:
+            assert response.partition_keys == [expected_partition]
+            assert response.partition_mode == "datetime"
+
     def test_every_endpoint_builds_a_source_response(self) -> None:
         for endpoint in MARKETSTACK_ENDPOINTS:
             response = _source(endpoint, symbols="AAPL")

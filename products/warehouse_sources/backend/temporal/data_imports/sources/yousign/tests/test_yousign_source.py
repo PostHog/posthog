@@ -1,11 +1,14 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import ReleaseStatus
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yousign import (
     YouSignSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.settings import WEBHOOK_EVENTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.settings import ENDPOINTS, WEBHOOK_EVENTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.source import YouSignSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestYousignSource:
@@ -13,6 +16,54 @@ class TestYousignSource:
         self.source = YouSignSource()
         self.team_id = 123
         self.config = YouSignSourceConfig(api_key="key", environment="production")
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.YOUSIGN
+
+    def test_source_is_released_not_hidden(self) -> None:
+        # A finished source must be visible: `unreleasedSource` hides it from every user.
+        config = self.source.get_source_config
+        assert not config.unreleasedSource
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+
+    def test_get_schemas_incremental_flags(self) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert set(schemas) == set(ENDPOINTS)
+
+        # Only the signature requests list has server-side timestamp filters; rows arrive
+        # newest-first, so it must be merge-only (never append).
+        signature_requests = schemas.pop("signature_requests")
+        assert signature_requests.supports_incremental is True
+        assert signature_requests.supports_append is False
+        assert signature_requests.supports_webhooks is True
+        assert {f["field"] for f in signature_requests.incremental_fields} == {
+            "created_at",
+            "activated_at",
+            "completed_at",
+        }
+
+        for schema in schemas.values():
+            assert schema.supports_incremental is False
+            assert schema.supports_append is False
+            assert schema.supports_webhooks is False
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog with no I/O — powers the public docs table list.
+        assert self.source.lists_tables_without_credentials is True
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.yousign.app/v3/signature_requests",
+            "403 Client Error: Forbidden for url: https://api-sandbox.yousign.app/v3/users",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    def test_non_retryable_errors_ignore_transient(self) -> None:
+        transient = "500 Server Error for url: https://api.yousign.app/v3/signature_requests"
+        assert not any(key in transient for key in self.source.get_non_retryable_errors())
 
     def test_webhook_resource_map_matches_event_name_prefixes(self) -> None:
         # The hog template routes on the event name prefix (`signature_request.done` ->

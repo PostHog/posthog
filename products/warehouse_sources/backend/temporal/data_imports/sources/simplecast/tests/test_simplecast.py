@@ -8,6 +8,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.simplecast import (
     PAGE_SIZE,
     SimpleCastResumeConfig,
@@ -225,3 +226,13 @@ class TestValidateCredentials:
     def test_unreachable_probe_is_not_validated(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
         assert validate_credentials("sc-token") == (False, "Could not validate Simplecast API token")
+
+
+class TestSourceResponse:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = _source(_make_manager(), endpoint=endpoint)
+        assert response.name == endpoint
+        assert response.primary_keys == ["id"]
+        # No stable creation timestamp is guaranteed across every object, so we don't partition.
+        assert response.partition_mode is None
