@@ -52,10 +52,15 @@ class TestGongSource:
     def test_get_schemas_incremental_flags(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
-        # Only `calls` exposes a server-side timestamp filter.
-        assert schemas["calls"].supports_incremental is True
-        assert schemas["calls"].supports_append is True
-        assert any(f["field"] == "started" for f in schemas["calls"].incremental_fields)
+        # Only the call-date-filtered endpoints expose a server-side timestamp filter.
+        for name in ("calls", "calls_extensive", "transcripts"):
+            assert schemas[name].supports_incremental is True
+            assert schemas[name].supports_append is True
+            assert any(f["field"] == "started" for f in schemas[name].incremental_fields)
+
+        # Gong transcribes asynchronously, so transcripts re-read a trailing week on every run
+        # rather than leaving a call that had no transcript yet stranded below the watermark.
+        assert schemas["transcripts"].default_incremental_lookback_seconds == 7 * 24 * 60 * 60
 
         for name in ("users", "scorecards", "workspaces"):
             assert schemas[name].supports_incremental is False
